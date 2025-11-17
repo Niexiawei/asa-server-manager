@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -105,15 +106,23 @@ func LoadInstanceConfig(instanceName string) (*InstanceConfig, error) {
 		case "ServerAdminPassword":
 			config.ServerAdminPassword = value
 		case "MaxPlayers":
-			fmt.Sscanf(value, "%d", &config.MaxPlayers)
+			if val, err := strconv.Atoi(value); err == nil {
+				config.MaxPlayers = val
+			}
 		case "MapName":
 			config.MapName = value
 		case "RCONPort":
-			fmt.Sscanf(value, "%d", &config.RCONPort)
+			if val, err := strconv.Atoi(value); err == nil {
+				config.RCONPort = val
+			}
 		case "QueryPort":
-			fmt.Sscanf(value, "%d", &config.QueryPort)
+			if val, err := strconv.Atoi(value); err == nil {
+				config.QueryPort = val
+			}
 		case "Port":
-			fmt.Sscanf(value, "%d", &config.Port)
+			if val, err := strconv.Atoi(value); err == nil {
+				config.Port = val
+			}
 		case "ModIDs":
 			config.ModIDs = value
 		case "SaveDir":

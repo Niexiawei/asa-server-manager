@@ -1,0 +1,120 @@
+﻿[2025.11.17-09.18.17:600][  0]Log file open, 11/17/25 17:18:17
+[2025.11.17-09.18.17:600][  0]LogMemory: Platform Memory Stats for WindowsServer
+[2025.11.17-09.18.17:600][  0]LogMemory: Process Physical Memory: 275.03 MB used, 311.24 MB peak
+[2025.11.17-09.18.17:600][  0]LogMemory: Process Virtual Memory: 317.64 MB used, 317.64 MB peak
+[2025.11.17-09.18.17:600][  0]LogMemory: Physical Memory: 37971.85 MB used,  60012.68 MB free, 97984.53 MB total
+[2025.11.17-09.18.17:600][  0]LogMemory: Virtual Memory: 50672.31 MB used,  47520.11 MB free, 98192.42 MB total
+[2025.11.17-09.18.17:975][  0]11
+
+[2025.11.17-09.18.18:013][  0]ARK Version: 74.45
+[2025.11.17-09.18.18:312][  0]LogCFCore: SetSettings called:
+{
+	"defaultLanguage": "en",
+	"gameId": 83374,
+	"apiKey": "*****1aZe",
+	"provider": "None",
+	"maxConcurrentInstallations": 3,
+	"modsDirectory": "ShooterGame/Mods",
+	"modsDirectoryMode": "CFCore",
+	"userDataDirectory": "ShooterGame/ModsUserData",
+	"isServer": true,
+	"isServerPcOnly": false,
+	"throttling":
+	{
+		"diskWriteBytesPerSec": 0
+	},
+	"premiumMods":
+	{
+		"publicKeyPem": "*****"
+	},
+	"logger":
+	{
+		"enabled": true,
+		"history": 8,
+		"maxSizeInMB": 2
+	},
+	"dynamicContentCategoryIds": [ 6844 ],
+	"analytics":
+	{
+		"performanceAndStability": true,
+		"userEngagement": true
+	},
+	"ignoredDynamicModFiles": [
+		"assetregistry.bin"
+	],
+	"unmanagedMods":
+	{
+		"enabled": false
+	}
+}
+[2025.11.17-09.18.18:312][  0]LogCFCore: InternalSettings called:
+{
+	"apiBaseUrl": "https://83374.api.curseforge.com",
+	"chunkedUploadServerUrl": "https://chunk-uploads.curseforge.com",
+	"analyticsUrl": "https://analyticsnew.overwolf.com/analytics/Counter",
+	"userAgent": "cfcore.ue 1.30.0",
+	"platform": "windows",
+	"pluginVersion": "1.30.0",
+	"httpFileDownloadTimeoutSecs": 1200
+}
+[2025.11.17-09.18.18:312][  0]LogCFCore: Detected OS Windows: 10.0.26200.1.256.64bit
+[2025.11.17-09.18.18:314][  0]LogCFCore: Error: No machine id was found
+[2025.11.17-09.18.18:314][  0]LogCFCore: UserContextInfo not loaded from disk
+[2025.11.17-09.18.19:264][ 27]LogCFCore: No need to update existing mod: Awesome  Spyglass! (947033)
+[2025.11.17-09.18.19:264][ 27]LogCFCore: No need to update existing mod: Awesome Teleporters! (950914)
+[2025.11.17-09.18.19:264][ 27]LogCFCore: No need to update existing mod: Automated Ark (928597)
+[2025.11.17-09.18.19:264][ 27]LogCFCore: No need to update existing mod: Super Cryo Storage (933099)
+[2025.11.17-09.18.19:264][ 27]LogCFCore: No need to update existing mod: Easy Transferable Element (994715)
+[2025.11.17-09.18.19:264][ 27]LogCFCore: Mod valid: Awesome  Spyglass! (947033)
+[2025.11.17-09.18.19:264][ 27]LogCFCore: Mod valid: Awesome Teleporters! (950914)
+[2025.11.17-09.18.19:264][ 27]LogCFCore: Mod valid: Automated Ark (928597)
+[2025.11.17-09.18.19:264][ 27]LogCFCore: Mod valid: Super Cryo Storage (933099)
+[2025.11.17-09.18.19:264][ 27]LogCFCore: Mod valid: Easy Transferable Element (994715)
+[2025.11.17-09.18.19:306][ 28]UShooterEngine::LoadGameMods with 5 mods
+[2025.11.17-09.18.19:306][ 28]UShooterEngine::LoadGameMods Loading Mod ShooterGame/Mods/83374/947033_6950581/AwesomeSpyglass/Content/PrimalGameData_BP_AwesomeSpyglass.uasset : 947033
+[2025.11.17-09.18.19:908][ 28]UShooterEngine::LoadGameMods Using mod asset Package /AwesomeSpyglass/PrimalGameData_BP_AwesomeSpyglass as PrimalGameDataOverride.
+[2025.11.17-09.18.19:909][ 28]UShooterEngine::LoadGameMods Loading Mod ShooterGame/Mods/83374/950914_6897266/AwesomeTeleporters/Content/PrimalGameData_BP_AwesomeTeleporters.uasset : 950914
+[2025.11.17-09.18.20:001][ 28]UShooterEngine::LoadGameMods Merging mod asset Package /AwesomeTeleporters/PrimalGameData_BP_AwesomeTeleporters with PrimalGameDataOverride.
+[2025.11.17-09.18.20:001][ 28]UShooterEngine::LoadGameMods Loading Mod ShooterGame/Mods/83374/928597_6748525/AutomatedArkAscended/Content/PrimalGameData_BP_ArkAuto.uasset : 928597
+[2025.11.17-09.18.20:265][ 28]UShooterEngine::LoadGameMods Merging mod asset Package /AutomatedArkAscended/PrimalGameData_BP_ArkAuto with PrimalGameDataOverride.
+[2025.11.17-09.18.20:265][ 28]UShooterEngine::LoadGameMods Loading Mod ShooterGame/Mods/83374/933099_7207560/SCS/Content/PrimalGameData_BP_SCS.uasset : 933099
+[2025.11.17-09.18.20:701][ 28]UShooterEngine::LoadGameMods Merging mod asset Package /SCS/PrimalGameData_BP_SCS with PrimalGameDataOverride.
+[2025.11.17-09.18.20:701][ 28]UShooterEngine::LoadGameMods Loading Mod ShooterGame/Mods/83374/994715_6567254/EasyTransferableElement/Content/PrimalGameData_BP_EasyTransferableElement.uasset : 994715
+[2025.11.17-09.18.20:727][ 28]UShooterEngine::LoadGameMods Merging mod asset Package /EasyTransferableElement/PrimalGameData_BP_EasyTransferableElement with PrimalGameDataOverride.
+[2025.11.17-09.18.20:727][ 28]Initialize Primal Game Data Override.
+[2025.11.17-09.18.20:729][ 28]Added Explorer Note Entry: DEARJANE_EXP_NOTE_1
+[2025.11.17-09.18.20:729][ 28]Added Explorer Note Entry: DEARJANE_EXP_NOTE_2
+[2025.11.17-09.18.20:729][ 28]Added Explorer Note Entry: DEARJANE_EXP_NOTE_3
+[2025.11.17-09.18.20:729][ 28]Added Explorer Note Entry: DEARJANE_EXP_NOTE_4
+[2025.11.17-09.18.20:729][ 28]Added Explorer Note Entry: DEARJANE_EXP_NOTE_5
+[2025.11.17-09.18.20:729][ 28]Added Explorer Note Entry: DEARJANE_EXP_NOTE_6
+[2025.11.17-09.18.20:729][ 28]Added Explorer Note Entry: DEARJANE_EXP_NOTE_7
+[2025.11.17-09.18.20:748][ 28]Primal Game Data Took 0.02 seconds
+[2025.11.17-09.18.20:750][ 28]Added Explorer Note Entry: DEARJANE_EXP_NOTE_1
+[2025.11.17-09.18.20:750][ 28]Added Explorer Note Entry: DEARJANE_EXP_NOTE_2
+[2025.11.17-09.18.20:750][ 28]Added Explorer Note Entry: DEARJANE_EXP_NOTE_3
+[2025.11.17-09.18.20:750][ 28]Added Explorer Note Entry: DEARJANE_EXP_NOTE_4
+[2025.11.17-09.18.20:750][ 28]Added Explorer Note Entry: DEARJANE_EXP_NOTE_5
+[2025.11.17-09.18.20:750][ 28]Added Explorer Note Entry: DEARJANE_EXP_NOTE_6
+[2025.11.17-09.18.20:750][ 28]Added Explorer Note Entry: DEARJANE_EXP_NOTE_7
+[2025.11.17-09.18.53:276][ 28]Attempted GC & Defrag: Start: 7.16 GB End: 7.13 GB 0.03 GB Free'd, Duration: 0.038672 seconds
+[2025.11.17-09.18.53:276][ 28]Server: "喵喵喵-畸变-搜1227" has successfully started!
+[2025.11.17-09.18.53:277][ 28]Initializing Steam Subsystem for server validation.
+[2025.11.17-09.18.53:278][ 28]Steam Subsystem initialized: Success
+[2025.11.17-09.18.53:278][ 28]CreateASAClustersFolderMutex: CreateMutexW succeeded on mutex "ASAClusterMutex_mmmark". This process OWNS the mutex.
+[2025.11.17-09.18.54:083][ 28]Attempted GC & Defrag: Start: 7.53 GB End: 7.45 GB 0.08 GB Free'd, Duration: 0.090717 seconds
+[2025.11.17-09.18.54:083][ 28]Commandline:  "Aberration_WP?listen?SessionName=喵喵喵-畸变-搜1227?ServerPassword=?RCONEnabled=True?ServerAdminPassword=123456789?AltSaveDirectoryName=jibian" -NoBattlEye -crossplay -NoHangDetection -serverkey=畸变pve -WinLiveMaxPlayers=30 -Port=7002 -QueryPort=6002 -RCONPort=5002 -game -server -log -mods=947033,950914,928597,933099,994715 -ClusterDirOverride=D:\golang\asa-server\clusters\mmmark -ClusterId=mmmark
+[2025.11.17-09.18.54:083][ 28]Full Startup: 37.07 seconds
+[2025.11.17-09.18.54:083][ 28]Number of cores 16
+[2025.11.17-09.18.55:260][ 29]SCS: Loading CCA
+[2025.11.17-09.18.55:689][ 29]SCS: Loaded SCS Container Data
+[2025.11.17-09.18.55:689][ 29]SCS: Loaded SCS Gun Data
+[2025.11.17-09.18.55:689][ 29]SCS: Loaded SCS Terminal Data
+[2025.11.17-09.18.55:689][ 29]SCS: Loaded Resource Generation Data
+[2025.11.17-09.18.55:689][ 29]SCS: Loaded Egg Generation Data
+[2025.11.17-09.18.55:689][ 29]SCS: Loaded Dino Conversion Data
+[2025.11.17-09.18.55:689][ 29]SCS: CCA Loaded Sucessfully!
+[2025.11.17-09.19.04:456][238]Attempted GC & Defrag: Start: 8.02 GB End: 7.97 GB 0.05 GB Free'd, Duration: 0.098158 seconds
+[2025.11.17-09.19.04:456][238]Server has completed startup and is now advertising for join. (7.81GB Mem)
+[2025.11.17-09.19.36:893][211]Closing by request
+[2025.11.17-09.19.36:893][211]DestroyASAClustersFolderMutex: mutex handle (owned) has been closed.

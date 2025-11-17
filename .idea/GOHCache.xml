@@ -10,6 +10,13 @@
             </set>
           </value>
         </entry>
+        <entry key="RCONClient">
+          <value>
+            <set>
+              <option value="file://$PROJECT_DIR$/rcon.go" />
+            </set>
+          </value>
+        </entry>
         <entry key="processEntry32">
           <value>
             <set>
@@ -68,10 +75,22 @@
             </ScannedPath>
           </value>
         </entry>
+        <entry key="file://$PROJECT_DIR$/rcon.go">
+          <value>
+            <ScannedPath>
+              <option name="lastModified" value="1763366458486" />
+              <option name="schema">
+                <list>
+                  <option value="RCONClient" />
+                </list>
+              </option>
+            </ScannedPath>
+          </value>
+        </entry>
         <entry key="file://$PROJECT_DIR$/server.go">
           <value>
             <ScannedPath>
-              <option name="lastModified" value="1763365669839" />
+              <option name="lastModified" value="1763372322315" />
             </ScannedPath>
           </value>
         </entry>
@@ -88,6 +107,7 @@
       <map>
         <entry key="instance_config" value="InstanceConfig" />
         <entry key="process_entry32" value="processEntry32" />
+        <entry key="rcon_client" value="RCONClient" />
       </map>
     </option>
     <option name="lastTimeChecked" value="1763341466187" />

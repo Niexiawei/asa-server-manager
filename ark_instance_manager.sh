@@ -607,8 +607,9 @@ start_server() {
 
     # Adding a trailing space to the ServerName to avoid conflicts if the ServerName is identical to the instance name.
     # This ensures the server processes the name correctly, even though the space is invisible to users.
+    # Quote parameters that may contain special characters to prevent parsing issues
     "$PROTON_DIR/proton" run "$SERVER_FILES_DIR/ShooterGame/Binaries/Win64/ArkAscendedServer.exe" \
-    "$MAP_NAME?listen?SessionName=$SERVER_NAME ?ServerPassword=$SERVER_PASSWORD?RCONEnabled=True?ServerAdminPassword=$ADMIN_PASSWORD?AltSaveDirectoryName=$SAVE_DIR" \
+    "$MAP_NAME?listen?SessionName=$SERVER_NAME ?ServerPassword=\"$SERVER_PASSWORD\"?RCONEnabled=True?ServerAdminPassword=\"$ADMIN_PASSWORD\"?AltSaveDirectoryName=$SAVE_DIR" \
     $CUSTOM_START_PARAMETERS \
     -WinLiveMaxPlayers=$MAX_PLAYERS \
     -Port=$GAME_PORT \

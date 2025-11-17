@@ -56,65 +56,8 @@ func RemoveInstanceLogMapping(instanceName string) error {
 	logMappingMutex.Lock()
 	delete(instanceLogMapping, instanceName)
 	logMappingMutex.Unlock()
-
 	// Persist the updated mappings to file
 	return PersistLogMapping()
-}
-
-// BackupAndRemoveInstanceLogFile backs up the log file for an instance and removes the original
-func BackupAndRemoveInstanceLogFile(instanceName string) error {
-	// Get the log file path from mapping
-	logFilePath, exists := GetInstanceLogFile(instanceName)
-	if !exists {
-		fmt.Printf("⚠️  Log file for instance %s does not exist: %s\n", instanceName, logFilePath)
-		return nil
-	}
-
-	// Check if log file exists
-	if _, err := os.Stat(logFilePath); os.IsNotExist(err) {
-		fmt.Printf("⚠️  Log file for instance %s does not exist: %s\n", instanceName, logFilePath)
-		return nil
-	}
-
-	// Create logs backup directory
-	logsBackupDir := filepath.Join(BaseDir, "logs-backup")
-	if err := os.MkdirAll(logsBackupDir, 0755); err != nil {
-		return fmt.Errorf("failed to create logs backup directory: %w", err)
-	}
-
-	// Generate backup file name with instance name and timestamp
-	timestamp := time.Now().Format("2006-01-02_15-04-05")
-	logFileName := filepath.Base(logFilePath)
-	backupFileName := fmt.Sprintf("%s_%s_%s", instanceName, timestamp, logFileName)
-	backupFilePath := filepath.Join(logsBackupDir, backupFileName)
-
-	// Copy log file to backup location
-	srcFile, err := os.Open(logFilePath)
-	if err != nil {
-		return fmt.Errorf("failed to open log file for backup: %w", err)
-	}
-	defer srcFile.Close()
-
-	backupFile, err := os.Create(backupFilePath)
-	if err != nil {
-		return fmt.Errorf("failed to create backup file: %w", err)
-	}
-	defer backupFile.Close()
-
-	if _, err := io.Copy(backupFile, srcFile); err != nil {
-		return fmt.Errorf("failed to copy log file to backup: %w", err)
-	}
-
-	fmt.Printf("📋 Backed up log file to: %s\n", backupFilePath)
-
-	// Remove the original log file
-	if err := os.Remove(logFilePath); err != nil {
-		return fmt.Errorf("failed to remove original log file: %w", err)
-	}
-
-	fmt.Printf("🗑 Removed original log file: %s\n", logFilePath)
-
-	return nil
 }
 
 // GetGameLogFileName returns the log file name for a given instance based on running order
@@ -226,10 +169,10 @@ func IsServerRunning(instanceName string) (bool, error) {
 	if !hasGamePort || !hasRCONPort {
 		// Debug: Print which ports are missing
 		if !hasGamePort {
-			fmt.Printf("⚠️  Game port :%d not found\n", config.Port)
+			fmt.Printf("⚠️ Game port :%d not found\n", config.Port)
 		}
 		if !hasRCONPort {
-			fmt.Printf("⚠️  RCON port :%d not found\n", config.RCONPort)
+			fmt.Printf("⚠️ RCON port :%d not found\n", config.RCONPort)
 		}
 		return false, nil
 	}
@@ -360,13 +303,18 @@ func StartServer(instanceName string) error {
 	}
 
 	// Build the command
+	// Quote parameters that may contain special characters to prevent parsing issues
 	mapParam := fmt.Sprintf("%s?listen?SessionName=%s?ServerPassword=%s?RCONEnabled=True?ServerAdminPassword=%s?AltSaveDirectoryName=%s",
 		config.MapName,
-		config.ServerName,
-		config.ServerPassword,
-		config.ServerAdminPassword,
+		quotifyIfNeeded(config.ServerName),
+		quotifyIfNeeded(config.ServerPassword),
+		quotifyIfNeeded(config.ServerAdminPassword),
 		config.SaveDir,
 	)
+
+	// On Windows, wrap the entire map parameter string in quotes
+	// to ensure proper parsing by the ARK server executable
+	mapParam = fmt.Sprintf("\"%s\"", mapParam)
 
 	// Direct execution of ArkAscendedServer.exe on Windows
 	arkExe := filepath.Join(ServerFilesDir, "ShooterGame/Binaries/Win64/ArkAscendedServer.exe")
@@ -469,22 +417,15 @@ func StopServer(instanceName string) error {
 
 	// Try graceful shutdown with RCON
 	response, err := SendRCONCommand(instanceName, "DoExit")
-	fmt.Println("rcon err:", err)
 	if err == nil && strings.Contains(response, "Exiting") {
 		fmt.Printf("✅ Server instance %s reported 'Exiting...'. Awaiting shutdown (can take up to 2 minutes)...\n", instanceName)
-
 		// Wait for process to finish with timeout
-		timeout := time.Now().Add(2 * time.Minute)
+		timeout := time.Now().Add(5 * time.Minute)
 		for time.Now().Before(timeout) {
 			if running, _ := IsServerRunning(instanceName); !running {
 				fmt.Printf("✅ Server for instance %s has exited.\n", instanceName)
 
-				// Backup and remove the log file
-				if err := BackupAndRemoveInstanceLogFile(instanceName); err != nil {
-					fmt.Printf("⚠️  Warning: Failed to backup log file for instance %s: %v\n", instanceName, err)
-				}
-
-				// Remove the log mapping for this instance
+				// Remove the log mapping for this instance (log file will be reused on next start)
 				if err := RemoveInstanceLogMapping(instanceName); err != nil {
 					fmt.Printf("⚠️  Warning: Failed to remove log mapping for instance %s: %v\n", instanceName, err)
 				}
@@ -517,14 +458,8 @@ func StopServer(instanceName string) error {
 	}
 
 	fmt.Printf("✅ Server for instance %s has been stopped.\n", instanceName)
-	time.Sleep(10 * time.Second)
 
-	// Backup and remove the log file
-	if err := BackupAndRemoveInstanceLogFile(instanceName); err != nil {
-		fmt.Printf("⚠️  Warning: Failed to backup log file for instance %s: %v\n", instanceName, err)
-	}
-
-	// Remove the log mapping for this instance
+	// Remove the log mapping for this instance (log file will be reused on next start)
 	if err := RemoveInstanceLogMapping(instanceName); err != nil {
 		fmt.Printf("⚠️  Warning: Failed to remove log mapping for instance %s: %v\n", instanceName, err)
 	}
@@ -678,4 +613,15 @@ func GetRunningInstances() ([]string, error) {
 	}
 
 	return running, nil
+}
+
+// quotifyIfNeeded wraps a string in double quotes if it contains special characters
+// that could interfere with command-line parameter parsing
+func quotifyIfNeeded(value string) string {
+	// Check if the value contains any special characters that need quoting
+	// ARK server uses ? as parameter separator, so we need to quote values containing special characters
+	if strings.ContainsAny(value, "?&=;|<>") {
+		return fmt.Sprintf("\"%s\"", value)
+	}
+	return value
 }
