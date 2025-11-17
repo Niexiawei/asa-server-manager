@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="GoORMHelperCache">
+    <option name="schemaMapping">
+      <map>
+        <entry key="InstanceConfig">
+          <value>
+            <set>
+              <option value="file://$PROJECT_DIR$/config.go" />
+            </set>
+          </value>
+        </entry>
+      </map>
+    </option>
+    <option name="scannedPathMapping">
+      <map>
+        <entry key="file://$PROJECT_DIR$/actions.go">
+          <value>
+            <ScannedPath>
+              <option name="lastModified" value="1763309582555" />
+            </ScannedPath>
+          </value>
+        </entry>
+        <entry key="file://$PROJECT_DIR$/backup.go">
+          <value>
+            <ScannedPath>
+              <option name="lastModified" value="1763303882990" />
+            </ScannedPath>
+          </value>
+        </entry>
+        <entry key="file://$PROJECT_DIR$/config.go">
+          <value>
+            <ScannedPath>
+              <option name="lastModified" value="1763306775605" />
+              <option name="schema">
+                <list>
+                  <option value="InstanceConfig" />
+                </list>
+              </option>
+            </ScannedPath>
+          </value>
+        </entry>
+        <entry key="file://$PROJECT_DIR$/installer.go">
+          <value>
+            <ScannedPath>
+              <option name="lastModified" value="1763309575772" />
+            </ScannedPath>
+          </value>
+        </entry>
+        <entry key="file://$PROJECT_DIR$/main.go">
+          <value>
+            <ScannedPath>
+              <option name="lastModified" value="1763308787744" />
+            </ScannedPath>
+          </value>
+        </entry>
+        <entry key="file://$PROJECT_DIR$/server.go">
+          <value>
+            <ScannedPath>
+              <option name="lastModified" value="1763341271744" />
+            </ScannedPath>
+          </value>
+        </entry>
+      </map>
+    </option>
+    <option name="tableStructMapping">
+      <map>
+        <entry key="instance_config" value="InstanceConfig" />
+      </map>
+    </option>
+    <option name="lastTimeChecked" value="1763341466187" />
+  </component>
+</project>
