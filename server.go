@@ -70,19 +70,38 @@ func GetGameLogFileName(instanceName string) (string, error) {
 		return "", fmt.Errorf("failed to create logs directory: %w", err)
 	}
 
+	logMappingMutex.RLock()
+	defer logMappingMutex.RUnlock()
+
 	// Find the first available log file number (starting from 1)
 	// First, check if ShooterGame.log (number 1) is available
-	logFilePath := filepath.Join(logsDir, "ShooterGame.log")
-	if _, err := os.Stat(logFilePath); os.IsNotExist(err) {
-		return "ShooterGame.log", nil
+	logFileName := "ShooterGame.log"
+	used := false
+
+	for _, logPath := range instanceLogMapping {
+		if filepath.Base(logPath) == logFileName {
+			used = true
+			break
+		}
+	}
+	if !used {
+		return logFileName, nil
 	}
 
-	// If ShooterGame.log exists, find the first available numbered file
+	// If ShooterGame.log is used, find the first available numbered file
 	// Check ShooterGame_2.log, ShooterGame_3.log, etc.
+
 	for i := 2; i <= 999; i++ {
 		logFileName := fmt.Sprintf("ShooterGame_%d.log", i)
-		logFilePath := filepath.Join(logsDir, logFileName)
-		if _, err := os.Stat(logFilePath); os.IsNotExist(err) {
+		used := false
+		for _, logPath := range instanceLogMapping {
+			if filepath.Base(logPath) == logFileName {
+				used = true
+				break
+			}
+		}
+
+		if !used {
 			return logFileName, nil
 		}
 	}
@@ -362,9 +381,8 @@ func StartServer(instanceName string) error {
 	}
 
 	fmt.Printf("✅ Server started for instance: %s. It should be fully operational in approximately 60 seconds.\n", instanceName)
-	time.Sleep(60 * time.Second)
-
 	fmt.Printf("📝 Game log file: %s\n", gameLogPath)
+	time.Sleep(60 * time.Second)
 
 	// Persist the log mapping for future restarts
 	if err := PersistLogMapping(); err != nil {
