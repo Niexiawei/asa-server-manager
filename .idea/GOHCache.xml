@@ -10,6 +10,13 @@
             </set>
           </value>
         </entry>
+        <entry key="processEntry32">
+          <value>
+            <set>
+              <option value="file://$PROJECT_DIR$/common.go" />
+            </set>
+          </value>
+        </entry>
       </map>
     </option>
     <option name="scannedPathMapping">
@@ -28,6 +35,13 @@
             </ScannedPath>
           </value>
         </entry>
+        <entry key="file://$PROJECT_DIR$/common.go">
+          <value>
+            <ScannedPath>
+              <option name="lastModified" value="1763348402954" />
+            </ScannedPath>
+          </value>
+        </entry>
         <entry key="file://$PROJECT_DIR$/config.go">
           <value>
             <ScannedPath>
@@ -43,7 +57,7 @@
         <entry key="file://$PROJECT_DIR$/installer.go">
           <value>
             <ScannedPath>
-              <option name="lastModified" value="1763309575772" />
+              <option name="lastModified" value="1763348718981" />
             </ScannedPath>
           </value>
         </entry>
@@ -61,11 +75,19 @@
             </ScannedPath>
           </value>
         </entry>
+        <entry key="file://$PROJECT_DIR$/win32api/win32api.go">
+          <value>
+            <ScannedPath>
+              <option name="lastModified" value="1763348723853" />
+            </ScannedPath>
+          </value>
+        </entry>
       </map>
     </option>
     <option name="tableStructMapping">
       <map>
         <entry key="instance_config" value="InstanceConfig" />
+        <entry key="process_entry32" value="processEntry32" />
       </map>
     </option>
     <option name="lastTimeChecked" value="1763341466187" />

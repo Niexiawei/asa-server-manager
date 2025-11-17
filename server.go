@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -48,6 +49,93 @@ func IsServerRunning(instanceName string) (bool, error) {
 	return hasGamePort && hasRCONPort, nil
 }
 
+// copyDir copies a directory recursively
+func copyDir(src, dst string) error {
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+
+	if err := os.MkdirAll(dst, 0755); err != nil {
+		return err
+	}
+
+	for _, entry := range entries {
+		srcPath := filepath.Join(src, entry.Name())
+		dstPath := filepath.Join(dst, entry.Name())
+
+		if entry.IsDir() {
+			if err := copyDir(srcPath, dstPath); err != nil {
+				return err
+			}
+		} else {
+			srcFile, err := os.Open(srcPath)
+			if err != nil {
+				return err
+			}
+			defer srcFile.Close()
+
+			dstFile, err := os.Create(dstPath)
+			if err != nil {
+				return err
+			}
+			defer dstFile.Close()
+
+			if _, err := io.Copy(dstFile, srcFile); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// setupInstanceConfig sets up the instance configuration directory with proper symlinks
+func setupInstanceConfig(instanceName string) error {
+	instanceConfigDir := filepath.Join(InstancesDir, instanceName, "Config")
+	baseConfigDir := filepath.Join(ServerFilesDir, "ShooterGame/Saved/Config/WindowsServer")
+	baseConfigDirBackup := baseConfigDir + ".bak"
+
+	// 1. If instance Config directory doesn't exist, copy from base server config
+	if _, err := os.Stat(instanceConfigDir); os.IsNotExist(err) {
+		fmt.Printf("📋 Copying base server configuration to instance '%s'...\n", instanceName)
+		if err := copyDir(baseConfigDir, instanceConfigDir); err != nil {
+			return fmt.Errorf("failed to copy config directory: %w", err)
+		}
+	}
+
+	// 2. Backup the original Config directory if not already backed up
+	fileInfo, err := os.Lstat(baseConfigDir)
+	if err == nil {
+		// If it's not a symlink and backup doesn't exist, back it up
+		isSymlink := (fileInfo.Mode() & os.ModeSymlink) != 0
+		_, backupErr := os.Stat(baseConfigDirBackup)
+		if !isSymlink && os.IsNotExist(backupErr) {
+			fmt.Printf("💾 Backing up original configuration directory...\n")
+			if err := os.Rename(baseConfigDir, baseConfigDirBackup); err != nil {
+				return fmt.Errorf("failed to backup original config directory: %w", err)
+			}
+		}
+	}
+
+	// 3. Remove the symlink/directory and create a new symlink to instance config
+	if err := os.RemoveAll(baseConfigDir); err != nil {
+		return fmt.Errorf("failed to remove base config directory: %w", err)
+	}
+
+	// Create symlink from base config to instance config
+	absInstanceConfigDir, err := filepath.Abs(instanceConfigDir)
+	if err != nil {
+		return fmt.Errorf("failed to get absolute path of instance config: %w", err)
+	}
+
+	if err := os.Symlink(absInstanceConfigDir, baseConfigDir); err != nil {
+		return fmt.Errorf("failed to create symlink: %w", err)
+	}
+
+	return nil
+}
+
 // StartServer starts a server instance
 func StartServer(instanceName string) error {
 	if running, err := IsServerRunning(instanceName); err == nil && running {
@@ -68,10 +156,15 @@ func StartServer(instanceName string) error {
 
 	fmt.Printf("🚀 Starting server for instance: %s\n", instanceName)
 
-	// Create Config directory if it doesn't exist
-	configDir := filepath.Join(InstancesDir, instanceName, "Config")
-	if err := os.MkdirAll(configDir, 0755); err != nil {
-		return fmt.Errorf("failed to create config directory: %w", err)
+	// Setup instance configuration directory and symlinks
+	if err := setupInstanceConfig(instanceName); err != nil {
+		return err
+	}
+
+	// Ensure per-instance save directory exists
+	saveDir := filepath.Join(ServerFilesDir, "ShooterGame/Saved/SavedArks", config.SaveDir)
+	if err := os.MkdirAll(saveDir, 0755); err != nil {
+		return fmt.Errorf("failed to create save directory: %w", err)
 	}
 
 	// Build the command
