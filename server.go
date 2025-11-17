@@ -6,12 +6,191 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/gorcon/rcon"
 )
+
+// logMappingMutex protects the instance to log file mapping
+var logMappingMutex sync.RWMutex
+
+// instanceLogMapping stores the mapping of instance names to their log file paths
+var instanceLogMapping = make(map[string]string)
+
+// InitializeLogMapping loads log mappings from persistent storage
+func InitializeLogMapping() error {
+	mappings, err := LoadLogMappingFromFile()
+	if err != nil {
+		return fmt.Errorf("failed to load log mapping from file: %w", err)
+	}
+
+	logMappingMutex.Lock()
+	instanceLogMapping = mappings
+	logMappingMutex.Unlock()
+
+	if len(mappings) > 0 {
+		fmt.Printf("📂 Loaded %d instance log mappings from persistent storage\n", len(mappings))
+	}
+
+	return nil
+}
+
+// PersistLogMapping saves the current log mappings to storage
+func PersistLogMapping() error {
+	logMappingMutex.RLock()
+	mappingsCopy := make(map[string]string)
+	for k, v := range instanceLogMapping {
+		mappingsCopy[k] = v
+	}
+	logMappingMutex.RUnlock()
+
+	return SaveLogMappingToFile(mappingsCopy)
+}
+
+// RemoveInstanceLogMapping removes the log mapping for an instance
+func RemoveInstanceLogMapping(instanceName string) error {
+	logMappingMutex.Lock()
+	delete(instanceLogMapping, instanceName)
+	logMappingMutex.Unlock()
+
+	// Persist the updated mappings to file
+	return PersistLogMapping()
+}
+
+// BackupAndRemoveInstanceLogFile backs up the log file for an instance and removes the original
+func BackupAndRemoveInstanceLogFile(instanceName string) error {
+	// Get the log file path from mapping
+	logFilePath, exists := GetInstanceLogFile(instanceName)
+	if !exists {
+		fmt.Printf("⚠️  Log file for instance %s does not exist: %s\n", instanceName, logFilePath)
+		return nil
+	}
+
+	// Check if log file exists
+	if _, err := os.Stat(logFilePath); os.IsNotExist(err) {
+		fmt.Printf("⚠️  Log file for instance %s does not exist: %s\n", instanceName, logFilePath)
+		return nil
+	}
+
+	// Create logs backup directory
+	logsBackupDir := filepath.Join(BaseDir, "logs-backup")
+	if err := os.MkdirAll(logsBackupDir, 0755); err != nil {
+		return fmt.Errorf("failed to create logs backup directory: %w", err)
+	}
+
+	// Generate backup file name with instance name and timestamp
+	timestamp := time.Now().Format("2006-01-02_15-04-05")
+	logFileName := filepath.Base(logFilePath)
+	backupFileName := fmt.Sprintf("%s_%s_%s", instanceName, timestamp, logFileName)
+	backupFilePath := filepath.Join(logsBackupDir, backupFileName)
+
+	// Copy log file to backup location
+	srcFile, err := os.Open(logFilePath)
+	if err != nil {
+		return fmt.Errorf("failed to open log file for backup: %w", err)
+	}
+	defer srcFile.Close()
+
+	backupFile, err := os.Create(backupFilePath)
+	if err != nil {
+		return fmt.Errorf("failed to create backup file: %w", err)
+	}
+	defer backupFile.Close()
+
+	if _, err := io.Copy(backupFile, srcFile); err != nil {
+		return fmt.Errorf("failed to copy log file to backup: %w", err)
+	}
+
+	fmt.Printf("📋 Backed up log file to: %s\n", backupFilePath)
+
+	// Remove the original log file
+	if err := os.Remove(logFilePath); err != nil {
+		return fmt.Errorf("failed to remove original log file: %w", err)
+	}
+
+	fmt.Printf("🗑 Removed original log file: %s\n", logFilePath)
+
+	return nil
+}
+
+// GetGameLogFileName returns the log file name for a given instance based on running order
+// The naming convention is: ShooterGame.log for the first instance, ShooterGame_2.log, ShooterGame_3.log, etc.
+// It finds the first available (non-existent) log file number
+func GetGameLogFileName(instanceName string) (string, error) {
+	logsDir := filepath.Join(ServerFilesDir, "ShooterGame/Saved/Logs")
+
+	if err := os.MkdirAll(logsDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create logs directory: %w", err)
+	}
+
+	// Find the first available log file number (starting from 1)
+	// First, check if ShooterGame.log (number 1) is available
+	logFilePath := filepath.Join(logsDir, "ShooterGame.log")
+	if _, err := os.Stat(logFilePath); os.IsNotExist(err) {
+		return "ShooterGame.log", nil
+	}
+
+	// If ShooterGame.log exists, find the first available numbered file
+	// Check ShooterGame_2.log, ShooterGame_3.log, etc.
+	for i := 2; i <= 999; i++ {
+		logFileName := fmt.Sprintf("ShooterGame_%d.log", i)
+		logFilePath := filepath.Join(logsDir, logFileName)
+		if _, err := os.Stat(logFilePath); os.IsNotExist(err) {
+			return logFileName, nil
+		}
+	}
+
+	// Fallback (should never happen in practice)
+	return "", fmt.Errorf("could not find available log file number for instance %s", instanceName)
+}
+
+// GetGameLogFilePath returns the full path to the log file for a given instance
+func GetGameLogFilePath(instanceName string) (string, error) {
+	logsDir := filepath.Join(ServerFilesDir, "ShooterGame/Saved/Logs")
+
+	// Check if we have a cached mapping
+	logMappingMutex.RLock()
+	if logPath, exists := instanceLogMapping[instanceName]; exists {
+		logMappingMutex.RUnlock()
+		return logPath, nil
+	}
+	logMappingMutex.RUnlock()
+
+	// Get the log file name and create the mapping
+	logFileName, err := GetGameLogFileName(instanceName)
+	if err != nil {
+		return "", err
+	}
+
+	logPath := filepath.Join(logsDir, logFileName)
+
+	// Store the mapping
+	logMappingMutex.Lock()
+	instanceLogMapping[instanceName] = logPath
+	logMappingMutex.Unlock()
+
+	return logPath, nil
+}
+
+// SetInstanceLogFile manually sets the log file path for an instance
+// This is useful when you want to explicitly map an instance to a log file
+func SetInstanceLogFile(instanceName, logFilePath string) {
+	logMappingMutex.Lock()
+	instanceLogMapping[instanceName] = logFilePath
+	logMappingMutex.Unlock()
+}
+
+// GetInstanceLogFile retrieves the log file path for an instance from the mapping
+func GetInstanceLogFile(instanceName string) (string, bool) {
+	logMappingMutex.RLock()
+	logPath, exists := instanceLogMapping[instanceName]
+	logMappingMutex.RUnlock()
+	return logPath, exists
+}
 
 // IsServerRunning checks if a server instance is running
 // It checks by verifying if both the game port and RCON port are listening
@@ -23,17 +202,15 @@ func IsServerRunning(instanceName string) (bool, error) {
 		return false, err
 	}
 
-	// Use Windows netstat with findstr to check both ports in one command
-	// This is more efficient than checking separately
-	portPattern := fmt.Sprintf("/R \"%d|%d\"", config.Port, config.RCONPort)
-	cmd := exec.Command("cmd", "/C", fmt.Sprintf("netstat -ano | findstr %s", portPattern))
-
+	// Build the netstat command with port filtering for efficiency
+	// Check for both game port and RCON port in a single netstat query
+	cmd := exec.Command("netstat", "-ano")
 	// Hide the cmd window on Windows
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 
 	output, err := cmd.Output()
 	if err != nil {
-		return false, nil
+		return false, fmt.Errorf("failed to execute netstat: %w", err)
 	}
 
 	netstatOutput := string(output)
@@ -46,7 +223,18 @@ func IsServerRunning(instanceName string) (bool, error) {
 	hasGamePort := strings.Contains(netstatOutput, gamePortStr)
 	hasRCONPort := strings.Contains(netstatOutput, rconPortStr)
 
-	return hasGamePort && hasRCONPort, nil
+	if !hasGamePort || !hasRCONPort {
+		// Debug: Print which ports are missing
+		if !hasGamePort {
+			fmt.Printf("⚠️  Game port :%d not found\n", config.Port)
+		}
+		if !hasRCONPort {
+			fmt.Printf("⚠️  RCON port :%d not found\n", config.RCONPort)
+		}
+		return false, nil
+	}
+
+	return true, nil
 }
 
 // copyDir copies a directory recursively
@@ -90,7 +278,7 @@ func copyDir(src, dst string) error {
 	return nil
 }
 
-// setupInstanceConfig sets up the instance configuration directory with proper symlinks
+// setupInstanceConfig sets up the instance configuration directory with proper symlinks or junctions
 func setupInstanceConfig(instanceName string) error {
 	instanceConfigDir := filepath.Join(InstancesDir, instanceName, "Config")
 	baseConfigDir := filepath.Join(ServerFilesDir, "ShooterGame/Saved/Config/WindowsServer")
@@ -118,19 +306,22 @@ func setupInstanceConfig(instanceName string) error {
 		}
 	}
 
-	// 3. Remove the symlink/directory and create a new symlink to instance config
+	// 3. Remove the symlink/directory and create a junction to instance config
 	if err := os.RemoveAll(baseConfigDir); err != nil {
 		return fmt.Errorf("failed to remove base config directory: %w", err)
 	}
 
-	// Create symlink from base config to instance config
+	// Create junction from base config to instance config (no admin required on Windows)
 	absInstanceConfigDir, err := filepath.Abs(instanceConfigDir)
 	if err != nil {
 		return fmt.Errorf("failed to get absolute path of instance config: %w", err)
 	}
 
-	if err := os.Symlink(absInstanceConfigDir, baseConfigDir); err != nil {
-		return fmt.Errorf("failed to create symlink: %w", err)
+	// Try to create as junction using mklink command (works without admin on Windows for NTFS)
+	// This is more reliable than os.Symlink which requires admin privileges
+	cmd := exec.Command("cmd", "/c", "mklink", "/J", baseConfigDir, absInstanceConfigDir)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to create directory junction: %w", err)
 	}
 
 	return nil
@@ -163,6 +354,7 @@ func StartServer(instanceName string) error {
 
 	// Ensure per-instance save directory exists
 	saveDir := filepath.Join(ServerFilesDir, "ShooterGame/Saved/SavedArks", config.SaveDir)
+
 	if err := os.MkdirAll(saveDir, 0755); err != nil {
 		return fmt.Errorf("failed to create save directory: %w", err)
 	}
@@ -211,22 +403,58 @@ func StartServer(instanceName string) error {
 
 	cmd := exec.Command(arkExe, args...)
 
-	logFile := filepath.Join(InstancesDir, instanceName, "server.log")
-	file, err := os.Create(logFile)
+	// Get the game log file path and establish mapping
+	gameLogPath, err := GetGameLogFilePath(instanceName)
 	if err != nil {
-		return fmt.Errorf("failed to create log file: %w", err)
+		return fmt.Errorf("failed to get game log file path: %w", err)
 	}
-	defer file.Close()
-
-	cmd.Stdout = file
-	cmd.Stderr = file
 
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start server: %w", err)
 	}
 
 	fmt.Printf("✅ Server started for instance: %s. It should be fully operational in approximately 60 seconds.\n", instanceName)
+	time.Sleep(60 * time.Second)
+
+	fmt.Printf("📝 Game log file: %s\n", gameLogPath)
+
+	// Persist the log mapping for future restarts
+	if err := PersistLogMapping(); err != nil {
+		fmt.Printf("⚠️  Warning: Failed to persist log mapping: %v\n", err)
+	}
+
 	return nil
+}
+
+// GetPIDByPort finds the PID of the process listening on a specific port
+func GetPIDByPort(port int) (int, error) {
+	cmd := exec.Command("netstat", "-ano")
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+
+	output, err := cmd.Output()
+	if err != nil {
+		return 0, fmt.Errorf("failed to execute netstat: %w", err)
+	}
+
+	netstatOutput := string(output)
+	portStr := fmt.Sprintf(":%d", port)
+
+	// Split output into lines and search for the port
+	lines := strings.Split(netstatOutput, "\n")
+	for _, line := range lines {
+		if strings.Contains(line, portStr) {
+			// The last field in the line is the PID
+			fields := strings.Fields(line)
+			if len(fields) > 0 {
+				pid, err := strconv.Atoi(fields[len(fields)-1])
+				if err == nil && pid > 0 {
+					return pid, nil
+				}
+			}
+		}
+	}
+
+	return 0, fmt.Errorf("no process found listening on port %d", port)
 }
 
 // StopServer stops a server instance
@@ -241,6 +469,7 @@ func StopServer(instanceName string) error {
 
 	// Try graceful shutdown with RCON
 	response, err := SendRCONCommand(instanceName, "DoExit")
+	fmt.Println("rcon err:", err)
 	if err == nil && strings.Contains(response, "Exiting") {
 		fmt.Printf("✅ Server instance %s reported 'Exiting...'. Awaiting shutdown (can take up to 2 minutes)...\n", instanceName)
 
@@ -249,6 +478,17 @@ func StopServer(instanceName string) error {
 		for time.Now().Before(timeout) {
 			if running, _ := IsServerRunning(instanceName); !running {
 				fmt.Printf("✅ Server for instance %s has exited.\n", instanceName)
+
+				// Backup and remove the log file
+				if err := BackupAndRemoveInstanceLogFile(instanceName); err != nil {
+					fmt.Printf("⚠️  Warning: Failed to backup log file for instance %s: %v\n", instanceName, err)
+				}
+
+				// Remove the log mapping for this instance
+				if err := RemoveInstanceLogMapping(instanceName); err != nil {
+					fmt.Printf("⚠️  Warning: Failed to remove log mapping for instance %s: %v\n", instanceName, err)
+				}
+
 				return nil
 			}
 			time.Sleep(2 * time.Second)
@@ -258,9 +498,37 @@ func StopServer(instanceName string) error {
 	}
 
 	// Force kill if graceful shutdown didn't work
-	exec.Command("taskkill", "/IM", "ArkAscendedServer.exe", "/F").Run()
+	// Get the PID using the game port
+	config, err := LoadInstanceConfig(instanceName)
+	if err != nil {
+		return fmt.Errorf("failed to load instance config: %w", err)
+	}
+
+	pid, err := GetPIDByPort(config.Port)
+	if err != nil {
+		return fmt.Errorf("failed to find process PID: %w", err)
+	}
+
+	fmt.Printf("🔡 Found process PID: %d for instance '%s' on port :%d\n", pid, instanceName, config.Port)
+
+	// Kill the specific process by PID
+	if err := exec.Command("taskkill", "/PID", fmt.Sprintf("%d", pid), "/F").Run(); err != nil {
+		return fmt.Errorf("failed to kill process PID %d: %w", pid, err)
+	}
 
 	fmt.Printf("✅ Server for instance %s has been stopped.\n", instanceName)
+	time.Sleep(10 * time.Second)
+
+	// Backup and remove the log file
+	if err := BackupAndRemoveInstanceLogFile(instanceName); err != nil {
+		fmt.Printf("⚠️  Warning: Failed to backup log file for instance %s: %v\n", instanceName, err)
+	}
+
+	// Remove the log mapping for this instance
+	if err := RemoveInstanceLogMapping(instanceName); err != nil {
+		fmt.Printf("⚠️  Warning: Failed to remove log mapping for instance %s: %v\n", instanceName, err)
+	}
+
 	return nil
 }
 
@@ -270,7 +538,7 @@ func RestartServer(instanceName string) error {
 		return err
 	}
 
-	time.Sleep(5 * time.Second)
+	time.Sleep(30 * time.Second)
 
 	return StartServer(instanceName)
 }
@@ -287,11 +555,46 @@ func SendRCONCommand(instanceName string, command string) (string, error) {
 		return "", err
 	}
 
-	// Connect to RCON server
+	// Validate RCON password is not empty
+	if config.ServerAdminPassword == "" {
+		return "", fmt.Errorf("RCON password is empty for instance %s. Please set ServerAdminPassword in config", instanceName)
+	}
+
+	// Connect to RCON server with retry logic
 	rconAddr := fmt.Sprintf("localhost:%d", config.RCONPort)
-	client, err := rcon.Dial(rconAddr, config.ServerAdminPassword)
-	if err != nil {
-		return "", fmt.Errorf("failed to connect to RCON server at %s: %w", rconAddr, err)
+	fmt.Printf("📡 Connecting to RCON server at %s...\n", rconAddr)
+	fmt.Printf("   Instance: %s\n", instanceName)
+	fmt.Printf("   RCON Port: %d\n", config.RCONPort)
+
+	var client interface {
+		Execute(string) (string, error)
+		Close() error
+	}
+	var connectErr error
+
+	// Try to connect with timeout and retry
+	for attempt := 1; attempt <= 3; attempt++ {
+		client, connectErr = rcon.Dial(rconAddr, config.ServerAdminPassword)
+		if connectErr == nil {
+			fmt.Printf("✅ Connected to RCON server\n")
+			break
+		}
+
+		fmt.Printf("⚠️  Attempt %d failed: %v\n", attempt, connectErr)
+		if attempt < 3 {
+			fmt.Println("   Retrying in 2 seconds...")
+			time.Sleep(2 * time.Second)
+		}
+	}
+
+	if connectErr != nil {
+		fmt.Printf("\n❌ RCON Connection failed (password: '%s')\n", config.ServerAdminPassword)
+		fmt.Println("\nTroubleshooting tips:")
+		fmt.Println("  1. Verify ServerAdminPassword in instance_config.ini")
+		fmt.Println("  2. Check that RCON port is correct: " + rconAddr)
+		fmt.Println("  3. Wait 60+ seconds after server start for RCON to be ready")
+		fmt.Println("  4. Check server log for 'RCON password' or 'authentication' errors")
+		return "", fmt.Errorf("failed to connect to RCON server at %s: %w", rconAddr, connectErr)
 	}
 	defer client.Close()
 

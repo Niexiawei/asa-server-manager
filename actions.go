@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -418,6 +419,13 @@ func actionConfigRestart(ctx context.Context, cmd *cli.Command) error {
 	return nil
 }
 
+// actionAPI starts the HTTP API server
+func actionAPI(ctx context.Context, cmd *cli.Command) error {
+	port := cmd.Int("port")
+	apiServer := NewAPIServer(port)
+	return apiServer.Start()
+}
+
 // Helper functions
 
 func selectInstance() string {
@@ -463,11 +471,11 @@ func manageInstanceMenu(instanceName string) error {
 		fmt.Println("  5) Send RCON Command")
 		fmt.Println("  6) Backup World")
 		fmt.Println("  7) Restore Backup")
-		fmt.Println("  8) Edit Configuration")
-		fmt.Println("  9) Change Instance Name")
+		fmt.Println("  8) View Live Logs")
+		fmt.Println("  9) Edit Configuration")
+		fmt.Println("  10) Change Instance Name")
 		fmt.Println("  0) Back to Main Menu")
 
-		fmt.Print("Select an option: ")
 		scanner := bufio.NewScanner(os.Stdin)
 		if !scanner.Scan() {
 			break
@@ -476,14 +484,22 @@ func manageInstanceMenu(instanceName string) error {
 		choice := strings.TrimSpace(scanner.Text())
 		switch choice {
 		case "1":
-			StartServer(instanceName)
+			if err := StartServer(instanceName); err != nil {
+				fmt.Printf("❌ Error starting server: %v\n", err)
+			}
 		case "2":
-			StopServer(instanceName)
+			if err := StopServer(instanceName); err != nil {
+				fmt.Printf("❌ Error stopping server: %v\n", err)
+			}
 		case "3":
-			RestartServer(instanceName)
+			if err := RestartServer(instanceName); err != nil {
+				fmt.Printf("❌ Error restarting server: %v\n", err)
+			}
 		case "4":
-			running, _ := IsServerRunning(instanceName)
-			if running {
+			running, err := IsServerRunning(instanceName)
+			if err != nil {
+				fmt.Printf("❌ Error checking server status: %v\n", err)
+			} else if running {
 				fmt.Printf("✅ Server for instance %s is running.\n", instanceName)
 			} else {
 				fmt.Printf("❌ Server for instance %s is not running.\n", instanceName)
@@ -492,49 +508,86 @@ func manageInstanceMenu(instanceName string) error {
 			fmt.Print("Enter RCON command: ")
 			if scanner.Scan() {
 				command := strings.TrimSpace(scanner.Text())
-				actionRCONImpl(instanceName, command)
+				if err := actionRCONImpl(instanceName, command); err != nil {
+					fmt.Printf("❌ Error sending RCON command: %v\n", err)
+				}
 			}
 		case "6":
 			fmt.Print("Enter world folder name: ")
 			if scanner.Scan() {
 				worldFolder := strings.TrimSpace(scanner.Text())
-				BackupInstanceWorld(instanceName, worldFolder)
+				if err := BackupInstanceWorld(instanceName, worldFolder); err != nil {
+					fmt.Printf("❌ Error backing up world: %v\n", err)
+				}
 			}
 		case "7":
 			// Simulate restore action with local backup selection
-			backups, _ := GetAvailableBackups()
-			if len(backups) > 0 {
+			backups, err := GetAvailableBackups()
+			if err != nil {
+				fmt.Printf("❌ Error retrieving backups: %v\n", err)
+			} else if len(backups) > 0 {
 				fmt.Println("📋 Available backups:")
 				for i, backup := range backups {
 					fmt.Printf("  %d) %s\n", i+1, filepath.Base(backup))
 				}
 				fmt.Print("Select a backup (number): ")
 				if scanner.Scan() {
-					choice, _ := strconv.Atoi(strings.TrimSpace(scanner.Text()))
-					if choice > 0 && choice <= len(backups) {
-						RestoreBackupToInstance(instanceName, backups[choice-1])
+					choice, err := strconv.Atoi(strings.TrimSpace(scanner.Text()))
+					if err != nil {
+						fmt.Printf("❌ Invalid backup number: %v\n", err)
+					} else if choice > 0 && choice <= len(backups) {
+						if err := RestoreBackupToInstance(instanceName, backups[choice-1]); err != nil {
+							fmt.Printf("❌ Error restoring backup: %v\n", err)
+						}
+					} else {
+						fmt.Println("❌ Invalid backup selection.")
 					}
 				}
+			} else {
+				fmt.Println("⚠️  No backups available.")
 			}
 		case "8":
-			editInstanceConfigFile(instanceName)
+			if err := viewInstanceLogs(instanceName); err != nil {
+				fmt.Printf("❌ Error viewing logs: %v\n", err)
+			}
 		case "9":
+			if err := editInstanceConfigFile(instanceName); err != nil {
+				fmt.Printf("❌ Error editing configuration: %v\n", err)
+			}
+		case "10":
 			fmt.Print("Enter the new name for the instance: ")
 			if scanner.Scan() {
 				newName := strings.TrimSpace(scanner.Text())
-				if newName != "" {
+				switch newName {
+				case "":
+					fmt.Println("❌ Instance name cannot be empty.")
+				case instanceName:
+					fmt.Println("⚠️  New name is the same as the old name.")
+				default:
 					// Perform rename
 					if running, _ := IsServerRunning(instanceName); running {
-						StopServer(instanceName)
+						fmt.Println("⏸️  Stopping server before rename...")
+						if err := StopServer(instanceName); err != nil {
+							fmt.Printf("❌ Error stopping server: %v\n", err)
+						}
 					}
 					oldPath := filepath.Join(InstancesDir, instanceName)
 					newPath := filepath.Join(InstancesDir, newName)
-					if err := os.Rename(oldPath, newPath); err == nil {
-						config, _ := LoadInstanceConfig(newName)
-						config.SaveDir = newName
-						SaveInstanceConfig(newName, config)
-						fmt.Printf("✅ Instance renamed to '%s'.\n", newName)
-						return nil
+					if err := os.Rename(oldPath, newPath); err != nil {
+						fmt.Printf("❌ Error renaming instance directory: %v\n", err)
+					} else {
+						config, err := LoadInstanceConfig(newName)
+						if err != nil {
+							fmt.Printf("❌ Error loading instance config: %v\n", err)
+						} else {
+							config.SaveDir = newName
+							if err := SaveInstanceConfig(newName, config); err != nil {
+								fmt.Printf("❌ Error saving instance config: %v\n", err)
+							} else {
+								fmt.Printf("✅ Instance renamed to '%s'.\n", newName)
+								return nil
+							}
+						}
 					}
 				}
 			}
@@ -548,12 +601,75 @@ func manageInstanceMenu(instanceName string) error {
 	return nil
 }
 
+func viewInstanceLogs(instanceName string) error {
+	// Get the log file path for the instance
+	logPath, exists := GetInstanceLogFile(instanceName)
+	if !exists {
+		// Try to get the log path if not in mapping
+		var err error
+		logPath, err = GetGameLogFilePath(instanceName)
+		if err != nil {
+			return fmt.Errorf("failed to get log file path: %w", err)
+		}
+	}
+
+	// Check if log file exists
+	if _, err := os.Stat(logPath); os.IsNotExist(err) {
+		fmt.Printf("⚠️  Log file not found: %s\n", logPath)
+		fmt.Println("Tip: Start the server first to generate log files.")
+		return nil
+	}
+
+	fmt.Printf("📄 Viewing live logs for instance '%s'\n", instanceName)
+	fmt.Printf("📝 Log file: %s\n", logPath)
+	fmt.Println("Press Ctrl+C to stop viewing logs...")
+	fmt.Println(strings.Repeat("=", 80))
+
+	// Start tailing the log file in real-time
+	stopMonitoring := TailLogFile(logPath, func(line string) {
+		fmt.Println(line)
+	})
+
+	// Wait for user to press Ctrl+C
+	// Create a channel to handle interrupts
+	var input string
+	scanner := bufio.NewScanner(os.Stdin)
+	for {
+		// Check if there's input to stop (user presses Ctrl+C is handled by OS)
+		if !scanner.Scan() {
+			break
+		}
+		input = scanner.Text()
+		if input != "" {
+			break
+		}
+	}
+
+	// Stop monitoring
+	stopMonitoring()
+	fmt.Println(strings.Repeat("=", 80))
+	fmt.Println("✅ Log viewing stopped.")
+	return nil
+}
+
 func editInstanceConfigFile(instanceName string) error {
 	configPath := filepath.Join(InstancesDir, instanceName, "instance_config.ini")
 
-	fmt.Printf("📝 Edit configuration: %s\n", configPath)
-	fmt.Println("Opening config file... (Note: This requires a text editor)")
-	fmt.Printf("Path: %s\n", configPath)
+	// Check if config file exists
+	if _, err := os.Stat(configPath); err != nil {
+		return fmt.Errorf("config file not found: %s", configPath)
+	}
 
+	fmt.Printf("📝 Opening configuration file: %s\n", configPath)
+
+	// Open the file with Notepad on Windows
+	cmd := exec.Command("notepad.exe", configPath)
+
+	// Run the command and wait for it to complete
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to open notepad: %w", err)
+	}
+
+	fmt.Println("✅ Configuration file editing completed.")
 	return nil
 }

@@ -22,6 +22,11 @@ func main() {
 		log.Fatal(err)
 	}
 
+	// Initialize log mapping from persistent storage
+	if err := InitializeLogMapping(); err != nil {
+		log.Fatal(err)
+	}
+
 	app := &cli.Command{
 		Name:    "asa-manager",
 		Usage:   "ARK Server Ascended Instance Management Tool",
@@ -122,6 +127,18 @@ func main() {
 				Name:   "config-restart",
 				Usage:  "Configure restart manager",
 				Action: actionConfigRestart,
+			},
+			{
+				Name:  "api",
+				Usage: "Start HTTP API server",
+				Flags: []cli.Flag{
+					&cli.IntFlag{
+						Name:  "port",
+						Value: 8080,
+						Usage: "HTTP server port",
+					},
+				},
+				Action: actionAPI,
 			},
 		},
 	}

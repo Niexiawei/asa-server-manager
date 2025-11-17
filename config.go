@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,6 +16,7 @@ var (
 	SteamCmdDir    string
 	BackupsDir     string
 	ConfigFile     string
+	LogMappingFile string
 )
 
 const (
@@ -50,9 +52,8 @@ func ensureDirectories() error {
 	ServerFilesDir = filepath.Join(BaseDir, "server-files")
 	SteamCmdDir = filepath.Join(BaseDir, "steamcmd")
 	BackupsDir = filepath.Join(BaseDir, "backups")
-	ConfigFile = filepath.Join(BaseDir, ".ark_server_manager_config")
-
-	// Create necessary directories
+	// Initialize log mapping file path
+	LogMappingFile = filepath.Join(BaseDir, ".instance_log_mapping.json")
 	dirs := []string{InstancesDir, ServerFilesDir, SteamCmdDir, BackupsDir}
 	for _, dir := range dirs {
 		if err := os.MkdirAll(dir, 0755); err != nil {
@@ -170,6 +171,51 @@ ClusterID=%s
 
 	if err := os.WriteFile(configFile, []byte(content), 0600); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
+	}
+
+	return nil
+}
+
+// LogMapping represents the mapping of instance names to log file paths
+type LogMapping struct {
+	Mappings map[string]string `json:"mappings"`
+}
+
+// LoadLogMappingFromFile loads the instance to log file mapping from persistent storage
+func LoadLogMappingFromFile() (map[string]string, error) {
+	mappings := make(map[string]string)
+
+	// If file doesn't exist, return empty mappings
+	if _, err := os.Stat(LogMappingFile); os.IsNotExist(err) {
+		return mappings, nil
+	}
+
+	data, err := os.ReadFile(LogMappingFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read log mapping file: %w", err)
+	}
+
+	var logMapping LogMapping
+	if err := json.Unmarshal(data, &logMapping); err != nil {
+		return nil, fmt.Errorf("failed to parse log mapping file: %w", err)
+	}
+
+	return logMapping.Mappings, nil
+}
+
+// SaveLogMappingToFile persists the instance to log file mapping to storage
+func SaveLogMappingToFile(mappings map[string]string) error {
+	logMapping := LogMapping{
+		Mappings: mappings,
+	}
+
+	data, err := json.MarshalIndent(logMapping, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal log mapping: %w", err)
+	}
+
+	if err := os.WriteFile(LogMappingFile, data, 0600); err != nil {
+		return fmt.Errorf("failed to write log mapping file: %w", err)
 	}
 
 	return nil
