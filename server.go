@@ -380,6 +380,11 @@ func StartServer(instanceName string) error {
 		return fmt.Errorf("failed to start server: %w", err)
 	}
 
+	// Save the PID to the instance directory
+	if err := SaveInstancePID(instanceName, cmd.Process.Pid); err != nil {
+		fmt.Printf("⚠️  Warning: Failed to save PID for instance %s: %v\n", instanceName, err)
+	}
+
 	fmt.Printf("✅ Server started for instance: %s. It should be fully operational in approximately 60 seconds.\n", instanceName)
 	fmt.Printf("📝 Game log file: %s\n", gameLogPath)
 	time.Sleep(60 * time.Second)
@@ -631,6 +636,35 @@ func GetRunningInstances() ([]string, error) {
 	}
 
 	return running, nil
+}
+
+// SaveInstancePID saves the PID of a running instance to its directory
+func SaveInstancePID(instanceName string, pid int) error {
+	instanceDir := filepath.Join(InstancesDir, instanceName)
+	if err := os.MkdirAll(instanceDir, 0755); err != nil {
+		return fmt.Errorf("failed to create instance directory: %w", err)
+	}
+
+	pidFile := filepath.Join(instanceDir, "pid")
+	return os.WriteFile(pidFile, []byte(strconv.Itoa(pid)), 0644)
+}
+
+// GetInstancePID retrieves the PID of a running instance from its directory
+func GetInstancePID(instanceName string) (int, error) {
+	instanceDir := filepath.Join(InstancesDir, instanceName)
+	pidFile := filepath.Join(instanceDir, "pid")
+
+	data, err := os.ReadFile(pidFile)
+	if err != nil {
+		return 0, err
+	}
+
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse PID: %w", err)
+	}
+
+	return pid, nil
 }
 
 // quotifyIfNeeded wraps a string in double quotes if it contains special characters
