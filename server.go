@@ -12,6 +12,8 @@ import (
 	"syscall"
 	"time"
 
+	"asa-server/win32api"
+
 	"github.com/gorcon/rcon"
 )
 
@@ -331,9 +333,7 @@ func StartServer(instanceName string) error {
 		config.SaveDir,
 	)
 
-	// On Windows, wrap the entire map parameter string in quotes
-	// to ensure proper parsing by the ARK server executable
-	mapParam = fmt.Sprintf("\"%s\"", mapParam)
+	//mapParam = fmt.Sprintf("\"%s\"", mapParam)
 
 	// Direct execution of ArkAscendedServer.exe on Windows
 	arkExe := filepath.Join(ServerFilesDir, "ShooterGame/Binaries/Win64/ArkAscendedServer.exe")
@@ -393,7 +393,7 @@ func StartServer(instanceName string) error {
 	if err := PersistLogMapping(); err != nil {
 		fmt.Printf("⚠️  Warning: Failed to persist log mapping: %v\n", err)
 	}
-
+	
 	return nil
 }
 
@@ -430,6 +430,10 @@ func GetPIDByPort(port int) (int, error) {
 
 // StopServer stops a server instance
 func StopServer(instanceName string) error {
+	var (
+		pid int
+	)
+
 	running, err := IsServerRunning(instanceName)
 	if err != nil || !running {
 		fmt.Printf("⚠️  Server for instance %s is not running.\n", instanceName)
@@ -437,56 +441,42 @@ func StopServer(instanceName string) error {
 	}
 
 	fmt.Printf("🛑 Stopping server for instance: %s\n", instanceName)
-
 	// Try graceful shutdown with RCON
-	response, err := SendRCONCommand(instanceName, "DoExit")
-	if err == nil && strings.Contains(response, "Exiting") {
-		fmt.Printf("✅ Server instance %s reported 'Exiting...'. Awaiting shutdown (can take up to 2 minutes)...\n", instanceName)
-		// Wait for process to finish with timeout
-		timeout := time.Now().Add(5 * time.Minute)
-		for time.Now().Before(timeout) {
-			if running, _ := IsServerRunning(instanceName); !running {
-				fmt.Printf("✅ Server for instance %s has exited.\n", instanceName)
-
-				// Remove the log mapping for this instance (log file will be reused on next start)
-				if err := RemoveInstanceLogMapping(instanceName); err != nil {
-					fmt.Printf("⚠️  Warning: Failed to remove log mapping for instance %s: %v\n", instanceName, err)
-				}
-
-				return nil
-			}
-			time.Sleep(2 * time.Second)
+	pid, err = GetInstancePID(instanceName)
+	if err != nil {
+		config, configErr := LoadInstanceConfig(instanceName)
+		if configErr != nil {
+			return fmt.Errorf("failed to load instance config: %w", configErr)
 		}
-
-		fmt.Printf("⚠️  Server didn't shut down within timeout. Forcing kill...\n")
+		pid, err = GetPIDByPort(config.Port)
+		if err != nil {
+			return fmt.Errorf("failed to find process PID: %w", err)
+		}
+	}
+	response, rconErr := SendRCONCommand(instanceName, "DoExit")
+	if rconErr == nil && strings.Contains(response, "Exiting") {
+		fmt.Printf("✅ Server instance %s reported 'Exiting...'. Awaiting shutdown...\n", instanceName)
+		// Wait for process to finish using win32api.IsProcessExited
+	} else {
+		if err := exec.Command("taskkill", "/PID", fmt.Sprintf("%d", pid), "/F").Run(); err != nil {
+			return fmt.Errorf("failed to kill process PID %d: %w", pid, err)
+		}
 	}
 
-	// Force kill if graceful shutdown didn't work
-	// Get the PID using the game port
-	config, err := LoadInstanceConfig(instanceName)
-	if err != nil {
-		return fmt.Errorf("failed to load instance config: %w", err)
+	for {
+		exited, err := win32api.IsProcessExited(uint32(pid))
+		if err != nil || exited {
+			break
+		}
+		time.Sleep(2 * time.Second)
 	}
 
-	pid, err := GetPIDByPort(config.Port)
-	if err != nil {
-		return fmt.Errorf("failed to find process PID: %w", err)
-	}
-
-	fmt.Printf("🔡 Found process PID: %d for instance '%s' on port :%d\n", pid, instanceName, config.Port)
-
-	// Kill the specific process by PID
-	if err := exec.Command("taskkill", "/PID", fmt.Sprintf("%d", pid), "/F").Run(); err != nil {
-		return fmt.Errorf("failed to kill process PID %d: %w", pid, err)
-	}
-
-	fmt.Printf("✅ Server for instance %s has been stopped.\n", instanceName)
+	fmt.Printf("✅ Server for instance %s has exited.\n", instanceName)
 
 	// Remove the log mapping for this instance (log file will be reused on next start)
 	if err := RemoveInstanceLogMapping(instanceName); err != nil {
 		fmt.Printf("⚠️  Warning: Failed to remove log mapping for instance %s: %v\n", instanceName, err)
 	}
-
 	return nil
 }
 
@@ -672,8 +662,5 @@ func GetInstancePID(instanceName string) (int, error) {
 func quotifyIfNeeded(value string) string {
 	// Check if the value contains any special characters that need quoting
 	// ARK server uses ? as parameter separator, so we need to quote values containing special characters
-	if strings.ContainsAny(value, "?&=;|<>") {
-		return fmt.Sprintf("\"%s\"", value)
-	}
-	return value
+	return fmt.Sprintf("\"%s\"", value)
 }
