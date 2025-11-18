@@ -1,6 +1,9 @@
 package main
 
 import (
+	"asa-server/asaserver"
+	"asa-server/webapi"
+	"asa-server/winservice"
 	"context"
 	"fmt"
 	"log"
@@ -19,12 +22,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := ensureDirectories(); err != nil {
+	if err := asaserver.EnsureDirectories(); err != nil {
 		log.Fatal(err)
 	}
 
 	// Initialize log mapping from persistent storage
-	if err := InitializeLogMapping(); err != nil {
+	if err := asaserver.InitializeLogMapping(); err != nil {
 		log.Fatal(err)
 	}
 
@@ -42,92 +45,92 @@ func main() {
 						Usage: "Force re-run server verification even if config exists",
 					},
 				},
-				Action: actionUpdate,
+				Action: asaserver.ActionUpdate,
 			},
 			{
 				Name:   "list",
 				Usage:  "List all available instances",
-				Action: actionList,
+				Action: asaserver.ActionList,
 			},
 			{
 				Name:   "create",
 				Usage:  "Create a new instance",
-				Action: actionCreate,
+				Action: asaserver.ActionCreate,
 			},
 			{
 				Name:      "manage",
 				Usage:     "Manage instance interactively",
 				ArgsUsage: "[instance_name]",
-				Action:    actionManage,
+				Action:    asaserver.ActionManage,
 			},
 			{
 				Name:      "start",
 				Usage:     "Start a server instance",
 				ArgsUsage: "<instance_name>",
-				Action:    actionStart,
+				Action:    asaserver.ActionStart,
 			},
 			{
 				Name:      "stop",
 				Usage:     "Stop a server instance",
 				ArgsUsage: "<instance_name>",
-				Action:    actionStop,
+				Action:    asaserver.ActionStop,
 			},
 			{
 				Name:      "restart",
 				Usage:     "Restart a server instance",
 				ArgsUsage: "<instance_name>",
-				Action:    actionRestart,
+				Action:    asaserver.ActionRestart,
 			},
 			{
 				Name:      "status",
 				Usage:     "Check server status",
 				ArgsUsage: "[instance_name]",
-				Action:    actionStatus,
+				Action:    asaserver.ActionStatus,
 			},
 			{
 				Name:      "rcon",
 				Usage:     "Send RCON command to server",
 				ArgsUsage: "<instance_name> <command>",
-				Action:    actionRCON,
+				Action:    asaserver.ActionRCON,
 			},
 			{
 				Name:      "delete",
 				Usage:     "Delete an instance",
 				ArgsUsage: "<instance_name>",
-				Action:    actionDelete,
+				Action:    asaserver.ActionDelete,
 			},
 			{
 				Name:      "rename",
 				Usage:     "Rename an instance",
 				ArgsUsage: "<instance_name>",
-				Action:    actionRename,
+				Action:    asaserver.ActionRename,
 			},
 			{
 				Name:      "backup",
 				Usage:     "Create a backup of an instance world",
 				ArgsUsage: "<instance_name> <world_folder>",
-				Action:    actionBackup,
+				Action:    asaserver.ActionBackup,
 			},
 			{
 				Name:      "restore",
 				Usage:     "Restore a backup to an instance",
 				ArgsUsage: "<instance_name>",
-				Action:    actionRestore,
+				Action:    asaserver.ActionRestore,
 			},
 			{
 				Name:   "start-all",
 				Usage:  "Start all instances",
-				Action: actionStartAll,
+				Action: asaserver.ActionStartAll,
 			},
 			{
 				Name:   "stop-all",
 				Usage:  "Stop all instances",
-				Action: actionStopAll,
+				Action: asaserver.ActionStopAll,
 			},
 			{
 				Name:   "config-restart",
 				Usage:  "Configure restart manager",
-				Action: actionConfigRestart,
+				Action: asaserver.ActionConfigRestart,
 			},
 			{
 				Name:  "api",
@@ -139,7 +142,7 @@ func main() {
 						Usage: "HTTP server port",
 					},
 				},
-				Action: actionAPI,
+				Action: webapi.ActionAPI,
 			},
 			{
 				Name:  "service",
@@ -148,22 +151,22 @@ func main() {
 					{
 						Name:   "install",
 						Usage:  "Install as Windows service",
-						Action: actionServiceInstall,
+						Action: winservice.ActionServiceInstall,
 					},
 					{
 						Name:   "remove",
 						Usage:  "Remove Windows service",
-						Action: actionServiceRemove,
+						Action: winservice.ActionServiceRemove,
 					},
 					{
 						Name:   "start",
 						Usage:  "Start Windows service",
-						Action: actionServiceStart,
+						Action: winservice.ActionServiceStart,
 					},
 					{
 						Name:   "stop",
 						Usage:  "Stop Windows service",
-						Action: actionServiceStop,
+						Action: winservice.ActionServiceStop,
 					},
 				},
 			},
@@ -177,7 +180,7 @@ func main() {
 	}
 
 	if isService {
-		RunService(false)
+		winservice.RunService(false)
 		return
 	}
 

@@ -1,12 +1,15 @@
-package main
+package webapi
 
 import (
+	"asa-server/asaserver"
+	"context"
 	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
 
 	"github.com/gin-gonic/gin"
+	"github.com/urfave/cli/v3"
 )
 
 // APIServer represents the HTTP API server for ARK Server Ascended Instance Management
@@ -127,7 +130,7 @@ func (s *APIServer) health(c *gin.Context) {
 
 // listInstances returns all available instances
 func (s *APIServer) listInstances(c *gin.Context) {
-	instances, err := GetAvailableInstances()
+	instances, err := asaserver.GetAvailableInstances()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, StatusResponse{
 			Success: false,
@@ -139,7 +142,7 @@ func (s *APIServer) listInstances(c *gin.Context) {
 
 	var instanceInfos []InstanceInfo
 	for _, instanceName := range instances {
-		running, err := IsServerRunning(instanceName)
+		running, err := asaserver.IsServerRunning(instanceName)
 		info := InstanceInfo{
 			Name:    instanceName,
 			Running: running,
@@ -172,9 +175,9 @@ func (s *APIServer) createInstance(c *gin.Context) {
 	}
 
 	// Create instance directory
-	config := CreateDefaultInstanceConfig(req.Name)
+	config := asaserver.CreateDefaultInstanceConfig(req.Name)
 
-	if err := SaveInstanceConfig(req.Name, config); err != nil {
+	if err := asaserver.SaveInstanceConfig(req.Name, config); err != nil {
 		c.JSON(http.StatusInternalServerError, StatusResponse{
 			Success: false,
 			Error:   err.Error(),
@@ -192,8 +195,8 @@ func (s *APIServer) createInstance(c *gin.Context) {
 func (s *APIServer) getInstanceStatus(c *gin.Context) {
 	name := c.Param("name")
 
-	running, err := IsServerRunning(name)
-	config, cfgErr := LoadInstanceConfig(name)
+	running, err := asaserver.IsServerRunning(name)
+	config, cfgErr := asaserver.LoadInstanceConfig(name)
 
 	info := InstanceInfo{
 		Name:    name,
@@ -224,8 +227,8 @@ func (s *APIServer) deleteInstance(c *gin.Context) {
 	name := c.Param("name")
 
 	// Stop instance if running
-	if running, _ := IsServerRunning(name); running {
-		if err := StopServer(name); err != nil {
+	if running, _ := asaserver.IsServerRunning(name); running {
+		if err := asaserver.StopServer(name); err != nil {
 			c.JSON(http.StatusInternalServerError, StatusResponse{
 				Success: false,
 				Error:   fmt.Sprintf("Failed to stop server: %v", err),
@@ -235,7 +238,7 @@ func (s *APIServer) deleteInstance(c *gin.Context) {
 	}
 
 	// Delete instance directory
-	instanceDir := filepath.Join(InstancesDir, name)
+	instanceDir := filepath.Join(asaserver.InstancesDir, name)
 	if err := os.RemoveAll(instanceDir); err != nil {
 		c.JSON(http.StatusInternalServerError, StatusResponse{
 			Success: false,
@@ -245,10 +248,10 @@ func (s *APIServer) deleteInstance(c *gin.Context) {
 	}
 
 	// Delete save directories
-	savePath := filepath.Join(ServerFilesDir, "ShooterGame/Saved", name)
+	savePath := filepath.Join(asaserver.ServerFilesDir, "ShooterGame/Saved", name)
 	os.RemoveAll(savePath)
 
-	savedArksPath := filepath.Join(ServerFilesDir, "ShooterGame/Saved/SavedArks", name)
+	savedArksPath := filepath.Join(asaserver.ServerFilesDir, "ShooterGame/Saved/SavedArks", name)
 	os.RemoveAll(savedArksPath)
 
 	c.JSON(http.StatusOK, StatusResponse{
@@ -279,8 +282,8 @@ func (s *APIServer) renameInstance(c *gin.Context) {
 	}
 
 	// Stop instance if running
-	if running, _ := IsServerRunning(oldName); running {
-		if err := StopServer(oldName); err != nil {
+	if running, _ := asaserver.IsServerRunning(oldName); running {
+		if err := asaserver.StopServer(oldName); err != nil {
 			c.JSON(http.StatusInternalServerError, StatusResponse{
 				Success: false,
 				Error:   fmt.Sprintf("Failed to stop server: %v", err),
@@ -290,8 +293,8 @@ func (s *APIServer) renameInstance(c *gin.Context) {
 	}
 
 	// Rename instance directory
-	oldPath := filepath.Join(InstancesDir, oldName)
-	newPath := filepath.Join(InstancesDir, req.NewName)
+	oldPath := filepath.Join(asaserver.InstancesDir, oldName)
+	newPath := filepath.Join(asaserver.InstancesDir, req.NewName)
 
 	if err := os.Rename(oldPath, newPath); err != nil {
 		c.JSON(http.StatusInternalServerError, StatusResponse{
@@ -302,19 +305,19 @@ func (s *APIServer) renameInstance(c *gin.Context) {
 	}
 
 	// Rename save directories
-	oldSavePath := filepath.Join(ServerFilesDir, "ShooterGame/Saved", oldName)
-	newSavePath := filepath.Join(ServerFilesDir, "ShooterGame/Saved", req.NewName)
+	oldSavePath := filepath.Join(asaserver.ServerFilesDir, "ShooterGame/Saved", oldName)
+	newSavePath := filepath.Join(asaserver.ServerFilesDir, "ShooterGame/Saved", req.NewName)
 	os.Rename(oldSavePath, newSavePath)
 
-	oldArksPath := filepath.Join(ServerFilesDir, "ShooterGame/Saved/SavedArks", oldName)
-	newArksPath := filepath.Join(ServerFilesDir, "ShooterGame/Saved/SavedArks", req.NewName)
+	oldArksPath := filepath.Join(asaserver.ServerFilesDir, "ShooterGame/Saved/SavedArks", oldName)
+	newArksPath := filepath.Join(asaserver.ServerFilesDir, "ShooterGame/Saved/SavedArks", req.NewName)
 	os.Rename(oldArksPath, newArksPath)
 
 	// Update SaveDir in configuration
-	config, err := LoadInstanceConfig(req.NewName)
+	config, err := asaserver.LoadInstanceConfig(req.NewName)
 	if err == nil {
 		config.SaveDir = req.NewName
-		SaveInstanceConfig(req.NewName, config)
+		asaserver.SaveInstanceConfig(req.NewName, config)
 	}
 
 	c.JSON(http.StatusOK, StatusResponse{
@@ -327,7 +330,7 @@ func (s *APIServer) renameInstance(c *gin.Context) {
 func (s *APIServer) startServer(c *gin.Context) {
 	name := c.Param("name")
 
-	if err := StartServer(name); err != nil {
+	if err := asaserver.StartServer(name); err != nil {
 		c.JSON(http.StatusInternalServerError, StatusResponse{
 			Success: false,
 			Error:   err.Error(),
@@ -345,7 +348,7 @@ func (s *APIServer) startServer(c *gin.Context) {
 func (s *APIServer) stopServer(c *gin.Context) {
 	name := c.Param("name")
 
-	if err := StopServer(name); err != nil {
+	if err := asaserver.StopServer(name); err != nil {
 		c.JSON(http.StatusInternalServerError, StatusResponse{
 			Success: false,
 			Error:   err.Error(),
@@ -363,7 +366,7 @@ func (s *APIServer) stopServer(c *gin.Context) {
 func (s *APIServer) restartServer(c *gin.Context) {
 	name := c.Param("name")
 
-	if err := RestartServer(name); err != nil {
+	if err := asaserver.RestartServer(name); err != nil {
 		c.JSON(http.StatusInternalServerError, StatusResponse{
 			Success: false,
 			Error:   err.Error(),
@@ -379,7 +382,7 @@ func (s *APIServer) restartServer(c *gin.Context) {
 
 // startAllServers starts all server instances
 func (s *APIServer) startAllServers(c *gin.Context) {
-	if err := StartAllInstances(); err != nil {
+	if err := asaserver.StartAllInstances(); err != nil {
 		c.JSON(http.StatusInternalServerError, StatusResponse{
 			Success: false,
 			Error:   err.Error(),
@@ -395,7 +398,7 @@ func (s *APIServer) startAllServers(c *gin.Context) {
 
 // stopAllServers stops all server instances
 func (s *APIServer) stopAllServers(c *gin.Context) {
-	if err := StopAllInstances(); err != nil {
+	if err := asaserver.StopAllInstances(); err != nil {
 		c.JSON(http.StatusInternalServerError, StatusResponse{
 			Success: false,
 			Error:   err.Error(),
@@ -422,7 +425,7 @@ func (s *APIServer) sendRCONCommand(c *gin.Context) {
 		return
 	}
 
-	response, err := SendRCONCommand(name, req.Command)
+	response, err := asaserver.SendRCONCommand(name, req.Command)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, StatusResponse{
 			Success: false,
@@ -453,7 +456,7 @@ func (s *APIServer) backupInstance(c *gin.Context) {
 		return
 	}
 
-	if err := BackupInstanceWorld(name, req.WorldFolder); err != nil {
+	if err := asaserver.BackupInstanceWorld(name, req.WorldFolder); err != nil {
 		c.JSON(http.StatusInternalServerError, StatusResponse{
 			Success: false,
 			Error:   err.Error(),
@@ -469,7 +472,7 @@ func (s *APIServer) backupInstance(c *gin.Context) {
 
 // listBackups returns all available backups
 func (s *APIServer) listBackups(c *gin.Context) {
-	backups, err := GetAvailableBackups()
+	backups, err := asaserver.GetAvailableBackups()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, StatusResponse{
 			Success: false,
@@ -501,7 +504,7 @@ func (s *APIServer) restoreBackup(c *gin.Context) {
 		return
 	}
 
-	if err := RestoreBackupToInstance(name, req.BackupFile); err != nil {
+	if err := asaserver.RestoreBackupToInstance(name, req.BackupFile); err != nil {
 		c.JSON(http.StatusInternalServerError, StatusResponse{
 			Success: false,
 			Error:   err.Error(),
@@ -519,7 +522,7 @@ func (s *APIServer) restoreBackup(c *gin.Context) {
 func (s *APIServer) updateServer(c *gin.Context) {
 	forceServer := c.DefaultQuery("force-server", "false") == "true"
 
-	if err := DownloadAndExtractSteamCmd(); err != nil {
+	if err := asaserver.DownloadAndExtractSteamCmd(); err != nil {
 		c.JSON(http.StatusInternalServerError, StatusResponse{
 			Success: false,
 			Error:   err.Error(),
@@ -527,7 +530,7 @@ func (s *APIServer) updateServer(c *gin.Context) {
 		return
 	}
 
-	if err := DownloadAndUpdateArkServer(); err != nil {
+	if err := asaserver.DownloadAndUpdateArkServer(); err != nil {
 		c.JSON(http.StatusInternalServerError, StatusResponse{
 			Success: false,
 			Error:   err.Error(),
@@ -535,7 +538,7 @@ func (s *APIServer) updateServer(c *gin.Context) {
 		return
 	}
 
-	if err := VerifyServerInstallation(forceServer); err != nil {
+	if err := asaserver.VerifyServerInstallation(forceServer); err != nil {
 		c.JSON(http.StatusInternalServerError, StatusResponse{
 			Success: false,
 			Error:   err.Error(),
@@ -554,4 +557,11 @@ func (s *APIServer) Start() error {
 	addr := fmt.Sprintf(":%d", s.port)
 	fmt.Printf("🚀 Starting API server on http://localhost%s\n", addr)
 	return s.engine.Run(addr)
+}
+
+// ActionAPI starts the HTTP API server
+func ActionAPI(ctx context.Context, cmd *cli.Command) error {
+	port := cmd.Int("port")
+	apiServer := NewAPIServer(port)
+	return apiServer.Start()
 }

@@ -1,20 +1,21 @@
-package main
+package test
 
 import (
+	"asa-server/winservice"
 	"testing"
 )
 
 // TestServiceName checks that the service name constants are properly defined
 func TestServiceName(t *testing.T) {
-	if ServiceName == "" {
+	if winservice.ServiceName == "" {
 		t.Error("ServiceName should not be empty")
 	}
 
-	if ServiceDisplayName == "" {
+	if winservice.ServiceDisplayName == "" {
 		t.Error("ServiceDisplayName should not be empty")
 	}
 
-	if ServiceDescription == "" {
+	if winservice.ServiceDescription == "" {
 		t.Error("ServiceDescription should not be empty")
 	}
 }

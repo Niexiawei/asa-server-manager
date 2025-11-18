@@ -1,10 +1,15 @@
-package main
+package winservice
 
 import (
+	"asa-server/asaserver"
+	"asa-server/webapi"
+	"context"
 	"fmt"
+	"log"
 	"os"
 	"time"
 
+	"github.com/urfave/cli/v3"
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/debug"
@@ -31,13 +36,22 @@ func (s *Service) Execute(args []string, r <-chan svc.ChangeRequest, changes cha
 	const cmdsAccepted = svc.AcceptStop | svc.AcceptShutdown
 	changes <- svc.Status{State: svc.StartPending}
 
+	if err := asaserver.EnsureDirectories(); err != nil {
+		log.Fatal(err)
+	}
+
+	// Initialize log mapping from persistent storage
+	if err := asaserver.InitializeLogMapping(); err != nil {
+		log.Fatal(err)
+	}
+
 	// Start the API server in a separate goroutine
 	go func() {
 		// Wait a bit for the service to be fully initialized
 		time.Sleep(2 * time.Second)
 
 		// Start the API server on port 8080
-		apiServer := NewAPIServer(8080)
+		apiServer := webapi.NewAPIServer(8080)
 		if err := apiServer.Start(); err != nil {
 			if elog != nil {
 				elog.Error(1, fmt.Sprintf("Failed to start API server: %v", err))
@@ -265,4 +279,24 @@ func isService() bool {
 		return false
 	}
 	return isService
+}
+
+// ActionServiceInstall installs the Windows service
+func ActionServiceInstall(ctx context.Context, cmd *cli.Command) error {
+	return installService()
+}
+
+// ActionServiceRemove removes the Windows service
+func ActionServiceRemove(ctx context.Context, cmd *cli.Command) error {
+	return removeService()
+}
+
+// ActionServiceStart starts the Windows service
+func ActionServiceStart(ctx context.Context, cmd *cli.Command) error {
+	return startService()
+}
+
+// ActionServiceStop stops the Windows service
+func ActionServiceStop(ctx context.Context, cmd *cli.Command) error {
+	return stopService()
 }

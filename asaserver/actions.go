@@ -1,4 +1,4 @@
-package main
+package asaserver
 
 import (
 	"bufio"
@@ -15,7 +15,7 @@ import (
 
 // Action functions for commands
 
-func actionUpdate(ctx context.Context, cmd *cli.Command) error {
+func ActionUpdate(ctx context.Context, cmd *cli.Command) error {
 	fmt.Println("📦 Installing/updating base server...")
 
 	// Download and extract SteamCMD
@@ -40,7 +40,7 @@ func actionUpdate(ctx context.Context, cmd *cli.Command) error {
 	return nil
 }
 
-func actionList(ctx context.Context, cmd *cli.Command) error {
+func ActionList(ctx context.Context, cmd *cli.Command) error {
 	instances, err := GetAvailableInstances()
 	if err != nil {
 		return err
@@ -64,7 +64,7 @@ func actionList(ctx context.Context, cmd *cli.Command) error {
 	return nil
 }
 
-func actionCreate(ctx context.Context, cmd *cli.Command) error {
+func ActionCreate(ctx context.Context, cmd *cli.Command) error {
 	fmt.Print("Enter the name for the new instance: ")
 	scanner := bufio.NewScanner(os.Stdin)
 	if !scanner.Scan() {
@@ -106,7 +106,7 @@ func actionCreate(ctx context.Context, cmd *cli.Command) error {
 	return nil
 }
 
-func actionManage(ctx context.Context, cmd *cli.Command) error {
+func ActionManage(ctx context.Context, cmd *cli.Command) error {
 	args := cmd.Args()
 	instanceName := ""
 	if args.Len() > 0 {
@@ -123,7 +123,7 @@ func actionManage(ctx context.Context, cmd *cli.Command) error {
 	return manageInstanceMenu(instanceName)
 }
 
-func actionStart(ctx context.Context, cmd *cli.Command) error {
+func ActionStart(ctx context.Context, cmd *cli.Command) error {
 	args := cmd.Args()
 	if args.Len() < 1 {
 		return fmt.Errorf("instance name required")
@@ -133,7 +133,7 @@ func actionStart(ctx context.Context, cmd *cli.Command) error {
 	return StartServer(instanceName)
 }
 
-func actionStop(ctx context.Context, cmd *cli.Command) error {
+func ActionStop(ctx context.Context, cmd *cli.Command) error {
 	args := cmd.Args()
 	if args.Len() < 1 {
 		return fmt.Errorf("instance name required")
@@ -143,7 +143,7 @@ func actionStop(ctx context.Context, cmd *cli.Command) error {
 	return StopServer(instanceName)
 }
 
-func actionRestart(ctx context.Context, cmd *cli.Command) error {
+func ActionRestart(ctx context.Context, cmd *cli.Command) error {
 	args := cmd.Args()
 	if args.Len() < 1 {
 		return fmt.Errorf("instance name required")
@@ -153,7 +153,7 @@ func actionRestart(ctx context.Context, cmd *cli.Command) error {
 	return RestartServer(instanceName)
 }
 
-func actionStatus(ctx context.Context, cmd *cli.Command) error {
+func ActionStatus(ctx context.Context, cmd *cli.Command) error {
 	args := cmd.Args()
 	if args.Len() == 0 {
 		// Show status of all instances
@@ -202,7 +202,7 @@ func actionStatus(ctx context.Context, cmd *cli.Command) error {
 	return nil
 }
 
-func actionRCON(ctx context.Context, cmd *cli.Command) error {
+func ActionRCON(ctx context.Context, cmd *cli.Command) error {
 	args := cmd.Args()
 	if args.Len() < 2 {
 		return fmt.Errorf("instance name and command required")
@@ -224,7 +224,7 @@ func actionRCONImpl(instanceName string, command string) error {
 	return nil
 }
 
-func actionDelete(ctx context.Context, cmd *cli.Command) error {
+func ActionDelete(ctx context.Context, cmd *cli.Command) error {
 	args := cmd.Args()
 	var instanceName string
 	if args.Len() > 0 {
@@ -275,7 +275,7 @@ func actionDelete(ctx context.Context, cmd *cli.Command) error {
 	return nil
 }
 
-func actionRename(ctx context.Context, cmd *cli.Command) error {
+func ActionRename(ctx context.Context, cmd *cli.Command) error {
 	args := cmd.Args()
 	var instanceName string
 	if args.Len() > 0 {
@@ -340,7 +340,7 @@ func actionRename(ctx context.Context, cmd *cli.Command) error {
 	return nil
 }
 
-func actionBackup(ctx context.Context, cmd *cli.Command) error {
+func ActionBackup(ctx context.Context, cmd *cli.Command) error {
 	args := cmd.Args()
 	if args.Len() < 2 {
 		return fmt.Errorf("instance name and world folder required")
@@ -352,7 +352,7 @@ func actionBackup(ctx context.Context, cmd *cli.Command) error {
 	return BackupInstanceWorld(instanceName, worldFolder)
 }
 
-func actionRestore(ctx context.Context, cmd *cli.Command) error {
+func ActionRestore(ctx context.Context, cmd *cli.Command) error {
 	args := cmd.Args()
 	if args.Len() < 1 {
 		return fmt.Errorf("instance name required")
@@ -405,25 +405,18 @@ func actionRestore(ctx context.Context, cmd *cli.Command) error {
 	return RestoreBackupToInstance(instanceName, selectedBackup)
 }
 
-func actionStartAll(ctx context.Context, cmd *cli.Command) error {
+func ActionStartAll(ctx context.Context, cmd *cli.Command) error {
 	return StartAllInstances()
 }
 
-func actionStopAll(ctx context.Context, cmd *cli.Command) error {
+func ActionStopAll(ctx context.Context, cmd *cli.Command) error {
 	return StopAllInstances()
 }
 
-func actionConfigRestart(ctx context.Context, cmd *cli.Command) error {
+func ActionConfigRestart(ctx context.Context, cmd *cli.Command) error {
 	fmt.Println("⚠️  Restart manager configuration is not yet implemented.")
 	fmt.Println("📝 You can manually edit the restart configuration file when ready.")
 	return nil
-}
-
-// actionAPI starts the HTTP API server
-func actionAPI(ctx context.Context, cmd *cli.Command) error {
-	port := cmd.Int("port")
-	apiServer := NewAPIServer(port)
-	return apiServer.Start()
 }
 
 // Helper functions
@@ -672,24 +665,4 @@ func editInstanceConfigFile(instanceName string) error {
 
 	fmt.Println("✅ Configuration file editing completed.")
 	return nil
-}
-
-// actionServiceInstall installs the Windows service
-func actionServiceInstall(ctx context.Context, cmd *cli.Command) error {
-	return installService()
-}
-
-// actionServiceRemove removes the Windows service
-func actionServiceRemove(ctx context.Context, cmd *cli.Command) error {
-	return removeService()
-}
-
-// actionServiceStart starts the Windows service
-func actionServiceStart(ctx context.Context, cmd *cli.Command) error {
-	return startService()
-}
-
-// actionServiceStop stops the Windows service
-func actionServiceStop(ctx context.Context, cmd *cli.Command) error {
-	return stopService()
 }

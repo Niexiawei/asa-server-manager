@@ -1,6 +1,7 @@
-package main
+package asaserver
 
 import (
+	"asa-server/win32api"
 	"fmt"
 	"io"
 	"os"
@@ -12,13 +13,13 @@ import (
 	"syscall"
 	"time"
 
-	"asa-server/win32api"
-
+	"github.com/fsnotify/fsnotify"
 	"github.com/gorcon/rcon"
 )
 
 // logMappingMutex protects the instance to log file mapping
 var logMappingMutex sync.RWMutex
+var serverActionsLock sync.Locker
 
 // instanceLogMapping stores the mapping of instance names to their log file paths
 var instanceLogMapping = make(map[string]string)
@@ -37,6 +38,54 @@ func InitializeLogMapping() error {
 	if len(mappings) > 0 {
 		fmt.Printf("📂 Loaded %d instance log mappings from persistent storage\n", len(mappings))
 	}
+
+	go func() {
+		fmt.Println("启动对 LogMappingFile 的修改监听 ...")
+		watcher, err := fsnotify.NewWatcher()
+		if err != nil {
+			panic(fmt.Sprintf("❌ Failed to create file watcher: %v", err))
+		}
+
+		defer watcher.Close()
+		if err := watcher.Add(LogMappingFile); err != nil {
+			panic(fmt.Sprintf("❌ Failed to watch logs directory: %v", err))
+		}
+
+		for {
+			select {
+			case event, ok := <-watcher.Events:
+				if !ok {
+					return
+				}
+				if event.Name != LogMappingFile {
+					continue
+				}
+
+				mappings, err := LoadLogMappingFromFile()
+				fmt.Println(mappings)
+				if err != nil {
+					fmt.Println("failed to load log mapping from file:", err)
+					continue
+				}
+
+				logMappingMutex.Lock()
+				instanceLogMapping = mappings
+				logMappingMutex.Unlock()
+
+				if len(mappings) > 0 {
+					fmt.Printf("📂 Loaded %d instance log mappings from persistent storage\n", len(mappings))
+				}
+
+			case err, ok := <-watcher.Errors:
+				if !ok {
+					return
+				}
+				println(fmt.Sprintf("❌ Watcher error: %v", err))
+				return
+			}
+		}
+
+	}()
 
 	return nil
 }
@@ -162,6 +211,7 @@ func GetInstanceLogFile(instanceName string) (string, bool) {
 func IsServerRunning(instanceName string) (bool, error) {
 	// Load the instance configuration to get the ports
 	config, err := LoadInstanceConfig(instanceName)
+
 	if err != nil {
 		return false, err
 	}
@@ -181,20 +231,11 @@ func IsServerRunning(instanceName string) (bool, error) {
 
 	// Check if both the game port and RCON port are in the output
 	gamePortStr := fmt.Sprintf(":%d", config.Port)
-	rconPortStr := fmt.Sprintf(":%d", config.RCONPort)
-
 	// Both ports must be present in the netstat output for the server to be considered running
 	hasGamePort := strings.Contains(netstatOutput, gamePortStr)
-	hasRCONPort := strings.Contains(netstatOutput, rconPortStr)
 
-	if !hasGamePort || !hasRCONPort {
-		// Debug: Print which ports are missing
-		if !hasGamePort {
-			fmt.Printf("⚠️ Game port :%d not found\n", config.Port)
-		}
-		if !hasRCONPort {
-			fmt.Printf("⚠️ RCON port :%d not found\n", config.RCONPort)
-		}
+	if !hasGamePort {
+		fmt.Printf("⚠️ Game port :%d not found\n", config.Port)
 		return false, nil
 	}
 
@@ -481,8 +522,8 @@ func StopServer(instanceName string) error {
 		fmt.Printf("✅ Server instance %s reported 'Exiting...'. Awaiting shutdown...\n", instanceName)
 		// Wait for process to finish using win32api.IsProcessExited
 	} else {
-		if err := exec.Command("taskkill", "/PID", fmt.Sprintf("%d", pid), "/F").Run(); err != nil {
-			return fmt.Errorf("failed to kill process PID %d: %w", pid, err)
+		if err := exec.Command("taskkill", "/PID", fmt.Sprintf("%d", pid)).Run(); err != nil {
+			fmt.Printf("failed to kill process PID %d: %s\n", pid, err.Error())
 		}
 	}
 
