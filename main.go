@@ -10,9 +10,17 @@ import (
 	"os"
 	"runtime"
 
+	"github.com/kardianos/service"
 	"github.com/urfave/cli/v3"
-	"golang.org/x/sys/windows/svc"
 )
+
+// isWindowsService checks if running as a Windows service
+func isWindowsService() (bool, error) {
+	isInteractive := service.Interactive()
+	// If running as a service, Interactive() returns false
+	// If not running as a service (interactive mode), Interactive() returns true
+	return !isInteractive, nil
+}
 
 func main() {
 	// 检查操作系统，仅允许 Windows
@@ -173,8 +181,8 @@ func main() {
 		},
 	}
 
-	// Check if running as Windows service
-	isService, err := svc.IsWindowsService()
+	// Check if running as Windows service and run service
+	isService, err := isWindowsService()
 	if err != nil {
 		log.Fatal(err)
 	}

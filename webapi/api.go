@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -559,6 +560,33 @@ func (s *APIServer) Start() error {
 	addr := fmt.Sprintf(":%d", s.port)
 	fmt.Printf("🚀 Starting API server on http://localhost%s\n", addr)
 	return s.engine.Run(addr)
+}
+
+// StartWithContext starts the API server with context support for graceful shutdown
+func (s *APIServer) StartWithContext(ctx context.Context) error {
+	addr := fmt.Sprintf(":%d", s.port)
+	fmt.Printf("🚀 Starting API server on http://localhost%s\n", addr)
+
+	// Create HTTP server
+	server := &http.Server{
+		Addr:    addr,
+		Handler: s.engine,
+	}
+
+	// Start server in background
+	go func() {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			fmt.Printf("API server error: %v\n", err)
+		}
+	}()
+
+	// Wait for context cancellation
+	<-ctx.Done()
+
+	// Gracefully shutdown the server
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return server.Shutdown(shutdownCtx)
 }
 
 // ActionAPI starts the HTTP API server

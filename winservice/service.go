@@ -6,18 +6,11 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
 	"time"
 
+	"github.com/kardianos/service"
 	"github.com/urfave/cli/v3"
-	"golang.org/x/sys/windows"
-	"golang.org/x/sys/windows/svc"
-	"golang.org/x/sys/windows/svc/debug"
-	"golang.org/x/sys/windows/svc/eventlog"
-	"golang.org/x/sys/windows/svc/mgr"
 )
-
-var elog debug.Log
 
 // ServiceName is the name of the Windows service
 const ServiceName = "ASA-Server-Manager"
@@ -28,138 +21,75 @@ const ServiceDisplayName = "ASA Server Manager"
 // ServiceDescription is the description of the Windows service
 const ServiceDescription = "ARK Server Ascended Instance Management Service"
 
-// Service implements the Windows service handler
-type Service struct{}
+// program implements the service.Service interface
+type program struct {
+	apiServer *webapi.APIServer
+	cancel    context.CancelFunc
+}
 
-// Execute implements the Windows service handler interface
-func (s *Service) Execute(args []string, r <-chan svc.ChangeRequest, changes chan<- svc.Status) (ssec bool, errno uint32) {
-	const cmdsAccepted = svc.AcceptStop | svc.AcceptShutdown
-	changes <- svc.Status{State: svc.StartPending}
+// Start starts the service
+func (p *program) Start(s service.Service) error {
+	log.Printf("Starting %s service \n", ServiceName)
 
+	// Ensure directories exist
 	if err := asaserver.EnsureDirectories(); err != nil {
-		log.Fatal(err)
+		log.Printf("Failed to ensure directories: %v\n", err)
+		return err
 	}
 
 	// Initialize log mapping from persistent storage
 	if err := asaserver.InitializeLogMapping(); err != nil {
-		log.Fatal(err)
+		log.Printf("Failed to initialize log mapping: %v\n", err)
+		return err
 	}
 
+	// Create API server
+	p.apiServer = webapi.NewAPIServer(8080)
+
 	// Start the API server in a separate goroutine
+	ctx, cancel := context.WithCancel(context.Background())
+	p.cancel = cancel
+
 	go func() {
 		// Wait a bit for the service to be fully initialized
 		time.Sleep(2 * time.Second)
 
-		// Start the API server on port 8080
-		apiServer := webapi.NewAPIServer(8080)
-		if err := apiServer.Start(); err != nil {
-			if elog != nil {
-				elog.Error(1, fmt.Sprintf("Failed to start API server: %v", err))
-			}
+		if err := p.apiServer.StartWithContext(ctx); err != nil && err != context.Canceled {
+			log.Printf("Failed to start API server: %v\n", err)
 		}
 	}()
 
-	changes <- svc.Status{State: svc.Running, Accepts: cmdsAccepted}
-
-loop:
-	for {
-		select {
-		case c := <-r:
-			switch c.Cmd {
-			case svc.Interrogate:
-				changes <- c.CurrentStatus
-			case svc.Stop, svc.Shutdown:
-				// Log shutdown
-				if elog != nil {
-					elog.Info(1, "Service shutdown requested")
-				}
-
-				// Set status to stop pending
-				changes <- svc.Status{State: svc.StopPending}
-				break loop
-			default:
-				if elog != nil {
-					elog.Error(1, fmt.Sprintf("unexpected control request #%d", c.Cmd))
-				}
-			}
-		}
-	}
-
-	changes <- svc.Status{State: svc.Stopped}
-	return
+	return nil
 }
 
-// RunService runs the service
-func RunService(isDebug bool) {
-	var err error
-	if isDebug {
-		elog = debug.New(ServiceName)
-	} else {
-		elog, err = eventlog.Open(ServiceName)
-		if err != nil {
-			return
-		}
-	}
-	defer elog.Close()
+// Stop stops the service
+func (p *program) Stop(s service.Service) error {
+	log.Printf("Stopping %s service \n", ServiceName)
 
-	elog.Info(1, fmt.Sprintf("starting %s service", ServiceName))
-	run := svc.Run
-	if isDebug {
-		run = debug.Run
+	// Cancel the context to gracefully shutdown API server
+	if p.cancel != nil {
+		p.cancel()
 	}
-	err = run(ServiceName, &Service{})
-	if err != nil {
-		elog.Error(1, fmt.Sprintf("%s service failed: %v", ServiceName, err))
-		return
-	}
-	elog.Info(1, fmt.Sprintf("%s service stopped", ServiceName))
+
+	// Give it a moment to shutdown gracefully
+	time.Sleep(1 * time.Second)
+
+	return nil
 }
 
 // installService installs the Windows service
 func installService() error {
-	exePath, err := os.Executable()
+	prg := &program{}
+	s, err := service.New(prg, &service.Config{
+		Name:        ServiceName,
+		DisplayName: ServiceDisplayName,
+		Description: ServiceDescription,
+	})
 	if err != nil {
 		return err
 	}
 
-	// Connect to the Windows service manager
-	m, err := mgr.Connect()
-	if err != nil {
-		return err
-	}
-	defer m.Disconnect()
-
-	// Check if service already exists
-	s, err := m.OpenService(ServiceName)
-	if err == nil {
-		s.Close()
-		return fmt.Errorf("service %s already exists", ServiceName)
-	}
-
-	// Create the service
-	config := mgr.Config{
-		ServiceType:      windows.SERVICE_WIN32_OWN_PROCESS,
-		StartType:        mgr.StartAutomatic,
-		ErrorControl:     mgr.ErrorNormal,
-		DisplayName:      ServiceDisplayName,
-		Description:      ServiceDescription,
-		DelayedAutoStart: true,
-	}
-
-	s, err = m.CreateService(ServiceName, exePath, config, "service")
-	if err != nil {
-		return err
-	}
-	defer s.Close()
-
-	// Set recovery actions
-	recoveryActions := []mgr.RecoveryAction{
-		{Type: mgr.ServiceRestart, Delay: 10 * time.Second},
-		{Type: mgr.ServiceRestart, Delay: 10 * time.Second},
-		{Type: mgr.ServiceRestart, Delay: 10 * time.Second},
-	}
-
-	err = s.SetRecoveryActions(recoveryActions, 60)
+	err = s.Install()
 	if err != nil {
 		return err
 	}
@@ -170,48 +100,17 @@ func installService() error {
 
 // removeService removes the Windows service
 func removeService() error {
-	// Connect to the Windows service manager
-	m, err := mgr.Connect()
+	prg := &program{}
+	s, err := service.New(prg, &service.Config{
+		Name:        ServiceName,
+		DisplayName: ServiceDisplayName,
+		Description: ServiceDescription,
+	})
 	if err != nil {
 		return err
 	}
-	defer m.Disconnect()
 
-	// Open the service
-	s, err := m.OpenService(ServiceName)
-	if err != nil {
-		return fmt.Errorf("service %s is not installed", ServiceName)
-	}
-	defer s.Close()
-
-	// Check service status
-	status, err := s.Query()
-	if err != nil {
-		return fmt.Errorf("failed to query service status: %v", err)
-	}
-
-	// If service is running, stop it first
-	if status.State == svc.Running || status.State == svc.StartPending {
-		_, err = s.Control(svc.Stop)
-		if err != nil {
-			return fmt.Errorf("failed to stop service: %v", err)
-		}
-
-		// Wait for service to stop
-		for i := 0; i < 30; i++ { // Wait up to 30 seconds
-			time.Sleep(1 * time.Second)
-			status, err = s.Query()
-			if err != nil {
-				break
-			}
-			if status.State != svc.Running && status.State != svc.StopPending {
-				break
-			}
-		}
-	}
-
-	// Delete the service
-	err = s.Delete()
+	err = s.Uninstall()
 	if err != nil {
 		return err
 	}
@@ -222,24 +121,19 @@ func removeService() error {
 
 // startService starts the Windows service
 func startService() error {
-	// Connect to the Windows service manager
-	m, err := mgr.Connect()
+	prg := &program{}
+	s, err := service.New(prg, &service.Config{
+		Name:        ServiceName,
+		DisplayName: ServiceDisplayName,
+		Description: ServiceDescription,
+	})
 	if err != nil {
 		return err
 	}
-	defer m.Disconnect()
 
-	// Open the service
-	s, err := m.OpenService(ServiceName)
+	err = s.Start()
 	if err != nil {
-		return fmt.Errorf("could not access service: %v", err)
-	}
-	defer s.Close()
-
-	// Start the service
-	err = s.Start("service")
-	if err != nil {
-		return fmt.Errorf("could not start service: %v", err)
+		return err
 	}
 
 	fmt.Printf("Service %s started successfully\n", ServiceName)
@@ -248,37 +142,42 @@ func startService() error {
 
 // stopService stops the Windows service
 func stopService() error {
-	// Connect to the Windows service manager
-	m, err := mgr.Connect()
+	prg := &program{}
+	s, err := service.New(prg, &service.Config{
+		Name:        ServiceName,
+		DisplayName: ServiceDisplayName,
+		Description: ServiceDescription,
+	})
 	if err != nil {
 		return err
 	}
-	defer m.Disconnect()
 
-	// Open the service
-	s, err := m.OpenService(ServiceName)
+	err = s.Stop()
 	if err != nil {
-		return fmt.Errorf("could not access service: %v", err)
-	}
-	defer s.Close()
-
-	// Stop the service
-	_, err = s.Control(svc.Stop)
-	if err != nil {
-		return fmt.Errorf("could not stop service: %v", err)
+		return err
 	}
 
 	fmt.Printf("Service %s stopped successfully\n", ServiceName)
 	return nil
 }
 
-// isService checks if the application is running as a Windows service
-func isService() bool {
-	isService, err := svc.IsWindowsService()
+// RunService runs the service
+func RunService(isDebug bool) error {
+	prg := &program{}
+	s, err := service.New(prg, &service.Config{
+		Name:        ServiceName,
+		DisplayName: ServiceDisplayName,
+		Description: ServiceDescription,
+	})
 	if err != nil {
-		return false
+		log.Fatal(err)
 	}
-	return isService
+
+	err = s.Run()
+	if err != nil {
+		log.Fatal(err)
+	}
+	return nil
 }
 
 // ActionServiceInstall installs the Windows service
