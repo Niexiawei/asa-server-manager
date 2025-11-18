@@ -8,6 +8,7 @@ import (
 	"runtime"
 
 	"github.com/urfave/cli/v3"
+	"golang.org/x/sys/windows/svc"
 )
 
 func main() {
@@ -140,7 +141,44 @@ func main() {
 				},
 				Action: actionAPI,
 			},
+			{
+				Name:  "service",
+				Usage: "Manage Windows service",
+				Commands: []*cli.Command{
+					{
+						Name:   "install",
+						Usage:  "Install as Windows service",
+						Action: actionServiceInstall,
+					},
+					{
+						Name:   "remove",
+						Usage:  "Remove Windows service",
+						Action: actionServiceRemove,
+					},
+					{
+						Name:   "start",
+						Usage:  "Start Windows service",
+						Action: actionServiceStart,
+					},
+					{
+						Name:   "stop",
+						Usage:  "Stop Windows service",
+						Action: actionServiceStop,
+					},
+				},
+			},
 		},
+	}
+
+	// Check if running as Windows service
+	isService, err := svc.IsWindowsService()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if isService {
+		RunService(false)
+		return
 	}
 
 	if err := app.Run(context.Background(), os.Args); err != nil {

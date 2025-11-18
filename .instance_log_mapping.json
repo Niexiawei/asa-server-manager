@@ -1,6 +1,3 @@
 {
-  "mappings": {
-    "meijue": "D:\\golang\\asa-server\\server-files\\ShooterGame\\Saved\\Logs\\ShooterGame_2.log",
-    "test1": "D:\\golang\\asa-server\\server-files\\ShooterGame\\Saved\\Logs\\ShooterGame.log"
-  }
+  "mappings": {}
 }

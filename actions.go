@@ -673,3 +673,23 @@ func editInstanceConfigFile(instanceName string) error {
 	fmt.Println("✅ Configuration file editing completed.")
 	return nil
 }
+
+// actionServiceInstall installs the Windows service
+func actionServiceInstall(ctx context.Context, cmd *cli.Command) error {
+	return installService()
+}
+
+// actionServiceRemove removes the Windows service
+func actionServiceRemove(ctx context.Context, cmd *cli.Command) error {
+	return removeService()
+}
+
+// actionServiceStart starts the Windows service
+func actionServiceStart(ctx context.Context, cmd *cli.Command) error {
+	return startService()
+}
+
+// actionServiceStop stops the Windows service
+func actionServiceStop(ctx context.Context, cmd *cli.Command) error {
+	return stopService()
+}

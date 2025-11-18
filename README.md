@@ -11,6 +11,8 @@
 - ✅ RCON 命令发送
 - ✅ 批量操作（启动/停止所有实例）
 - ✅ 配置文件管理
+- ✅ Windows 服务支持（安装、启动、停止、移除）
+- ✅ HTTP API 服务（通过Windows服务自动启动）
 
 ## 安装
 
@@ -105,6 +107,21 @@ asa-manager stop-all
 #### 交互式管理
 ```bash
 asa-manager manage <instance_name>
+```
+
+#### Windows服务管理
+```bash
+# 安装为Windows服务
+asa-manager service install
+
+# 启动Windows服务
+asa-manager service start
+
+# 停止Windows服务
+asa-manager service stop
+
+# 移除Windows服务
+asa-manager service remove
 ```
 
 ## 目录结构
@@ -241,3 +258,51 @@ d:\golang\asa-server\
 - 实例已停止
 - 世界文件夹名称正确
 - 有足够的磁盘空间
+
+## Windows 服务支持
+
+ASA Server Manager 支持作为 Windows 服务运行，这使得服务器可以在系统启动时自动启动，
+并在后台持续运行。
+
+### 服务功能
+
+- 自动在系统启动时启动
+- 启动后自动运行 HTTP API 服务器（默认端口 8080）
+- 通过 HTTP API 管理所有 ASA 服务器实例
+- 自动重启功能，如果服务意外停止会自动重启
+
+### 服务管理命令
+
+```bash
+# 安装为Windows服务（需要管理员权限）
+asa-manager service install
+
+# 启动Windows服务
+asa-manager service start
+
+# 停止Windows服务
+asa-manager service stop
+
+# 移除Windows服务
+asa-manager service remove
+```
+
+### 使用前准备
+
+1. 确保已使用 `asa-manager update` 命令安装了基础服务器
+2. 以管理员身份运行命令提示符或 PowerShell
+3. 确保防火墙允许端口 8080 的入站连接（如果需要远程访问 API）
+
+### API 端点
+
+- `GET /health` - 健康检查
+- `GET /api/instances` - 列出所有实例
+- `POST /api/instances` - 创建新实例
+- `GET /api/instances/{name}` - 获取实例状态
+- `DELETE /api/instances/{name}` - 删除实例
+- `PUT /api/instances/{name}` - 重命名实例
+- `POST /api/server/{name}/start` - 启动服务器实例
+- `POST /api/server/{name}/stop` - 停止服务器实例
+- `POST /api/server/{name}/restart` - 重启服务器实例
+- `POST /api/server/start-all` - 启动所有实例
+- `POST /api/server/stop-all` - 停止所有实例

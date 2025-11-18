@@ -243,7 +243,7 @@ func copyDir(src, dst string) error {
 }
 
 // setupInstanceConfig sets up the instance configuration directory with proper symlinks or junctions
-func setupInstanceConfig(instanceName string) error {
+func setupInstanceConfig(instanceName string, confReset *func()) error {
 	instanceConfigDir := filepath.Join(InstancesDir, instanceName, "Config")
 	baseConfigDir := filepath.Join(ServerFilesDir, "ShooterGame/Saved/Config/WindowsServer")
 	baseConfigDirBackup := baseConfigDir + ".bak"
@@ -288,11 +288,34 @@ func setupInstanceConfig(instanceName string) error {
 		return fmt.Errorf("failed to create directory junction: %w", err)
 	}
 
+	if confReset != nil {
+		reset := func() {
+			// Remove the junction
+			if err := os.RemoveAll(baseConfigDir); err != nil {
+				fmt.Printf("⚠️  Warning: Failed to remove junction for instance %s: %v\n", instanceName, err)
+			}
+
+			// Restore the original configuration directory from backup if it exists
+			if _, err := os.Stat(baseConfigDirBackup); err == nil {
+				if err := os.Rename(baseConfigDirBackup, baseConfigDir); err != nil {
+					fmt.Printf("⚠️  Warning: Failed to restore original config directory for instance %s: %v\n", instanceName, err)
+				} else {
+					fmt.Printf("✅ Original configuration directory restored for instance: %s\n", instanceName)
+				}
+			}
+		}
+		*confReset = reset
+	}
+
 	return nil
 }
 
 // StartServer starts a server instance
 func StartServer(instanceName string) error {
+	var (
+		confReset func()
+	)
+
 	if running, err := IsServerRunning(instanceName); err == nil && running {
 		fmt.Printf("⚠️  Server for instance %s is already running.\n", instanceName)
 		return nil
@@ -312,7 +335,7 @@ func StartServer(instanceName string) error {
 	fmt.Printf("🚀 Starting server for instance: %s\n", instanceName)
 
 	// Setup instance configuration directory and symlinks
-	if err := setupInstanceConfig(instanceName); err != nil {
+	if err := setupInstanceConfig(instanceName, &confReset); err != nil {
 		return err
 	}
 
@@ -388,12 +411,12 @@ func StartServer(instanceName string) error {
 	fmt.Printf("✅ Server started for instance: %s. It should be fully operational in approximately 60 seconds.\n", instanceName)
 	fmt.Printf("📝 Game log file: %s\n", gameLogPath)
 	time.Sleep(60 * time.Second)
-
+	confReset()
 	// Persist the log mapping for future restarts
 	if err := PersistLogMapping(); err != nil {
 		fmt.Printf("⚠️  Warning: Failed to persist log mapping: %v\n", err)
 	}
-	
+
 	return nil
 }
 
