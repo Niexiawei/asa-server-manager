@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/urfave/cli/v3"
 )
@@ -22,6 +23,7 @@ type APIServer struct {
 func NewAPIServer(port int) *APIServer {
 	gin.SetMode(gin.ReleaseMode)
 	engine := gin.Default()
+	engine.Use(cors.Default())
 
 	server := &APIServer{
 		engine: engine,

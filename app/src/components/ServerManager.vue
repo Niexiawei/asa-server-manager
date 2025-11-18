@@ -1,84 +1,98 @@
 <template>
   <div class="server-manager">
-    <h2>服务器实例管理</h2>
-    
-    <!-- 实例列表 -->
-    <div class="instances-section">
-      <h3>现有实例</h3>
-      <div v-if="loading" class="loading">加载中...</div>
-      <div v-else-if="instances.length === 0" class="no-instances">
-        暂无实例，请创建新实例
-      </div>
-      <div v-else class="instances-list">
-        <div 
-          v-for="instance in instances" 
-          :key="instance.name" 
-          class="instance-card"
-          :class="{ running: instance.running }"
-        >
-          <h4>{{ instance.name }}</h4>
-          <p>状态: {{ instance.running ? '运行中' : '已停止' }}</p>
-          <div class="instance-actions">
-            <button 
-              @click="startInstance(instance.name)"
-              :disabled="instance.running"
-            >
-              启动
-            </button>
-            <button 
-              @click="stopInstance(instance.name)"
-              :disabled="!instance.running"
-            >
-              停止
-            </button>
-            <button @click="deleteInstance(instance.name)">删除</button>
-          </div>
-        </div>
-      </div>
-    </div>
-    
-    <!-- 创建新实例 -->
-    <div class="create-section">
-      <h3>创建新实例</h3>
-      <form @submit.prevent="createInstance">
-        <div class="form-group">
-          <label for="instanceName">实例名称:</label>
-          <input 
-            id="instanceName" 
-            v-model="newInstanceName" 
-            type="text" 
-            required 
-            placeholder="输入实例名称"
+    <a-card title="服务器实例管理" :bordered="false" class="main-card">
+      <!-- 实例列表 -->
+      <a-card title="现有实例" :bordered="false">
+        <template #extra>
+          <a-button type="primary" @click="showCreateModal = true">新建实例</a-button>
+        </template>
+        <a-spin :loading="loading" style="width: 100%;">
+          <a-empty v-if="instances.length === 0" description="暂无实例，请创建新实例"/>
+          <a-row :gutter="20" v-else>
+            <a-col :span="12" v-for="instance in instances" :key="instance.name">
+              <a-card
+                  class="instance-item"
+                  :bordered="true"
+                  :class="['instance-card', { running: instance.running }]"
+              >
+                <a-card-meta :title="instance.name">
+                  <template #description>
+                    <p>状态: {{ instance.running ? '运行中' : '已停止' }}</p>
+                  </template>
+                </a-card-meta>
+                <template #actions>
+                  <a-button
+                      @click="startInstance(instance.name)"
+                      :disabled="instance.running"
+                      type="primary"
+                      size="small"
+                  >
+                    启动
+                  </a-button>
+                  <a-button
+                      @click="stopInstance(instance.name)"
+                      :disabled="!instance.running"
+                      status="warning"
+                      size="small"
+                  >
+                    停止
+                  </a-button>
+                  <a-button
+                      @click="deleteInstanceHandler(instance.name)"
+                      status="danger"
+                      size="small"
+                  >
+                    删除
+                  </a-button>
+                </template>
+              </a-card>
+            </a-col>
+          </a-row>
+        </a-spin>
+      </a-card>
+    </a-card>
+
+    <!-- 创建实例弹窗 -->
+    <a-modal
+        v-model:visible="showCreateModal"
+        title="创建新实例"
+        @ok="createInstanceHandler"
+        @cancel="showCreateModal = false"
+    >
+      <a-form :model="form">
+        <a-form-item field="instanceName" label="实例名称">
+          <a-input
+              v-model="form.instanceName"
+              placeholder="输入实例名称"
           />
-        </div>
-        <button type="submit">创建实例</button>
-      </form>
-    </div>
+        </a-form-item>
+      </a-form>
+    </a-modal>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import {ref, reactive, onMounted} from 'vue'
+import {listInstances, createInstance, startServer, stopServer, deleteInstance} from '../apis/api.js'
 
 // 状态管理
 const instances = ref([])
 const loading = ref(false)
-const newInstanceName = ref('')
+const showCreateModal = ref(false)
+const form = reactive({
+  instanceName: ''
+})
 
 // 获取实例列表
 const fetchInstances = async () => {
   loading.value = true
   try {
-    // 这里应该调用实际的 API 端点
-    // const response = await fetch('/api/instances')
-    // const data = await response.json()
-    // instances.value = data.instances
-    
-    // 模拟数据
-    instances.value = [
-      { name: 'TheIsland', running: true },
-      { name: 'Ragnarok', running: false }
-    ]
+    const data = await listInstances()
+    if (data.success) {
+      instances.value = data.data.instances
+    } else {
+      console.error('获取实例列表失败:', data.error)
+    }
   } catch (error) {
     console.error('获取实例列表失败:', error)
   } finally {
@@ -87,25 +101,21 @@ const fetchInstances = async () => {
 }
 
 // 创建实例
-const createInstance = async () => {
-  if (!newInstanceName.value.trim()) return
-  
+const createInstanceHandler = async ({values, errors}) => {
+  if (errors || !form.instanceName.trim()) return
+
   try {
-    // 这里应该调用实际的 API 端点
-    // const response = await fetch('/api/instances', {
-    //   method: 'POST',
-    //   headers: { 'Content-Type': 'application/json' },
-    //   body: JSON.stringify({ name: newInstanceName.value })
-    // })
-    
-    // 添加到本地列表
-    instances.value.push({
-      name: newInstanceName.value,
-      running: false
-    })
-    
-    // 清空输入
-    newInstanceName.value = ''
+    const data = await createInstance(form.instanceName)
+    if (data.success) {
+      // 清空输入
+      form.instanceName = ''
+      // 关闭弹窗
+      showCreateModal.value = false
+      // 重新获取实例列表
+      await fetchInstances()
+    } else {
+      console.error('创建实例失败:', data.error)
+    }
   } catch (error) {
     console.error('创建实例失败:', error)
   }
@@ -114,15 +124,15 @@ const createInstance = async () => {
 // 启动实例
 const startInstance = async (name) => {
   try {
-    // 这里应该调用实际的 API 端点
-    // const response = await fetch(`/api/server/${name}/start`, {
-    //   method: 'POST'
-    // })
-    
-    // 更新本地状态
-    const instance = instances.value.find(inst => inst.name === name)
-    if (instance) {
-      instance.running = true
+    const data = await startServer(name)
+    if (data.success) {
+      // 更新本地状态
+      const instance = instances.value.find(inst => inst.name === name)
+      if (instance) {
+        instance.running = true
+      }
+    } else {
+      console.error('启动实例失败:', data.error)
     }
   } catch (error) {
     console.error('启动实例失败:', error)
@@ -132,15 +142,15 @@ const startInstance = async (name) => {
 // 停止实例
 const stopInstance = async (name) => {
   try {
-    // 这里应该调用实际的 API 端点
-    // const response = await fetch(`/api/server/${name}/stop`, {
-    //   method: 'POST'
-    // })
-    
-    // 更新本地状态
-    const instance = instances.value.find(inst => inst.name === name)
-    if (instance) {
-      instance.running = false
+    const data = await stopServer(name)
+    if (data.success) {
+      // 更新本地状态
+      const instance = instances.value.find(inst => inst.name === name)
+      if (instance) {
+        instance.running = false
+      }
+    } else {
+      console.error('停止实例失败:', data.error)
     }
   } catch (error) {
     console.error('停止实例失败:', error)
@@ -148,20 +158,27 @@ const stopInstance = async (name) => {
 }
 
 // 删除实例
-const deleteInstance = async (name) => {
-  if (!confirm(`确定要删除实例 "${name}" 吗？`)) return
-  
-  try {
-    // 这里应该调用实际的 API 端点
-    // const response = await fetch(`/api/instances/${name}`, {
-    //   method: 'DELETE'
-    // })
-    
-    // 从本地列表移除
-    instances.value = instances.value.filter(inst => inst.name !== name)
-  } catch (error) {
-    console.error('删除实例失败:', error)
-  }
+const deleteInstanceHandler = async (name) => {
+  // 使用 arco-design 的确认对话框
+  $dialog.confirm({
+    title: '确认',
+    content: `确定要删除实例 "${name}" 吗？`,
+    okText: '确定',
+    cancelText: '取消',
+    onOk: async () => {
+      try {
+        const data = await deleteInstance(name)
+        if (data.success) {
+          // 从本地列表移除
+          instances.value = instances.value.filter(inst => inst.name !== name)
+        } else {
+          console.error('删除实例失败:', data.error)
+        }
+      } catch (error) {
+        console.error('删除实例失败:', error)
+      }
+    }
+  })
 }
 
 // 组件挂载时获取实例列表
@@ -171,95 +188,40 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.instance-item {
+  border-radius: 8px;
+  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
+}
+
 .server-manager {
-  max-width: 800px;
-  margin: 0 auto;
-  padding: 20px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
-.instances-section, .create-section {
-  margin-bottom: 40px;
-  text-align: left;
-}
-
-.instances-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-  gap: 20px;
+.main-card {
+  flex: 1;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  overflow: auto;
 }
 
 .instance-card {
-  border: 1px solid #ddd;
-  border-radius: 8px;
-  padding: 15px;
-  background-color: #f9f9f9;
+  margin-bottom: 20px;
 }
 
 .instance-card.running {
   border-color: #42b883;
-  background-color: #f0fff4;
+  border-width: 2px;
 }
 
-.instance-card h4 {
-  margin-top: 0;
-  margin-bottom: 10px;
+:deep(.arco-card-header) {
+  border-bottom: 1px solid #eee;
 }
 
-.instance-actions {
-  margin-top: 15px;
-}
-
-.instance-actions button {
-  margin-right: 10px;
-  padding: 5px 10px;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.instance-actions button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.instance-actions button:not(:disabled):hover {
-  opacity: 0.8;
-}
-
-.form-group {
-  margin-bottom: 15px;
-}
-
-.form-group label {
-  display: block;
-  margin-bottom: 5px;
-  font-weight: bold;
-}
-
-.form-group input {
-  width: 100%;
-  padding: 8px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  box-sizing: border-box;
-}
-
-button {
-  background-color: #42b883;
-  color: white;
-  padding: 10px 20px;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-button:hover:not(:disabled) {
-  background-color: #369870;
-}
-
-.loading, .no-instances {
-  text-align: center;
-  padding: 20px;
-  color: #666;
+:deep(.arco-card-actions) {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
 }
 </style>
