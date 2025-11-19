@@ -78,6 +78,14 @@
                     停止
                   </a-button>
                   <a-button
+                      @click="restartInstance(instance.name)"
+                      :disabled="!instance.running"
+                      status="success"
+                      size="small"
+                  >
+                    重启
+                  </a-button>
+                  <a-button
                       @click="deleteInstanceHandler(instance.name)"
                       status="danger"
                       size="small"
@@ -114,7 +122,7 @@
 <script setup>
 import {ref, reactive, onMounted} from 'vue'
 import {useRouter} from 'vue-router'
-import {listInstances, createInstance, startServer, stopServer, deleteInstance} from '../apis/api.js'
+import {listInstances, createInstance, startServer, stopServer, restartServer, deleteInstance} from '../apis/api.js'
 import {Modal, Button} from '@arco-design/web-vue';
 
 // 状态管理
@@ -210,6 +218,28 @@ const stopInstance = async (name) => {
         }
       } catch (error) {
         console.error('停止实例失败:', error)
+      }
+    }
+  })
+}
+
+// 重启实例
+const restartInstance = async (name) => {
+  Modal.confirm({
+    title: '提示',
+    content: `确定要重启实例 "${name}" 吗？`,
+    okText: '确定',
+    cancelText: '取消',
+    onOk: async () => {
+      try {
+        const data = await restartServer(name)
+        if (data.success) {
+          // 重启不改变本地状态，等待后续自动更新
+        } else {
+          console.error('重启实例失败:', data.error)
+        }
+      } catch (error) {
+        console.error('重启实例失败:', error)
       }
     }
   })

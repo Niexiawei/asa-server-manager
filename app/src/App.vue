@@ -11,9 +11,6 @@
             <a-menu-item key="control">
               <router-link to="/control">服务器控制</router-link>
             </a-menu-item>
-            <a-menu-item key="api-docs">
-              <router-link to="/api-docs">API 文档</router-link>
-            </a-menu-item>
           </a-menu>
         </div>
       </a-layout-header>

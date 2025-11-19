@@ -181,3 +181,62 @@ export function streamInstanceLogs(instanceName, onLog, onError, onClose) {
     }
   }
 }
+
+// 获取 Game.ini 配置文件内容
+export async function getGameIni(instanceName) {
+  const response = await fetch(`${API_BASE_URL}/api/config/${instanceName}/game-ini`)
+  return handleResponse(response)
+}
+
+// 获取 GameUserSettings.ini 配置文件内容
+export async function getGameUserSettings(instanceName) {
+  const response = await fetch(`${API_BASE_URL}/api/config/${instanceName}/game-user-settings`)
+  return handleResponse(response)
+}
+
+
+// 更新 Game.ini 配置文件内容（直接通过文本）
+export async function updateGameIni(instanceName, content) {
+  const response = await fetch(`${API_BASE_URL}/api/config/${instanceName}/game-ini`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ content }),
+  })
+  return handleResponse(response)
+}
+
+// 更新 GameUserSettings.ini 配置文件内容（直接通过文本）
+export async function updateGameUserSettings(instanceName, content) {
+  const response = await fetch(`${API_BASE_URL}/api/config/${instanceName}/game-user-settings`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ content }),
+  })
+  return handleResponse(response)
+}
+
+// 上传 Game.ini 文件（FormData 方式）
+export async function uploadGameIniFile(instanceName, file) {
+  const formData = new FormData()
+  formData.append('file', file)
+  const response = await fetch(`${API_BASE_URL}/api/config/${instanceName}/game-ini`, {
+    method: 'POST',
+    body: formData,
+  })
+  return handleResponse(response)
+}
+
+// 上传 GameUserSettings.ini 文件（FormData 方式）
+export async function uploadGameUserSettingsFile(instanceName, file) {
+  const formData = new FormData()
+  formData.append('file', file)
+  const response = await fetch(`${API_BASE_URL}/api/config/${instanceName}/game-user-settings`, {
+    method: 'POST',
+    body: formData,
+  })
+  return handleResponse(response)
+}
