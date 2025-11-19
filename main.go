@@ -136,6 +136,18 @@ func main() {
 				Action: asaserver.ActionStopAll,
 			},
 			{
+				Name:      "view-game",
+				Usage:     "View Game.ini configuration file for an instance",
+				ArgsUsage: "[instance_name]",
+				Action:    asaserver.ActionViewGameIni,
+			},
+			{
+				Name:      "view-game-user-settings",
+				Usage:     "View GameUserSettings.ini configuration file for an instance",
+				ArgsUsage: "[instance_name]",
+				Action:    asaserver.ActionViewGameUserSettings,
+			},
+			{
 				Name:   "config-restart",
 				Usage:  "Configure restart manager",
 				Action: asaserver.ActionConfigRestart,

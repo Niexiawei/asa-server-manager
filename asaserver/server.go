@@ -62,7 +62,6 @@ func InitializeLogMapping() error {
 				}
 
 				mappings, err := LoadLogMappingFromFile()
-				fmt.Println(mappings)
 				if err != nil {
 					fmt.Println("failed to load log mapping from file:", err)
 					continue
@@ -242,8 +241,8 @@ func IsServerRunning(instanceName string) (bool, error) {
 	return true, nil
 }
 
-// copyDir copies a directory recursively
-func copyDir(src, dst string) error {
+// CopyDir copies a directory recursively
+func CopyDir(src, dst string) error {
 	entries, err := os.ReadDir(src)
 	if err != nil {
 		return err
@@ -258,7 +257,7 @@ func copyDir(src, dst string) error {
 		dstPath := filepath.Join(dst, entry.Name())
 
 		if entry.IsDir() {
-			if err := copyDir(srcPath, dstPath); err != nil {
+			if err := CopyDir(srcPath, dstPath); err != nil {
 				return err
 			}
 		} else {
@@ -292,7 +291,7 @@ func setupInstanceConfig(instanceName string, confReset *func()) error {
 	// 1. If instance Config directory doesn't exist, copy from base server config
 	if _, err := os.Stat(instanceConfigDir); os.IsNotExist(err) {
 		fmt.Printf("📋 Copying base server configuration to instance '%s'...\n", instanceName)
-		if err := copyDir(baseConfigDir, instanceConfigDir); err != nil {
+		if err := CopyDir(baseConfigDir, instanceConfigDir); err != nil {
 			return fmt.Errorf("failed to copy config directory: %w", err)
 		}
 	}

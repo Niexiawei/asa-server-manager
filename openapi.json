@@ -47,12 +47,13 @@
     },
     "/api/instances": {
       "get": {
-        "summary": "List all instances",
+        "summary": "List all instances with basic configuration",
+        "description": "Returns a list of all server instances including their running status and basic configuration information",
         "tags": ["Instances"],
         "operationId": "listInstances",
         "responses": {
           "200": {
-            "description": "List of instances",
+            "description": "List of instances with configuration",
             "content": {
               "application/json": {
                 "schema": {
@@ -673,6 +674,354 @@
           }
         }
       }
+    },
+    "/api/config/{name}/game-ini": {
+      "get": {
+        "summary": "Get Game.ini configuration file content",
+        "tags": ["Configuration"],
+        "operationId": "getGameIni",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Instance name"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Game.ini content retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigFileResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Configuration file not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Upload and overwrite Game.ini file",
+        "tags": ["Configuration"],
+        "operationId": "uploadGameIni",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Instance name"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "Game.ini file to upload"
+                  }
+                },
+                "required": ["file"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Game.ini uploaded successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileUploadResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Update Game.ini content directly via text",
+        "tags": ["Configuration"],
+        "operationId": "updateGameIni",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Instance name"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfigFileRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Game.ini updated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileUpdateResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/config/{name}/game-user-settings": {
+      "get": {
+        "summary": "Get GameUserSettings.ini configuration file content",
+        "tags": ["Configuration"],
+        "operationId": "getGameUserSettings",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Instance name"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "GameUserSettings.ini content retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigFileResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Configuration file not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Upload and overwrite GameUserSettings.ini file",
+        "tags": ["Configuration"],
+        "operationId": "uploadGameUserSettings",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Instance name"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "GameUserSettings.ini file to upload"
+                  }
+                },
+                "required": ["file"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "GameUserSettings.ini uploaded successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileUploadResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Update GameUserSettings.ini content directly via text",
+        "tags": ["Configuration"],
+        "operationId": "updateGameUserSettings",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Instance name"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfigFileRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "GameUserSettings.ini updated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileUpdateResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -712,16 +1061,19 @@
         "type": "object",
         "properties": {
           "name": {
-            "type": "string"
+            "type": "string",
+            "description": "Name of the instance"
           },
           "running": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "Whether the server instance is currently running"
           },
           "config": {
-            "type": "object"
+            "$ref": "#/components/schemas/InstanceConfig"
           },
           "error": {
-            "type": "string"
+            "type": "string",
+            "description": "Error message if any"
           }
         },
         "required": ["name", "running"]
@@ -847,6 +1199,151 @@
             }
           }
         ]
+      },
+      "InstanceConfig": {
+        "type": "object",
+        "description": "Server instance configuration",
+        "properties": {
+          "ServerName": {
+            "type": "string",
+            "description": "Name of the game server"
+          },
+          "ServerPassword": {
+            "type": "string",
+            "description": "Password to join the server"
+          },
+          "ServerAdminPassword": {
+            "type": "string",
+            "description": "Admin password for server management"
+          },
+          "MaxPlayers": {
+            "type": "integer",
+            "description": "Maximum number of players allowed",
+            "example": 70
+          },
+          "MapName": {
+            "type": "string",
+            "description": "Name of the map to use",
+            "example": "TheIsland_WP"
+          },
+          "Port": {
+            "type": "integer",
+            "description": "Game server port",
+            "example": 7777
+          },
+          "RCONPort": {
+            "type": "integer",
+            "description": "RCON port for remote control",
+            "example": 27020
+          },
+          "QueryPort": {
+            "type": "integer",
+            "description": "Query port for server discovery",
+            "example": 27015
+          },
+          "ModIDs": {
+            "type": "string",
+            "description": "Comma-separated list of mod IDs"
+          },
+          "SaveDir": {
+            "type": "string",
+            "description": "Save directory path"
+          },
+          "ClusterID": {
+            "type": "string",
+            "description": "Cluster ID for multi-server clustering"
+          },
+          "CustomStartParameters": {
+            "type": "string",
+            "description": "Custom server start parameters"
+          }
+        }
+      },
+      "ConfigFileRequest": {
+        "type": "object",
+        "description": "Configuration file content update request",
+        "properties": {
+          "content": {
+            "type": "string",
+            "description": "File content as text"
+          }
+        },
+        "required": ["content"]
+      },
+      "ConfigFileResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/StatusResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "object",
+                "properties": {
+                  "filename": {
+                    "type": "string",
+                    "description": "Name of the configuration file"
+                  },
+                  "content": {
+                    "type": "string",
+                    "description": "Configuration file content"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "FileUploadResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/StatusResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "object",
+                "properties": {
+                  "filename": {
+                    "type": "string",
+                    "description": "Uploaded filename"
+                  },
+                  "size": {
+                    "type": "integer",
+                    "description": "File size in bytes"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "FileUpdateResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/StatusResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "object",
+                "properties": {
+                  "filename": {
+                    "type": "string",
+                    "description": "Name of the updated configuration file"
+                  },
+                  "size": {
+                    "type": "integer",
+                    "description": "Content size in bytes"
+                  }
+                }
+              }
+            }
+          }
+        ]
       }
     }
   },
@@ -874,6 +1371,10 @@
     {
       "name": "Server Management",
       "description": "Server management endpoints"
+    },
+    {
+      "name": "Configuration",
+      "description": "Configuration file management endpoints"
     }
   ]
 }

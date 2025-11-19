@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import ServerManager from '../components/ServerManager.vue'
+import InstanceDetail from '../components/InstanceDetail.vue'
 import ServerControl from '../components/ServerControl.vue'
 import APIDocs from '../components/APIDocs.vue'
 
@@ -8,6 +9,11 @@ const routes = [
     path: '/',
     name: 'ServerManager',
     component: ServerManager
+  },
+  {
+    path: '/instance/:name',
+    name: 'InstanceDetail',
+    component: InstanceDetail
   },
   {
     path: '/control',

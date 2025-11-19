@@ -39,6 +39,12 @@ export async function getInstanceStatus(name) {
   return handleResponse(response)
 }
 
+// 获取实例完整配置
+export async function getInstanceConfig(name) {
+  const response = await fetch(`${API_BASE_URL}/api/instances/${name}`)
+  return handleResponse(response)
+}
+
 // 删除实例
 export async function deleteInstance(name) {
   const response = await fetch(`${API_BASE_URL}/api/instances/${name}`, {
@@ -147,4 +153,31 @@ export async function updateServer(forceServer = false) {
     method: 'POST',
   })
   return handleResponse(response)
+}
+
+// 实时查看服务器日志（使用 Server-Sent Events）
+export function streamInstanceLogs(instanceName, onLog, onError, onClose) {
+  const eventSource = new EventSource(`${API_BASE_URL}/api/logs/${instanceName}`)
+
+  eventSource.onmessage = (event) => {
+    if (onLog) {
+      onLog(event.data)
+    }
+  }
+
+  eventSource.onerror = (error) => {
+    console.error('SSE connection error:', error)
+    if (onError) {
+      onError(error)
+    }
+    eventSource.close()
+  }
+
+  // Return a function to stop listening
+  return () => {
+    eventSource.close()
+    if (onClose) {
+      onClose()
+    }
+  }
 }

@@ -4,9 +4,11 @@ import (
 	"asa-server/asaserver"
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/gin-contrib/cors"
@@ -76,6 +78,23 @@ func (s *APIServer) setupRoutes() {
 		backup.POST("/:name/restore", s.restoreBackup)
 	}
 
+	// Logs endpoints
+	logs := s.engine.Group("/api/logs")
+	{
+		logs.GET("/:name", s.streamInstanceLogs)
+	}
+
+	// Config file endpoints
+	config := s.engine.Group("/api/config")
+	{
+		config.GET("/:name/game-ini", s.getGameIni)
+		config.GET("/:name/game-user-settings", s.getGameUserSettings)
+		config.POST("/:name/game-ini", s.uploadGameIni)
+		config.POST("/:name/game-user-settings", s.uploadGameUserSettings)
+		config.PUT("/:name/game-ini", s.updateGameIni)
+		config.PUT("/:name/game-user-settings", s.updateGameUserSettings)
+	}
+
 	// Server update endpoints
 	s.engine.POST("/api/server/update", s.updateServer)
 }
@@ -121,6 +140,10 @@ type RestoreRequest struct {
 	BackupFile string `json:"backup_file" binding:"required"`
 }
 
+type ConfigFileRequest struct {
+	Content string `json:"content" binding:"required"`
+}
+
 // ========== Handlers ==========
 
 // health checks if the API server is running
@@ -131,7 +154,7 @@ func (s *APIServer) health(c *gin.Context) {
 	})
 }
 
-// listInstances returns all available instances
+// listInstances returns all available instances with their basic configuration
 func (s *APIServer) listInstances(c *gin.Context) {
 	instances, err := asaserver.GetAvailableInstances()
 	if err != nil {
@@ -146,13 +169,21 @@ func (s *APIServer) listInstances(c *gin.Context) {
 	var instanceInfos []InstanceInfo
 	for _, instanceName := range instances {
 		running, err := asaserver.IsServerRunning(instanceName)
+		config, cfgErr := asaserver.LoadInstanceConfig(instanceName)
+
 		info := InstanceInfo{
 			Name:    instanceName,
 			Running: running,
 		}
+
+		if cfgErr == nil {
+			info.Config = config
+		}
+
 		if err != nil {
 			info.Error = err.Error()
 		}
+
 		instanceInfos = append(instanceInfos, info)
 	}
 
@@ -178,6 +209,25 @@ func (s *APIServer) createInstance(c *gin.Context) {
 	}
 
 	// Create instance directory
+	instanceDir := filepath.Join(asaserver.InstancesDir, req.Name, "Config")
+	if err := os.MkdirAll(instanceDir, 0755); err != nil {
+		c.JSON(http.StatusInternalServerError, StatusResponse{
+			Success: false,
+			Error:   err.Error(),
+		})
+		return
+	}
+
+	// Copy base server configuration files to instance Config directory
+	baseConfigDir := filepath.Join(asaserver.ServerFilesDir, "ShooterGame/Saved/Config/WindowsServer")
+	if _, err := os.Stat(baseConfigDir); err == nil {
+		if err := asaserver.CopyDir(baseConfigDir, instanceDir); err != nil {
+			// Log warning but continue as this is not critical
+			fmt.Printf("Warning: Failed to copy base server configuration: %v\n", err)
+		}
+	}
+
+	// Create default configuration
 	config := asaserver.CreateDefaultInstanceConfig(req.Name)
 
 	if err := asaserver.SaveInstanceConfig(req.Name, config); err != nil {
@@ -594,4 +644,325 @@ func ActionAPI(ctx context.Context, cmd *cli.Command) error {
 	port := cmd.Int("port")
 	apiServer := NewAPIServer(port)
 	return apiServer.Start()
+}
+
+// streamInstanceLogs streams server logs via Server-Sent Events (SSE)
+func (s *APIServer) streamInstanceLogs(c *gin.Context) {
+	instanceName := c.Param("name")
+
+	// Get the log file path for the instance
+	logPath, exists := asaserver.GetInstanceLogFile(instanceName)
+	if !exists {
+		// Try to get the log path if not in mapping
+		var err error
+		logPath, err = asaserver.GetGameLogFilePath(instanceName)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, StatusResponse{
+				Success: false,
+				Error:   fmt.Sprintf("failed to get log file path: %v", err),
+			})
+			return
+		}
+	}
+
+	// Check if log file exists
+	if _, err := os.Stat(logPath); os.IsNotExist(err) {
+		c.JSON(http.StatusNotFound, StatusResponse{
+			Success: false,
+			Error:   fmt.Sprintf("log file not found: %s", logPath),
+		})
+		return
+	}
+
+	// Set SSE headers
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("Access-Control-Allow-Origin", "*")
+	c.Header("Access-Control-Allow-Headers", "Content-Type")
+
+	// Create a channel to receive log lines
+	logChan := make(chan string, 100)
+	errorChan := make(chan error, 1)
+
+	// Start tailing the log file
+	stopMonitoring := asaserver.TailLogFile(logPath, func(line string) {
+		select {
+		case logChan <- line:
+		default:
+			// Channel full, skip this line
+		}
+	})
+	defer stopMonitoring()
+
+	// Use Gin's streaming writer
+	c.Stream(func(w io.Writer) bool {
+		select {
+		case line := <-logChan:
+			// Send SSE formatted data
+			fmt.Fprintf(w, "data: %s\n\n", line)
+			return true
+		case err := <-errorChan:
+			// Send error message and close
+			fmt.Fprintf(w, "data: {\"error\": \"%v\"}\n\n", err)
+			return false
+		case <-c.Request.Context().Done():
+			// Client disconnected
+			return false
+		}
+	})
+}
+
+// getGameIni returns the content of Game.ini for an instance
+func (s *APIServer) getGameIni(c *gin.Context) {
+	instanceName := c.Param("name")
+
+	content, err := asaserver.GetGameIniContent(instanceName)
+	if err != nil {
+		c.JSON(http.StatusNotFound, StatusResponse{
+			Success: false,
+			Error:   err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, StatusResponse{
+		Success: true,
+		Message: fmt.Sprintf("Game.ini retrieved for instance '%s'", instanceName),
+		Data: gin.H{
+			"filename": "Game.ini",
+			"content":  content,
+		},
+	})
+}
+
+// getGameUserSettings returns the content of GameUserSettings.ini for an instance
+func (s *APIServer) getGameUserSettings(c *gin.Context) {
+	instanceName := c.Param("name")
+
+	content, err := asaserver.GetGameUserSettingsContent(instanceName)
+	if err != nil {
+		c.JSON(http.StatusNotFound, StatusResponse{
+			Success: false,
+			Error:   err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, StatusResponse{
+		Success: true,
+		Message: fmt.Sprintf("GameUserSettings.ini retrieved for instance '%s'", instanceName),
+		Data: gin.H{
+			"filename": "GameUserSettings.ini",
+			"content":  content,
+		},
+	})
+}
+
+// uploadGameIni uploads and overwrites the Game.ini file for an instance
+func (s *APIServer) uploadGameIni(c *gin.Context) {
+	instanceName := c.Param("name")
+
+	// Get the uploaded file
+	file, err := c.FormFile("file")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, StatusResponse{
+			Success: false,
+			Error:   "No file provided",
+		})
+		return
+	}
+
+	// Validate file size (max 10MB)
+	if file.Size > 10*1024*1024 {
+		c.JSON(http.StatusBadRequest, StatusResponse{
+			Success: false,
+			Error:   "File size exceeds 10MB limit",
+		})
+		return
+	}
+
+	// Read the file content
+	src, err := file.Open()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, StatusResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to open file: %v", err),
+		})
+		return
+	}
+	defer src.Close()
+
+	// Read all content
+	content, err := io.ReadAll(src)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, StatusResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to read file: %v", err),
+		})
+		return
+	}
+
+	// Save the file content to the instance config directory
+	if err := asaserver.SaveGameIniContent(instanceName, string(content)); err != nil {
+		c.JSON(http.StatusInternalServerError, StatusResponse{
+			Success: false,
+			Error:   err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, StatusResponse{
+		Success: true,
+		Message: fmt.Sprintf("Game.ini uploaded and saved for instance '%s'", instanceName),
+		Data: gin.H{
+			"filename": file.Filename,
+			"size":     file.Size,
+		},
+	})
+}
+
+// uploadGameUserSettings uploads and overwrites the GameUserSettings.ini file for an instance
+func (s *APIServer) uploadGameUserSettings(c *gin.Context) {
+	instanceName := c.Param("name")
+
+	// Get the uploaded file
+	file, err := c.FormFile("file")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, StatusResponse{
+			Success: false,
+			Error:   "No file provided",
+		})
+		return
+	}
+
+	// Validate file size (max 10MB)
+	if file.Size > 10*1024*1024 {
+		c.JSON(http.StatusBadRequest, StatusResponse{
+			Success: false,
+			Error:   "File size exceeds 10MB limit",
+		})
+		return
+	}
+
+	// Read the file content
+	src, err := file.Open()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, StatusResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to open file: %v", err),
+		})
+		return
+	}
+	defer src.Close()
+
+	// Read all content
+	content, err := io.ReadAll(src)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, StatusResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to read file: %v", err),
+		})
+		return
+	}
+
+	// Save the file content to the instance config directory
+	if err := asaserver.SaveGameUserSettingsContent(instanceName, string(content)); err != nil {
+		c.JSON(http.StatusInternalServerError, StatusResponse{
+			Success: false,
+			Error:   err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, StatusResponse{
+		Success: true,
+		Message: fmt.Sprintf("GameUserSettings.ini uploaded and saved for instance '%s'", instanceName),
+		Data: gin.H{
+			"filename": file.Filename,
+			"size":     file.Size,
+		},
+	})
+}
+
+// updateGameIni updates Game.ini content directly from request body text
+func (s *APIServer) updateGameIni(c *gin.Context) {
+	instanceName := c.Param("name")
+
+	var req ConfigFileRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, StatusResponse{
+			Success: false,
+			Error:   err.Error(),
+		})
+		return
+	}
+
+	// Validate content is not empty
+	if strings.TrimSpace(req.Content) == "" {
+		c.JSON(http.StatusBadRequest, StatusResponse{
+			Success: false,
+			Error:   "Content cannot be empty",
+		})
+		return
+	}
+
+	// Save the content to Game.ini
+	if err := asaserver.SaveGameIniContent(instanceName, req.Content); err != nil {
+		c.JSON(http.StatusInternalServerError, StatusResponse{
+			Success: false,
+			Error:   err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, StatusResponse{
+		Success: true,
+		Message: fmt.Sprintf("Game.ini updated successfully for instance '%s'", instanceName),
+		Data: gin.H{
+			"filename": "Game.ini",
+			"size":     len(req.Content),
+		},
+	})
+}
+
+// updateGameUserSettings updates GameUserSettings.ini content directly from request body text
+func (s *APIServer) updateGameUserSettings(c *gin.Context) {
+	instanceName := c.Param("name")
+
+	var req ConfigFileRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, StatusResponse{
+			Success: false,
+			Error:   err.Error(),
+		})
+		return
+	}
+
+	// Validate content is not empty
+	if strings.TrimSpace(req.Content) == "" {
+		c.JSON(http.StatusBadRequest, StatusResponse{
+			Success: false,
+			Error:   "Content cannot be empty",
+		})
+		return
+	}
+
+	// Save the content to GameUserSettings.ini
+	if err := asaserver.SaveGameUserSettingsContent(instanceName, req.Content); err != nil {
+		c.JSON(http.StatusInternalServerError, StatusResponse{
+			Success: false,
+			Error:   err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, StatusResponse{
+		Success: true,
+		Message: fmt.Sprintf("GameUserSettings.ini updated successfully for instance '%s'", instanceName),
+		Data: gin.H{
+			"filename": "GameUserSettings.ini",
+			"size":     len(req.Content),
+		},
+	})
 }

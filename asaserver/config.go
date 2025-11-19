@@ -267,6 +267,74 @@ func CreateDefaultInstanceConfig(instanceName string) *InstanceConfig {
 	}
 }
 
+// GetGameIniContent reads and returns the content of Game.ini for an instance
+func GetGameIniContent(instanceName string) (string, error) {
+	gameIniPath := filepath.Join(InstancesDir, instanceName, "Config", "Game.ini")
+
+	if _, err := os.Stat(gameIniPath); os.IsNotExist(err) {
+		return "", fmt.Errorf("Game.ini not found for instance '%s'", instanceName)
+	}
+
+	content, err := os.ReadFile(gameIniPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read Game.ini: %w", err)
+	}
+
+	return string(content), nil
+}
+
+// GetGameUserSettingsContent reads and returns the content of GameUserSettings.ini for an instance
+func GetGameUserSettingsContent(instanceName string) (string, error) {
+	gameUserSettingsPath := filepath.Join(InstancesDir, instanceName, "Config", "GameUserSettings.ini")
+
+	if _, err := os.Stat(gameUserSettingsPath); os.IsNotExist(err) {
+		return "", fmt.Errorf("GameUserSettings.ini not found for instance '%s'", instanceName)
+	}
+
+	content, err := os.ReadFile(gameUserSettingsPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read GameUserSettings.ini: %w", err)
+	}
+
+	return string(content), nil
+}
+
+// SaveGameIniContent writes content to the Game.ini file for an instance
+func SaveGameIniContent(instanceName string, content string) error {
+	gameIniPath := filepath.Join(InstancesDir, instanceName, "Config", "Game.ini")
+
+	// Create the directory if it doesn't exist
+	configDir := filepath.Dir(gameIniPath)
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		return fmt.Errorf("failed to create config directory: %w", err)
+	}
+
+	// Write the content to the file
+	if err := os.WriteFile(gameIniPath, []byte(content), 0644); err != nil {
+		return fmt.Errorf("failed to write Game.ini: %w", err)
+	}
+
+	return nil
+}
+
+// SaveGameUserSettingsContent writes content to the GameUserSettings.ini file for an instance
+func SaveGameUserSettingsContent(instanceName string, content string) error {
+	gameUserSettingsPath := filepath.Join(InstancesDir, instanceName, "Config", "GameUserSettings.ini")
+
+	// Create the directory if it doesn't exist
+	configDir := filepath.Dir(gameUserSettingsPath)
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		return fmt.Errorf("failed to create config directory: %w", err)
+	}
+
+	// Write the content to the file
+	if err := os.WriteFile(gameUserSettingsPath, []byte(content), 0644); err != nil {
+		return fmt.Errorf("failed to write GameUserSettings.ini: %w", err)
+	}
+
+	return nil
+}
+
 // CheckForDuplicatePorts checks if there are duplicate ports in instance configurations
 func CheckForDuplicatePorts() error {
 	instances, err := GetAvailableInstances()

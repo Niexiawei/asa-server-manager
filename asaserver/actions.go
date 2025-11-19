@@ -88,16 +88,31 @@ func ActionCreate(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("failed to create instance directory: %w", err)
 	}
 
+	// Copy base server configuration files to instance Config directory
+	baseConfigDir := filepath.Join(ServerFilesDir, "ShooterGame/Saved/Config/WindowsServer")
+	instanceConfigDir := filepath.Join(InstancesDir, instanceName, "Config")
+	if _, err := os.Stat(baseConfigDir); err == nil {
+		fmt.Printf("📋 Copying base server configuration files to instance '%s'...\n", instanceName)
+		if err := CopyDir(baseConfigDir, instanceConfigDir); err != nil {
+			fmt.Printf("⚠️  Warning: Failed to copy base server configuration: %v\n", err)
+			// Continue anyway as this is not critical
+		}
+	} else {
+		fmt.Printf("⚠️  Base server configuration directory not found at %s\n", baseConfigDir)
+	}
+
 	// Create default configuration
 	config := CreateDefaultInstanceConfig(instanceName)
 	if err := SaveInstanceConfig(instanceName, config); err != nil {
 		return err
 	}
 
-	// Create empty Game.ini
+	// Create empty Game.ini if not already copied from base server
 	gameIniPath := filepath.Join(InstancesDir, instanceName, "Config", "Game.ini")
-	if err := os.WriteFile(gameIniPath, []byte(""), 0644); err != nil {
-		return fmt.Errorf("failed to create Game.ini: %w", err)
+	if _, err := os.Stat(gameIniPath); os.IsNotExist(err) {
+		if err := os.WriteFile(gameIniPath, []byte(""), 0644); err != nil {
+			return fmt.Errorf("failed to create Game.ini: %w", err)
+		}
 	}
 
 	fmt.Printf("✅ Instance '%s' created successfully.\n", instanceName)
@@ -411,6 +426,56 @@ func ActionStartAll(ctx context.Context, cmd *cli.Command) error {
 
 func ActionStopAll(ctx context.Context, cmd *cli.Command) error {
 	return StopAllInstances()
+}
+
+func ActionViewGameIni(ctx context.Context, cmd *cli.Command) error {
+	args := cmd.Args()
+	var instanceName string
+	if args.Len() > 0 {
+		instanceName = args.Get(0)
+	} else {
+		instanceName = selectInstance()
+		if instanceName == "" {
+			return fmt.Errorf("no instance selected")
+		}
+	}
+
+	content, err := GetGameIniContent(instanceName)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("\n📄 Game.ini for instance '%s':\n", instanceName)
+	fmt.Println(strings.Repeat("=", 80))
+	fmt.Println(content)
+	fmt.Println(strings.Repeat("=", 80))
+
+	return nil
+}
+
+func ActionViewGameUserSettings(ctx context.Context, cmd *cli.Command) error {
+	args := cmd.Args()
+	var instanceName string
+	if args.Len() > 0 {
+		instanceName = args.Get(0)
+	} else {
+		instanceName = selectInstance()
+		if instanceName == "" {
+			return fmt.Errorf("no instance selected")
+		}
+	}
+
+	content, err := GetGameUserSettingsContent(instanceName)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("\n📄 GameUserSettings.ini for instance '%s':\n", instanceName)
+	fmt.Println(strings.Repeat("=", 80))
+	fmt.Println(content)
+	fmt.Println(strings.Repeat("=", 80))
+
+	return nil
 }
 
 func ActionConfigRestart(ctx context.Context, cmd *cli.Command) error {

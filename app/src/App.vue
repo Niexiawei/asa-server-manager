@@ -65,6 +65,10 @@ const handleMenuClick = (key) => {
     height: 100%;
     display: flex;
     flex-direction: column;
+
+    .arco-layout-content {
+      height: calc(100% - 128px);
+    }
   }
 }
 

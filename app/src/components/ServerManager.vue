@@ -1,23 +1,63 @@
 <template>
   <div class="server-manager">
-    <a-card title="服务器实例管理" :bordered="false" class="main-card">
-      <!-- 实例列表 -->
-      <a-card title="现有实例" :bordered="false">
-        <template #extra>
-          <a-button type="primary" @click="showCreateModal = true">新建实例</a-button>
-        </template>
-        <a-spin :loading="loading" style="width: 100%;">
-          <a-empty v-if="instances.length === 0" description="暂无实例，请创建新实例"/>
-          <a-row :gutter="20" v-else>
+    <!-- 实例列表 -->
+    <a-card :bordered="false" class="main-card">
+      <template #extra>
+        <a-button type="primary" @click="showCreateModal = true">新建实例</a-button>
+      </template>
+      <a-spin :loading="loading" style="width: 100%;height: 100%">
+        <a-empty v-if="instances.length === 0" description="暂无实例，请创建新实例"/>
+        <div v-else class="instance-list">
+          <a-row :gutter="20">
             <a-col :span="12" v-for="instance in instances" :key="instance.name">
               <a-card
                   class="instance-item"
                   :bordered="true"
                   :class="['instance-card', { running: instance.running }]"
+                  :title="instance.name"
               >
-                <a-card-meta :title="instance.name">
+                <template #extra>
+                  <a-link @click="viewInstanceDetail(instance.name)">查看详情</a-link>
+                </template>
+                <a-card-meta>
                   <template #description>
-                    <p>状态: {{ instance.running ? '运行中' : '已停止' }}</p>
+                    <div class="instance-info">
+                      <div class="info-item" v-if="instance.config?.ServerName">
+                        <span class="label">服务器名称:</span>
+                        <span class="value">{{ instance.config.ServerName }}</span>
+                      </div>
+                      <div class="info-item">
+                        <span class="label">状态:</span>
+                        <a-tag :color="instance.running ? 'green' : 'gray'">{{
+                            instance.running ? '运行中' : '已停止'
+                          }}
+                        </a-tag>
+                      </div>
+                      <div class="info-item" v-if="instance.config?.MapName">
+                        <span class="label">地图:</span>
+                        <span class="value">{{ instance.config.MapName }}</span>
+                      </div>
+                      <div class="info-item" v-if="instance.config?.Port">
+                        <span class="label">端口:</span>
+                        <span class="value">{{ instance.config.Port }}</span>
+                      </div>
+                      <div class="info-item" v-if="instance.config?.RCONPort">
+                        <span class="label">RCON端口:</span>
+                        <span class="value">{{ instance.config.RCONPort }}</span>
+                      </div>
+                      <div class="info-item" v-if="instance.config?.QueryPort">
+                        <span class="label">查询端口:</span>
+                        <span class="value">{{ instance.config.QueryPort }}</span>
+                      </div>
+                      <div class="info-item" v-if="instance.config?.ModIDs">
+                        <span class="label">Mod ID:</span>
+                        <span class="value">{{ instance.config.ModIDs }}</span>
+                      </div>
+                      <div class="info-item" v-if="instance.config?.CustomStartParameters">
+                        <span class="label">自定义参数:</span>
+                        <span class="value">{{ instance.config.CustomStartParameters }}</span>
+                      </div>
+                    </div>
                   </template>
                 </a-card-meta>
                 <template #actions>
@@ -48,8 +88,8 @@
               </a-card>
             </a-col>
           </a-row>
-        </a-spin>
-      </a-card>
+        </div>
+      </a-spin>
     </a-card>
 
     <!-- 创建实例弹窗 -->
@@ -73,9 +113,12 @@
 
 <script setup>
 import {ref, reactive, onMounted} from 'vue'
+import {useRouter} from 'vue-router'
 import {listInstances, createInstance, startServer, stopServer, deleteInstance} from '../apis/api.js'
+import {Modal, Button} from '@arco-design/web-vue';
 
 // 状态管理
+const router = useRouter()
 const instances = ref([])
 const loading = ref(false)
 const showCreateModal = ref(false)
@@ -103,7 +146,6 @@ const fetchInstances = async () => {
 // 创建实例
 const createInstanceHandler = async ({values, errors}) => {
   if (errors || !form.instanceName.trim()) return
-
   try {
     const data = await createInstance(form.instanceName)
     if (data.success) {
@@ -123,44 +165,60 @@ const createInstanceHandler = async ({values, errors}) => {
 
 // 启动实例
 const startInstance = async (name) => {
-  try {
-    const data = await startServer(name)
-    if (data.success) {
-      // 更新本地状态
-      const instance = instances.value.find(inst => inst.name === name)
-      if (instance) {
-        instance.running = true
+  Modal.confirm({
+    title: '提示',
+    content: `确定要启动实例 "${name}" 吗？`,
+    okText: '确定',
+    cancelText: '取消',
+    onOk: async () => {
+      try {
+        const data = await startServer(name)
+        if (data.success) {
+          // 更新本地状态
+          const instance = instances.value.find(inst => inst.name === name)
+          if (instance) {
+            instance.running = true
+          }
+        } else {
+          console.error('启动实例失败:', data.error)
+        }
+      } catch (error) {
+        console.error('启动实例失败:', error)
       }
-    } else {
-      console.error('启动实例失败:', data.error)
     }
-  } catch (error) {
-    console.error('启动实例失败:', error)
-  }
+  })
 }
 
 // 停止实例
 const stopInstance = async (name) => {
-  try {
-    const data = await stopServer(name)
-    if (data.success) {
-      // 更新本地状态
-      const instance = instances.value.find(inst => inst.name === name)
-      if (instance) {
-        instance.running = false
+  Modal.confirm({
+    title: '提示',
+    content: `确定要停止实例 "${name}" 吗？`,
+    okText: '确定',
+    cancelText: '取消',
+    onOk: async () => {
+      try {
+        const data = await stopServer(name)
+        if (data.success) {
+          // 更新本地状态
+          const instance = instances.value.find(inst => inst.name === name)
+          if (instance) {
+            instance.running = false
+          }
+        } else {
+          console.error('停止实例失败:', data.error)
+        }
+      } catch (error) {
+        console.error('停止实例失败:', error)
       }
-    } else {
-      console.error('停止实例失败:', data.error)
     }
-  } catch (error) {
-    console.error('停止实例失败:', error)
-  }
+  })
 }
 
 // 删除实例
 const deleteInstanceHandler = async (name) => {
   // 使用 arco-design 的确认对话框
-  $dialog.confirm({
+  Modal.confirm({
     title: '确认',
     content: `确定要删除实例 "${name}" 吗？`,
     okText: '确定',
@@ -185,6 +243,14 @@ const deleteInstanceHandler = async (name) => {
 onMounted(() => {
   fetchInstances()
 })
+
+// 查看实例详情
+const viewInstanceDetail = (name) => {
+  router.push({
+    name: 'InstanceDetail',
+    params: { name }
+  })
+}
 </script>
 
 <style scoped>
@@ -193,17 +259,37 @@ onMounted(() => {
   box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
 }
 
+.instance-list {
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+
+  :deep(.arco-card-header-title) {
+    font-size: 24px !important;
+    font-weight: bold;
+  }
+}
+
 .server-manager {
   height: 100%;
   display: flex;
   flex-direction: column;
 }
 
+:deep(.main-card) {
+  .arco-card-body {
+    height: calc(100% - 58px) !important;
+  }
+}
+
 .main-card {
   flex: 1;
   border-radius: 8px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  overflow: auto;
+  overflow: hidden;
+  height: calc(100% - 40px);
+
+
 }
 
 .instance-card {
@@ -223,5 +309,35 @@ onMounted(() => {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+}
+
+.instance-info {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.info-item {
+  display: flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 8px;
+  background-color: #f5f5f5;
+  border-radius: 4px;
+}
+
+.info-item .label {
+  font-weight: 600;
+  color: #333;
+  min-width: 100px;
+  display: inline-block;
+  font-size: 14px;
+}
+
+.info-item .value {
+  color: #666;
+  font-size: 14px;
+  word-break: break-all;
+  flex: 1;
 }
 </style>
