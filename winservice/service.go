@@ -70,10 +70,8 @@ func (p *program) Stop(s service.Service) error {
 	if p.cancel != nil {
 		p.cancel()
 	}
-
-	// Give it a moment to shutdown gracefully
+	// Give it a moment to shut down gracefully
 	time.Sleep(1 * time.Second)
-
 	return nil
 }
 

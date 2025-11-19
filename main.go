@@ -2,6 +2,7 @@ package main
 
 import (
 	"asa-server/asaserver"
+	"asa-server/logger"
 	"asa-server/webapi"
 	"asa-server/winservice"
 	"context"
@@ -39,6 +40,7 @@ func main() {
 		log.Fatal(err)
 	}
 
+	logger.InitLogger()
 	app := &cli.Command{
 		Name:    "asa-manager",
 		Usage:   "ARK Server Ascended Instance Management Tool",
@@ -195,12 +197,14 @@ func main() {
 
 	// Check if running as Windows service and run service
 	isService, err := isWindowsService()
+
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	if isService {
 		winservice.RunService(false)
+		logger.SetLogMode(logger.ServicesMode)
 		return
 	}
 

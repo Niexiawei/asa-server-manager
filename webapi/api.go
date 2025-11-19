@@ -2,6 +2,7 @@ package webapi
 
 import (
 	"asa-server/asaserver"
+	"asa-server/logger"
 	"context"
 	"fmt"
 	"io"
@@ -642,6 +643,7 @@ func (s *APIServer) StartWithContext(ctx context.Context) error {
 // ActionAPI starts the HTTP API server
 func ActionAPI(ctx context.Context, cmd *cli.Command) error {
 	port := cmd.Int("port")
+	logger.SetLogMode(logger.HttpApiMode)
 	apiServer := NewAPIServer(port)
 	return apiServer.Start()
 }
