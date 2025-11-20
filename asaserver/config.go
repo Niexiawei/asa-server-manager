@@ -184,6 +184,92 @@ ClusterID=%s
 	return nil
 }
 
+// UpdateInstanceConfig updates the configuration for an instance with partial updates
+func UpdateInstanceConfig(instanceName string, updates map[string]interface{}) error {
+	// Load current config
+	currentConfig, err := LoadInstanceConfig(instanceName)
+	if err != nil {
+		return fmt.Errorf("failed to load current config: %w", err)
+	}
+
+	// Apply updates
+	if val, ok := updates["ServerName"]; ok {
+		if str, ok := val.(string); ok {
+			currentConfig.ServerName = str
+		}
+	}
+	if val, ok := updates["ServerPassword"]; ok {
+		if str, ok := val.(string); ok {
+			currentConfig.ServerPassword = str
+		}
+	}
+	if val, ok := updates["ServerAdminPassword"]; ok {
+		if str, ok := val.(string); ok {
+			currentConfig.ServerAdminPassword = str
+		}
+	}
+	if val, ok := updates["MaxPlayers"]; ok {
+		switch v := val.(type) {
+		case float64:
+			currentConfig.MaxPlayers = int(v)
+		case int:
+			currentConfig.MaxPlayers = v
+		}
+	}
+	if val, ok := updates["MapName"]; ok {
+		if str, ok := val.(string); ok {
+			currentConfig.MapName = str
+		}
+	}
+	if val, ok := updates["RCONPort"]; ok {
+		switch v := val.(type) {
+		case float64:
+			currentConfig.RCONPort = int(v)
+		case int:
+			currentConfig.RCONPort = v
+		}
+	}
+	if val, ok := updates["QueryPort"]; ok {
+		switch v := val.(type) {
+		case float64:
+			currentConfig.QueryPort = int(v)
+		case int:
+			currentConfig.QueryPort = v
+		}
+	}
+	if val, ok := updates["Port"]; ok {
+		switch v := val.(type) {
+		case float64:
+			currentConfig.Port = int(v)
+		case int:
+			currentConfig.Port = v
+		}
+	}
+	if val, ok := updates["ModIDs"]; ok {
+		if str, ok := val.(string); ok {
+			currentConfig.ModIDs = str
+		}
+	}
+	if val, ok := updates["SaveDir"]; ok {
+		if str, ok := val.(string); ok {
+			currentConfig.SaveDir = str
+		}
+	}
+	if val, ok := updates["ClusterID"]; ok {
+		if str, ok := val.(string); ok {
+			currentConfig.ClusterID = str
+		}
+	}
+	if val, ok := updates["CustomStartParameters"]; ok {
+		if str, ok := val.(string); ok {
+			currentConfig.CustomStartParameters = str
+		}
+	}
+
+	// Save updated config
+	return SaveInstanceConfig(instanceName, currentConfig)
+}
+
 // LogMapping represents the mapping of instance names to log file paths
 type LogMapping struct {
 	Mappings map[string]string `json:"mappings"`

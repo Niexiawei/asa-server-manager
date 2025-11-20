@@ -1,6 +1,7 @@
 package asaserver
 
 import (
+	"asa-server/logger"
 	"bufio"
 	"context"
 	"fmt"
@@ -16,7 +17,7 @@ import (
 // Action functions for commands
 
 func ActionUpdate(ctx context.Context, cmd *cli.Command) error {
-	fmt.Println("📦 Installing/updating base server...")
+	logger.GetLogger().Info("Installing/updating base server...")
 
 	// Download and extract SteamCMD
 	if err := DownloadAndExtractSteamCmd(); err != nil {
@@ -36,7 +37,7 @@ func ActionUpdate(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
-	fmt.Println("✅ Base server installation/update completed.")
+	logger.GetLogger().Info("Base server installation/update completed.")
 	return nil
 }
 
@@ -47,18 +48,18 @@ func ActionList(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	if len(instances) == 0 {
-		fmt.Printf("❌ No instances found in '%s'.\n", InstancesDir)
+		logger.GetLogger().Warnf("No instances found in '%s'.", InstancesDir)
 		return nil
 	}
 
-	fmt.Println("📋 Available instances:")
+	logger.GetLogger().Info("Available instances:")
 	for _, inst := range instances {
 		running, _ := IsServerRunning(inst)
-		status := "❌"
+		status := "OFFLINE"
 		if running {
-			status = "✅"
+			status = "ONLINE"
 		}
-		fmt.Printf("  %s %s\n", status, inst)
+		logger.GetLogger().Infof("  %s %s", status, inst)
 	}
 
 	return nil
@@ -73,13 +74,13 @@ func ActionCreate(ctx context.Context, cmd *cli.Command) error {
 
 	instanceName := strings.TrimSpace(scanner.Text())
 	if instanceName == "" {
-		fmt.Println("❌ Instance name cannot be empty.")
+		logger.GetLogger().Warn("Instance name cannot be empty.")
 		return nil
 	}
 
 	// Check if instance already exists
 	if _, err := os.Stat(filepath.Join(InstancesDir, instanceName)); err == nil {
-		fmt.Printf("❌ Instance '%s' already exists.\n", instanceName)
+		logger.GetLogger().Warnf("Instance '%s' already exists.", instanceName)
 		return nil
 	}
 
@@ -92,13 +93,13 @@ func ActionCreate(ctx context.Context, cmd *cli.Command) error {
 	baseConfigDir := filepath.Join(ServerFilesDir, "ShooterGame/Saved/Config/WindowsServer")
 	instanceConfigDir := filepath.Join(InstancesDir, instanceName, "Config")
 	if _, err := os.Stat(baseConfigDir); err == nil {
-		fmt.Printf("📋 Copying base server configuration files to instance '%s'...\n", instanceName)
+		logger.GetLogger().Infof("Copying base server configuration files to instance '%s'...", instanceName)
 		if err := CopyDir(baseConfigDir, instanceConfigDir); err != nil {
-			fmt.Printf("⚠️  Warning: Failed to copy base server configuration: %v\n", err)
+			logger.GetLogger().Warnf("Failed to copy base server configuration: %v", err)
 			// Continue anyway as this is not critical
 		}
 	} else {
-		fmt.Printf("⚠️  Base server configuration directory not found at %s\n", baseConfigDir)
+		logger.GetLogger().Warnf("Base server configuration directory not found at %s", baseConfigDir)
 	}
 
 	// Create default configuration
@@ -115,8 +116,8 @@ func ActionCreate(ctx context.Context, cmd *cli.Command) error {
 		}
 	}
 
-	fmt.Printf("✅ Instance '%s' created successfully.\n", instanceName)
-	fmt.Printf("📝 Configuration file: %s\n", filepath.Join(InstancesDir, instanceName, "instance_config.ini"))
+	logger.GetLogger().Infof("Instance '%s' created successfully.", instanceName)
+	logger.GetLogger().Infof("Configuration file: %s", filepath.Join(InstancesDir, instanceName, "instance_config.ini"))
 
 	return nil
 }
@@ -178,26 +179,26 @@ func ActionStatus(ctx context.Context, cmd *cli.Command) error {
 		}
 
 		if len(instances) == 0 {
-			fmt.Println("❌ No instances found.")
+			logger.GetLogger().Warn("No instances found.")
 			return nil
 		}
 
-		fmt.Println("🔍 Checking running instances...")
+		logger.GetLogger().Info("Checking running instances...")
 		runningCount := 0
 		for _, instanceName := range instances {
 			running, err := IsServerRunning(instanceName)
 			if err == nil && running {
-				fmt.Printf("  ✅ %s is running\n", instanceName)
+				logger.GetLogger().Infof("  %s is running", instanceName)
 				runningCount++
 			} else {
-				fmt.Printf("  ❌ %s is not running\n", instanceName)
+				logger.GetLogger().Infof("  %s is not running", instanceName)
 			}
 		}
 
 		if runningCount == 0 {
-			fmt.Println("❌ No instances are currently running.")
+			logger.GetLogger().Warn("No instances are currently running.")
 		} else {
-			fmt.Printf("✅ Total running instances: %d\n", runningCount)
+			logger.GetLogger().Infof("Total running instances: %d", runningCount)
 		}
 		return nil
 	}
@@ -209,9 +210,9 @@ func ActionStatus(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	if running {
-		fmt.Printf("✅ Server for instance %s is running.\n", instanceName)
+		logger.GetLogger().Infof("Server for instance %s is running.", instanceName)
 	} else {
-		fmt.Printf("❌ Server for instance %s is not running.\n", instanceName)
+		logger.GetLogger().Infof("Server for instance %s is not running.", instanceName)
 	}
 
 	return nil
@@ -235,7 +236,7 @@ func actionRCONImpl(instanceName string, command string) error {
 		return err
 	}
 
-	fmt.Printf("📡 Response: %s\n", response)
+	logger.GetLogger().Infof("Response: %s", response)
 	return nil
 }
 
@@ -251,7 +252,7 @@ func ActionDelete(ctx context.Context, cmd *cli.Command) error {
 		}
 	}
 
-	fmt.Printf("⚠️  WARNING: This will permanently delete instance '%s' and all its data.\n", instanceName)
+	logger.GetLogger().Warnf("WARNING: This will permanently delete instance '%s' and all its data.", instanceName)
 	fmt.Print("Type 'CONFIRM' to delete the instance, or 'cancel' to abort: ")
 
 	scanner := bufio.NewScanner(os.Stdin)
@@ -261,15 +262,15 @@ func ActionDelete(ctx context.Context, cmd *cli.Command) error {
 
 	response := strings.TrimSpace(scanner.Text())
 	if response != "CONFIRM" {
-		fmt.Println("❌ Deletion cancelled.")
+		logger.GetLogger().Info("Deletion cancelled.")
 		return nil
 	}
 
 	// Stop instance if running
 	if running, _ := IsServerRunning(instanceName); running {
-		fmt.Printf("🛑 Stopping instance '%s'...\n", instanceName)
+		logger.GetLogger().Infof("Stopping instance '%s'...", instanceName)
 		if err := StopServer(instanceName); err != nil {
-			fmt.Printf("⚠️  Error stopping server: %v\n", err)
+			logger.GetLogger().Errorf("Error stopping server: %v", err)
 		}
 	}
 
@@ -286,7 +287,7 @@ func ActionDelete(ctx context.Context, cmd *cli.Command) error {
 	savedArksPath := filepath.Join(ServerFilesDir, "ShooterGame/Saved/SavedArks", instanceName)
 	os.RemoveAll(savedArksPath)
 
-	fmt.Printf("✅ Instance '%s' has been deleted.\n", instanceName)
+	logger.GetLogger().Infof("Instance '%s' has been deleted.", instanceName)
 	return nil
 }
 
@@ -310,18 +311,18 @@ func ActionRename(ctx context.Context, cmd *cli.Command) error {
 
 	newName := strings.TrimSpace(scanner.Text())
 	if newName == "" {
-		fmt.Println("❌ Instance name cannot be empty.")
+		logger.GetLogger().Warn("Instance name cannot be empty.")
 		return nil
 	}
 
 	if newName == instanceName {
-		fmt.Println("⚠️  New name is the same as current name.")
+		logger.GetLogger().Warn("New name is the same as current name.")
 		return nil
 	}
 
 	// Stop instance if running
 	if running, _ := IsServerRunning(instanceName); running {
-		fmt.Printf("🛑 Stopping instance '%s' before renaming...\n", instanceName)
+		logger.GetLogger().Infof("Stopping instance '%s' before renaming...", instanceName)
 		if err := StopServer(instanceName); err != nil {
 			return fmt.Errorf("failed to stop server: %w", err)
 		}
@@ -351,7 +352,7 @@ func ActionRename(ctx context.Context, cmd *cli.Command) error {
 		SaveInstanceConfig(newName, config)
 	}
 
-	fmt.Printf("✅ Instance renamed from '%s' to '%s'.\n", instanceName, newName)
+	logger.GetLogger().Infof("Instance renamed from '%s' to '%s'.", instanceName, newName)
 	return nil
 }
 
@@ -381,13 +382,13 @@ func ActionRestore(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	if len(backups) == 0 {
-		fmt.Println("❌ No backups found.")
+		logger.GetLogger().Warn("No backups found.")
 		return nil
 	}
 
-	fmt.Println("📋 Available backups:")
+	logger.GetLogger().Info("Available backups:")
 	for i, backup := range backups {
-		fmt.Printf("  %d) %s\n", i+1, filepath.Base(backup))
+		logger.GetLogger().Infof("  %d) %s", i+1, filepath.Base(backup))
 	}
 
 	fmt.Print("Select a backup (number): ")
@@ -398,13 +399,13 @@ func ActionRestore(ctx context.Context, cmd *cli.Command) error {
 
 	choice, err := strconv.Atoi(strings.TrimSpace(scanner.Text()))
 	if err != nil || choice < 1 || choice > len(backups) {
-		fmt.Println("❌ Invalid selection.")
+		logger.GetLogger().Warn("Invalid selection.")
 		return nil
 	}
 
 	selectedBackup := backups[choice-1]
 
-	fmt.Printf("⚠️  WARNING: Restoring this backup may overwrite existing worlds.\n")
+	logger.GetLogger().Warn("WARNING: Restoring this backup may overwrite existing worlds.")
 	fmt.Print("Type 'CONFIRM' to proceed or 'cancel' to abort: ")
 
 	if !scanner.Scan() {
@@ -413,7 +414,7 @@ func ActionRestore(ctx context.Context, cmd *cli.Command) error {
 
 	response := strings.TrimSpace(scanner.Text())
 	if response != "CONFIRM" {
-		fmt.Println("❌ Restore cancelled.")
+		logger.GetLogger().Info("Restore cancelled.")
 		return nil
 	}
 
@@ -445,10 +446,8 @@ func ActionViewGameIni(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
-	fmt.Printf("\n📄 Game.ini for instance '%s':\n", instanceName)
-	fmt.Println(strings.Repeat("=", 80))
-	fmt.Println(content)
-	fmt.Println(strings.Repeat("=", 80))
+	logger.GetLogger().Infof("Game.ini for instance '%s':", instanceName)
+	logger.GetLogger().Info(content)
 
 	return nil
 }
@@ -470,17 +469,15 @@ func ActionViewGameUserSettings(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
-	fmt.Printf("\n📄 GameUserSettings.ini for instance '%s':\n", instanceName)
-	fmt.Println(strings.Repeat("=", 80))
-	fmt.Println(content)
-	fmt.Println(strings.Repeat("=", 80))
+	logger.GetLogger().Infof("GameUserSettings.ini for instance '%s':", instanceName)
+	logger.GetLogger().Info(content)
 
 	return nil
 }
 
 func ActionConfigRestart(ctx context.Context, cmd *cli.Command) error {
-	fmt.Println("⚠️  Restart manager configuration is not yet implemented.")
-	fmt.Println("📝 You can manually edit the restart configuration file when ready.")
+	logger.GetLogger().Warn("Restart manager configuration is not yet implemented.")
+	logger.GetLogger().Info("You can manually edit the restart configuration file when ready.")
 	return nil
 }
 
@@ -489,18 +486,18 @@ func ActionConfigRestart(ctx context.Context, cmd *cli.Command) error {
 func selectInstance() string {
 	instances, err := GetAvailableInstances()
 	if err != nil {
-		fmt.Printf("❌ Error getting instances: %v\n", err)
+		logger.GetLogger().Errorf("Error getting instances: %v", err)
 		return ""
 	}
 
 	if len(instances) == 0 {
-		fmt.Println("❌ No instances found.")
+		logger.GetLogger().Warn("No instances found.")
 		return ""
 	}
 
-	fmt.Println("📋 Available instances:")
+	logger.GetLogger().Info("Available instances:")
 	for i, inst := range instances {
-		fmt.Printf("  %d) %s\n", i+1, inst)
+		logger.GetLogger().Infof("  %d) %s", i+1, inst)
 	}
 
 	fmt.Print("Select an instance (number): ")
@@ -511,7 +508,7 @@ func selectInstance() string {
 
 	choice, err := strconv.Atoi(strings.TrimSpace(scanner.Text()))
 	if err != nil || choice < 1 || choice > len(instances) {
-		fmt.Println("❌ Invalid selection.")
+		logger.GetLogger().Warn("Invalid selection.")
 		return ""
 	}
 
@@ -520,19 +517,19 @@ func selectInstance() string {
 
 func manageInstanceMenu(instanceName string) error {
 	for {
-		fmt.Printf("\n🎮 Managing Instance: %s\n", instanceName)
-		fmt.Println("Options:")
-		fmt.Println("  1) Start Server")
-		fmt.Println("  2) Stop Server")
-		fmt.Println("  3) Restart Server")
-		fmt.Println("  4) Check Status")
-		fmt.Println("  5) Send RCON Command")
-		fmt.Println("  6) Backup World")
-		fmt.Println("  7) Restore Backup")
-		fmt.Println("  8) View Live Logs")
-		fmt.Println("  9) Edit Configuration")
-		fmt.Println("  10) Change Instance Name")
-		fmt.Println("  0) Back to Main Menu")
+		fmt.Printf("Managing Instance: %s \n", instanceName)
+		fmt.Printf("Options: \n")
+		fmt.Printf("  1) Start Server \n")
+		fmt.Printf("  2) Stop Server \n")
+		fmt.Printf("  3) Restart Server \n")
+		fmt.Printf("  4) Check Status \n")
+		fmt.Printf("  5) Send RCON Command \n")
+		fmt.Printf("  6) Backup World \n")
+		fmt.Printf("  7) Restore Backup \n")
+		fmt.Printf("  8) View Live Logs \n")
+		fmt.Printf("  9) Edit Configuration \n")
+		fmt.Printf("  10) Change Instance Name \n")
+		fmt.Printf("  0) Back to Main Menu \n")
 
 		scanner := bufio.NewScanner(os.Stdin)
 		if !scanner.Scan() {
@@ -543,31 +540,31 @@ func manageInstanceMenu(instanceName string) error {
 		switch choice {
 		case "1":
 			if err := StartServer(instanceName); err != nil {
-				fmt.Printf("❌ Error starting server: %v\n", err)
+				logger.GetLogger().Errorf("Error starting server: %v", err)
 			}
 		case "2":
 			if err := StopServer(instanceName); err != nil {
-				fmt.Printf("❌ Error stopping server: %v\n", err)
+				logger.GetLogger().Errorf("Error stopping server: %v", err)
 			}
 		case "3":
 			if err := RestartServer(instanceName); err != nil {
-				fmt.Printf("❌ Error restarting server: %v\n", err)
+				logger.GetLogger().Errorf("Error restarting server: %v", err)
 			}
 		case "4":
 			running, err := IsServerRunning(instanceName)
 			if err != nil {
-				fmt.Printf("❌ Error checking server status: %v\n", err)
+				logger.GetLogger().Errorf("Error checking server status: %v", err)
 			} else if running {
-				fmt.Printf("✅ Server for instance %s is running.\n", instanceName)
+				logger.GetLogger().Infof("Server for instance %s is running.", instanceName)
 			} else {
-				fmt.Printf("❌ Server for instance %s is not running.\n", instanceName)
+				logger.GetLogger().Infof("Server for instance %s is not running.", instanceName)
 			}
 		case "5":
 			fmt.Print("Enter RCON command: ")
 			if scanner.Scan() {
 				command := strings.TrimSpace(scanner.Text())
 				if err := actionRCONImpl(instanceName, command); err != nil {
-					fmt.Printf("❌ Error sending RCON command: %v\n", err)
+					logger.GetLogger().Errorf("Error sending RCON command: %v", err)
 				}
 			}
 		case "6":
@@ -575,42 +572,42 @@ func manageInstanceMenu(instanceName string) error {
 			if scanner.Scan() {
 				worldFolder := strings.TrimSpace(scanner.Text())
 				if err := BackupInstanceWorld(instanceName, worldFolder); err != nil {
-					fmt.Printf("❌ Error backing up world: %v\n", err)
+					logger.GetLogger().Errorf("Error backing up world: %v", err)
 				}
 			}
 		case "7":
 			// Simulate restore action with local backup selection
 			backups, err := GetAvailableBackups()
 			if err != nil {
-				fmt.Printf("❌ Error retrieving backups: %v\n", err)
+				logger.GetLogger().Errorf("Error retrieving backups: %v", err)
 			} else if len(backups) > 0 {
-				fmt.Println("📋 Available backups:")
+				logger.GetLogger().Info("Available backups:")
 				for i, backup := range backups {
-					fmt.Printf("  %d) %s\n", i+1, filepath.Base(backup))
+					logger.GetLogger().Infof("  %d) %s", i+1, filepath.Base(backup))
 				}
 				fmt.Print("Select a backup (number): ")
 				if scanner.Scan() {
 					choice, err := strconv.Atoi(strings.TrimSpace(scanner.Text()))
 					if err != nil {
-						fmt.Printf("❌ Invalid backup number: %v\n", err)
+						logger.GetLogger().Errorf("Invalid backup number: %v", err)
 					} else if choice > 0 && choice <= len(backups) {
 						if err := RestoreBackupToInstance(instanceName, backups[choice-1]); err != nil {
-							fmt.Printf("❌ Error restoring backup: %v\n", err)
+							logger.GetLogger().Errorf("Error restoring backup: %v", err)
 						}
 					} else {
-						fmt.Println("❌ Invalid backup selection.")
+						logger.GetLogger().Warn("Invalid backup selection.")
 					}
 				}
 			} else {
-				fmt.Println("⚠️  No backups available.")
+				logger.GetLogger().Warn("No backups available.")
 			}
 		case "8":
 			if err := viewInstanceLogs(instanceName); err != nil {
-				fmt.Printf("❌ Error viewing logs: %v\n", err)
+				logger.GetLogger().Errorf("Error viewing logs: %v", err)
 			}
 		case "9":
 			if err := editInstanceConfigFile(instanceName); err != nil {
-				fmt.Printf("❌ Error editing configuration: %v\n", err)
+				logger.GetLogger().Errorf("Error editing configuration: %v", err)
 			}
 		case "10":
 			fmt.Print("Enter the new name for the instance: ")
@@ -618,31 +615,31 @@ func manageInstanceMenu(instanceName string) error {
 				newName := strings.TrimSpace(scanner.Text())
 				switch newName {
 				case "":
-					fmt.Println("❌ Instance name cannot be empty.")
+					logger.GetLogger().Warn("Instance name cannot be empty.")
 				case instanceName:
-					fmt.Println("⚠️  New name is the same as the old name.")
+					logger.GetLogger().Warn("New name is the same as the old name.")
 				default:
 					// Perform rename
 					if running, _ := IsServerRunning(instanceName); running {
-						fmt.Println("⏸️  Stopping server before rename...")
+						logger.GetLogger().Info("Stopping server before rename...")
 						if err := StopServer(instanceName); err != nil {
-							fmt.Printf("❌ Error stopping server: %v\n", err)
+							logger.GetLogger().Errorf("Error stopping server: %v", err)
 						}
 					}
 					oldPath := filepath.Join(InstancesDir, instanceName)
 					newPath := filepath.Join(InstancesDir, newName)
 					if err := os.Rename(oldPath, newPath); err != nil {
-						fmt.Printf("❌ Error renaming instance directory: %v\n", err)
+						logger.GetLogger().Errorf("Error renaming instance directory: %v", err)
 					} else {
 						config, err := LoadInstanceConfig(newName)
 						if err != nil {
-							fmt.Printf("❌ Error loading instance config: %v\n", err)
+							logger.GetLogger().Errorf("Error loading instance config: %v", err)
 						} else {
 							config.SaveDir = newName
 							if err := SaveInstanceConfig(newName, config); err != nil {
-								fmt.Printf("❌ Error saving instance config: %v\n", err)
+								logger.GetLogger().Errorf("Error saving instance config: %v", err)
 							} else {
-								fmt.Printf("✅ Instance renamed to '%s'.\n", newName)
+								logger.GetLogger().Infof("Instance renamed to '%s'.", newName)
 								return nil
 							}
 						}
@@ -652,7 +649,7 @@ func manageInstanceMenu(instanceName string) error {
 		case "0":
 			return nil
 		default:
-			fmt.Println("❌ Invalid option.")
+			logger.GetLogger().Warn("Invalid option.")
 		}
 	}
 
@@ -673,15 +670,14 @@ func viewInstanceLogs(instanceName string) error {
 
 	// Check if log file exists
 	if _, err := os.Stat(logPath); os.IsNotExist(err) {
-		fmt.Printf("⚠️  Log file not found: %s\n", logPath)
-		fmt.Println("Tip: Start the server first to generate log files.")
+		logger.GetLogger().Warnf("Log file not found: %s", logPath)
+		logger.GetLogger().Info("Tip: Start the server first to generate log files.")
 		return nil
 	}
 
-	fmt.Printf("📄 Viewing live logs for instance '%s'\n", instanceName)
-	fmt.Printf("📝 Log file: %s\n", logPath)
-	fmt.Println("Press Ctrl+C to stop viewing logs...")
-	fmt.Println(strings.Repeat("=", 80))
+	logger.GetLogger().Infof("Viewing live logs for instance '%s'", instanceName)
+	logger.GetLogger().Infof("Log file: %s", logPath)
+	logger.GetLogger().Info("Press Ctrl+C to stop viewing logs...")
 
 	// Start tailing the log file in real-time
 	stopMonitoring := TailLogFile(logPath, func(line string) {
@@ -705,8 +701,7 @@ func viewInstanceLogs(instanceName string) error {
 
 	// Stop monitoring
 	stopMonitoring()
-	fmt.Println(strings.Repeat("=", 80))
-	fmt.Println("✅ Log viewing stopped.")
+	logger.GetLogger().Info("Log viewing stopped.")
 	return nil
 }
 
@@ -718,7 +713,7 @@ func editInstanceConfigFile(instanceName string) error {
 		return fmt.Errorf("config file not found: %s", configPath)
 	}
 
-	fmt.Printf("📝 Opening configuration file: %s\n", configPath)
+	logger.GetLogger().Infof("Opening configuration file: %s", configPath)
 
 	// Open the file with Notepad on Windows
 	cmd := exec.Command("notepad.exe", configPath)
@@ -728,6 +723,6 @@ func editInstanceConfigFile(instanceName string) error {
 		return fmt.Errorf("failed to open notepad: %w", err)
 	}
 
-	fmt.Println("✅ Configuration file editing completed.")
+	logger.GetLogger().Info("Configuration file editing completed.")
 	return nil
 }

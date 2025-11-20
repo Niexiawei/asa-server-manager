@@ -1,6 +1,7 @@
 package asaserver
 
 import (
+	"asa-server/logger"
 	"asa-server/win32api"
 	"fmt"
 	"io"
@@ -26,6 +27,10 @@ var instanceLogMapping = make(map[string]string)
 
 // InitializeLogMapping loads log mappings from persistent storage
 func InitializeLogMapping() error {
+	var (
+		backSyncStart = make(chan struct{}, 1)
+	)
+
 	mappings, err := LoadLogMappingFromFile()
 	if err != nil {
 		return fmt.Errorf("failed to load log mapping from file: %w", err)
@@ -36,20 +41,22 @@ func InitializeLogMapping() error {
 	logMappingMutex.Unlock()
 
 	if len(mappings) > 0 {
-		fmt.Printf("📂 Loaded %d instance log mappings from persistent storage\n", len(mappings))
+		logger.GetLogger().Infof("Loaded %d instance log mappings from persistent storage", len(mappings))
 	}
 
 	go func() {
-		fmt.Println("启动对 LogMappingFile 的修改监听 ...")
+		logger.GetLogger().Info("Starting log mapping file change listener...")
 		watcher, err := fsnotify.NewWatcher()
 		if err != nil {
-			panic(fmt.Sprintf("❌ Failed to create file watcher: %v", err))
+			panic(fmt.Sprintf("Failed to create file watcher: %v", err))
 		}
 
 		defer watcher.Close()
 		if err := watcher.Add(LogMappingFile); err != nil {
-			panic(fmt.Sprintf("❌ Failed to watch logs directory: %v", err))
+			panic(fmt.Sprintf("Failed to watch logs directory: %v", err))
 		}
+
+		backSyncStart <- struct{}{}
 
 		for {
 			select {
@@ -63,7 +70,7 @@ func InitializeLogMapping() error {
 
 				mappings, err := LoadLogMappingFromFile()
 				if err != nil {
-					fmt.Println("failed to load log mapping from file:", err)
+					logger.GetLogger().Errorf("failed to load log mapping from file: %v", err)
 					continue
 				}
 
@@ -72,19 +79,21 @@ func InitializeLogMapping() error {
 				logMappingMutex.Unlock()
 
 				if len(mappings) > 0 {
-					fmt.Printf("📂 Loaded %d instance log mappings from persistent storage\n", len(mappings))
+					logger.GetLogger().Infof("Loaded %d instance log mappings from persistent storage", len(mappings))
 				}
 
 			case err, ok := <-watcher.Errors:
 				if !ok {
 					return
 				}
-				println(fmt.Sprintf("❌ Watcher error: %v", err))
+				logger.GetLogger().Errorf("Watcher error: %v", err)
 				return
 			}
 		}
 
 	}()
+
+	<-backSyncStart
 
 	return nil
 }
@@ -445,16 +454,16 @@ func StartServer(instanceName string) error {
 
 	// Save the PID to the instance directory
 	if err := SaveInstancePID(instanceName, cmd.Process.Pid); err != nil {
-		fmt.Printf("⚠️  Warning: Failed to save PID for instance %s: %v\n", instanceName, err)
+		logger.GetLogger().Warnf("Failed to save PID for instance %s: %v", instanceName, err)
 	}
 
-	fmt.Printf("✅ Server started for instance: %s. It should be fully operational in approximately 60 seconds.\n", instanceName)
-	fmt.Printf("📝 Game log file: %s\n", gameLogPath)
+	logger.GetLogger().Infof("Server started for instance: %s. It should be fully operational in approximately 60 seconds.", instanceName)
+	logger.GetLogger().Infof("Game log file: %s", gameLogPath)
 	time.Sleep(60 * time.Second)
 	confReset()
 	// Persist the log mapping for future restarts
 	if err := PersistLogMapping(); err != nil {
-		fmt.Printf("⚠️  Warning: Failed to persist log mapping: %v\n", err)
+		logger.GetLogger().Warnf("Failed to persist log mapping: %v", err)
 	}
 
 	return nil
@@ -499,11 +508,11 @@ func StopServer(instanceName string) error {
 
 	running, err := IsServerRunning(instanceName)
 	if err != nil || !running {
-		fmt.Printf("⚠️  Server for instance %s is not running.\n", instanceName)
+		logger.GetLogger().Warnf("Server for instance %s is not running.", instanceName)
 		return nil
 	}
 
-	fmt.Printf("🛑 Stopping server for instance: %s\n", instanceName)
+	logger.GetLogger().Infof("Stopping server for instance: %s", instanceName)
 	// Try graceful shutdown with RCON
 	pid, err = GetInstancePID(instanceName)
 	if err != nil {
@@ -518,11 +527,11 @@ func StopServer(instanceName string) error {
 	}
 	response, rconErr := SendRCONCommand(instanceName, "DoExit")
 	if rconErr == nil && strings.Contains(response, "Exiting") {
-		fmt.Printf("✅ Server instance %s reported 'Exiting...'. Awaiting shutdown...\n", instanceName)
+		logger.GetLogger().Infof("Server instance %s reported 'Exiting...'. Awaiting shutdown...", instanceName)
 		// Wait for process to finish using win32api.IsProcessExited
 	} else {
 		if err := exec.Command("taskkill", "/PID", fmt.Sprintf("%d", pid)).Run(); err != nil {
-			fmt.Printf("failed to kill process PID %d: %s\n", pid, err.Error())
+			logger.GetLogger().Warnf("failed to kill process PID %d: %s", pid, err.Error())
 		}
 	}
 
@@ -538,7 +547,7 @@ func StopServer(instanceName string) error {
 
 	// Remove the log mapping for this instance (log file will be reused on next start)
 	if err := RemoveInstanceLogMapping(instanceName); err != nil {
-		fmt.Printf("⚠️  Warning: Failed to remove log mapping for instance %s: %v\n", instanceName, err)
+		logger.GetLogger().Warnf("Failed to remove log mapping for instance %s: %v", instanceName, err)
 	}
 	return nil
 }
@@ -573,9 +582,9 @@ func SendRCONCommand(instanceName string, command string) (string, error) {
 
 	// Connect to RCON server with retry logic
 	rconAddr := fmt.Sprintf("localhost:%d", config.RCONPort)
-	fmt.Printf("📡 Connecting to RCON server at %s...\n", rconAddr)
-	fmt.Printf("   Instance: %s\n", instanceName)
-	fmt.Printf("   RCON Port: %d\n", config.RCONPort)
+	logger.GetLogger().Infof("Connecting to RCON server at %s...", rconAddr)
+	logger.GetLogger().Infof("   Instance: %s", instanceName)
+	logger.GetLogger().Infof("   RCON Port: %d", config.RCONPort)
 
 	var client interface {
 		Execute(string) (string, error)
@@ -587,36 +596,36 @@ func SendRCONCommand(instanceName string, command string) (string, error) {
 	for attempt := 1; attempt <= 3; attempt++ {
 		client, connectErr = rcon.Dial(rconAddr, config.ServerAdminPassword)
 		if connectErr == nil {
-			fmt.Printf("✅ Connected to RCON server\n")
+			logger.GetLogger().Info("Connected to RCON server")
 			break
 		}
 
-		fmt.Printf("⚠️  Attempt %d failed: %v\n", attempt, connectErr)
+		logger.GetLogger().Warnf("Attempt %d failed: %v", attempt, connectErr)
 		if attempt < 3 {
-			fmt.Println("   Retrying in 2 seconds...")
+			logger.GetLogger().Info("   Retrying in 2 seconds...")
 			time.Sleep(2 * time.Second)
 		}
 	}
 
 	if connectErr != nil {
-		fmt.Printf("\n❌ RCON Connection failed (password: '%s')\n", config.ServerAdminPassword)
-		fmt.Println("\nTroubleshooting tips:")
-		fmt.Println("  1. Verify ServerAdminPassword in instance_config.ini")
-		fmt.Println("  2. Check that RCON port is correct: " + rconAddr)
-		fmt.Println("  3. Wait 60+ seconds after server start for RCON to be ready")
-		fmt.Println("  4. Check server log for 'RCON password' or 'authentication' errors")
+		logger.GetLogger().Errorf("RCON Connection failed (password: '%s')", config.ServerAdminPassword)
+		logger.GetLogger().Error("Troubleshooting tips:")
+		logger.GetLogger().Error("  1. Verify ServerAdminPassword in instance_config.ini")
+		logger.GetLogger().Error("  2. Check that RCON port is correct: " + rconAddr)
+		logger.GetLogger().Error("  3. Wait 60+ seconds after server start for RCON to be ready")
+		logger.GetLogger().Error("  4. Check server log for 'RCON password' or 'authentication' errors")
 		return "", fmt.Errorf("failed to connect to RCON server at %s: %w", rconAddr, connectErr)
 	}
 	defer client.Close()
 
 	// Send command
-	fmt.Printf("📡 Sending RCON command '%s' to %s\n", command, rconAddr)
+	logger.GetLogger().Infof("Sending RCON command '%s' to %s", command, rconAddr)
 	response, err := client.Execute(command)
 	if err != nil {
 		return "", fmt.Errorf("RCON command execution failed: %w", err)
 	}
 
-	fmt.Printf("✅ RCON response: %s\n", response)
+	logger.GetLogger().Infof("RCON response: %s", response)
 	return response, nil
 }
 
@@ -627,25 +636,25 @@ func StartAllInstances() error {
 		return err
 	}
 
-	fmt.Println("🚀 Starting all server instances...")
+	fmt.Println("Starting all server instances...")
 
 	for _, instanceName := range instances {
 		running, err := IsServerRunning(instanceName)
 		if err == nil && running {
-			fmt.Printf("⚠️  Instance %s is already running. Skipping...\n", instanceName)
+			logger.GetLogger().Warnf("Instance %s is already running. Skipping...", instanceName)
 			continue
 		}
 
 		if err := StartServer(instanceName); err != nil {
-			fmt.Printf("❌ Failed to start instance %s: %v\n", instanceName, err)
+			logger.GetLogger().Errorf("Failed to start instance %s: %v", instanceName, err)
 			continue
 		}
 
-		fmt.Println("⏳ Waiting 30 seconds before starting the next instance...")
+		logger.GetLogger().Info("Waiting 30 seconds before starting the next instance...")
 		time.Sleep(30 * time.Second)
 	}
 
-	fmt.Println("✅ All instances have been processed.")
+	logger.GetLogger().Info("All instances have been processed.")
 	return nil
 }
 
@@ -656,21 +665,21 @@ func StopAllInstances() error {
 		return err
 	}
 
-	fmt.Println("🛑 Stopping all server instances...")
+	fmt.Println("Stopping all server instances...")
 
 	for _, instanceName := range instances {
 		running, err := IsServerRunning(instanceName)
 		if err == nil && !running {
-			fmt.Printf("⚠️  Instance %s is not running. Skipping...\n", instanceName)
+			logger.GetLogger().Warnf("Instance %s is not running. Skipping...", instanceName)
 			continue
 		}
 
 		if err := StopServer(instanceName); err != nil {
-			fmt.Printf("❌ Failed to stop instance %s: %v\n", instanceName, err)
+			logger.GetLogger().Errorf("Failed to stop instance %s: %v", instanceName, err)
 		}
 	}
 
-	fmt.Println("✅ All instances have been stopped.")
+	logger.GetLogger().Info("All instances have been stopped.")
 	return nil
 }
 

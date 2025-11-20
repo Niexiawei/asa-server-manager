@@ -26,8 +26,8 @@ func isWindowsService() (bool, error) {
 func main() {
 	// 检查操作系统，仅允许 Windows
 	if runtime.GOOS != "windows" {
-		fmt.Printf("❌ 错误：此工具仅支持 Windows 系统运行。\n")
-		fmt.Printf("   当前系统：%s\n", runtime.GOOS)
+		fmt.Printf("Error: This tool only supports Windows systems.\n")
+		fmt.Printf("   Current system: %s\n", runtime.GOOS)
 		os.Exit(1)
 	}
 
@@ -35,12 +35,12 @@ func main() {
 		log.Fatal(err)
 	}
 
+	logger.InitLoggerWithBaseDir(asaserver.BaseDir)
 	// Initialize log mapping from persistent storage
 	if err := asaserver.InitializeLogMapping(); err != nil {
 		log.Fatal(err)
 	}
 
-	logger.InitLogger()
 	app := &cli.Command{
 		Name:    "asa-manager",
 		Usage:   "ARK Server Ascended Instance Management Tool",

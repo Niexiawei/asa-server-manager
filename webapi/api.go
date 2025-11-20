@@ -10,18 +10,24 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
 	"github.com/urfave/cli/v3"
 )
 
 // APIServer represents the HTTP API server for ARK Server Ascended Instance Management
 type APIServer struct {
-	engine *gin.Engine
-	port   int
+	engine  *gin.Engine
+	port    int
+	mu      sync.RWMutex
+	clients map[*websocket.Conn]bool
 }
+
+var globalAPIServer *APIServer
 
 // NewAPIServer creates a new API server instance
 func NewAPIServer(port int) *APIServer {
@@ -30,12 +36,16 @@ func NewAPIServer(port int) *APIServer {
 	engine.Use(cors.Default())
 
 	server := &APIServer{
-		engine: engine,
-		port:   port,
+		engine:  engine,
+		port:    port,
+		clients: make(map[*websocket.Conn]bool),
 	}
 
 	// Setup routes
 	server.setupRoutes()
+
+	// Set global API server instance
+	globalAPIServer = server
 
 	return server
 }
@@ -53,6 +63,8 @@ func (s *APIServer) setupRoutes() {
 		instances.GET("/:name", s.getInstanceStatus)
 		instances.DELETE("/:name", s.deleteInstance)
 		instances.PUT("/:name", s.renameInstance)
+		instances.GET("/:name/config", s.getInstanceConfig)
+		instances.PATCH("/:name/config", s.updateInstanceConfig)
 	}
 
 	// Server control endpoints
@@ -63,6 +75,7 @@ func (s *APIServer) setupRoutes() {
 		server.POST("/:name/restart", s.restartServer)
 		server.POST("/start-all", s.startAllServers)
 		server.POST("/stop-all", s.stopAllServers)
+		server.POST("/restart-all", s.restartAllServers)
 	}
 
 	// RCON endpoints
@@ -98,6 +111,9 @@ func (s *APIServer) setupRoutes() {
 
 	// Server update endpoints
 	s.engine.POST("/api/server/update", s.updateServer)
+
+	// WebSocket endpoints
+	s.engine.GET("/api/ws/events", s.handleServerEvents)
 }
 
 // ========== Response types ==========
@@ -384,13 +400,21 @@ func (s *APIServer) renameInstance(c *gin.Context) {
 func (s *APIServer) startServer(c *gin.Context) {
 	name := c.Param("name")
 
+	// Broadcast server starting event
+	s.BroadcastServerStarting(name)
+
 	if err := asaserver.StartServer(name); err != nil {
 		c.JSON(http.StatusInternalServerError, StatusResponse{
 			Success: false,
 			Error:   err.Error(),
 		})
+		// Broadcast error event
+		s.BroadcastServerStartFailed(name, err)
 		return
 	}
+
+	// Broadcast server started event
+	s.BroadcastServerStarted(name)
 
 	c.JSON(http.StatusOK, StatusResponse{
 		Success: true,
@@ -402,13 +426,21 @@ func (s *APIServer) startServer(c *gin.Context) {
 func (s *APIServer) stopServer(c *gin.Context) {
 	name := c.Param("name")
 
+	// Broadcast server stopping event
+	s.BroadcastServerStopping(name)
+
 	if err := asaserver.StopServer(name); err != nil {
 		c.JSON(http.StatusInternalServerError, StatusResponse{
 			Success: false,
 			Error:   err.Error(),
 		})
+		// Broadcast error event
+		s.BroadcastServerStopFailed(name, err)
 		return
 	}
+
+	// Broadcast server stopped event
+	s.BroadcastServerStopped(name)
 
 	c.JSON(http.StatusOK, StatusResponse{
 		Success: true,
@@ -420,13 +452,21 @@ func (s *APIServer) stopServer(c *gin.Context) {
 func (s *APIServer) restartServer(c *gin.Context) {
 	name := c.Param("name")
 
+	// Broadcast server stopping event
+	s.BroadcastServerStopping(name)
+
 	if err := asaserver.RestartServer(name); err != nil {
 		c.JSON(http.StatusInternalServerError, StatusResponse{
 			Success: false,
 			Error:   err.Error(),
 		})
+		// Broadcast error event
+		s.BroadcastServerRestartFailed(name, err)
 		return
 	}
+
+	// Broadcast server restarted event
+	s.BroadcastServerStarted(name)
 
 	c.JSON(http.StatusOK, StatusResponse{
 		Success: true,
@@ -436,7 +476,9 @@ func (s *APIServer) restartServer(c *gin.Context) {
 
 // startAllServers starts all server instances
 func (s *APIServer) startAllServers(c *gin.Context) {
-	if err := asaserver.StartAllInstances(); err != nil {
+	// Get all available instances
+	instances, err := asaserver.GetAvailableInstances()
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, StatusResponse{
 			Success: false,
 			Error:   err.Error(),
@@ -444,15 +486,59 @@ func (s *APIServer) startAllServers(c *gin.Context) {
 		return
 	}
 
+	if len(instances) == 0 {
+		c.JSON(http.StatusOK, StatusResponse{
+			Success: true,
+			Message: "No instances to start",
+		})
+		return
+	}
+
+	// Start each instance individually
+	var failedInstances []string
+	for _, instanceName := range instances {
+		// Check if already running
+		running, err := asaserver.IsServerRunning(instanceName)
+		if err == nil && running {
+			continue
+		}
+
+		// Broadcast starting event
+		s.BroadcastServerStarting(instanceName)
+
+		// Start the instance
+		if err := asaserver.StartServer(instanceName); err != nil {
+			failedInstances = append(failedInstances, instanceName)
+			// Broadcast error event
+			s.BroadcastServerStartFailed(instanceName, err)
+			continue
+		}
+
+		// Broadcast started event
+		s.BroadcastServerStarted(instanceName)
+	}
+
+	// Check if all starts were successful
+	if len(failedInstances) > 0 {
+		c.JSON(http.StatusInternalServerError, StatusResponse{
+			Success: false,
+			Message: fmt.Sprintf("Failed to start some instances: %v", failedInstances),
+			Error:   fmt.Sprintf("%d of %d instances failed to start", len(failedInstances), len(instances)),
+		})
+		return
+	}
+
 	c.JSON(http.StatusOK, StatusResponse{
 		Success: true,
-		Message: "All servers started successfully",
+		Message: fmt.Sprintf("All %d servers started successfully", len(instances)),
 	})
 }
 
 // stopAllServers stops all server instances
 func (s *APIServer) stopAllServers(c *gin.Context) {
-	if err := asaserver.StopAllInstances(); err != nil {
+	// Get all available instances
+	instances, err := asaserver.GetAvailableInstances()
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, StatusResponse{
 			Success: false,
 			Error:   err.Error(),
@@ -460,9 +546,105 @@ func (s *APIServer) stopAllServers(c *gin.Context) {
 		return
 	}
 
+	if len(instances) == 0 {
+		c.JSON(http.StatusOK, StatusResponse{
+			Success: true,
+			Message: "No instances to stop",
+		})
+		return
+	}
+
+	// Stop each instance individually
+	var failedInstances []string
+	for _, instanceName := range instances {
+		// Check if already running
+		running, err := asaserver.IsServerRunning(instanceName)
+		if err != nil || !running {
+			continue
+		}
+
+		// Broadcast stopping event
+		s.BroadcastServerStopping(instanceName)
+
+		// Stop the instance
+		if err := asaserver.StopServer(instanceName); err != nil {
+			failedInstances = append(failedInstances, instanceName)
+			// Broadcast error event
+			s.BroadcastServerStopFailed(instanceName, err)
+			continue
+		}
+
+		// Broadcast stopped event
+		s.BroadcastServerStopped(instanceName)
+	}
+
+	// Check if all stops were successful
+	if len(failedInstances) > 0 {
+		c.JSON(http.StatusInternalServerError, StatusResponse{
+			Success: false,
+			Message: fmt.Sprintf("Failed to stop some instances: %v", failedInstances),
+			Error:   fmt.Sprintf("%d of %d instances failed to stop", len(failedInstances), len(instances)),
+		})
+		return
+	}
+
 	c.JSON(http.StatusOK, StatusResponse{
 		Success: true,
-		Message: "All servers stopped successfully",
+		Message: fmt.Sprintf("All %d servers stopped successfully", len(instances)),
+	})
+}
+
+// restartAllServers restarts all server instances
+func (s *APIServer) restartAllServers(c *gin.Context) {
+	// Get all available instances
+	instances, err := asaserver.GetAvailableInstances()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, StatusResponse{
+			Success: false,
+			Error:   err.Error(),
+		})
+		return
+	}
+
+	if len(instances) == 0 {
+		c.JSON(http.StatusOK, StatusResponse{
+			Success: true,
+			Message: "No instances to restart",
+		})
+		return
+	}
+
+	// Restart each instance individually
+	var failedInstances []string
+	for _, instanceName := range instances {
+		// Broadcast stopping event
+		s.BroadcastServerStopping(instanceName)
+
+		// Restart the instance
+		if err := asaserver.RestartServer(instanceName); err != nil {
+			failedInstances = append(failedInstances, instanceName)
+			// Broadcast error event
+			s.BroadcastServerRestartFailed(instanceName, err)
+			continue
+		}
+
+		// Broadcast started event
+		s.BroadcastServerStarted(instanceName)
+	}
+
+	// Check if all restarts were successful
+	if len(failedInstances) > 0 {
+		c.JSON(http.StatusInternalServerError, StatusResponse{
+			Success: false,
+			Message: fmt.Sprintf("Failed to restart some instances: %v", failedInstances),
+			Error:   fmt.Sprintf("%d of %d instances failed to restart", len(failedInstances), len(instances)),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, StatusResponse{
+		Success: true,
+		Message: fmt.Sprintf("All %d servers restarted successfully", len(instances)),
 	})
 }
 
@@ -609,14 +791,14 @@ func (s *APIServer) updateServer(c *gin.Context) {
 // Start starts the API server
 func (s *APIServer) Start() error {
 	addr := fmt.Sprintf(":%d", s.port)
-	fmt.Printf("🚀 Starting API server on http://localhost%s\n", addr)
+	logger.GetLogger().Infof("API server on http://localhost%s", addr)
 	return s.engine.Run(addr)
 }
 
 // StartWithContext starts the API server with context support for graceful shutdown
 func (s *APIServer) StartWithContext(ctx context.Context) error {
 	addr := fmt.Sprintf(":%d", s.port)
-	fmt.Printf("🚀 Starting API server on http://localhost%s\n", addr)
+	logger.GetLogger().Infof("API server on http://localhost%s", addr)
 
 	// Create HTTP server
 	server := &http.Server{
@@ -627,7 +809,7 @@ func (s *APIServer) StartWithContext(ctx context.Context) error {
 	// Start server in background
 	go func() {
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			fmt.Printf("API server error: %v\n", err)
+			logger.GetLogger().Errorf("API server error: %v", err)
 		}
 	}()
 
@@ -966,5 +1148,115 @@ func (s *APIServer) updateGameUserSettings(c *gin.Context) {
 			"filename": "GameUserSettings.ini",
 			"size":     len(req.Content),
 		},
+	})
+}
+
+// getInstanceConfig returns the configuration of a specific instance
+func (s *APIServer) getInstanceConfig(c *gin.Context) {
+	instanceName := c.Param("name")
+
+	config, err := asaserver.LoadInstanceConfig(instanceName)
+	if err != nil {
+		c.JSON(http.StatusNotFound, StatusResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to load instance config: %v", err),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, StatusResponse{
+		Success: true,
+		Message: fmt.Sprintf("Instance config retrieved for '%s'", instanceName),
+		Data:    config,
+	})
+}
+
+// UpdateInstanceConfigRequest represents a request to update instance configuration
+type UpdateInstanceConfigRequest struct {
+	ServerName            string `json:"ServerName,omitempty"`
+	ServerPassword        string `json:"ServerPassword,omitempty"`
+	ServerAdminPassword   string `json:"ServerAdminPassword,omitempty"`
+	MaxPlayers            *int   `json:"MaxPlayers,omitempty"`
+	MapName               string `json:"MapName,omitempty"`
+	RCONPort              *int   `json:"RCONPort,omitempty"`
+	QueryPort             *int   `json:"QueryPort,omitempty"`
+	Port                  *int   `json:"Port,omitempty"`
+	ModIDs                string `json:"ModIDs,omitempty"`
+	SaveDir               string `json:"SaveDir,omitempty"`
+	ClusterID             string `json:"ClusterID,omitempty"`
+	CustomStartParameters string `json:"CustomStartParameters,omitempty"`
+}
+
+// updateInstanceConfig updates the configuration for an instance
+func (s *APIServer) updateInstanceConfig(c *gin.Context) {
+	instanceName := c.Param("name")
+
+	var req UpdateInstanceConfigRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, StatusResponse{
+			Success: false,
+			Error:   err.Error(),
+		})
+		return
+	}
+
+	// Build updates map
+	updates := make(map[string]interface{})
+	if req.ServerName != "" {
+		updates["ServerName"] = req.ServerName
+	}
+	if req.ServerPassword != "" {
+		updates["ServerPassword"] = req.ServerPassword
+	}
+	if req.ServerAdminPassword != "" {
+		updates["ServerAdminPassword"] = req.ServerAdminPassword
+	}
+	if req.MaxPlayers != nil {
+		updates["MaxPlayers"] = *req.MaxPlayers
+	}
+	if req.MapName != "" {
+		updates["MapName"] = req.MapName
+	}
+	if req.RCONPort != nil {
+		updates["RCONPort"] = *req.RCONPort
+	}
+	if req.QueryPort != nil {
+		updates["QueryPort"] = *req.QueryPort
+	}
+	if req.Port != nil {
+		updates["Port"] = *req.Port
+	}
+	if req.ModIDs != "" {
+		updates["ModIDs"] = req.ModIDs
+	}
+	if req.SaveDir != "" {
+		updates["SaveDir"] = req.SaveDir
+	}
+	if req.ClusterID != "" {
+		updates["ClusterID"] = req.ClusterID
+	}
+	if req.CustomStartParameters != "" {
+		updates["CustomStartParameters"] = req.CustomStartParameters
+	}
+
+	if len(updates) == 0 {
+		c.JSON(http.StatusBadRequest, StatusResponse{
+			Success: false,
+			Error:   "No fields to update",
+		})
+		return
+	}
+
+	if err := asaserver.UpdateInstanceConfig(instanceName, updates); err != nil {
+		c.JSON(http.StatusInternalServerError, StatusResponse{
+			Success: false,
+			Error:   err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, StatusResponse{
+		Success: true,
+		Message: fmt.Sprintf("Instance config updated successfully for '%s'", instanceName),
 	})
 }

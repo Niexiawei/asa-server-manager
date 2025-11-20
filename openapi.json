@@ -255,6 +255,136 @@
         }
       }
     },
+    "/api/instances/{name}/config": {
+      "get": {
+        "summary": "Get instance configuration",
+        "tags": ["Instances"],
+        "operationId": "getInstanceConfig",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Instance name"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Instance configuration retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/StatusResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/InstanceConfig"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Instance configuration not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "summary": "Update instance configuration",
+        "tags": ["Instances"],
+        "operationId": "updateInstanceConfig",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Instance name"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateInstanceConfigRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Instance configuration updated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Instance not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/server/{name}/start": {
       "post": {
         "summary": "Start a server instance",
@@ -409,6 +539,35 @@
         "responses": {
           "200": {
             "description": "All servers stopped successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/server/restart-all": {
+      "post": {
+        "summary": "Restart all server instances",
+        "tags": ["Server Control"],
+        "operationId": "restartAllServers",
+        "responses": {
+          "200": {
+            "description": "All servers restarted successfully",
             "content": {
               "application/json": {
                 "schema": {
@@ -1022,6 +1181,36 @@
           }
         }
       }
+    },
+    "/api/ws/events": {
+      "get": {
+        "summary": "WebSocket connection for real-time server events",
+        "description": "Establishes a WebSocket connection to receive real-time broadcast events for all server instances. Client should send a ClientMessage with client_id on connection. All connected clients receive the same events globally.",
+        "tags": ["WebSocket"],
+        "operationId": "handleServerEvents",
+        "responses": {
+          "101": {
+            "description": "Switching Protocols - WebSocket connection established and ready to receive events",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerEvent"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request - WebSocket upgrade failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1259,6 +1448,60 @@
           }
         }
       },
+      "UpdateInstanceConfigRequest": {
+        "type": "object",
+        "description": "Partial instance configuration update request",
+        "properties": {
+          "ServerName": {
+            "type": "string",
+            "description": "Name of the game server"
+          },
+          "ServerPassword": {
+            "type": "string",
+            "description": "Password to join the server"
+          },
+          "ServerAdminPassword": {
+            "type": "string",
+            "description": "Admin password for server management"
+          },
+          "MaxPlayers": {
+            "type": "integer",
+            "description": "Maximum number of players allowed"
+          },
+          "MapName": {
+            "type": "string",
+            "description": "Name of the map to use"
+          },
+          "Port": {
+            "type": "integer",
+            "description": "Game server port"
+          },
+          "RCONPort": {
+            "type": "integer",
+            "description": "RCON port for remote control"
+          },
+          "QueryPort": {
+            "type": "integer",
+            "description": "Query port for server discovery"
+          },
+          "ModIDs": {
+            "type": "string",
+            "description": "Comma-separated list of mod IDs"
+          },
+          "SaveDir": {
+            "type": "string",
+            "description": "Save directory path"
+          },
+          "ClusterID": {
+            "type": "string",
+            "description": "Cluster ID for multi-server clustering"
+          },
+          "CustomStartParameters": {
+            "type": "string",
+            "description": "Custom server start parameters"
+          }
+        }
+      },
       "ConfigFileRequest": {
         "type": "object",
         "description": "Configuration file content update request",
@@ -1344,6 +1587,65 @@
             }
           }
         ]
+      },
+      "ClientMessage": {
+        "type": "object",
+        "description": "Message sent from WebSocket client to server (for heartbeat, connection identification, etc.)",
+        "properties": {
+          "client_id": {
+            "type": "string",
+            "description": "Unique client identifier provided by the client"
+          },
+          "type": {
+            "type": "string",
+            "description": "Type of message",
+            "example": "heartbeat"
+          },
+          "data": {
+            "type": "string",
+            "description": "Optional data payload"
+          }
+        },
+        "required": ["client_id"]
+      },
+      "ServerEvent": {
+        "type": "object",
+        "description": "Server event message sent via WebSocket (global broadcast to all connected clients)",
+        "properties": {
+          "event_type": {
+            "type": "string",
+            "description": "Type of event",
+            "enum": [
+              "connected",
+              "server_starting",
+              "server_started",
+              "server_stopping",
+              "server_stopped",
+              "server_start_failed",
+              "server_stop_failed",
+              "server_restart_failed"
+            ]
+          },
+          "instance_name": {
+            "type": "string",
+            "description": "Name of the server instance that triggered the event (empty for connection event)"
+          },
+          "timestamp": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Unix timestamp of the event"
+          },
+          "message": {
+            "type": "string",
+            "description": "Event message"
+          },
+          "status": {
+            "type": "string",
+            "description": "Server status (optional)",
+            "enum": ["starting", "started", "stopping", "stopped", "failed"]
+          }
+        },
+        "required": ["event_type", "timestamp", "message"]
       }
     }
   },
@@ -1375,6 +1677,10 @@
     {
       "name": "Configuration",
       "description": "Configuration file management endpoints"
+    },
+    {
+      "name": "WebSocket",
+      "description": "WebSocket endpoints for real-time server events"
     }
   ]
 }

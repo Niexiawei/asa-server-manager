@@ -1,7 +1,6 @@
 package logger
 
 import (
-	"asa-server/asaserver"
 	"os"
 	"path/filepath"
 
@@ -19,36 +18,59 @@ const (
 )
 
 var (
-	Logger     *zap.SugaredLogger
-	loggerPath string
-	loggerMode = CLIMode
+	logger       *zap.SugaredLogger
+	loggerStdout *zap.SugaredLogger
+	loggerPath   string
+	loggerMode   = CLIMode
+	BaseDir      = "" // Will be set by InitLoggerWithBaseDir
 )
 
 func SetLogMode(mode LogMode) {
 	loggerMode = mode
 }
 
+func InitLoggerWithBaseDir(baseDir string) {
+	BaseDir = baseDir
+	InitLogger()
+}
+
+func GetLogger() *zap.SugaredLogger {
+	if loggerMode == CLIMode {
+		return loggerStdout
+	} else {
+		return logger
+	}
+}
+
 func InitLogger() {
-	loggerPath = filepath.Join(asaserver.BaseDir, "logs", "asaServer.log")
+	if BaseDir == "" {
+		// Fallback to current directory if BaseDir not set
+		BaseDir = "."
+	}
+
+	loggerPath = filepath.Join(BaseDir, "logs", "asaServer.log")
 	dir := filepath.Dir(loggerPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		panic(err)
 	}
 
-	if loggerMode == CLIMode {
+	{
 		core := zapcore.NewCore(stdoutEncoder(), stdoutWriter(), zapcore.InfoLevel)
-		logger := zap.New(core, zap.AddCaller())
-		Logger = logger.Sugar()
-	} else {
+		_logger := zap.New(core, zap.AddCaller())
+		loggerStdout = _logger.Sugar()
+	}
+
+	{
 		core := zapcore.NewTee(
 			zapcore.NewCore(stdoutEncoder(), stdoutWriter(), zapcore.WarnLevel),
 			zapcore.NewCore(fileEncoder(), fileWriter(), zap.LevelEnablerFunc(func(level zapcore.Level) bool {
 				return level >= zap.InfoLevel
 			})),
 		)
-		logger := zap.New(core, zap.AddCaller())
-		Logger = logger.Sugar()
+		_logger := zap.New(core, zap.AddCaller())
+		logger = _logger.Sugar()
 	}
+
 }
 
 func stdoutEncoder() zapcore.Encoder {
