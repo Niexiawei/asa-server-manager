@@ -1,7 +1,7 @@
 <template>
   <div class="instance-detail">
     <!-- WebSocket 连接状态指示器 -->
-    <WSStatusIndicator />
+    <WSStatusIndicator/>
 
     <a-card class="detail-card" :bordered="false">
       <template #title>
@@ -271,10 +271,10 @@
 <script setup>
 import {ref, onMounted, onUnmounted, nextTick, watch, computed} from 'vue'
 import {useRoute} from 'vue-router'
-import ConfigEditor from '../components/ConfigEditor.vue'
-import ConfigFileViewer from '../components/ConfigFileViewer.vue'
-import ConfigEditModal from '../components/ConfigEditModal.vue'
-import WSStatusIndicator from '../components/WSStatusIndicator.vue'
+import ConfigEditor from '@/components/ConfigEditor.vue'
+import ConfigFileViewer from '@/components/ConfigFileViewer.vue'
+import ConfigEditModal from '@/components/ConfigEditModal.vue'
+import WSStatusIndicator from '@/components/WSStatusIndicator.vue'
 import {
   getInstanceConfig,
   streamInstanceLogs,
@@ -288,9 +288,9 @@ import {
   uploadGameIniFile,
   uploadGameUserSettingsFile,
   updateInstanceConfig
-} from '../apis/api.js'
-import {serverStore, getInstanceStatus} from '../store/serverStore.js'
-import {onServerEvent} from '../apis/api.js'
+} from '@/apis/api.js'
+import {serverStore, getInstanceStatus} from '@/store/serverStore.js'
+import {onServerEvent} from '@/apis/api.js'
 import {IconLeft, IconEyeInvisible, IconEye} from '@arco-design/web-vue/es/icon'
 import {Modal, Message} from '@arco-design/web-vue'
 
@@ -372,6 +372,7 @@ watch(
 
 // 监听 WebSocket server_started 事件，自动开始日志监听
 let unlistenServerStarted = null
+let unlistenServerStarting = null
 let unlistenServerStopped = null
 
 // 计算实例是否在启动或停止中
@@ -630,12 +631,6 @@ const startLogStream = () => {
       // onLog 回调
       (line) => {
         logs.value.push(line)
-        // 自动滚动到底部
-        nextTick(() => {
-          if (logEndRef.value) {
-            logEndRef.value.scrollIntoView({behavior: 'smooth'})
-          }
-        })
       },
       // onError 回调
       (error) => {
@@ -766,8 +761,8 @@ const restartInstance = () => {
   })
 }
 
-onMounted(() => {
-  fetchInstanceConfig()
+onMounted(async () => {
+  await fetchInstanceConfig()
   loadGameIni()
   loadGameUserSettings()
 
@@ -777,16 +772,35 @@ onMounted(() => {
     instanceData.value = cachedStatus
   }
 
-  // 监听当前实例的 server_started 事件
-  unlistenServerStarted = onServerEvent('server_started', (event) => {
+  // 如果进入页面时服务器已经在运行，自动启动日志监听
+  if (instanceData.value?.running && !isStreaming.value) {
+    console.log('Server is already running when entering the page, auto-starting log stream')
+    setTimeout(() => {
+      if (!isStreaming.value && instanceData.value?.running) {
+        startLogStream()
+      }
+    }, 100)
+  }
+
+  // 监听当前实例的 server_starting 事件（实例开始启动时）
+  unlistenServerStarting = onServerEvent('server_starting', (event) => {
     if (event.instance_name === instanceName) {
-      console.log('Server started event received, auto-starting log stream')
-      // 延迟100ms确保服务器完全启动
+      console.log('Server starting event received, preparing for log stream')
+      // Instance is starting, will auto-start log streaming when server_started event is received
+
       setTimeout(() => {
         if (!isStreaming.value && instanceData.value?.running) {
           startLogStream()
         }
       }, 100)
+    }
+  })
+
+  // 监听当前实例的 server_started 事件
+  unlistenServerStarted = onServerEvent('server_started', (event) => {
+    if (event.instance_name === instanceName) {
+      console.log('Server started event received, auto-starting log stream')
+      // 延迟100ms确保服务器完全启动
     }
   })
 
@@ -809,6 +823,9 @@ onUnmounted(() => {
   }
 
   // 取消 WebSocket 事件监听
+  if (unlistenServerStarting) {
+    unlistenServerStarting()
+  }
   if (unlistenServerStarted) {
     unlistenServerStarted()
   }

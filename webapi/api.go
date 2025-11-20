@@ -400,25 +400,53 @@ func (s *APIServer) renameInstance(c *gin.Context) {
 func (s *APIServer) startServer(c *gin.Context) {
 	name := c.Param("name")
 
-	// Broadcast server starting event
-	s.BroadcastServerStarting(name)
-
-	if err := asaserver.StartServer(name); err != nil {
+	// Check if server is already running first (synchronous validation)
+	running, err := asaserver.IsServerRunning(name)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, StatusResponse{
 			Success: false,
-			Error:   err.Error(),
+			Error:   fmt.Sprintf("failed to check server status: %v", err),
 		})
-		// Broadcast error event
-		s.BroadcastServerStartFailed(name, err)
 		return
 	}
 
-	// Broadcast server started event
-	s.BroadcastServerStarted(name)
+	if running {
+		c.JSON(http.StatusBadRequest, StatusResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Server '%s' is already running", name),
+		})
+		return
+	}
 
+	// Check for duplicate ports (synchronous validation)
+	if err := asaserver.CheckForDuplicatePorts(); err != nil {
+		c.JSON(http.StatusBadRequest, StatusResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Port conflicts detected: %v", err),
+		})
+		return
+	}
+
+	// Broadcast server starting event
+	s.BroadcastServerStarting(name)
+
+	// Start server asynchronously to avoid blocking the API request
+	go func() {
+		if err := asaserver.StartServer(name); err != nil {
+			logger.GetLogger().Errorf("failed to start server '%s': %v", name, err)
+			// Broadcast error event
+			s.BroadcastServerStartFailed(name, err)
+			return
+		}
+
+		// Broadcast server started event
+		s.BroadcastServerStarted(name)
+	}()
+
+	// Return success immediately without waiting for the 60-second startup
 	c.JSON(http.StatusOK, StatusResponse{
 		Success: true,
-		Message: fmt.Sprintf("Server '%s' started successfully", name),
+		Message: fmt.Sprintf("Server '%s' is starting in the background. It should be fully operational in approximately 60 seconds.", name),
 	})
 }
 
@@ -461,22 +489,33 @@ func (s *APIServer) restartServer(c *gin.Context) {
 
 	// Create channel to stream messages
 	msgChan := make(chan string, 100)
-	defer close(msgChan)
+	done := make(chan struct{})
 
 	// Run restart in a goroutine
 	go func() {
-		msgChan <- fmt.Sprintf("Restarting server '%s'...", name)
+		defer close(msgChan)
+		select {
+		case msgChan <- fmt.Sprintf("Restarting server '%s'...", name):
+		case <-done:
+			return
+		}
 		// Broadcast server stopping event
 		s.BroadcastServerStopping(name)
 
 		if err := asaserver.RestartServer(name); err != nil {
-			msgChan <- fmt.Sprintf("Error: Failed to restart server: %v", err)
+			select {
+			case msgChan <- fmt.Sprintf("Error: Failed to restart server: %v", err):
+			case <-done:
+			}
 			// Broadcast error event
 			s.BroadcastServerRestartFailed(name, err)
 			return
 		}
 
-		msgChan <- fmt.Sprintf("Server '%s' restarted successfully", name)
+		select {
+		case msgChan <- fmt.Sprintf("Server '%s' restarted successfully", name):
+		case <-done:
+		}
 		// Broadcast server restarted event
 		s.BroadcastServerStarted(name)
 	}()
@@ -492,7 +531,8 @@ func (s *APIServer) restartServer(c *gin.Context) {
 			fmt.Fprintf(w, "data: %s\n\n", msg)
 			return true
 		case <-c.Request.Context().Done():
-			// Client disconnected
+			// Client disconnected - signal goroutine to stop
+			close(done)
 			return false
 		}
 	})
@@ -509,23 +549,34 @@ func (s *APIServer) startAllServers(c *gin.Context) {
 
 	// Create channel to stream messages
 	msgChan := make(chan string, 100)
-	defer close(msgChan)
+	done := make(chan struct{})
 
 	// Run startup in a goroutine
 	go func() {
+		defer close(msgChan)
 		// Get all available instances
 		instances, err := asaserver.GetAvailableInstances()
 		if err != nil {
-			msgChan <- fmt.Sprintf("Error: Failed to get instances: %v", err)
+			select {
+			case msgChan <- fmt.Sprintf("Error: Failed to get instances: %v", err):
+			case <-done:
+			}
 			return
 		}
 
 		if len(instances) == 0 {
-			msgChan <- "No instances to start"
+			select {
+			case msgChan <- "No instances to start":
+			case <-done:
+			}
 			return
 		}
 
-		msgChan <- fmt.Sprintf("Starting %d server instances...", len(instances))
+		select {
+		case msgChan <- fmt.Sprintf("Starting %d server instances...", len(instances)):
+		case <-done:
+			return
+		}
 
 		// Start each instance individually
 		var failedInstances []string
@@ -533,33 +584,55 @@ func (s *APIServer) startAllServers(c *gin.Context) {
 			// Check if already running
 			running, err := asaserver.IsServerRunning(instanceName)
 			if err == nil && running {
-				msgChan <- fmt.Sprintf("Instance '%s' is already running", instanceName)
+				select {
+				case msgChan <- fmt.Sprintf("Instance '%s' is already running", instanceName):
+				case <-done:
+					return
+				}
 				continue
 			}
 
 			// Broadcast starting event
 			s.BroadcastServerStarting(instanceName)
-			msgChan <- fmt.Sprintf("Starting instance '%s'...", instanceName)
+			select {
+			case msgChan <- fmt.Sprintf("Starting instance '%s'...", instanceName):
+			case <-done:
+				return
+			}
 
 			// Start the instance
 			if err := asaserver.StartServer(instanceName); err != nil {
 				failedInstances = append(failedInstances, instanceName)
-				msgChan <- fmt.Sprintf("Error starting '%s': %v", instanceName, err)
+				select {
+				case msgChan <- fmt.Sprintf("Error starting '%s': %v", instanceName, err):
+				case <-done:
+					return
+				}
 				// Broadcast error event
 				s.BroadcastServerStartFailed(instanceName, err)
 				continue
 			}
 
-			msgChan <- fmt.Sprintf("Instance '%s' started successfully", instanceName)
+			select {
+			case msgChan <- fmt.Sprintf("Instance '%s' started successfully", instanceName):
+			case <-done:
+				return
+			}
 			// Broadcast started event
 			s.BroadcastServerStarted(instanceName)
 		}
 
 		// Check if all starts were successful
 		if len(failedInstances) > 0 {
-			msgChan <- fmt.Sprintf("Error: %d of %d instances failed to start", len(failedInstances), len(instances))
+			select {
+			case msgChan <- fmt.Sprintf("Error: %d of %d instances failed to start", len(failedInstances), len(instances)):
+			case <-done:
+			}
 		} else {
-			msgChan <- fmt.Sprintf("All %d servers started successfully", len(instances))
+			select {
+			case msgChan <- fmt.Sprintf("All %d servers started successfully", len(instances)):
+			case <-done:
+			}
 		}
 	}()
 
@@ -574,7 +647,8 @@ func (s *APIServer) startAllServers(c *gin.Context) {
 			fmt.Fprintf(w, "data: %s\n\n", msg)
 			return true
 		case <-c.Request.Context().Done():
-			// Client disconnected
+			// Client disconnected - signal goroutine to stop
+			close(done)
 			return false
 		}
 	})
@@ -591,23 +665,34 @@ func (s *APIServer) stopAllServers(c *gin.Context) {
 
 	// Create channel to stream messages
 	msgChan := make(chan string, 100)
-	defer close(msgChan)
+	done := make(chan struct{})
 
 	// Run shutdown in a goroutine
 	go func() {
+		defer close(msgChan)
 		// Get all available instances
 		instances, err := asaserver.GetAvailableInstances()
 		if err != nil {
-			msgChan <- fmt.Sprintf("Error: Failed to get instances: %v", err)
+			select {
+			case msgChan <- fmt.Sprintf("Error: Failed to get instances: %v", err):
+			case <-done:
+			}
 			return
 		}
 
 		if len(instances) == 0 {
-			msgChan <- "No instances to stop"
+			select {
+			case msgChan <- "No instances to stop":
+			case <-done:
+			}
 			return
 		}
 
-		msgChan <- fmt.Sprintf("Stopping %d server instances...", len(instances))
+		select {
+		case msgChan <- fmt.Sprintf("Stopping %d server instances...", len(instances)):
+		case <-done:
+			return
+		}
 
 		// Stop each instance individually
 		var failedInstances []string
@@ -615,33 +700,55 @@ func (s *APIServer) stopAllServers(c *gin.Context) {
 			// Check if already running
 			running, err := asaserver.IsServerRunning(instanceName)
 			if err != nil || !running {
-				msgChan <- fmt.Sprintf("Instance '%s' is not running", instanceName)
+				select {
+				case msgChan <- fmt.Sprintf("Instance '%s' is not running", instanceName):
+				case <-done:
+					return
+				}
 				continue
 			}
 
 			// Broadcast stopping event
 			s.BroadcastServerStopping(instanceName)
-			msgChan <- fmt.Sprintf("Stopping instance '%s'...", instanceName)
+			select {
+			case msgChan <- fmt.Sprintf("Stopping instance '%s'...", instanceName):
+			case <-done:
+				return
+			}
 
 			// Stop the instance
 			if err := asaserver.StopServer(instanceName); err != nil {
 				failedInstances = append(failedInstances, instanceName)
-				msgChan <- fmt.Sprintf("Error stopping '%s': %v", instanceName, err)
+				select {
+				case msgChan <- fmt.Sprintf("Error stopping '%s': %v", instanceName, err):
+				case <-done:
+					return
+				}
 				// Broadcast error event
 				s.BroadcastServerStopFailed(instanceName, err)
 				continue
 			}
 
-			msgChan <- fmt.Sprintf("Instance '%s' stopped successfully", instanceName)
+			select {
+			case msgChan <- fmt.Sprintf("Instance '%s' stopped successfully", instanceName):
+			case <-done:
+				return
+			}
 			// Broadcast stopped event
 			s.BroadcastServerStopped(instanceName)
 		}
 
 		// Check if all stops were successful
 		if len(failedInstances) > 0 {
-			msgChan <- fmt.Sprintf("Error: %d of %d instances failed to stop", len(failedInstances), len(instances))
+			select {
+			case msgChan <- fmt.Sprintf("Error: %d of %d instances failed to stop", len(failedInstances), len(instances)):
+			case <-done:
+			}
 		} else {
-			msgChan <- fmt.Sprintf("All %d servers stopped successfully", len(instances))
+			select {
+			case msgChan <- fmt.Sprintf("All %d servers stopped successfully", len(instances)):
+			case <-done:
+			}
 		}
 	}()
 
@@ -656,7 +763,8 @@ func (s *APIServer) stopAllServers(c *gin.Context) {
 			fmt.Fprintf(w, "data: %s\n\n", msg)
 			return true
 		case <-c.Request.Context().Done():
-			// Client disconnected
+			// Client disconnected - signal goroutine to stop
+			close(done)
 			return false
 		}
 	})
@@ -848,36 +956,58 @@ func (s *APIServer) updateServer(c *gin.Context) {
 
 	// Create channel to stream update progress
 	updateChan := make(chan string, 100)
-	defer close(updateChan)
-
-	// Create SSE writer for callbacks
-	sseWriter := &SSEWriter{c: updateChan}
+	done := make(chan struct{})
 
 	// Run update in a goroutine
 	go func() {
+		defer close(updateChan)
 		// Send SteamCMD download and extract message
-		updateChan <- "Downloading and extracting SteamCMD..."
-		if err := asaserver.DownloadAndExtractSteamCmd(sseWriter); err != nil {
-			updateChan <- fmt.Sprintf("Error: Failed to download SteamCMD: %v", err)
+		select {
+		case updateChan <- "Downloading and extracting SteamCMD...":
+		case <-done:
+			return
+		}
+		if err := asaserver.DownloadAndExtractSteamCmd(&SSEWriter{c: updateChan}); err != nil {
+			select {
+			case updateChan <- fmt.Sprintf("Error: Failed to download SteamCMD: %v", err):
+			case <-done:
+			}
 			return
 		}
 
 		// Send ARK server update message
-		updateChan <- "Downloading and updating ARK server files..."
-		if err := asaserver.DownloadAndUpdateArkServer(sseWriter); err != nil {
-			updateChan <- fmt.Sprintf("Error: Failed to update ARK server: %v", err)
+		select {
+		case updateChan <- "Downloading and updating ARK server files...":
+		case <-done:
+			return
+		}
+		if err := asaserver.DownloadAndUpdateArkServer(&SSEWriter{c: updateChan}); err != nil {
+			select {
+			case updateChan <- fmt.Sprintf("Error: Failed to update ARK server: %v", err):
+			case <-done:
+			}
 			return
 		}
 
 		// Server verification
-		updateChan <- "Verifying server installation..."
+		select {
+		case updateChan <- "Verifying server installation...":
+		case <-done:
+			return
+		}
 		if err := asaserver.VerifyServerInstallation(false); err != nil {
-			updateChan <- fmt.Sprintf("Error: Server verification failed: %v", err)
+			select {
+			case updateChan <- fmt.Sprintf("Error: Server verification failed: %v", err):
+			case <-done:
+			}
 			return
 		}
 
 		// Update completed
-		updateChan <- "Server update completed successfully!"
+		select {
+		case updateChan <- "Server update completed successfully!":
+		case <-done:
+		}
 	}()
 
 	// Stream the progress
@@ -891,7 +1021,8 @@ func (s *APIServer) updateServer(c *gin.Context) {
 			fmt.Fprintf(w, "data: %s\n\n", msg)
 			return true
 		case <-c.Request.Context().Done():
-			// Client disconnected
+			// Client disconnected - signal goroutine to stop
+			close(done)
 			return false
 		}
 	})
@@ -974,36 +1105,37 @@ func (s *APIServer) streamInstanceLogs(c *gin.Context) {
 	c.Header("Access-Control-Allow-Origin", "*")
 	c.Header("Access-Control-Allow-Headers", "Content-Type")
 
-	// Create a channel to receive log lines
-	logChan := make(chan string, 100)
-	errorChan := make(chan error, 1)
+	// Create a channel to receive log lines with larger buffer to prevent message loss
+	logChan := make(chan string)
+	done := make(chan struct{})
 
-	// Start tailing the log file
+	// Start tailing the log file for new lines only (avoids re-reading existing content)
 	stopMonitoring := asaserver.TailLogFile(logPath, func(line string) {
 		select {
 		case logChan <- line:
-		default:
-			// Channel full, skip this line
+		case <-done:
+			return
 		}
 	})
-	defer stopMonitoring()
 
-	// Use Gin's streaming writer
-	c.Stream(func(w io.Writer) bool {
+	defer func() {
+		close(done)
+		stopMonitoring()
+	}()
+
+	// Stream new log lines as they arrive
+	for {
 		select {
-		case line := <-logChan:
-			// Send SSE formatted data
-			fmt.Fprintf(w, "data: %s\n\n", line)
-			return true
-		case err := <-errorChan:
-			// Send error message and close
-			fmt.Fprintf(w, "data: {\"error\": \"%v\"}\n\n", err)
-			return false
+		case line, ok := <-logChan:
+			if !ok {
+				return
+			}
+			fmt.Fprintf(c.Writer, "data: %s\n\n", line)
+			c.Writer.Flush()
 		case <-c.Request.Context().Done():
-			// Client disconnected
-			return false
+			return
 		}
-	})
+	}
 }
 
 // getGameIni returns the content of Game.ini for an instance

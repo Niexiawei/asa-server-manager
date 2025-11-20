@@ -29,7 +29,7 @@
 
 <script setup>
 import { ref } from 'vue'
-import { serverStore, initializeWebSocket } from '../store/serverStore.js'
+import { serverStore, initializeWebSocket } from '@/store/serverStore.js'
 import { Message } from '@arco-design/web-vue'
 
 const isReconnecting = ref(false)

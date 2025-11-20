@@ -30,6 +30,10 @@ func DownloadAndExtractSteamCmd(outputCallback ...io.Writer) error {
 		if outputWriter != nil {
 			outputWriter.Write([]byte(logMsg + "\n"))
 		}
+		if err := initializeSteamCmd(outputWriter); err != nil {
+			return fmt.Errorf("failed to initialize SteamCMD: %w", err)
+		}
+
 		return nil
 	}
 
@@ -71,6 +75,7 @@ func DownloadAndExtractSteamCmd(outputCallback ...io.Writer) error {
 	if outputWriter != nil {
 		outputWriter.Write([]byte(logMsg + "\n"))
 	}
+
 	if err := initializeSteamCmd(outputWriter); err != nil {
 		return fmt.Errorf("failed to initialize SteamCMD: %w", err)
 	}
@@ -186,16 +191,18 @@ func initializeSteamCmd(outputWriter ...io.Writer) error {
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 
 	// Run SteamCMD
-	logMsg := "Running SteamCMD initialization..."
+	logMsg := "Running SteamCMD initialization/updating..."
 	logger.GetLogger().Info(logMsg)
 	if writer != nil {
 		writer.Write([]byte(logMsg + "\n"))
 	}
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("SteamCMD initialization failed: %w", err)
+		return fmt.Errorf("SteamCMD initialization/updating failed: %w", err)
 	}
 
-	logMsg = "SteamCMD initialized successfully."
+	fmt.Println("cmd Run 999")
+
+	logMsg = "SteamCMD initialized/updating successfully."
 	logger.GetLogger().Info(logMsg)
 	if writer != nil {
 		writer.Write([]byte(logMsg + "\n"))

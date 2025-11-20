@@ -1,5 +1,5 @@
 import { reactive, ref } from 'vue'
-import { connectWebSocket, disconnectWebSocket, onAnyServerEvent } from '../apis/api.js'
+import { connectWebSocket, disconnectWebSocket, onAnyServerEvent } from '@/apis/api.js'
 
 // 全局服务器状态存储
 export const serverStore = reactive({

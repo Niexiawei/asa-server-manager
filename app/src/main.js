@@ -1,8 +1,8 @@
 import { createApp } from 'vue'
-import './style.css'
-import App from './App.vue'
-import router from './router'
-import { initializeWebSocket } from './store/serverStore.js'
+import '@/style.css'
+import App from '@/App.vue'
+import router from '@/router'
+import { initializeWebSocket } from '@/store/serverStore.js'
 
 // 引入 arco-design 组件库
 import ArcoVue from '@arco-design/web-vue';

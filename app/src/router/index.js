@@ -1,7 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import ServerManager from '../views/ServerManager.vue'
-import InstanceDetail from '../views/InstanceDetail.vue'
-import ServerControl from '../views/ServerControl.vue'
+import ServerManager from '@/views/ServerManager.vue'
+import InstanceDetail from '@/views/InstanceDetail.vue'
+import ServerControl from '@/views/ServerController/ServerControl.vue'
 
 const routes = [
   {

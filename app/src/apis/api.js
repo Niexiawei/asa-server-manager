@@ -101,6 +101,103 @@ export async function restartServer(name) {
   return handleResponse(response)
 }
 
+// SSE 流处理辅助函数 - 正确处理 UTF-8 多字节字符
+function createSSEStreamProcessor(onMessage) {
+  const decoder = new TextDecoder('utf-8')
+  let textBuffer = ''
+  let byteBuffer = new Uint8Array(0)
+
+  return {
+    process: (chunk) => {
+      // 合并之前的不完整字节和新的字节
+      const combined = new Uint8Array(byteBuffer.length + chunk.length)
+      combined.set(byteBuffer)
+      combined.set(chunk, byteBuffer.length)
+      
+      // 尝试解码，处理可能的不完整 UTF-8 序列
+      let lastCompleteIndex = combined.length
+      
+      // 检查末尾是否有不完整的 UTF-8 序列
+      for (let i = Math.max(0, combined.length - 4); i < combined.length; i++) {
+        const byte = combined[i]
+        // UTF-8 多字节字符的开始标记
+        if ((byte & 0x80) === 0) {
+          lastCompleteIndex = i + 1
+        } else if ((byte & 0xE0) === 0xC0) {
+          // 2字节字符
+          if (i + 1 < combined.length) {
+            lastCompleteIndex = i + 2
+          } else {
+            lastCompleteIndex = i
+            break
+          }
+        } else if ((byte & 0xF0) === 0xE0) {
+          // 3字节字符（中文常见）
+          if (i + 2 < combined.length) {
+            lastCompleteIndex = i + 3
+          } else {
+            lastCompleteIndex = i
+            break
+          }
+        } else if ((byte & 0xF8) === 0xF0) {
+          // 4字节字符
+          if (i + 3 < combined.length) {
+            lastCompleteIndex = i + 4
+          } else {
+            lastCompleteIndex = i
+            break
+          }
+        } else if ((byte & 0xC0) === 0x80) {
+          // 连续字节，更新完整位置
+          lastCompleteIndex = i + 1
+        }
+      }
+      
+      // 解码完整的部分
+      if (lastCompleteIndex > 0) {
+        textBuffer += decoder.decode(combined.slice(0, lastCompleteIndex), { stream: true })
+      }
+      
+      // 保留不完整的字节
+      byteBuffer = combined.slice(lastCompleteIndex)
+      
+      // 处理完整的消息
+      const messages = textBuffer.split(/\n\n+/)
+      
+      for (let i = 0; i < messages.length - 1; i++) {
+        const message = messages[i].trim()
+        if (message.startsWith('data: ')) {
+          const content = message.substring(6).trim()
+          if (content && onMessage) {
+            onMessage(content)
+          }
+        }
+      }
+      
+      // 保留不完整的消息
+      textBuffer = messages[messages.length - 1]
+    },
+    
+    flush: () => {
+      // 处理剩余字节
+      if (byteBuffer.length > 0) {
+        textBuffer += decoder.decode(byteBuffer)
+      }
+      
+      // 处理剩余的消息
+      if (textBuffer.trim()) {
+        const message = textBuffer.trim()
+        if (message.startsWith('data: ')) {
+          const content = message.substring(6).trim()
+          if (content && onMessage) {
+            onMessage(content)
+          }
+        }
+      }
+    }
+  }
+}
+
 // 启动所有服务器实例（SSE 流式响应）
 export async function startAllServers(onMessage, onError, onComplete) {
   try {
@@ -112,40 +209,16 @@ export async function startAllServers(onMessage, onError, onComplete) {
       throw new Error(`HTTP error! status: ${response.status}`)
     }
 
-    // 创建读取器来处理流式响应
     const reader = response.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
+    const processor = createSSEStreamProcessor(onMessage)
 
     while (true) {
       const { done, value } = await reader.read()
       if (done) break
-
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      
-      // 处理完整的行
-      for (let i = 0; i < lines.length - 1; i++) {
-        const line = lines[i]
-        if (line.startsWith('data: ')) {
-          const message = line.substring(6)
-          if (onMessage) {
-            onMessage(message)
-          }
-        }
-      }
-      
-      // 保留未完成的行
-      buffer = lines[lines.length - 1]
+      processor.process(value)
     }
-
-    // 处理剩余的 buffer
-    if (buffer.startsWith('data: ')) {
-      const message = buffer.substring(6)
-      if (onMessage) {
-        onMessage(message)
-      }
-    }
+    
+    processor.flush()
 
     if (onComplete) {
       onComplete()
@@ -169,40 +242,16 @@ export async function stopAllServers(onMessage, onError, onComplete) {
       throw new Error(`HTTP error! status: ${response.status}`)
     }
 
-    // 创建读取器来处理流式响应
     const reader = response.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
+    const processor = createSSEStreamProcessor(onMessage)
 
     while (true) {
       const { done, value } = await reader.read()
       if (done) break
-
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      
-      // 处理完整的行
-      for (let i = 0; i < lines.length - 1; i++) {
-        const line = lines[i]
-        if (line.startsWith('data: ')) {
-          const message = line.substring(6)
-          if (onMessage) {
-            onMessage(message)
-          }
-        }
-      }
-      
-      // 保留未完成的行
-      buffer = lines[lines.length - 1]
+      processor.process(value)
     }
-
-    // 处理剩余的 buffer
-    if (buffer.startsWith('data: ')) {
-      const message = buffer.substring(6)
-      if (onMessage) {
-        onMessage(message)
-      }
-    }
+    
+    processor.flush()
 
     if (onComplete) {
       onComplete()
@@ -268,40 +317,16 @@ export async function updateServer(onMessage, onError, onComplete) {
       throw new Error(`HTTP error! status: ${response.status}`)
     }
 
-    // 创建读取器来处理流式响应
     const reader = response.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
+    const processor = createSSEStreamProcessor(onMessage)
 
     while (true) {
       const { done, value } = await reader.read()
       if (done) break
-
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      
-      // 处理完整的行
-      for (let i = 0; i < lines.length - 1; i++) {
-        const line = lines[i]
-        if (line.startsWith('data: ')) {
-          const message = line.substring(6)
-          if (onMessage) {
-            onMessage(message)
-          }
-        }
-      }
-      
-      // 保留未完成的行
-      buffer = lines[lines.length - 1]
+      processor.process(value)
     }
-
-    // 处理剩余的 buffer
-    if (buffer.startsWith('data: ')) {
-      const message = buffer.substring(6)
-      if (onMessage) {
-        onMessage(message)
-      }
-    }
+    
+    processor.flush()
 
     if (onComplete) {
       onComplete()

@@ -125,10 +125,10 @@
 <script setup>
 import {ref, reactive, onMounted, onUnmounted, watch, computed} from 'vue'
 import {useRouter} from 'vue-router'
-import {listInstances, createInstance, startServer, stopServer, restartServer, deleteInstance} from '../apis/api.js'
+import {listInstances, createInstance, startServer, stopServer, restartServer, deleteInstance} from '@/apis/api.js'
 import {Modal, Button} from '@arco-design/web-vue';
-import {serverStore, updateInstancesInStore} from '../store/serverStore.js'
-import WSStatusIndicator from '../components/WSStatusIndicator.vue'
+import {serverStore, updateInstancesInStore} from '@/store/serverStore.js'
+import WSStatusIndicator from '@/components/WSStatusIndicator.vue'
 
 // 状态管理
 const router = useRouter()
