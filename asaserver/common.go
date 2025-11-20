@@ -23,7 +23,7 @@ func TailLogFile(logPath string, printFunc func(string)) func() {
 		// Create a watcher for file system events
 		watcher, err := fsnotify.NewWatcher()
 		if err != nil {
-			printFunc(fmt.Sprintf("❌ Failed to create file watcher: %v", err))
+			printFunc("Failed to create file watcher: " + fmt.Sprintf("%v", err))
 			return
 		}
 		defer watcher.Close()
@@ -31,7 +31,7 @@ func TailLogFile(logPath string, printFunc func(string)) func() {
 		// Watch the logs directory for changes
 		logsDir := filepath.Dir(logPath)
 		if err := watcher.Add(logsDir); err != nil {
-			printFunc(fmt.Sprintf("❌ Failed to watch logs directory: %v", err))
+			printFunc("Failed to watch logs directory: " + fmt.Sprintf("%v", err))
 			return
 		}
 
@@ -73,7 +73,7 @@ func TailLogFile(logPath string, printFunc func(string)) func() {
 				if !ok {
 					return
 				}
-				printFunc(fmt.Sprintf("❌ Watcher error: %v", err))
+				printFunc("Watcher error: " + fmt.Sprintf("%v", err))
 				return
 			case <-time.After(100 * time.Millisecond):
 				// Periodic check for file updates

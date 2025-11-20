@@ -19,13 +19,15 @@ import (
 func ActionUpdate(ctx context.Context, cmd *cli.Command) error {
 	logger.GetLogger().Info("Installing/updating base server...")
 
+	stdoutFmt := os.Stdout
+
 	// Download and extract SteamCMD
-	if err := DownloadAndExtractSteamCmd(); err != nil {
+	if err := DownloadAndExtractSteamCmd(stdoutFmt); err != nil {
 		return err
 	}
 
 	// Download and update ARK server
-	if err := DownloadAndUpdateArkServer(); err != nil {
+	if err := DownloadAndUpdateArkServer(stdoutFmt); err != nil {
 		return err
 	}
 

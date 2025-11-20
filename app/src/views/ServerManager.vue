@@ -1,5 +1,8 @@
 <template>
   <div class="server-manager">
+    <!-- WebSocket 连接状态指示器 -->
+    <WSStatusIndicator/>
+
     <!-- 实例列表 -->
     <a-card :bordered="false" class="main-card">
       <template #extra>
@@ -120,10 +123,12 @@
 </template>
 
 <script setup>
-import {ref, reactive, onMounted} from 'vue'
+import {ref, reactive, onMounted, onUnmounted, watch, computed} from 'vue'
 import {useRouter} from 'vue-router'
 import {listInstances, createInstance, startServer, stopServer, restartServer, deleteInstance} from '../apis/api.js'
 import {Modal, Button} from '@arco-design/web-vue';
+import {serverStore, updateInstancesInStore} from '../store/serverStore.js'
+import WSStatusIndicator from '../components/WSStatusIndicator.vue'
 
 // 状态管理
 const router = useRouter()
@@ -141,6 +146,8 @@ const fetchInstances = async () => {
     const data = await listInstances()
     if (data.success) {
       instances.value = data.data.instances
+      // 同时更新全局状态存储
+      updateInstancesInStore(instances.value)
     } else {
       console.error('获取实例列表失败:', data.error)
     }
@@ -269,18 +276,39 @@ const deleteInstanceHandler = async (name) => {
   })
 }
 
+// 监听全局服务器状态变化
+watch(
+    () => serverStore.instances,
+    (newInstances) => {
+      // 当 WebSocket 接收到事件更新状态时，同步更新本地 instances 数组
+      const updatedInstances = Array.from(newInstances.values())
+      instances.value = updatedInstances
+    },
+    {deep: true}
+)
+
 // 组件挂载时获取实例列表
 onMounted(() => {
   fetchInstances()
+})
+
+// 组件卸载时清理
+onUnmounted(() => {
+  // WebSocket 会保持连接，其他组件可能需要它
 })
 
 // 查看实例详情
 const viewInstanceDetail = (name) => {
   router.push({
     name: 'InstanceDetail',
-    params: { name }
+    params: {name}
   })
 }
+
+// 计算 WebSocket 连接状态显示
+const wsStatusText = computed(() => {
+  return serverStore.connected ? '实时同步中' : '连接中...'
+})
 </script>
 
 <style scoped>
@@ -329,6 +357,18 @@ const viewInstanceDetail = (name) => {
 .instance-card.running {
   border-color: #42b883;
   border-width: 2px;
+}
+
+.ws-status-bar {
+  margin-bottom: 16px;
+}
+
+.ws-connected-indicator {
+  margin-bottom: 12px;
+  padding: 8px 16px;
+  background-color: #f6ffed;
+  border-radius: 4px;
+  border-left: 4px solid #52c41a;
 }
 
 :deep(.arco-card-header) {

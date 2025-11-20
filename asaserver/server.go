@@ -243,7 +243,7 @@ func IsServerRunning(instanceName string) (bool, error) {
 	hasGamePort := strings.Contains(netstatOutput, gamePortStr)
 
 	if !hasGamePort {
-		fmt.Printf("⚠️ Game port :%d not found\n", config.Port)
+		logger.GetLogger().Warnf("Game port :%d not found", config.Port)
 		return false, nil
 	}
 
@@ -299,7 +299,7 @@ func setupInstanceConfig(instanceName string, confReset *func()) error {
 
 	// 1. If instance Config directory doesn't exist, copy from base server config
 	if _, err := os.Stat(instanceConfigDir); os.IsNotExist(err) {
-		fmt.Printf("📋 Copying base server configuration to instance '%s'...\n", instanceName)
+		logger.GetLogger().Infof("Copying base server configuration to instance '%s'...", instanceName)
 		if err := CopyDir(baseConfigDir, instanceConfigDir); err != nil {
 			return fmt.Errorf("failed to copy config directory: %w", err)
 		}
@@ -312,7 +312,7 @@ func setupInstanceConfig(instanceName string, confReset *func()) error {
 		isSymlink := (fileInfo.Mode() & os.ModeSymlink) != 0
 		_, backupErr := os.Stat(baseConfigDirBackup)
 		if !isSymlink && os.IsNotExist(backupErr) {
-			fmt.Printf("💾 Backing up original configuration directory...\n")
+			logger.GetLogger().Info("Backing up original configuration directory...")
 			if err := os.Rename(baseConfigDir, baseConfigDirBackup); err != nil {
 				return fmt.Errorf("failed to backup original config directory: %w", err)
 			}
@@ -341,15 +341,15 @@ func setupInstanceConfig(instanceName string, confReset *func()) error {
 		reset := func() {
 			// Remove the junction
 			if err := os.RemoveAll(baseConfigDir); err != nil {
-				fmt.Printf("⚠️  Warning: Failed to remove junction for instance %s: %v\n", instanceName, err)
+				logger.GetLogger().Warnf("Warning: Failed to remove junction for instance %s: %v", instanceName, err)
 			}
 
 			// Restore the original configuration directory from backup if it exists
 			if _, err := os.Stat(baseConfigDirBackup); err == nil {
 				if err := os.Rename(baseConfigDirBackup, baseConfigDir); err != nil {
-					fmt.Printf("⚠️  Warning: Failed to restore original config directory for instance %s: %v\n", instanceName, err)
+					logger.GetLogger().Warnf("Warning: Failed to restore original config directory for instance %s: %v", instanceName, err)
 				} else {
-					fmt.Printf("✅ Original configuration directory restored for instance: %s\n", instanceName)
+					logger.GetLogger().Infof("Original configuration directory restored for instance: %s", instanceName)
 				}
 			}
 		}
@@ -366,13 +366,13 @@ func StartServer(instanceName string) error {
 	)
 
 	if running, err := IsServerRunning(instanceName); err == nil && running {
-		fmt.Printf("⚠️  Server for instance %s is already running.\n", instanceName)
+		logger.GetLogger().Warnf("Server for instance %s is already running.", instanceName)
 		return nil
 	}
 
 	// Check for duplicate ports
 	if err := CheckForDuplicatePorts(); err != nil {
-		fmt.Printf("❌ Port conflicts detected: %v\n", err)
+		logger.GetLogger().Errorf("Port conflicts detected: %v", err)
 		return err
 	}
 
@@ -381,7 +381,7 @@ func StartServer(instanceName string) error {
 		return err
 	}
 
-	fmt.Printf("🚀 Starting server for instance: %s\n", instanceName)
+	logger.GetLogger().Infof("Starting server for instance: %s", instanceName)
 
 	// Setup instance configuration directory and symlinks
 	if err := setupInstanceConfig(instanceName, &confReset); err != nil {
@@ -543,7 +543,7 @@ func StopServer(instanceName string) error {
 		time.Sleep(2 * time.Second)
 	}
 
-	fmt.Printf("✅ Server for instance %s has exited.\n", instanceName)
+	logger.GetLogger().Infof("Server for instance %s has exited.", instanceName)
 
 	// Remove the log mapping for this instance (log file will be reused on next start)
 	if err := RemoveInstanceLogMapping(instanceName); err != nil {

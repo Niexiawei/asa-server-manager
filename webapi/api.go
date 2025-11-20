@@ -452,145 +452,213 @@ func (s *APIServer) stopServer(c *gin.Context) {
 func (s *APIServer) restartServer(c *gin.Context) {
 	name := c.Param("name")
 
-	// Broadcast server stopping event
-	s.BroadcastServerStopping(name)
+	// Set SSE headers
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("Access-Control-Allow-Origin", "*")
+	c.Header("Access-Control-Allow-Headers", "Content-Type")
 
-	if err := asaserver.RestartServer(name); err != nil {
-		c.JSON(http.StatusInternalServerError, StatusResponse{
-			Success: false,
-			Error:   err.Error(),
-		})
-		// Broadcast error event
-		s.BroadcastServerRestartFailed(name, err)
-		return
-	}
+	// Create channel to stream messages
+	msgChan := make(chan string, 100)
+	defer close(msgChan)
 
-	// Broadcast server restarted event
-	s.BroadcastServerStarted(name)
+	// Run restart in a goroutine
+	go func() {
+		msgChan <- fmt.Sprintf("Restarting server '%s'...", name)
+		// Broadcast server stopping event
+		s.BroadcastServerStopping(name)
 
-	c.JSON(http.StatusOK, StatusResponse{
-		Success: true,
-		Message: fmt.Sprintf("Server '%s' restarted successfully", name),
+		if err := asaserver.RestartServer(name); err != nil {
+			msgChan <- fmt.Sprintf("Error: Failed to restart server: %v", err)
+			// Broadcast error event
+			s.BroadcastServerRestartFailed(name, err)
+			return
+		}
+
+		msgChan <- fmt.Sprintf("Server '%s' restarted successfully", name)
+		// Broadcast server restarted event
+		s.BroadcastServerStarted(name)
+	}()
+
+	// Stream the progress
+	c.Stream(func(w io.Writer) bool {
+		select {
+		case msg, ok := <-msgChan:
+			if !ok {
+				return false
+			}
+			// Send SSE formatted data
+			fmt.Fprintf(w, "data: %s\n\n", msg)
+			return true
+		case <-c.Request.Context().Done():
+			// Client disconnected
+			return false
+		}
 	})
 }
 
-// startAllServers starts all server instances
+// startAllServers starts all server instances with SSE progress streaming
 func (s *APIServer) startAllServers(c *gin.Context) {
-	// Get all available instances
-	instances, err := asaserver.GetAvailableInstances()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, StatusResponse{
-			Success: false,
-			Error:   err.Error(),
-		})
-		return
-	}
+	// Set SSE headers
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("Access-Control-Allow-Origin", "*")
+	c.Header("Access-Control-Allow-Headers", "Content-Type")
 
-	if len(instances) == 0 {
-		c.JSON(http.StatusOK, StatusResponse{
-			Success: true,
-			Message: "No instances to start",
-		})
-		return
-	}
+	// Create channel to stream messages
+	msgChan := make(chan string, 100)
+	defer close(msgChan)
 
-	// Start each instance individually
-	var failedInstances []string
-	for _, instanceName := range instances {
-		// Check if already running
-		running, err := asaserver.IsServerRunning(instanceName)
-		if err == nil && running {
-			continue
+	// Run startup in a goroutine
+	go func() {
+		// Get all available instances
+		instances, err := asaserver.GetAvailableInstances()
+		if err != nil {
+			msgChan <- fmt.Sprintf("Error: Failed to get instances: %v", err)
+			return
 		}
 
-		// Broadcast starting event
-		s.BroadcastServerStarting(instanceName)
-
-		// Start the instance
-		if err := asaserver.StartServer(instanceName); err != nil {
-			failedInstances = append(failedInstances, instanceName)
-			// Broadcast error event
-			s.BroadcastServerStartFailed(instanceName, err)
-			continue
+		if len(instances) == 0 {
+			msgChan <- "No instances to start"
+			return
 		}
 
-		// Broadcast started event
-		s.BroadcastServerStarted(instanceName)
-	}
+		msgChan <- fmt.Sprintf("Starting %d server instances...", len(instances))
 
-	// Check if all starts were successful
-	if len(failedInstances) > 0 {
-		c.JSON(http.StatusInternalServerError, StatusResponse{
-			Success: false,
-			Message: fmt.Sprintf("Failed to start some instances: %v", failedInstances),
-			Error:   fmt.Sprintf("%d of %d instances failed to start", len(failedInstances), len(instances)),
-		})
-		return
-	}
+		// Start each instance individually
+		var failedInstances []string
+		for _, instanceName := range instances {
+			// Check if already running
+			running, err := asaserver.IsServerRunning(instanceName)
+			if err == nil && running {
+				msgChan <- fmt.Sprintf("Instance '%s' is already running", instanceName)
+				continue
+			}
 
-	c.JSON(http.StatusOK, StatusResponse{
-		Success: true,
-		Message: fmt.Sprintf("All %d servers started successfully", len(instances)),
+			// Broadcast starting event
+			s.BroadcastServerStarting(instanceName)
+			msgChan <- fmt.Sprintf("Starting instance '%s'...", instanceName)
+
+			// Start the instance
+			if err := asaserver.StartServer(instanceName); err != nil {
+				failedInstances = append(failedInstances, instanceName)
+				msgChan <- fmt.Sprintf("Error starting '%s': %v", instanceName, err)
+				// Broadcast error event
+				s.BroadcastServerStartFailed(instanceName, err)
+				continue
+			}
+
+			msgChan <- fmt.Sprintf("Instance '%s' started successfully", instanceName)
+			// Broadcast started event
+			s.BroadcastServerStarted(instanceName)
+		}
+
+		// Check if all starts were successful
+		if len(failedInstances) > 0 {
+			msgChan <- fmt.Sprintf("Error: %d of %d instances failed to start", len(failedInstances), len(instances))
+		} else {
+			msgChan <- fmt.Sprintf("All %d servers started successfully", len(instances))
+		}
+	}()
+
+	// Stream the progress
+	c.Stream(func(w io.Writer) bool {
+		select {
+		case msg, ok := <-msgChan:
+			if !ok {
+				return false
+			}
+			// Send SSE formatted data
+			fmt.Fprintf(w, "data: %s\n\n", msg)
+			return true
+		case <-c.Request.Context().Done():
+			// Client disconnected
+			return false
+		}
 	})
 }
 
-// stopAllServers stops all server instances
+// stopAllServers stops all server instances with SSE progress streaming
 func (s *APIServer) stopAllServers(c *gin.Context) {
-	// Get all available instances
-	instances, err := asaserver.GetAvailableInstances()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, StatusResponse{
-			Success: false,
-			Error:   err.Error(),
-		})
-		return
-	}
+	// Set SSE headers
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("Access-Control-Allow-Origin", "*")
+	c.Header("Access-Control-Allow-Headers", "Content-Type")
 
-	if len(instances) == 0 {
-		c.JSON(http.StatusOK, StatusResponse{
-			Success: true,
-			Message: "No instances to stop",
-		})
-		return
-	}
+	// Create channel to stream messages
+	msgChan := make(chan string, 100)
+	defer close(msgChan)
 
-	// Stop each instance individually
-	var failedInstances []string
-	for _, instanceName := range instances {
-		// Check if already running
-		running, err := asaserver.IsServerRunning(instanceName)
-		if err != nil || !running {
-			continue
+	// Run shutdown in a goroutine
+	go func() {
+		// Get all available instances
+		instances, err := asaserver.GetAvailableInstances()
+		if err != nil {
+			msgChan <- fmt.Sprintf("Error: Failed to get instances: %v", err)
+			return
 		}
 
-		// Broadcast stopping event
-		s.BroadcastServerStopping(instanceName)
-
-		// Stop the instance
-		if err := asaserver.StopServer(instanceName); err != nil {
-			failedInstances = append(failedInstances, instanceName)
-			// Broadcast error event
-			s.BroadcastServerStopFailed(instanceName, err)
-			continue
+		if len(instances) == 0 {
+			msgChan <- "No instances to stop"
+			return
 		}
 
-		// Broadcast stopped event
-		s.BroadcastServerStopped(instanceName)
-	}
+		msgChan <- fmt.Sprintf("Stopping %d server instances...", len(instances))
 
-	// Check if all stops were successful
-	if len(failedInstances) > 0 {
-		c.JSON(http.StatusInternalServerError, StatusResponse{
-			Success: false,
-			Message: fmt.Sprintf("Failed to stop some instances: %v", failedInstances),
-			Error:   fmt.Sprintf("%d of %d instances failed to stop", len(failedInstances), len(instances)),
-		})
-		return
-	}
+		// Stop each instance individually
+		var failedInstances []string
+		for _, instanceName := range instances {
+			// Check if already running
+			running, err := asaserver.IsServerRunning(instanceName)
+			if err != nil || !running {
+				msgChan <- fmt.Sprintf("Instance '%s' is not running", instanceName)
+				continue
+			}
 
-	c.JSON(http.StatusOK, StatusResponse{
-		Success: true,
-		Message: fmt.Sprintf("All %d servers stopped successfully", len(instances)),
+			// Broadcast stopping event
+			s.BroadcastServerStopping(instanceName)
+			msgChan <- fmt.Sprintf("Stopping instance '%s'...", instanceName)
+
+			// Stop the instance
+			if err := asaserver.StopServer(instanceName); err != nil {
+				failedInstances = append(failedInstances, instanceName)
+				msgChan <- fmt.Sprintf("Error stopping '%s': %v", instanceName, err)
+				// Broadcast error event
+				s.BroadcastServerStopFailed(instanceName, err)
+				continue
+			}
+
+			msgChan <- fmt.Sprintf("Instance '%s' stopped successfully", instanceName)
+			// Broadcast stopped event
+			s.BroadcastServerStopped(instanceName)
+		}
+
+		// Check if all stops were successful
+		if len(failedInstances) > 0 {
+			msgChan <- fmt.Sprintf("Error: %d of %d instances failed to stop", len(failedInstances), len(instances))
+		} else {
+			msgChan <- fmt.Sprintf("All %d servers stopped successfully", len(instances))
+		}
+	}()
+
+	// Stream the progress
+	c.Stream(func(w io.Writer) bool {
+		select {
+		case msg, ok := <-msgChan:
+			if !ok {
+				return false
+			}
+			// Send SSE formatted data
+			fmt.Fprintf(w, "data: %s\n\n", msg)
+			return true
+		case <-c.Request.Context().Done():
+			// Client disconnected
+			return false
+		}
 	})
 }
 
@@ -755,36 +823,77 @@ func (s *APIServer) restoreBackup(c *gin.Context) {
 }
 
 // updateServer updates the base server
+// SSE Writer for streaming update progress
+type SSEWriter struct {
+	c chan string
+}
+
+func (w *SSEWriter) Write(p []byte) (n int, err error) {
+	select {
+	case w.c <- string(p):
+		return len(p), nil
+	default:
+		// Channel full, skip this message
+		return len(p), nil
+	}
+}
+
 func (s *APIServer) updateServer(c *gin.Context) {
-	forceServer := c.DefaultQuery("force-server", "false") == "true"
+	// Set SSE headers
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("Access-Control-Allow-Origin", "*")
+	c.Header("Access-Control-Allow-Headers", "Content-Type")
 
-	if err := asaserver.DownloadAndExtractSteamCmd(); err != nil {
-		c.JSON(http.StatusInternalServerError, StatusResponse{
-			Success: false,
-			Error:   err.Error(),
-		})
-		return
-	}
+	// Create channel to stream update progress
+	updateChan := make(chan string, 100)
+	defer close(updateChan)
 
-	if err := asaserver.DownloadAndUpdateArkServer(); err != nil {
-		c.JSON(http.StatusInternalServerError, StatusResponse{
-			Success: false,
-			Error:   err.Error(),
-		})
-		return
-	}
+	// Create SSE writer for callbacks
+	sseWriter := &SSEWriter{c: updateChan}
 
-	if err := asaserver.VerifyServerInstallation(forceServer); err != nil {
-		c.JSON(http.StatusInternalServerError, StatusResponse{
-			Success: false,
-			Error:   err.Error(),
-		})
-		return
-	}
+	// Run update in a goroutine
+	go func() {
+		// Send SteamCMD download and extract message
+		updateChan <- "Downloading and extracting SteamCMD..."
+		if err := asaserver.DownloadAndExtractSteamCmd(sseWriter); err != nil {
+			updateChan <- fmt.Sprintf("Error: Failed to download SteamCMD: %v", err)
+			return
+		}
 
-	c.JSON(http.StatusOK, StatusResponse{
-		Success: true,
-		Message: "Server updated successfully",
+		// Send ARK server update message
+		updateChan <- "Downloading and updating ARK server files..."
+		if err := asaserver.DownloadAndUpdateArkServer(sseWriter); err != nil {
+			updateChan <- fmt.Sprintf("Error: Failed to update ARK server: %v", err)
+			return
+		}
+
+		// Server verification
+		updateChan <- "Verifying server installation..."
+		if err := asaserver.VerifyServerInstallation(false); err != nil {
+			updateChan <- fmt.Sprintf("Error: Server verification failed: %v", err)
+			return
+		}
+
+		// Update completed
+		updateChan <- "Server update completed successfully!"
+	}()
+
+	// Stream the progress
+	c.Stream(func(w io.Writer) bool {
+		select {
+		case msg, ok := <-updateChan:
+			if !ok {
+				return false
+			}
+			// Send SSE formatted data
+			fmt.Fprintf(w, "data: %s\n\n", msg)
+			return true
+		case <-c.Request.Context().Done():
+			// Client disconnected
+			return false
+		}
 	})
 }
 

@@ -68,6 +68,28 @@
         </div>
       </a-card>
       
+      <!-- 服务器更新日志 -->
+      <a-modal
+        v-model:visible="updateModalVisible"
+        title="服务器更新"
+        :width="800"
+        :footer="false"
+        @cancel="handleCancelUpdate"
+      >
+        <div class="update-log-container">
+          <div class="update-log">
+            <div 
+              v-for="(log, index) in updateLogs" 
+              :key="index"
+              class="log-line"
+            >
+              {{ log }}
+            </div>
+          </div>
+          <a-spin v-if="updating" :size="32" class="update-spinner" />
+        </div>
+      </a-modal>
+
       <!-- RCON 命令 -->
       <a-card title="RCON 命令" :bordered="false" class="section-card">
         <a-form :model="rconForm" layout="vertical">
@@ -126,6 +148,7 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { 
+  listInstances,
   startAllServers, 
   stopAllServers, 
   updateServer,
@@ -134,11 +157,16 @@ import {
   restoreBackup,
   sendRCONCommand
 } from '../apis/api.js'
+import { Message, Modal } from '@arco-design/web-vue'
 
 // 状态管理
 const instances = ref([])
 const backups = ref([])
 const rconResponse = ref('')
+const updateModalVisible = ref(false)
+const updating = ref(false)
+const updateLogs = ref([])
+let updateAbortController = null
 
 const backupForm = reactive({
   instance: '',
@@ -153,14 +181,16 @@ const rconForm = reactive({
 // 获取实例列表
 const fetchInstances = async () => {
   try {
-    // 这里应该从 ServerManager 组件获取实例列表
-    // 暂时使用模拟数据
-    instances.value = [
-      { name: 'TheIsland', running: true },
-      { name: 'Ragnarok', running: false }
-    ]
+    const data = await listInstances()
+    if (data.success) {
+      instances.value = data.data.instances
+    } else {
+      console.error('获取实例列表失败:', data.error)
+      Message.error('获取实例列表失败: ' + (data.error || '未知错误'))
+    }
   } catch (error) {
     console.error('获取实例列表失败:', error)
+    Message.error('获取实例列表失败: ' + error.message)
   }
 }
 
@@ -180,77 +210,184 @@ const fetchBackups = async () => {
 
 // 启动所有服务器
 const startAllServersHandler = async () => {
-  // 使用 arco-design 的确认对话框
-  $dialog.confirm({
+  Modal.confirm({
     title: '确认',
     content: '确定要启动所有服务器吗？',
     okText: '确定',
     cancelText: '取消',
     onOk: async () => {
-      try {
-        const data = await startAllServers()
-        if (data.success) {
-          $message.success('所有服务器已启动')
-        } else {
-          console.error('启动所有服务器失败:', data.error)
-          $message.error('启动所有服务器失败: ' + data.error)
+      updateModalVisible.value = true
+      updating.value = true
+      updateLogs.value = []
+
+      await startAllServers(
+        (message) => {
+          updateLogs.value.push(message)
+          // 自动滚动到下方
+          setTimeout(() => {
+            const logContainer = document.querySelector('.update-log')
+            if (logContainer) {
+              logContainer.scrollTop = logContainer.scrollHeight
+            }
+          }, 0)
+        },
+        (error) => {
+          console.error('启动服务器错误:', error)
+          updateLogs.value.push(`错误: ${error.message}`)
+          updating.value = false
+        },
+        () => {
+          updating.value = false
+          updateLogs.value.push('\n业务处理完成')
+          Message.success('所有服务器已启动')
+          fetchInstances()
         }
-      } catch (error) {
-        console.error('启动所有服务器失败:', error)
-        $message.error('启动所有服务器失败: ' + error.message)
-      }
+      )
     }
   })
 }
 
 // 停止所有服务器
 const stopAllServersHandler = async () => {
-  // 使用 arco-design 的确认对话框
-  $dialog.confirm({
+  Modal.confirm({
     title: '确认',
     content: '确定要停止所有服务器吗？',
     okText: '确定',
     cancelText: '取消',
     onOk: async () => {
-      try {
-        const data = await stopAllServers()
-        if (data.success) {
-          $message.success('所有服务器已停止')
-        } else {
-          console.error('停止所有服务器失败:', data.error)
-          $message.error('停止所有服务器失败: ' + data.error)
+      updateModalVisible.value = true
+      updating.value = true
+      updateLogs.value = []
+
+      await stopAllServers(
+        (message) => {
+          updateLogs.value.push(message)
+          // 自动滚动到下方
+          setTimeout(() => {
+            const logContainer = document.querySelector('.update-log')
+            if (logContainer) {
+              logContainer.scrollTop = logContainer.scrollHeight
+            }
+          }, 0)
+        },
+        (error) => {
+          console.error('停止服务器错误:', error)
+          updateLogs.value.push(`错误: ${error.message}`)
+          updating.value = false
+        },
+        () => {
+          updating.value = false
+          updateLogs.value.push('\n业务处理完成')
+          Message.success('所有服务器已停止')
+          fetchInstances()
         }
-      } catch (error) {
-        console.error('停止所有服务器失败:', error)
-        $message.error('停止所有服务器失败: ' + error.message)
-      }
+      )
     }
   })
 }
 
 // 更新服务器
 const updateServerHandler = async () => {
-  // 使用 arco-design 的确认对话框
-  $dialog.confirm({
+  // 检查是否有实例正在运行
+  const runningInstances = instances.value.filter(i => i.running)
+  if (runningInstances.length > 0) {
+    Modal.confirm({
+      title: '无法更新',
+      content: `程序检测到以下实例正在运行：${runningInstances.map(i => i.name).join('、')}。\n\n请先关闭all所有实例后再试`,
+      okText: '关闭',
+      cancelText: '取消',
+      onOk: async () => {
+        // 打开日志面板展示停止过程
+        updateModalVisible.value = true
+        updating.value = true
+        updateLogs.value = []
+
+        await stopAllServers(
+          (message) => {
+            updateLogs.value.push(message)
+            setTimeout(() => {
+              const logContainer = document.querySelector('.update-log')
+              if (logContainer) {
+                logContainer.scrollTop = logContainer.scrollHeight
+              }
+            }, 0)
+          },
+          (error) => {
+            console.error('停止服务器错误:', error)
+            updateLogs.value.push(`错误: ${error.message}`)
+            updating.value = false
+          },
+          () => {
+            updating.value = false
+            updateLogs.value.push('\n所有服务器已停止，现在可以更新')
+            updateModalVisible.value = false
+          }
+        )
+      }
+    })
+    return
+  }
+
+  Modal.confirm({
     title: '确认',
     content: '确定要更新服务器吗？这可能需要一些时间。',
     okText: '确定',
     cancelText: '取消',
     onOk: async () => {
-      try {
-        const data = await updateServer()
-        if (data.success) {
-          $message.success('服务器更新成功')
-        } else {
-          console.error('更新服务器失败:', data.error)
-          $message.error('更新服务器失败: ' + data.error)
+      updateModalVisible.value = true
+      updating.value = true
+      updateLogs.value = []
+      updateAbortController = new AbortController()
+
+      await updateServer(
+        (message) => {
+          // onMessage callback
+          updateLogs.value.push(message)
+          // 自动滚动到下方
+          setTimeout(() => {
+            const logContainer = document.querySelector('.update-log')
+            if (logContainer) {
+              logContainer.scrollTop = logContainer.scrollHeight
+            }
+          }, 0)
+        },
+        (error) => {
+          // onError callback
+          console.error('更新日志错误:', error)
+          updateLogs.value.push(`错误: ${error.message}`)
+          updating.value = false
+        },
+        () => {
+          // onComplete callback
+          updating.value = false
+          updateLogs.value.push('\n更新流程完成1')
+          Message.success('服务器更新成功')
+          fetchInstances() // 刷新实例点状况
         }
-      } catch (error) {
-        console.error('更新服务器失败:', error)
-        $message.error('更新服务器失败: ' + error.message)
-      }
+      )
     }
   })
+}
+
+// 取消更新
+const handleCancelUpdate = () => {
+  if (updating.value) {
+    Modal.confirm({
+      title: '是否中止更新？',
+      content: '正在更新中，中止可能会导致服务器状态不一致。',
+      okText: '是',
+      cancelText: '否',
+      onOk: () => {
+        if (updateAbortController) {
+          updateAbortController.abort()
+        }
+        updating.value = false
+        updateModalVisible.value = false
+      }
+    })
+  } else {
+    updateModalVisible.value = false
+  }
 }
 
 // 创建备份
@@ -260,30 +397,29 @@ const createBackupHandler = async () => {
   try {
     const data = await createBackup(backupForm.instance, backupForm.worldFolder)
     if (data.success) {
-      $message.success('备份创建成功')
+      Message.success('备份创建成功')
       // 刷新备份列表
       await fetchBackups()
       // 清空输入
       backupForm.worldFolder = ''
     } else {
       console.error('创建备份失败:', data.error)
-      $message.error('创建备份失败: ' + data.error)
+      Message.error('创建备份失败: ' + (data.error || '未知错误'))
     }
   } catch (error) {
     console.error('创建备份失败:', error)
-    $message.error('创建备份失败: ' + error.message)
+    Message.error('创建备份失败: ' + error.message)
   }
 }
 
 // 恢复备份
 const restoreBackupHandler = async (backupFile) => {
   if (!backupForm.instance) {
-    $message.warning('请先选择要恢复备份的实例')
+    Message.warning('请先选择要恢复备份的实例')
     return
   }
   
-  // 使用 arco-design 的确认对话框
-  $dialog.confirm({
+  Modal.confirm({
     title: '确认',
     content: `确定要将备份 "${backupFile}" 恢复到实例 "${backupForm.instance}" 吗？`,
     okText: '确定',
@@ -292,14 +428,14 @@ const restoreBackupHandler = async (backupFile) => {
       try {
         const data = await restoreBackup(backupForm.instance, backupFile)
         if (data.success) {
-          $message.success('备份恢复成功')
+          Message.success('备份恢复成功')
         } else {
           console.error('恢复备份失败:', data.error)
-          $message.error('恢复备份失败: ' + data.error)
+          Message.error('恢复备份失败: ' + (data.error || '未知错误'))
         }
       } catch (error) {
         console.error('恢复备份失败:', error)
-        $message.error('恢复备份失败: ' + error.message)
+        Message.error('恢复备份失败: ' + error.message)
       }
     }
   })
@@ -313,16 +449,16 @@ const sendRconCommandHandler = async () => {
     const data = await sendRCONCommand(rconForm.instance, rconForm.command)
     if (data.success) {
       rconResponse.value = data.data.response
-      $message.success('命令发送成功')
+      Message.success('命令发送成功')
     } else {
       console.error('发送 RCON 命令失败:', data.error)
       rconResponse.value = `错误: ${data.error}`
-      $message.error('发送 RCON 命令失败: ' + data.error)
+      Message.error('发送 RCON 命令失败: ' + (data.error || '未知错误'))
     }
   } catch (error) {
     console.error('发送 RCON 命令失败:', error)
     rconResponse.value = `错误: ${error.message}`
-    $message.error('发送 RCON 命令失败: ' + error.message)
+    Message.error('发送 RCON 命令失败: ' + error.message)
   }
 }
 
@@ -368,5 +504,36 @@ onMounted(() => {
   margin: 0;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.update-log-container {
+  position: relative;
+  height: 400px;
+}
+
+.update-log {
+  width: 100%;
+  height: 100%;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  padding: 12px;
+  background-color: #fafafa;
+  overflow-y: auto;
+  font-family: 'Monaco', 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.log-line {
+  color: #333;
+  word-break: break-all;
+  white-space: pre-wrap;
+}
+
+.update-spinner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
 }
 </style>

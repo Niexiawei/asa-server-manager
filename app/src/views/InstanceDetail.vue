@@ -1,5 +1,8 @@
 <template>
   <div class="instance-detail">
+    <!-- WebSocket 连接状态指示器 -->
+    <WSStatusIndicator />
+
     <a-card class="detail-card" :bordered="false">
       <template #title>
         <div class="detail-header">
@@ -9,7 +12,7 @@
               @click="$router.back()"
           >
             <template #icon>
-              <icon-left />
+              <icon-left/>
             </template>
           </a-button>
           <span class="instance-name">{{ instanceName }}</span>
@@ -46,145 +49,148 @@
       </template>
 
       <a-spin :loading="loading" style="width: 100%">
-        <a-alert v-if="error" type="error" :title="`错误: ${error}`" closable />
+        <a-alert v-if="error" type="error" :title="`错误: ${error}`" closable/>
 
         <div v-else class="config-container">
-          <a-card title="基本信息" class="config-section">
-            <div class="advanced-config-items">
-              <div v-for="item in basicInfo" :key="item.label" class="config-item">
-                <div class="config-item-label">{{ item.label }}</div>
-                <div class="config-item-value">{{ item.value }}</div>
+          <a-card title="服务器配置" class="config-section">
+            <template #title>
+              <div class="config-card-title">
+                <span>服务器配置</span>
+                <a-button
+                    type="primary"
+                    size="small"
+                    @click="openConfigEditModal"
+                    style="margin-left: 12px"
+                >
+                  编辑
+                </a-button>
               </div>
-            </div>
-          </a-card>
-
-          <a-card title="网络配置" class="config-section">
-            <div class="advanced-config-items">
-              <div v-for="item in networkConfig" :key="item.label" class="config-item">
-                <div class="config-item-label">{{ item.label }}</div>
-                <div class="config-item-value">{{ item.value }}</div>
-              </div>
-            </div>
-          </a-card>
-
-          <a-card title="游戏配置" class="config-section">
-            <div class="advanced-config-items">
-              <div v-for="item in gameConfig" :key="item.label" class="config-item">
-                <div class="config-item-label">{{ item.label }}</div>
-                <div class="config-item-value">{{ item.value }}</div>
-              </div>
-            </div>
-          </a-card>
-
-          <a-card title="高级配置" class="config-section">
-            <div class="advanced-config-items">
-              <div v-for="item in advancedConfig" :key="item.label" class="config-item">
-                <div class="config-item-label">{{ item.label }}</div>
-                <div class="config-item-content">
-                  <div v-if="item.type === 'text'" class="config-item-value">
-                    {{ item.value }}
-                  </div>
-                  <div v-else-if="item.type === 'password'" class="password-wrapper">
-                    <span class="config-item-value">
-                      {{ item.label === '服务器密码' && showServerPassword ? item.value : (item.label === '管理员密码' && showAdminPassword ? item.value : (item.hasPassword ? '●●●●●●' : item.value)) }}
-                    </span>
-                    <a-button 
-                      v-if="item.hasPassword"
-                      type="text" 
-                      size="small"
-                      :icon="item.label === '服务器密码' ? (showServerPassword ? 'icon-eye-invisible' : 'icon-eye') : (showAdminPassword ? 'icon-eye-invisible' : 'icon-eye')"
-                      @click="item.label === '服务器密码' ? (showServerPassword = !showServerPassword) : (showAdminPassword = !showAdminPassword)"
-                    >
-                      <template #icon>
-                        <component :is="item.label === '服务器密码' ? (showServerPassword ? IconEyeInvisible : IconEye) : (showAdminPassword ? IconEyeInvisible : IconEye)" />
-                      </template>
-                    </a-button>
+            </template>
+            <div class="config-grid">
+              <div v-for="item in getAllConfigItems()" :key="item.label" class="config-grid-item"
+                   :class="{ 'full-width': item.label === '自定义启动参数' }">
+                <div class="config-item">
+                  <div class="config-item-label">{{ item.label }}</div>
+                  <div class="config-item-content">
+                    <div v-if="!item.type || item.type === 'text'" class="config-item-value">
+                      {{ item.value }}
+                    </div>
+                    <div v-else-if="item.type === 'password'" class="password-wrapper">
+                      <span class="config-item-value">
+                        {{
+                          item.label === '服务器密码' && showServerPassword ? item.value : (item.label === '管理员密码' && showAdminPassword ? item.value : (item.hasPassword ? '●●●●●●' : item.value))
+                        }}
+                      </span>
+                      <a-button
+                          v-if="item.hasPassword"
+                          type="text"
+                          size="small"
+                          :icon="item.label === '服务器密码' ? (showServerPassword ? 'icon-eye-invisible' : 'icon-eye') : (showAdminPassword ? 'icon-eye-invisible' : 'icon-eye')"
+                          @click="item.label === '服务器密码' ? (showServerPassword = !showServerPassword) : (showAdminPassword = !showAdminPassword)"
+                      >
+                        <template #icon>
+                          <component
+                              :is="item.label === '服务器密码' ? (showServerPassword ? IconEyeInvisible : IconEye) : (showAdminPassword ? IconEyeInvisible : IconEye)"/>
+                        </template>
+                      </a-button>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
           </a-card>
 
-          <a-card title="Game.ini 配置" class="config-section">
-            <a-space style="margin-bottom: 15px">
-              <a-button 
-                @click="loadGameIni" 
-                type="primary"
-                :loading="loadingGameIni"
-              >
-                加载文件
-              </a-button>
-              <a-button 
-                @click="triggerGameIniUpload" 
-                status="success"
-              >
-                上传文件
-              </a-button>
-              <a-button 
-                @click="gameIniEditModalVisible = true"
-                type="primary"
-              >
-                编辑文件
-              </a-button>
-            </a-space>
+          <!-- 配置文件区域 -->
+          <div class="config-files-row">
+            <!-- Game.ini 配置 -->
+            <a-card title="Game.ini 配置" class="config-section config-file-card">
+              <a-space style="margin-bottom: 15px">
+                <a-button
+                    @click="loadGameIni"
+                    type="primary"
+                    :loading="loadingGameIni"
+                >
+                  加载文件
+                </a-button>
+                <a-button
+                    @click="triggerGameIniUpload"
+                    status="success"
+                >
+                  上传文件
+                </a-button>
+                <a-button
+                    @click="gameIniEditModalVisible = true"
+                    type="primary"
+                >
+                  编辑文件
+                </a-button>
+              </a-space>
 
-            <div class="config-file-viewer">
-              <div class="file-content">{{ gameIniContent || '暂无内容' }}</div>
-            </div>
-          </a-card>
+              <div class="config-viewer-wrapper">
+                <config-file-viewer
+                    :content="gameIniContent"
+                    language="ini"
+                />
+              </div>
+            </a-card>
 
-          <a-card title="GameUserSettings.ini 配置" class="config-section">
-            <a-space style="margin-bottom: 15px">
-              <a-button 
-                @click="loadGameUserSettings" 
-                type="primary"
-                :loading="loadingGameUserSettings"
-              >
-                加载文件
-              </a-button>
-              <a-button 
-                @click="triggerGameUserSettingsUpload" 
-                status="success"
-              >
-                上传文件
-              </a-button>
-              <a-button 
-                @click="gameUserSettingsEditModalVisible = true"
-                type="primary"
-              >
-                编辑文件
-              </a-button>
-            </a-space>
+            <!-- GameUserSettings.ini 配置 -->
+            <a-card title="GameUserSettings.ini 配置" class="config-section config-file-card">
+              <a-space style="margin-bottom: 15px">
+                <a-button
+                    @click="loadGameUserSettings"
+                    type="primary"
+                    :loading="loadingGameUserSettings"
+                >
+                  加载文件
+                </a-button>
+                <a-button
+                    @click="triggerGameUserSettingsUpload"
+                    status="success"
+                >
+                  上传文件
+                </a-button>
+                <a-button
+                    @click="gameUserSettingsEditModalVisible = true"
+                    type="primary"
+                >
+                  编辑文件
+                </a-button>
+              </a-space>
 
-            <div class="config-file-viewer">
-              <div class="file-content">{{ gameUserSettingsContent || '暂无内容' }}</div>
-            </div>
-          </a-card>
+              <div class="config-viewer-wrapper">
+                <config-file-viewer
+                    :content="gameUserSettingsContent"
+                    language="ini"
+                />
+              </div>
+            </a-card>
+          </div>
 
           <a-card title="实时日志" class="config-section">
             <a-space style="margin-bottom: 15px">
-              <a-button 
-                @click="startLogStream" 
-                type="primary"
-                :disabled="!instanceData?.running || isStreaming"
+              <a-button
+                  @click="startLogStream"
+                  type="primary"
+                  :disabled="!instanceData?.running || isStreaming"
               >
                 {{ isStreaming ? '监听中...' : '开始监听' }}
               </a-button>
-              <a-button 
-                @click="stopLogStream" 
-                status="warning"
-                :disabled="!isStreaming"
+              <a-button
+                  @click="stopLogStream"
+                  status="warning"
+                  :disabled="!isStreaming"
               >
                 停止监听
               </a-button>
-              <a-button 
-                @click="clearLogs" 
-                :disabled="logs.length === 0"
+              <a-button
+                  @click="clearLogs"
+                  :disabled="logs.length === 0"
               >
                 清空日志
               </a-button>
               <span>
-                <a-badge :color="isStreaming ? 'green' : 'gray'" />
+                <a-badge :color="isStreaming ? 'green' : 'gray'"/>
                 {{ isStreaming ? '监听中' : '已停止' }}
               </span>
               <span>日志行数: {{ logs.length }}</span>
@@ -192,16 +198,16 @@
 
             <div class="log-container">
               <div class="log-content">
-                <div 
-                  v-for="(log, index) in logs" 
-                  :key="index"
-                  class="log-line"
+                <div
+                    v-for="(log, index) in logs"
+                    :key="index"
+                    class="log-line"
                 >
                   <span class="log-number">{{ index + 1 }}</span>
                   <span class="log-text">{{ log }}</span>
                 </div>
                 <div v-if="logs.length === 0" class="empty-logs">
-                  <a-empty description="暂无日志" />
+                  <a-empty description="暂无日志"/>
                 </div>
               </div>
               <div ref="logEndRef"></div>
@@ -211,56 +217,68 @@
       </a-spin>
     </a-card>
 
+    <!-- 配置编辑弹出框 -->
+    <config-edit-modal
+        :visible="configEditModalVisible"
+        :config="instanceData?.config || {}"
+        :saving="savingConfig"
+        @update:visible="configEditModalVisible = $event"
+        @save="saveConfig"
+    />
+
     <!-- Game.ini 编辑模态框 -->
     <config-editor
-      :visible="gameIniEditModalVisible"
-      title="编辑 Game.ini 配置"
-      :content="gameIniContent"
-      language="ini"
-      :saving="savingGameIni"
-      @update:visible="gameIniEditModalVisible = $event"
-      @save="saveGameIni"
-      @cancel="gameIniEditModalVisible = false"
+        :visible="gameIniEditModalVisible"
+        title="编辑 Game.ini 配置"
+        :content="gameIniContent"
+        language="ini"
+        :saving="savingGameIni"
+        @update:visible="gameIniEditModalVisible = $event"
+        @save="saveGameIni"
+        @cancel="gameIniEditModalVisible = false"
     />
 
     <!-- GameUserSettings.ini 编辑模态框 -->
     <config-editor
-      :visible="gameUserSettingsEditModalVisible"
-      title="编辑 GameUserSettings.ini 配置"
-      :content="gameUserSettingsContent"
-      language="ini"
-      :saving="savingGameUserSettings"
-      @update:visible="gameUserSettingsEditModalVisible = $event"
-      @save="saveGameUserSettings"
-      @cancel="gameUserSettingsEditModalVisible = false"
+        :visible="gameUserSettingsEditModalVisible"
+        title="编辑 GameUserSettings.ini 配置"
+        :content="gameUserSettingsContent"
+        language="ini"
+        :saving="savingGameUserSettings"
+        @update:visible="gameUserSettingsEditModalVisible = $event"
+        @save="saveGameUserSettings"
+        @cancel="gameUserSettingsEditModalVisible = false"
     />
 
     <!-- 隐藏的文件输入框 -->
     <input
-      ref="gameIniFileInput"
-      type="file"
-      accept=".ini"
-      style="display: none"
-      @change="handleGameIniFileSelected"
+        ref="gameIniFileInput"
+        type="file"
+        accept=".ini"
+        style="display: none"
+        @change="handleGameIniFileSelected"
     />
     <input
-      ref="gameUserSettingsFileInput"
-      type="file"
-      accept=".ini"
-      style="display: none"
-      @change="handleGameUserSettingsFileSelected"
+        ref="gameUserSettingsFileInput"
+        type="file"
+        accept=".ini"
+        style="display: none"
+        @change="handleGameUserSettingsFileSelected"
     />
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import {ref, onMounted, onUnmounted, nextTick, watch, computed} from 'vue'
+import {useRoute} from 'vue-router'
 import ConfigEditor from '../components/ConfigEditor.vue'
-import { 
-  getInstanceConfig, 
-  streamInstanceLogs, 
-  startServer, 
+import ConfigFileViewer from '../components/ConfigFileViewer.vue'
+import ConfigEditModal from '../components/ConfigEditModal.vue'
+import WSStatusIndicator from '../components/WSStatusIndicator.vue'
+import {
+  getInstanceConfig,
+  streamInstanceLogs,
+  startServer,
   stopServer,
   restartServer,
   getGameIni,
@@ -268,10 +286,13 @@ import {
   updateGameIni,
   updateGameUserSettings,
   uploadGameIniFile,
-  uploadGameUserSettingsFile
+  uploadGameUserSettingsFile,
+  updateInstanceConfig
 } from '../apis/api.js'
-import { IconLeft, IconEyeInvisible, IconEye } from '@arco-design/web-vue/es/icon'
-import { Modal, Message } from '@arco-design/web-vue'
+import {serverStore, getInstanceStatus} from '../store/serverStore.js'
+import {onServerEvent} from '../apis/api.js'
+import {IconLeft, IconEyeInvisible, IconEye} from '@arco-design/web-vue/es/icon'
+import {Modal, Message} from '@arco-design/web-vue'
 
 // Monaco Editor 引用 - 已移至 ConfigEditor 组件
 const loading = ref(true)
@@ -316,6 +337,58 @@ const uploadingGameUserSettings = ref(false)
 // 文件输入框引用
 const gameIniFileInput = ref(null)
 const gameUserSettingsFileInput = ref(null)
+
+// 配置编辑弹出框相关
+const configEditModalVisible = ref(false)
+const savingConfig = ref(false)
+
+// 监听 WebSocket 事件，实时更新实例运行状态
+watch(
+    () => getInstanceStatus(instanceName),
+    (newStatus) => {
+      if (newStatus) {
+        // 实时更新实例运行状态
+        if (instanceData.value) {
+          instanceData.value.running = newStatus.running
+        }
+
+        // 如果实例启动，自动开始日志监听
+        if (newStatus.running && !isStreaming.value) {
+          // 延迟100ms以确保服务器完全启动
+          setTimeout(() => {
+            if (!isStreaming.value && instanceData.value?.running) {
+              startLogStream()
+            }
+          }, 100)
+        }
+
+        // 如果实例被停止，自动停止日志监听
+        if (!newStatus.running && isStreaming.value) {
+          stopLogStream()
+        }
+      }
+    }
+)
+
+// 监听 WebSocket server_started 事件，自动开始日志监听
+let unlistenServerStarted = null
+let unlistenServerStopped = null
+
+// 计算实例是否在启动或停止中
+const instanceChanging = computed(() => {
+  const status = getInstanceStatus(instanceName)
+  return status && (status.status === 'starting' || status.status === 'stopping')
+})
+
+// 获取所有配置项
+const getAllConfigItems = () => {
+  return [
+    ...basicInfo.value,
+    ...networkConfig.value,
+    ...gameConfig.value,
+    ...advancedConfig.value
+  ]
+}
 
 // 加载 Game.ini
 const loadGameIni = async () => {
@@ -553,25 +626,25 @@ const startLogStream = () => {
   logs.value = []
 
   stopLogStream_func = streamInstanceLogs(
-    instanceName,
-    // onLog 回调
-    (line) => {
-      logs.value.push(line)
-      // 自动滚动到底部
-      nextTick(() => {
-        if (logEndRef.value) {
-          logEndRef.value.scrollIntoView({ behavior: 'smooth' })
-        }
-      })
-    },
-    // onError 回调
-    (error) => {
-      console.error('日志流错误:', error)
-    },
-    // onClose 回调
-    () => {
-      isStreaming.value = false
-    }
+      instanceName,
+      // onLog 回调
+      (line) => {
+        logs.value.push(line)
+        // 自动滚动到底部
+        nextTick(() => {
+          if (logEndRef.value) {
+            logEndRef.value.scrollIntoView({behavior: 'smooth'})
+          }
+        })
+      },
+      // onError 回调
+      (error) => {
+        console.error('日志流错误:', error)
+      },
+      // onClose 回调
+      () => {
+        isStreaming.value = false
+      }
   )
 }
 
@@ -587,6 +660,31 @@ const stopLogStream = () => {
 // 清空日志
 const clearLogs = () => {
   logs.value = []
+}
+
+// 打开配置编辑弹出框
+const openConfigEditModal = () => {
+  configEditModalVisible.value = true
+}
+
+// 保存配置
+const saveConfig = async (config) => {
+  savingConfig.value = true
+  try {
+    const data = await updateInstanceConfig(instanceName, config)
+    if (data.success) {
+      Message.success('配置已保存')
+      configEditModalVisible.value = false
+      // 刷新实例配置
+      await fetchInstanceConfig()
+    } else {
+      Message.error(data.error || '保存配置失败')
+    }
+  } catch (err) {
+    Message.error(err.message || '保存配置失败')
+  } finally {
+    savingConfig.value = false
+  }
 }
 
 // 启动实例
@@ -672,12 +770,50 @@ onMounted(() => {
   fetchInstanceConfig()
   loadGameIni()
   loadGameUserSettings()
+
+  // 如果已有缓存的实例状态，使用它
+  const cachedStatus = getInstanceStatus(instanceName)
+  if (cachedStatus) {
+    instanceData.value = cachedStatus
+  }
+
+  // 监听当前实例的 server_started 事件
+  unlistenServerStarted = onServerEvent('server_started', (event) => {
+    if (event.instance_name === instanceName) {
+      console.log('Server started event received, auto-starting log stream')
+      // 延迟100ms确保服务器完全启动
+      setTimeout(() => {
+        if (!isStreaming.value && instanceData.value?.running) {
+          startLogStream()
+        }
+      }, 100)
+    }
+  })
+
+  // 监听当前实例的 server_stopped 事件
+  unlistenServerStopped = onServerEvent('server_stopped', (event) => {
+    if (event.instance_name === instanceName) {
+      console.log('Server stopped event received, auto-stopping log stream')
+      if (isStreaming.value) {
+        stopLogStream()
+      }
+    }
+  })
 })
 
 
 onUnmounted(() => {
+  // 停止日志监听
   if (isStreaming.value) {
     stopLogStream()
+  }
+
+  // 取消 WebSocket 事件监听
+  if (unlistenServerStarted) {
+    unlistenServerStarted()
+  }
+  if (unlistenServerStopped) {
+    unlistenServerStopped()
   }
 })
 </script>
@@ -717,6 +853,14 @@ onUnmounted(() => {
 .config-section {
   border-radius: 6px;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+/* 配置一縎标题样式 */
+.config-card-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
 }
 
 :deep(.arco-descriptions-row) {
@@ -839,6 +983,30 @@ onUnmounted(() => {
   padding: 0 16px;
 }
 
+/* Grid 串串源 */
+.config-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.config-grid-item {
+  display: flex;
+  flex-direction: column;
+}
+
+.config-grid-item.full-width {
+  grid-column: 1 / -1;
+}
+
+.config-grid-item .config-item {
+  height: auto;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
 .config-item-label {
   font-weight: 600;
   color: #333;
@@ -890,4 +1058,34 @@ onUnmounted(() => {
   color: #333;
   background-color: #f5f5f5;
 }
+
+/* 配置文件行布局 */
+.config-files-row {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 20px;
+  width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.config-file-card {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+.config-viewer-wrapper {
+  flex: 1;
+  height: 500px;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+/* 配置编辑潤弹框样式 */
 </style>

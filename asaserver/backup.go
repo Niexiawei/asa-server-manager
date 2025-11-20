@@ -2,6 +2,7 @@ package asaserver
 
 import (
 	"archive/tar"
+	"asa-server/logger"
 	"compress/gzip"
 	"fmt"
 	"io"
@@ -14,7 +15,7 @@ import (
 func BackupInstanceWorld(instanceName string, worldFolder string) error {
 	running, err := IsServerRunning(instanceName)
 	if err == nil && running {
-		fmt.Printf("❌ Server for instance '%s' is running. Stop it before creating a backup.\n", instanceName)
+		logger.GetLogger().Warnf("Server for instance '%s' is running. Stop it before creating a backup.", instanceName)
 		return fmt.Errorf("server is running")
 	}
 
@@ -35,7 +36,7 @@ func BackupInstanceWorld(instanceName string, worldFolder string) error {
 	archiveName := fmt.Sprintf("%s_%s_%s.tar.gz", instanceName, worldFolder, timestamp)
 	archivePath := filepath.Join(BackupsDir, archiveName)
 
-	fmt.Printf("📦 Creating backup for world: %s...\n", worldFolder)
+	logger.GetLogger().Infof("Creating backup for world: %s...", worldFolder)
 
 	// Create the archive
 	file, err := os.Create(archivePath)
@@ -56,7 +57,7 @@ func BackupInstanceWorld(instanceName string, worldFolder string) error {
 		return fmt.Errorf("failed to create archive: %w", err)
 	}
 
-	fmt.Printf("✅ Backup successfully created: %s\n", archivePath)
+	logger.GetLogger().Infof("Backup successfully created: %s", archivePath)
 	return nil
 }
 
@@ -64,7 +65,7 @@ func BackupInstanceWorld(instanceName string, worldFolder string) error {
 func RestoreBackupToInstance(instanceName string, backupFile string) error {
 	running, err := IsServerRunning(instanceName)
 	if err == nil && running {
-		fmt.Printf("❌ Server for instance '%s' is running. Stop it before restoring a backup.\n", instanceName)
+		logger.GetLogger().Warnf("Server for instance '%s' is running. Stop it before restoring a backup.", instanceName)
 		return fmt.Errorf("server is running")
 	}
 
@@ -79,7 +80,7 @@ func RestoreBackupToInstance(instanceName string, backupFile string) error {
 		return fmt.Errorf("failed to create target directory: %w", err)
 	}
 
-	fmt.Printf("📂 Extracting backup to instance '%s'...\n", instanceName)
+	logger.GetLogger().Infof("Extracting backup to instance '%s'...", instanceName)
 
 	// Extract archive
 	file, err := os.Open(backupFile)
@@ -133,7 +134,7 @@ func RestoreBackupToInstance(instanceName string, backupFile string) error {
 		f.Close()
 	}
 
-	fmt.Printf("✅ Backup successfully loaded into instance '%s'.\n", instanceName)
+	logger.GetLogger().Infof("Backup successfully loaded into instance '%s'.", instanceName)
 	return nil
 }
 

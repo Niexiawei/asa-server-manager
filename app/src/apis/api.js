@@ -45,6 +45,18 @@ export async function getInstanceConfig(name) {
   return handleResponse(response)
 }
 
+// 更新实例配置
+export async function updateInstanceConfig(name, config) {
+  const response = await fetch(`${API_BASE_URL}/api/instances/${name}/config`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(config),
+  })
+  return handleResponse(response)
+}
+
 // 删除实例
 export async function deleteInstance(name) {
   const response = await fetch(`${API_BASE_URL}/api/instances/${name}`, {
@@ -89,20 +101,118 @@ export async function restartServer(name) {
   return handleResponse(response)
 }
 
-// 启动所有服务器实例
-export async function startAllServers() {
-  const response = await fetch(`${API_BASE_URL}/api/server/start-all`, {
-    method: 'POST',
-  })
-  return handleResponse(response)
+// 启动所有服务器实例（SSE 流式响应）
+export async function startAllServers(onMessage, onError, onComplete) {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/server/start-all`, {
+      method: 'POST',
+    })
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
+
+    // 创建读取器来处理流式响应
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      
+      // 处理完整的行
+      for (let i = 0; i < lines.length - 1; i++) {
+        const line = lines[i]
+        if (line.startsWith('data: ')) {
+          const message = line.substring(6)
+          if (onMessage) {
+            onMessage(message)
+          }
+        }
+      }
+      
+      // 保留未完成的行
+      buffer = lines[lines.length - 1]
+    }
+
+    // 处理剩余的 buffer
+    if (buffer.startsWith('data: ')) {
+      const message = buffer.substring(6)
+      if (onMessage) {
+        onMessage(message)
+      }
+    }
+
+    if (onComplete) {
+      onComplete()
+    }
+  } catch (error) {
+    console.error('Start all servers error:', error)
+    if (onError) {
+      onError(error)
+    }
+  }
 }
 
-// 停止所有服务器实例
-export async function stopAllServers() {
-  const response = await fetch(`${API_BASE_URL}/api/server/stop-all`, {
-    method: 'POST',
-  })
-  return handleResponse(response)
+// 停止所有服务器实例（SSE 流式响应）
+export async function stopAllServers(onMessage, onError, onComplete) {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/server/stop-all`, {
+      method: 'POST',
+    })
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
+
+    // 创建读取器来处理流式响应
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      
+      // 处理完整的行
+      for (let i = 0; i < lines.length - 1; i++) {
+        const line = lines[i]
+        if (line.startsWith('data: ')) {
+          const message = line.substring(6)
+          if (onMessage) {
+            onMessage(message)
+          }
+        }
+      }
+      
+      // 保留未完成的行
+      buffer = lines[lines.length - 1]
+    }
+
+    // 处理剩余的 buffer
+    if (buffer.startsWith('data: ')) {
+      const message = buffer.substring(6)
+      if (onMessage) {
+        onMessage(message)
+      }
+    }
+
+    if (onComplete) {
+      onComplete()
+    }
+  } catch (error) {
+    console.error('Stop all servers error:', error)
+    if (onError) {
+      onError(error)
+    }
+  }
 }
 
 // 发送 RCON 命令
@@ -147,12 +257,61 @@ export async function restoreBackup(name, backupFile) {
   return handleResponse(response)
 }
 
-// 更新服务器
-export async function updateServer(forceServer = false) {
-  const response = await fetch(`${API_BASE_URL}/api/server/update?force-server=${forceServer}`, {
-    method: 'POST',
-  })
-  return handleResponse(response)
+// 更新服务器（SSE 流式响应）
+export async function updateServer(onMessage, onError, onComplete) {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/server/update`, {
+      method: 'POST',
+    })
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
+
+    // 创建读取器来处理流式响应
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      
+      // 处理完整的行
+      for (let i = 0; i < lines.length - 1; i++) {
+        const line = lines[i]
+        if (line.startsWith('data: ')) {
+          const message = line.substring(6)
+          if (onMessage) {
+            onMessage(message)
+          }
+        }
+      }
+      
+      // 保留未完成的行
+      buffer = lines[lines.length - 1]
+    }
+
+    // 处理剩余的 buffer
+    if (buffer.startsWith('data: ')) {
+      const message = buffer.substring(6)
+      if (onMessage) {
+        onMessage(message)
+      }
+    }
+
+    if (onComplete) {
+      onComplete()
+    }
+  } catch (error) {
+    console.error('Update server error:', error)
+    if (onError) {
+      onError(error)
+    }
+  }
 }
 
 // 实时查看服务器日志（使用 Server-Sent Events）
@@ -239,4 +398,107 @@ export async function uploadGameUserSettingsFile(instanceName, file) {
     body: formData,
   })
   return handleResponse(response)
+}
+
+// WebSocket 事件监听器管理
+let wsConnection = null
+const eventListeners = new Map()
+
+// 生成唯一的客户端 ID
+function generateClientId() {
+  return 'client_' + Math.random().toString(36).substring(2, 15) + '_' + Date.now()
+}
+
+// 建立 WebSocket 连接
+export function connectWebSocket(onOpen, onError, onClose) {
+  const wsUrl = `ws://127.0.0.1:8080/api/ws/events`
+  const clientId = generateClientId()
+  
+  try {
+    wsConnection = new WebSocket(wsUrl)
+    
+    wsConnection.onopen = () => {
+      console.log('WebSocket connected with client ID:', clientId)
+      // 发送客户端 ID 给服务器
+      wsConnection.send(JSON.stringify({
+        client_id: clientId,
+        type: 'heartbeat'
+      }))
+      if (onOpen) onOpen(clientId)
+    }
+    
+    wsConnection.onmessage = (event) => {
+      try {
+        const message = JSON.parse(event.data)
+        console.log('WebSocket message received:', message)
+        
+        // 触发所有注册的监听器
+        eventListeners.forEach((callbacks, eventType) => {
+          if (!eventType || message.event_type === eventType) {
+            callbacks.forEach(callback => {
+              try {
+                callback(message)
+              } catch (err) {
+                console.error('Error in event listener:', err)
+              }
+            })
+          }
+        })
+      } catch (err) {
+        console.error('Failed to parse WebSocket message:', err)
+      }
+    }
+    
+    wsConnection.onerror = (error) => {
+      console.error('WebSocket error:', error)
+      if (onError) onError(error)
+    }
+    
+    wsConnection.onclose = () => {
+      console.log('WebSocket closed')
+      wsConnection = null
+      if (onClose) onClose()
+    }
+  } catch (err) {
+    console.error('Failed to connect WebSocket:', err)
+    if (onError) onError(err)
+  }
+}
+
+// 断开 WebSocket 连接
+export function disconnectWebSocket() {
+  if (wsConnection) {
+    wsConnection.close()
+    wsConnection = null
+    eventListeners.clear()
+  }
+}
+
+// 监听特定事件类型
+export function onServerEvent(eventType, callback) {
+  if (!eventListeners.has(eventType)) {
+    eventListeners.set(eventType, [])
+  }
+  eventListeners.get(eventType).push(callback)
+  
+  // 返回取消监听函数
+  return () => {
+    const callbacks = eventListeners.get(eventType)
+    if (callbacks) {
+      const index = callbacks.indexOf(callback)
+      if (index > -1) {
+        callbacks.splice(index, 1)
+      }
+    }
+  }
+}
+
+// 监听所有服务器事件
+export function onAnyServerEvent(callback) {
+  return onServerEvent(null, callback)
+}
+
+// 获取 WebSocket 连接状态
+export function isWebSocketConnected() {
+  return wsConnection !== null && wsConnection.readyState === WebSocket.OPEN
 }

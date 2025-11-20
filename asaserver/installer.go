@@ -2,6 +2,7 @@ package asaserver
 
 import (
 	"archive/zip"
+	"asa-server/logger"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,15 +14,30 @@ import (
 )
 
 // DownloadAndExtractSteamCmd downloads and extracts SteamCMD to the steamcmd folder
-func DownloadAndExtractSteamCmd() error {
+// outputCallback is an optional callback for streaming console output (implements os.Writer interface)
+func DownloadAndExtractSteamCmd(outputCallback ...io.Writer) error {
+	// Get the output writer if provided
+	var outputWriter io.Writer
+	if len(outputCallback) > 0 && outputCallback[0] != nil {
+		outputWriter = outputCallback[0]
+	}
+
 	// Check if SteamCMD is already installed and initialized
 	steamCmdExe := filepath.Join(SteamCmdDir, "steamcmd.exe")
 	if _, err := os.Stat(steamCmdExe); err == nil {
-		fmt.Println("✅ SteamCMD already installed.")
+		logMsg := "SteamCMD already installed."
+		logger.GetLogger().Info(logMsg)
+		if outputWriter != nil {
+			outputWriter.Write([]byte(logMsg + "\n"))
+		}
 		return nil
 	}
 
-	fmt.Println("📦 Downloading SteamCMD...")
+	logMsg := "Downloading SteamCMD..."
+	logger.GetLogger().Info(logMsg)
+	if outputWriter != nil {
+		outputWriter.Write([]byte(logMsg + "\n"))
+	}
 
 	// Download the SteamCMD zip file
 	zipPath := filepath.Join(SteamCmdDir, "steamcmd.zip")
@@ -29,7 +45,11 @@ func DownloadAndExtractSteamCmd() error {
 		return fmt.Errorf("failed to download SteamCMD: %w", err)
 	}
 
-	fmt.Println("📂 Extracting SteamCMD...")
+	logMsg = "Extracting SteamCMD..."
+	logger.GetLogger().Info(logMsg)
+	if outputWriter != nil {
+		outputWriter.Write([]byte(logMsg + "\n"))
+	}
 
 	// Extract the zip file
 	if err := extractZip(zipPath, SteamCmdDir); err != nil {
@@ -38,16 +58,28 @@ func DownloadAndExtractSteamCmd() error {
 
 	// Remove the zip file after extraction
 	if err := os.Remove(zipPath); err != nil {
-		fmt.Printf("⚠️  Warning: failed to remove zip file: %v\n", err)
+		warnMsg := fmt.Sprintf("Warning: failed to remove zip file: %v", err)
+		logger.GetLogger().Warnf(warnMsg)
+		if outputWriter != nil {
+			outputWriter.Write([]byte(warnMsg + "\n"))
+		}
 	}
 
 	// Initialize SteamCMD by running it once
-	fmt.Println("🔧 Initializing SteamCMD...")
-	if err := initializeSteamCmd(); err != nil {
+	logMsg = "Initializing SteamCMD..."
+	logger.GetLogger().Info(logMsg)
+	if outputWriter != nil {
+		outputWriter.Write([]byte(logMsg + "\n"))
+	}
+	if err := initializeSteamCmd(outputWriter); err != nil {
 		return fmt.Errorf("failed to initialize SteamCMD: %w", err)
 	}
 
-	fmt.Println("✅ SteamCMD installed successfully.")
+	logMsg = "SteamCMD installed successfully."
+	logger.GetLogger().Info(logMsg)
+	if outputWriter != nil {
+		outputWriter.Write([]byte(logMsg + "\n"))
+	}
 	return nil
 }
 
@@ -78,7 +110,7 @@ func downloadFile(url string, filepath string) error {
 		return err
 	}
 
-	fmt.Printf("✅ Downloaded: %s (%d bytes)\n", filepath, resp.ContentLength)
+	logger.GetLogger().Infof("Downloaded: %s (%d bytes)", filepath, resp.ContentLength)
 	return nil
 }
 
@@ -134,32 +166,52 @@ func extractZip(zipPath string, destDir string) error {
 }
 
 // initializeSteamCmd runs SteamCMD to initialize it
-// This hides the cmd window and redirects output to stdout
-func initializeSteamCmd() error {
+// outputWriter is an optional io.Writer for streaming console output
+// This hides the cmd window and redirects output via the callback
+func initializeSteamCmd(outputWriter ...io.Writer) error {
 	steamCmdExe := filepath.Join(SteamCmdDir, "steamcmd.exe")
 
 	// Create command with +quit argument to exit immediately after initialization
 	cmd := exec.Command(steamCmdExe, "+quit")
 
-	// Redirect stdout and stderr to application's stdout
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	// Redirect stdout and stderr based on callback
+	var writer io.Writer
+	if len(outputWriter) > 0 && outputWriter[0] != nil {
+		writer = outputWriter[0]
+	}
+	cmd.Stdout = writer
+	cmd.Stderr = writer
 
 	// Windows specific: hide the cmd window
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 
 	// Run SteamCMD
-	fmt.Println("🔄 Running SteamCMD initialization...")
+	logMsg := "Running SteamCMD initialization..."
+	logger.GetLogger().Info(logMsg)
+	if writer != nil {
+		writer.Write([]byte(logMsg + "\n"))
+	}
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("SteamCMD initialization failed: %w", err)
 	}
 
-	fmt.Println("✅ SteamCMD initialized successfully.")
+	logMsg = "SteamCMD initialized successfully."
+	logger.GetLogger().Info(logMsg)
+	if writer != nil {
+		writer.Write([]byte(logMsg + "\n"))
+	}
 	return nil
 }
 
 // DownloadAndUpdateArkServer downloads and updates the ARK server files using SteamCMD
-func DownloadAndUpdateArkServer() error {
+// outputCallback is an optional callback for streaming console output (implements os.Writer interface)
+func DownloadAndUpdateArkServer(outputCallback ...io.Writer) error {
+	// Get the output writer if provided
+	var outputWriter io.Writer
+	if len(outputCallback) > 0 && outputCallback[0] != nil {
+		outputWriter = outputCallback[0]
+	}
+
 	steamCmdExe := filepath.Join(SteamCmdDir, "steamcmd.exe")
 
 	// Check if steamcmd.exe exists
@@ -167,7 +219,11 @@ func DownloadAndUpdateArkServer() error {
 		return fmt.Errorf("SteamCMD not found. Please run 'update' command first")
 	}
 
-	fmt.Println("📥 Installing/updating ARK server...")
+	logMsg := "Installing/updating ARK server..."
+	logger.GetLogger().Info(logMsg)
+	if outputWriter != nil {
+		outputWriter.Write([]byte(logMsg + "\n"))
+	}
 
 	// Create server-files directory if it doesn't exist
 	if err := os.MkdirAll(ServerFilesDir, 0755); err != nil {
@@ -184,20 +240,28 @@ func DownloadAndUpdateArkServer() error {
 		"+quit",
 	)
 
-	// Redirect stdout and stderr to application's stdout
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	// Redirect stdout and stderr via callback
+	cmd.Stdout = outputWriter
+	cmd.Stderr = outputWriter
 
 	// Windows specific: hide the cmd window
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 
 	// Run SteamCMD
-	fmt.Println("🔄 Running SteamCMD update...")
+	logMsg = "Running SteamCMD update..."
+	logger.GetLogger().Info(logMsg)
+	if outputWriter != nil {
+		outputWriter.Write([]byte(logMsg + "\n"))
+	}
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("SteamCMD update failed: %w", err)
 	}
 
-	fmt.Println("✅ ARK server installation/update completed successfully.")
+	logMsg = "ARK server installation/update completed successfully."
+	logger.GetLogger().Info(logMsg)
+	if outputWriter != nil {
+		outputWriter.Write([]byte(logMsg + "\n"))
+	}
 	return nil
 }
 
@@ -209,13 +273,13 @@ func VerifyServerInstallation(force bool) error {
 
 	// Check if configuration directory already exists
 	if _, err := os.Stat(configDir); err == nil && !force {
-		fmt.Println("✅ Server configuration directory already exists. Skipping initial verification.")
+		logger.GetLogger().Info("Server configuration directory already exists. Skipping initial verification.")
 		return nil
 	}
 
 	if force {
 		if _, err := os.Stat(configDir); err == nil {
-			fmt.Println("🔄 Force verification enabled. Re-running server verification...")
+			logger.GetLogger().Info("Force verification enabled. Re-running server verification...")
 		}
 	}
 
@@ -227,10 +291,10 @@ func VerifyServerInstallation(force bool) error {
 	}
 
 	if !force {
-		fmt.Println("🔍 First installation detected. Running server to generate configuration files...")
+		logger.GetLogger().Info("First installation detected. Running server to generate configuration files...")
 	}
 
-	fmt.Println("⏳ This may take 60 seconds...")
+	logger.GetLogger().Info("This may take 60 seconds...")
 
 	// Get the logs directory path
 	logsDir := filepath.Join(ServerFilesDir, "ShooterGame/Saved/Logs")
@@ -255,18 +319,18 @@ func VerifyServerInstallation(force bool) error {
 		return fmt.Errorf("failed to start server for verification: %w", err)
 	}
 	pid := cmd.Process.Pid
-	fmt.Printf("🚀 Server process started (PID: %d). Monitoring log file...\n", pid)
+	logger.GetLogger().Infof("Server process started (PID: %d). Monitoring log file...", pid)
 
 	logFilePath, err := FindLatestLogFile(logsDir)
 	var stopMonitoring func()
 	if err != nil {
-		fmt.Printf("⚠️  Warning: could not find log file initially - %v\n", err)
+		logger.GetLogger().Warnf("Warning: could not find log file initially - %v", err)
 		// Continue anyway, will wait for manual log generation
 	} else {
-		fmt.Printf("📝 Monitoring log file: %s\n", filepath.Base(logFilePath))
+		logger.GetLogger().Infof("Monitoring log file: %s", filepath.Base(logFilePath))
 		// Start tailing the log file asynchronously
 		stopMonitoring = TailLogFile(logFilePath, func(line string) {
-			fmt.Println("  📄 " + line)
+			fmt.Println(line)
 		})
 	}
 
@@ -279,12 +343,12 @@ func VerifyServerInstallation(force bool) error {
 	}
 
 	// Kill the server process
-	fmt.Println("🛑 Stopping server for verification...")
+	logger.GetLogger().Info("Stopping server for verification...")
 	exec.Command("taskkill", "/PID", fmt.Sprintf("%d", pid), "/F").Run()
 
 	// Wait a moment for process to clean up
 	time.Sleep(2 * time.Second)
 
-	fmt.Println("✅ Server verification completed. Configuration files generated.")
+	logger.GetLogger().Info("Server verification completed. Configuration files generated.")
 	return nil
 }

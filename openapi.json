@@ -797,26 +797,17 @@
     },
     "/api/server/update": {
       "post": {
-        "summary": "Update ARK server",
+        "summary": "Update ARK server with real-time progress",
+        "description": "Downloads and updates the ARK server files using SteamCMD. Returns Server-Sent Events (SSE) stream with real-time progress updates.",
         "tags": ["Server Management"],
         "operationId": "updateServer",
-        "parameters": [
-          {
-            "name": "force-server",
-            "in": "query",
-            "schema": {
-              "type": "boolean"
-            },
-            "description": "Force re-run server verification"
-          }
-        ],
         "responses": {
           "200": {
-            "description": "Server updated successfully",
+            "description": "Update in progress - returns SSE stream with progress messages",
             "content": {
-              "application/json": {
+              "text/event-stream": {
                 "schema": {
-                  "$ref": "#/components/schemas/StatusResponse"
+                  "$ref": "#/components/schemas/ServerUpdateSSEStream"
                 }
               }
             }
@@ -1607,6 +1598,39 @@
           }
         },
         "required": ["client_id"]
+      },
+      "ServerUpdateSSEStream": {
+        "type": "object",
+        "description": "Server-Sent Events (SSE) stream for real-time server update progress",
+        "properties": {
+          "data": {
+            "type": "string",
+            "description": "Progress message from the update process",
+            "example": "Downloading and extracting SteamCMD..."
+          }
+        },
+        "examples": {
+          "download_steamcmd": {
+            "summary": "SteamCMD download phase",
+            "value": "data: Downloading and extracting SteamCMD...\n\n"
+          },
+          "update_ark_server": {
+            "summary": "ARK server update phase",
+            "value": "data: Downloading and updating ARK server files...\n\n"
+          },
+          "verify_installation": {
+            "summary": "Server verification phase",
+            "value": "data: Verifying server installation...\n\n"
+          },
+          "success": {
+            "summary": "Update completed successfully",
+            "value": "data: Server update completed successfully!\n\n"
+          },
+          "error": {
+            "summary": "Update error",
+            "value": "data: Error: Failed to download SteamCMD: network error\n\n"
+          }
+        }
       },
       "ServerEvent": {
         "type": "object",
