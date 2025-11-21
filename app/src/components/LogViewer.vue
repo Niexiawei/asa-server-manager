@@ -24,11 +24,10 @@
         清空日志
       </a-button>
       <a-divider direction="vertical"/>
-      <span style="font-size: 14px">
-        <a-badge :color="isStreaming ? 'green' : 'gray'"/>
-        {{ isStreaming ? '监听中' : '已停止' }}
-      </span>
-      <span style="font-size: 14px">日志行数: {{ logs.length }}</span>
+      <a-badge :color="isStreaming ? 'green' : 'gray'"
+               :text="isStreaming ? '监听中' : '已停止'"
+      />
+      <span style="font-size: 16px">日志行数: {{ logs.length }}</span>
     </a-space>
 
     <div class="log-container">
@@ -51,8 +50,8 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
-import { streamInstanceLogs } from '@/apis/api.js'
+import {ref, onMounted, onUnmounted, nextTick, watch} from 'vue'
+import {streamInstanceLogs} from '@/apis/api.js'
 
 const props = defineProps({
   instanceName: {
@@ -131,11 +130,16 @@ defineExpose({
 })
 </script>
 
-<style scoped>
+<style scoped lang="less">
 .log-viewer {
   display: flex;
   flex-direction: column;
   height: 100%;
+
+  :deep(.arco-badge-status-text){
+    font-size: 16px;
+    color: var(--color-text-2);
+  }
 }
 
 .log-container {

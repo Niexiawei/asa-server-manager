@@ -32,11 +32,10 @@
           清空日志
         </a-button>
         <a-divider direction="vertical"/>
-        <span style="font-size: 14px">
-          <a-badge :color="isStreaming ? 'green' : 'gray'"/>
-          {{ isStreaming ? '监听中' : '已停止' }}
-        </span>
-        <span style="font-size: 14px">日志行数: {{ logs.length }}</span>
+        <a-badge :color="isStreaming ? 'green' : 'gray'"
+                 :text="isStreaming ? '监听中' : '已停止'"
+        />
+        <span style="font-size: 16px">日志行数: {{ logs.length }}</span>
       </a-space>
 
       <div class="log-viewer">
@@ -116,6 +115,12 @@ onBeforeUnmount(() => {
   padding: 20px;
   height: 100%;
   box-sizing: border-box;
+
+  :deep(.arco-badge-status-text) {
+    line-height: 16px !important;
+    font-size: 16px;
+    color: var(--color-text-2);
+  }
 }
 
 .logs-card {
