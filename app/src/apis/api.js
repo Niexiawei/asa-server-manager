@@ -434,6 +434,33 @@ export function getRecentInstanceLogs(instanceName, onLog, onError, onClose) {
   }
 }
 
+// 实时查看系统日志（使用 Server-Sent Events）
+export function streamSystemLogs(onLog, onError, onClose) {
+  const eventSource = new EventSource(`${API_BASE_URL}/api/logs`)
+
+  eventSource.onmessage = (event) => {
+    if (onLog) {
+      onLog(event.data)
+    }
+  }
+
+  eventSource.onerror = (error) => {
+    console.error('SSE connection error:', error)
+    if (onError) {
+      onError(error)
+    }
+    eventSource.close()
+  }
+
+  // Return a function to stop listening
+  return () => {
+    eventSource.close()
+    if (onClose) {
+      onClose()
+    }
+  }
+}
+
 // 获取 Game.ini 配置文件内容
 export async function getGameIni(instanceName) {
   const response = await fetch(`${API_BASE_URL}/api/config/${instanceName}/game-ini`)

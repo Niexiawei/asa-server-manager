@@ -868,3 +868,58 @@
 {"level":"WARN","ts":"2025-11-21T09:12:18.887+0800","caller":"asaserver/server.go:289","msg":"Game port :7002 not found"}
 {"level":"WARN","ts":"2025-11-21T09:14:19.508+0800","caller":"asaserver/server.go:289","msg":"Game port :7002 not found"}
 {"level":"WARN","ts":"2025-11-21T09:14:34.776+0800","caller":"asaserver/server.go:289","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-21T09:15:39.884+0800","caller":"asaserver/server.go:289","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-21T09:15:39.922+0800","caller":"asaserver/server.go:289","msg":"Game port :7001 not found"}
+{"level":"WARN","ts":"2025-11-21T09:16:15.598+0800","caller":"asaserver/server.go:289","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-21T09:16:15.629+0800","caller":"asaserver/server.go:289","msg":"Game port :7001 not found"}
+{"level":"WARN","ts":"2025-11-21T09:16:16.542+0800","caller":"asaserver/server.go:289","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-21T09:16:16.570+0800","caller":"asaserver/server.go:289","msg":"Game port :7001 not found"}
+{"level":"WARN","ts":"2025-11-21T09:52:27.757+0800","caller":"asaserver/server.go:289","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-21T09:52:27.789+0800","caller":"asaserver/server.go:289","msg":"Game port :7001 not found"}
+{"level":"WARN","ts":"2025-11-21T09:52:29.750+0800","caller":"asaserver/server.go:289","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-21T09:52:29.785+0800","caller":"asaserver/server.go:289","msg":"Game port :7001 not found"}
+{"level":"WARN","ts":"2025-11-21T09:52:45.518+0800","caller":"asaserver/server.go:289","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-21T09:52:45.562+0800","caller":"asaserver/server.go:289","msg":"Game port :7001 not found"}
+{"level":"WARN","ts":"2025-11-21T09:52:49.368+0800","caller":"asaserver/server.go:289","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-21T09:52:49.410+0800","caller":"asaserver/server.go:289","msg":"Game port :7001 not found"}
+{"level":"WARN","ts":"2025-11-21T09:52:55.918+0800","caller":"asaserver/server.go:289","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-21T09:52:55.947+0800","caller":"asaserver/server.go:289","msg":"Game port :7001 not found"}
+{"level":"WARN","ts":"2025-11-21T09:53:01.449+0800","caller":"asaserver/server.go:289","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-21T09:53:01.496+0800","caller":"asaserver/server.go:289","msg":"Game port :7001 not found"}
+{"level":"WARN","ts":"2025-11-21T09:53:19.738+0800","caller":"asaserver/server.go:289","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-21T09:53:19.769+0800","caller":"asaserver/server.go:289","msg":"Game port :7001 not found"}
+{"level":"WARN","ts":"2025-11-21T09:53:24.515+0800","caller":"asaserver/server.go:289","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-21T09:53:24.549+0800","caller":"asaserver/server.go:289","msg":"Game port :7001 not found"}
+{"level":"INFO","ts":"2025-11-21T09:55:43.900+0800","caller":"webapi/api.go:1035","msg":"API server on http://localhost:8080"}
+{"level":"INFO","ts":"2025-11-21T11:11:12.074+0800","caller":"webapi/api.go:1035","msg":"API server on http://localhost:8080"}
+{"level":"WARN","ts":"2025-11-21T11:11:17.292+0800","caller":"asaserver/server.go:289","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-21T11:11:17.344+0800","caller":"asaserver/server.go:289","msg":"Game port :7001 not found"}
+{"level":"WARN","ts":"2025-11-21T11:11:19.990+0800","caller":"asaserver/server.go:289","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-21T11:11:20.126+0800","caller":"asaserver/server.go:289","msg":"Game port :7001 not found"}
+{"level":"WARN","ts":"2025-11-21T11:11:25.085+0800","caller":"asaserver/server.go:289","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-21T11:11:25.118+0800","caller":"asaserver/server.go:289","msg":"Game port :7002 not found"}
+{"level":"INFO","ts":"2025-11-21T11:11:25.118+0800","caller":"asaserver/server.go:427","msg":"Starting server for instance: jibian"}
+{"level":"INFO","ts":"2025-11-21T11:11:25.118+0800","caller":"asaserver/server.go:358","msg":"Backing up original configuration directory..."}
+{"level":"INFO","ts":"2025-11-21T11:11:25.242+0800","caller":"asaserver/server.go:537","msg":"[jibian] Redirecting AsaApiLoader output to logger"}
+{"level":"INFO","ts":"2025-11-21T11:11:25.242+0800","caller":"asaserver/server.go:551","msg":"Server started for instance: jibian. It should be fully operational in approximately 60 seconds."}
+{"level":"INFO","ts":"2025-11-21T11:11:25.242+0800","caller":"asaserver/server.go:552","msg":"Game log file: D:\\golang\\asa-server\\server-files\\ShooterGame\\Saved\\Logs\\ShooterGame.log"}
+{"level":"INFO","ts":"2025-11-21T11:11:25.261+0800","caller":"asaserver/server.go:522","msg":"[jibian][AsaApiLoader] [Success]: Detected Server: ArkAscendedServer.exe\r\n\u001b]0;D:\\golang\\asa-server\\server-files\\ShooterGame\\Binaries\\Win64\\AsaApiLoader.exe\u0007"}
+{"level":"INFO","ts":"2025-11-21T11:11:25.274+0800","caller":"asaserver/server.go:522","msg":"[jibian][AsaApiLoader] [Success]: Detected Api: AsaApi.dll"}
+{"level":"INFO","ts":"2025-11-21T11:11:26.142+0800","caller":"asaserver/server.go:522","msg":"[jibian][AsaApiLoader] 11/21/25 11:11 [API][info] -----------------------------------------------"}
+{"level":"INFO","ts":"2025-11-21T11:11:26.159+0800","caller":"asaserver/server.go:522","msg":"[jibian][AsaApiLoader] 11/21/25 11:11 [API][info] ARK:SA Api V1.19\r\n11/21/25 11:11 [API][info] Brought to you by ArkServerApi\r\n11/21/25 11:11 [API][info] https://github.com/orgs/ArkServerApi\r\n11/21/25 11:11 [API][info] Website: https://ark-server-api.com\r\n11/21/25 11:11 [API][info] Loading..."}
+{"level":"INFO","ts":"2025-11-21T11:11:29.220+0800","caller":"asaserver/server.go:522","msg":"[jibian][AsaApiLoader] 11/21/25 11:11 [API][info] Cache is still valid loading existing cache"}
+{"level":"INFO","ts":"2025-11-21T11:11:29.231+0800","caller":"asaserver/server.go:522","msg":"[jibian][AsaApiLoader] 11/21/25 11:11 [API][info] Reading cached offsets"}
+{"level":"INFO","ts":"2025-11-21T11:11:29.479+0800","caller":"asaserver/server.go:522","msg":"[jibian][AsaApiLoader] 11/21/25 11:11 [API][info] Reading cached bitfields"}
+{"level":"INFO","ts":"2025-11-21T11:11:29.511+0800","caller":"asaserver/server.go:522","msg":"[jibian][AsaApiLoader] 11/21/25 11:11 [API][info] Initialized hooks11/21/25 11:11 [API][info] API was successfully loaded\r\n11/21/25 11:11 [API][info] -----------------------------------------------[Success]: Loader Completed, Reason: Success"}
+{"level":"INFO","ts":"2025-11-21T11:11:31.653+0800","caller":"asaserver/server.go:522","msg":"[jibian][AsaApiLoader] 11/21/25 11:11 [API][info] UGameEngine::Init was called"}
+{"level":"INFO","ts":"2025-11-21T11:11:31.664+0800","caller":"asaserver/server.go:522","msg":"[jibian][AsaApiLoader] 11/21/25 11:11 [API][info] Loading plugins..11/21/25 11:11 [API][info] Loaded plugin Ark:SA Permissions V1.03 (Manage permissions groups)\r\n11/21/25 11:11 [API][info] Loaded all plugins"}
+{"level":"INFO","ts":"2025-11-21T11:11:31.740+0800","caller":"asaserver/server.go:522","msg":"[jibian][AsaApiLoader] Setting breakpad minidump AppID = 2399830"}
+{"level":"INFO","ts":"2025-11-21T11:11:48.723+0800","caller":"asaserver/server.go:522","msg":"[jibian][AsaApiLoader] 11/21/25 11:11 [API][info] AShooterGameMode::InitGame was called"}
+{"level":"WARN","ts":"2025-11-21T11:12:18.909+0800","caller":"asaserver/server.go:289","msg":"Game port :7001 not found"}
+{"level":"INFO","ts":"2025-11-21T11:12:21.182+0800","caller":"asaserver/server.go:522","msg":"[jibian][AsaApiLoader] src\\clientdll\\cminterface.cpp (2253) : !BLoggedOn()"}
+{"level":"INFO","ts":"2025-11-21T11:12:21.182+0800","caller":"asaserver/server.go:522","msg":"[jibian][AsaApiLoader] src\\clientdll\\cminterface.cpp (2253) : !BLoggedOn()"}
+{"level":"INFO","ts":"2025-11-21T11:12:21.223+0800","caller":"asaserver/server.go:522","msg":"[jibian][AsaApiLoader] 11/21/25 11:12 [API][info] SERVER ID: 165832495"}
+{"level":"INFO","ts":"2025-11-21T11:12:25.243+0800","caller":"asaserver/server.go:395","msg":"Original configuration directory restored for instance: jibian"}
+{"level":"INFO","ts":"2025-11-21T11:12:25.244+0800","caller":"asaserver/server.go:125","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-21T11:12:25.244+0800","caller":"asaserver/server.go:125","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"WARN","ts":"2025-11-21T11:15:07.083+0800","caller":"asaserver/server.go:289","msg":"Game port :7001 not found"}

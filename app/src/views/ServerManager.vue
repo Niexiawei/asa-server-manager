@@ -95,6 +95,13 @@
                   >
                     删除
                   </a-button>
+                  <a-button
+                      @click="viewInstanceLogs(instance.name)"
+                      type="primary"
+                      size="small"
+                  >
+                    查看日志
+                  </a-button>
                 </template>
               </a-card>
             </a-col>
@@ -103,7 +110,22 @@
       </a-spin>
     </a-card>
 
-    <!-- 创建实例弹窗 -->
+    <!-- 日志查看弹窗 -->
+    <a-modal
+        v-model:visible="logModalVisible"
+        :title="`${selectedInstanceName} - 实时日志`"
+        width="1000px"
+        :body-style="{height: '600px'}"
+        @cancel="selectedInstanceName = ''"
+    >
+      <div style="height: 100%; display: flex; flex-direction: column;">
+        <log-viewer 
+            v-if="selectedInstanceName"
+            :instance-name="selectedInstanceName"
+            style="flex: 1;"
+        />
+      </div>
+    </a-modal>
     <a-modal
         v-model:visible="showCreateModal"
         title="创建新实例"
@@ -129,12 +151,15 @@ import {listInstances, createInstance, startServer, stopServer, restartServer, r
 import {Modal, Button} from '@arco-design/web-vue';
 import {serverStore, updateInstancesInStore} from '@/store/serverStore.js'
 import WSStatusIndicator from '@/components/WSStatusIndicator.vue'
+import LogViewer from '@/views/ServerController/components/LogViewer.vue'
 
 // 状态管理
 const router = useRouter()
 const instances = ref([])
 const loading = ref(false)
 const showCreateModal = ref(false)
+const logModalVisible = ref(false)
+const selectedInstanceName = ref('')
 const form = reactive({
   instanceName: ''
 })
@@ -286,6 +311,12 @@ const deleteInstanceHandler = async (name) => {
       }
     }
   })
+}
+
+// 查看实例日志
+const viewInstanceLogs = (name) => {
+  selectedInstanceName.value = name
+  logModalVisible.value = true
 }
 
 // 监听全局服务器状态变化

@@ -42,6 +42,14 @@ func GetLogger() *zap.SugaredLogger {
 	}
 }
 
+// GetLogFilePath returns the full path to the system log file
+func GetLogFilePath() string {
+	if BaseDir == "" {
+		BaseDir = "."
+	}
+	return filepath.Join(BaseDir, "logs", "asaServer.log")
+}
+
 func InitLogger() {
 	if BaseDir == "" {
 		// Fallback to current directory if BaseDir not set

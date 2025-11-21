@@ -11,6 +11,9 @@
             <a-menu-item key="control">
               <span to="/control">服务器控制</span>
             </a-menu-item>
+            <a-menu-item key="system-logs">
+              <span>系统日志</span>
+            </a-menu-item>
           </a-menu>
         </div>
       </a-layout-header>
@@ -25,11 +28,22 @@
 
 <script setup>
 import {ref, watch} from 'vue';
-import {useRouter} from "vue-router";
+import {useRouter, useRoute} from "vue-router";
 
 const router = useRouter()
+const route = useRoute()
 
 const currentRoute = ref('manager');
+
+watch(() => route.path, (newPath) => {
+  if (newPath === '/') {
+    currentRoute.value = 'manager';
+  } else if (newPath === '/control') {
+    currentRoute.value = 'control';
+  } else if (newPath === '/system-logs') {
+    currentRoute.value = 'system-logs';
+  }
+}, { immediate: true });
 
 const handleMenuClick = (key) => {
   currentRoute.value = key;
@@ -42,6 +56,11 @@ const handleMenuClick = (key) => {
     case "control":
       router.push({
         path: '/control'
+      })
+      break
+    case "system-logs":
+      router.push({
+        path: '/system-logs'
       })
       break
   }

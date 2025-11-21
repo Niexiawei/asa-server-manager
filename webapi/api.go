@@ -96,6 +96,7 @@ func (s *APIServer) setupRoutes() {
 	logs := s.engine.Group("/api/logs")
 	{
 		logs.GET("/:name", s.streamInstanceLogs)
+		logs.GET("", s.streamSystemLogs)
 	}
 
 	// Config file endpoints
@@ -1109,8 +1110,62 @@ func (s *APIServer) streamInstanceLogs(c *gin.Context) {
 	logChan := make(chan string)
 	done := make(chan struct{})
 
-	// Start tailing the log file for new lines only (avoids re-reading existing content)
-	stopMonitoring := asaserver.TailLogFile(logPath, func(line string) {
+	// Start tailing the log file, reading the last 500 lines first
+	stopMonitoring := asaserver.TailLogFileWithLines(logPath, 500, func(line string) {
+		select {
+		case logChan <- line:
+		case <-done:
+			return
+		}
+	})
+
+	defer func() {
+		close(done)
+		stopMonitoring()
+	}()
+
+	// Stream new log lines as they arrive
+	for {
+		select {
+		case line, ok := <-logChan:
+			if !ok {
+				return
+			}
+			fmt.Fprintf(c.Writer, "data: %s\n\n", line)
+			c.Writer.Flush()
+		case <-c.Request.Context().Done():
+			return
+		}
+	}
+}
+
+// streamSystemLogs streams system logs via Server-Sent Events (SSE)
+func (s *APIServer) streamSystemLogs(c *gin.Context) {
+	// Get the system log file path from logger package
+	logPath := logger.GetLogFilePath()
+
+	// Check if log file exists
+	if _, err := os.Stat(logPath); os.IsNotExist(err) {
+		c.JSON(http.StatusNotFound, StatusResponse{
+			Success: false,
+			Error:   fmt.Sprintf("system log file not found: %s", logPath),
+		})
+		return
+	}
+
+	// Set SSE headers
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("Access-Control-Allow-Origin", "*")
+	c.Header("Access-Control-Allow-Headers", "Content-Type")
+
+	// Create a channel to receive log lines with larger buffer to prevent message loss
+	logChan := make(chan string)
+	done := make(chan struct{})
+
+	// Start tailing the log file, reading the last 500 lines first
+	stopMonitoring := asaserver.TailLogFileWithLines(logPath, 500, func(line string) {
 		select {
 		case logChan <- line:
 		case <-done:

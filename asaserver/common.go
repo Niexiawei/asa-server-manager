@@ -88,6 +88,125 @@ func TailLogFile(logPath string, printFunc func(string)) func() {
 	}
 }
 
+// TailLogFileWithLines monitors a log file in real-time asynchronously
+// Reads and returns the last N lines first, then monitors for new lines
+// Returns a stop function to terminate monitoring
+// The printFunc closure is called with each log line (historical lines + new lines)
+func TailLogFileWithLines(logPath string, lastNLines int, printFunc func(string)) func() {
+	stopChan := make(chan struct{})
+
+	go func() {
+		// First, read and send the last N lines from the file
+		if file, err := os.Open(logPath); err == nil {
+			defer file.Close()
+			// Read all lines from the file
+			var allLines []string
+			scanner := bufio.NewScanner(file)
+			for scanner.Scan() {
+				allLines = append(allLines, scanner.Text())
+			}
+
+			// Calculate starting index for the last N lines
+			startIdx := 0
+			if len(allLines) > lastNLines {
+				startIdx = len(allLines) - lastNLines
+			}
+
+			// Send the last N lines (or all lines if less than N)
+			for i := startIdx; i < len(allLines); i++ {
+				select {
+				case <-stopChan:
+					return
+				default:
+					if allLines[i] != "" {
+						printFunc(allLines[i])
+					}
+				}
+			}
+		}
+
+		// Get the current file position to start monitoring from
+		lastPosition := int64(0)
+		if file, err := os.Open(logPath); err == nil {
+			if fileInfo, err := file.Stat(); err == nil {
+				lastPosition = fileInfo.Size()
+			}
+			file.Close()
+		}
+
+		// Create a watcher for file system events
+		watcher, err := fsnotify.NewWatcher()
+		if err != nil {
+			printFunc("Failed to create file watcher: " + fmt.Sprintf("%v", err))
+			return
+		}
+		defer watcher.Close()
+
+		// Watch the logs directory for changes
+		logsDir := filepath.Dir(logPath)
+		if err := watcher.Add(logsDir); err != nil {
+			printFunc("Failed to watch logs directory: " + fmt.Sprintf("%v", err))
+			return
+		}
+
+		for {
+			select {
+			case <-stopChan:
+				// Stop signal received
+				return
+			default:
+			}
+
+			// Read available content from the log file
+			if content, newPos, _, found := readNewLogContent(logPath, lastPosition); found {
+				if content != "" {
+					// Call the closure function to print each line
+					for _, line := range strings.Split(strings.TrimSuffix(content, "\n"), "\n") {
+						if line != "" {
+							select {
+							case <-stopChan:
+								return
+							default:
+								printFunc(line)
+							}
+						}
+					}
+				}
+				lastPosition = newPos
+			}
+
+			// Wait for file system events or timeout
+			select {
+			case <-stopChan:
+				return
+			case event, ok := <-watcher.Events:
+				if !ok {
+					return
+				}
+				// React to Write and Create events on the log file
+				if event.Name == logPath && (event.Op&fsnotify.Write == fsnotify.Write || event.Op&fsnotify.Create == fsnotify.Create) {
+					// File was written to, continue loop to read new content
+					continue
+				}
+			case err, ok := <-watcher.Errors:
+				if !ok {
+					return
+				}
+				printFunc("Watcher error: " + fmt.Sprintf("%v", err))
+				return
+			case <-time.After(100 * time.Millisecond):
+				// Periodic check for file updates
+				continue
+			}
+		}
+	}()
+
+	// Return the stop function
+	return func() {
+		close(stopChan)
+	}
+}
+
 // readNewLogContent reads new content from log file starting at lastPosition
 func readNewLogContent(logPath string, lastPosition int64) (string, int64, int, bool) {
 	file, err := os.Open(logPath)
