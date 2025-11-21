@@ -5,6 +5,7 @@ import (
 	"asa-server/win32api"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/aymanbagabas/go-pty"
 	"github.com/fsnotify/fsnotify"
 	"github.com/gorcon/rcon"
 )
@@ -24,6 +26,47 @@ var serverActionsLock sync.Locker
 
 // instanceLogMapping stores the mapping of instance names to their log file paths
 var instanceLogMapping = make(map[string]string)
+
+// LogWriter is a custom writer that forwards output to logger
+type LogWriter struct {
+	loggerFn func(string)
+}
+
+// Write implements the io.Writer interface
+func (lw *LogWriter) Write(p []byte) (n int, err error) {
+	if lw.loggerFn != nil {
+		lw.loggerFn(string(p))
+	}
+	return len(p), nil
+}
+
+// removeANSIEscapes removes ANSI escape sequences from a string
+func removeANSIEscapes(s string) string {
+	// This regex pattern matches ANSI escape sequences
+	// Including color codes, cursor movement, and other control sequences
+	var result strings.Builder
+	i := 0
+	for i < len(s) {
+		// Check if this is the start of an escape sequence
+		if s[i] == '\x1b' && i+1 < len(s) && s[i+1] == '[' {
+			// Skip the escape sequence
+			i += 2
+			// Skip until we find a letter or other terminator
+			for i < len(s) {
+				c := s[i]
+				if (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '@' {
+					i++
+					break
+				}
+				i++
+			}
+		} else {
+			result.WriteByte(s[i])
+			i++
+		}
+	}
+	return strings.TrimSpace(result.String())
+}
 
 // InitializeLogMapping loads log mappings from persistent storage
 func InitializeLogMapping() error {
@@ -405,8 +448,6 @@ func StartServer(instanceName string) error {
 		config.SaveDir,
 	)
 
-	//mapParam = fmt.Sprintf("\"%s\"", mapParam)
-
 	// Direct execution of ArkAscendedServer.exe on Windows
 	arkExe := filepath.Join(ServerFilesDir, "ShooterGame/Binaries/Win64/ArkAscendedServer.exe")
 
@@ -440,7 +481,17 @@ func StartServer(instanceName string) error {
 		)
 	}
 
-	cmd := exec.Command(arkExe, args...)
+	var (
+		arkAsaApiRunning bool = false
+	)
+
+	if config.EnableAsaPlugin {
+		arkApiExe := filepath.Join(ServerFilesDir, "ShooterGame/Binaries/Win64/AsaApiLoader.exe")
+		if FileExists(arkApiExe) {
+			arkExe = arkApiExe
+			arkAsaApiRunning = true
+		}
+	}
 
 	// Get the game log file path and establish mapping
 	gameLogPath, err := GetGameLogFilePath(instanceName)
@@ -448,13 +499,53 @@ func StartServer(instanceName string) error {
 		return fmt.Errorf("failed to get game log file path: %w", err)
 	}
 
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to start server: %w", err)
+	// Create the log file if it doesn't exist
+	if _, err := os.Stat(gameLogPath); os.IsNotExist(err) {
+		// Create the log file with empty content
+		if err := os.WriteFile(gameLogPath, []byte(""), 0644); err != nil {
+			return fmt.Errorf("failed to create log file %s: %w", gameLogPath, err)
+		}
+		logger.GetLogger().Infof("Created log file: %s", gameLogPath)
 	}
 
-	// Save the PID to the instance directory
-	if err := SaveInstancePID(instanceName, cmd.Process.Pid); err != nil {
-		logger.GetLogger().Warnf("Failed to save PID for instance %s: %v", instanceName, err)
+	if arkAsaApiRunning {
+		pp, err := pty.New()
+		if err != nil {
+			log.Fatalf("failed to open pty: %s", err)
+		}
+
+		logWriter := &LogWriter{
+			loggerFn: func(msg string) {
+				// Remove ANSI escape sequences before logging
+				cleanMsg := removeANSIEscapes(msg)
+				if cleanMsg != "" {
+					logger.GetLogger().Infof("[%s][AsaApiLoader] %s", instanceName, cleanMsg)
+				}
+			},
+		}
+
+		c := pp.Command(arkExe, args...)
+		if err := c.Start(); err != nil {
+			return fmt.Errorf("failed to start server: %w", err)
+		}
+
+		if err := SaveInstancePID(instanceName, c.Process.Pid); err != nil {
+			logger.GetLogger().Warnf("Failed to save PID for instance %s: %v", instanceName, err)
+		}
+
+		go io.Copy(logWriter, pp)
+		logger.GetLogger().Infof("[%s] Redirecting AsaApiLoader output to logger", instanceName)
+	} else {
+		cmd := exec.Command(arkExe, args...)
+
+		if err := cmd.Start(); err != nil {
+			return fmt.Errorf("failed to start server: %w", err)
+		}
+
+		// Save the PID to the instance directory
+		if err := SaveInstancePID(instanceName, cmd.Process.Pid); err != nil {
+			logger.GetLogger().Warnf("Failed to save PID for instance %s: %v", instanceName, err)
+		}
 	}
 
 	logger.GetLogger().Infof("Server started for instance: %s. It should be fully operational in approximately 60 seconds.", instanceName)

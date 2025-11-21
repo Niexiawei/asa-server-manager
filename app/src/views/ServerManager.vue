@@ -52,9 +52,9 @@
                         <span class="label">查询端口:</span>
                         <span class="value">{{ instance.config.QueryPort }}</span>
                       </div>
-                      <div class="info-item" v-if="instance.config?.ModIDs">
+                      <div class="info-item">
                         <span class="label">Mod ID:</span>
-                        <span class="value">{{ instance.config.ModIDs }}</span>
+                        <span class="value">{{ instance.config?.ModIDs || '-' }}</span>
                       </div>
                       <div class="info-item" v-if="instance.config?.CustomStartParameters">
                         <span class="label">自定义参数:</span>
@@ -125,7 +125,7 @@
 <script setup>
 import {ref, reactive, onMounted, onUnmounted, watch, computed} from 'vue'
 import {useRouter} from 'vue-router'
-import {listInstances, createInstance, startServer, stopServer, restartServer, deleteInstance} from '@/apis/api.js'
+import {listInstances, createInstance, startServer, stopServer, restartServer, restartServerSSE, deleteInstance} from '@/apis/api.js'
 import {Modal, Button} from '@arco-design/web-vue';
 import {serverStore, updateInstancesInStore} from '@/store/serverStore.js'
 import WSStatusIndicator from '@/components/WSStatusIndicator.vue'
@@ -239,12 +239,24 @@ const restartInstance = async (name) => {
     cancelText: '取消',
     onOk: async () => {
       try {
-        const data = await restartServer(name)
-        if (data.success) {
-          // 重启不改变本地状态，等待后续自动更新
-        } else {
-          console.error('重启实例失败:', data.error)
-        }
+        // 使用 SSE 方式调用重启
+        restartServerSSE(
+          name,
+          // onMessage 回调 - 接收实时进度消息
+          (message) => {
+            console.log('Restart progress:', message)
+            // 可选：在 UI 中显示重启进度
+          },
+          // onError 回调 - 处理错误
+          (error) => {
+            console.error('重启实例失败:', error)
+          },
+          // onComplete 回调 - 重启完成
+          () => {
+            console.log('Server restart completed')
+            // 重启不改变本地状态，等待后续自动更新
+          }
+        )
       } catch (error) {
         console.error('重启实例失败:', error)
       }

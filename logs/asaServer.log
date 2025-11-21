@@ -480,3 +480,391 @@
 {"level":"INFO","ts":"2025-11-20T16:27:38.819+0800","caller":"asaserver/server.go:628","msg":"RCON response: Exiting... \n "}
 {"level":"INFO","ts":"2025-11-20T16:27:38.819+0800","caller":"asaserver/server.go:530","msg":"Server instance meijue reported 'Exiting...'. Awaiting shutdown..."}
 {"level":"INFO","ts":"2025-11-20T16:27:50.821+0800","caller":"asaserver/server.go:546","msg":"Server for instance meijue has exited."}
+{"level":"WARN","ts":"2025-11-20T16:38:19.510+0800","caller":"asaserver/server.go:246","msg":"Game port :7001 not found"}
+{"level":"WARN","ts":"2025-11-20T16:38:24.594+0800","caller":"asaserver/server.go:246","msg":"Game port :7001 not found"}
+{"level":"WARN","ts":"2025-11-20T16:38:24.625+0800","caller":"asaserver/server.go:246","msg":"Game port :7001 not found"}
+{"level":"INFO","ts":"2025-11-20T16:38:24.625+0800","caller":"asaserver/server.go:384","msg":"Starting server for instance: meijue"}
+{"level":"INFO","ts":"2025-11-20T16:38:24.626+0800","caller":"asaserver/server.go:315","msg":"Backing up original configuration directory..."}
+{"level":"INFO","ts":"2025-11-20T16:38:24.659+0800","caller":"asaserver/server.go:460","msg":"Server started for instance: meijue. It should be fully operational in approximately 60 seconds."}
+{"level":"INFO","ts":"2025-11-20T16:38:24.659+0800","caller":"asaserver/server.go:461","msg":"Game log file: D:\\golang\\asa-server\\server-files\\ShooterGame\\Saved\\Logs\\ShooterGame.log"}
+{"level":"INFO","ts":"2025-11-20T16:39:24.660+0800","caller":"asaserver/server.go:352","msg":"Original configuration directory restored for instance: meijue"}
+{"level":"INFO","ts":"2025-11-20T16:39:24.661+0800","caller":"asaserver/server.go:82","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-20T16:39:24.661+0800","caller":"asaserver/server.go:82","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-20T16:45:59.111+0800","caller":"asaserver/server.go:515","msg":"Stopping server for instance: meijue"}
+{"level":"INFO","ts":"2025-11-20T16:45:59.140+0800","caller":"asaserver/server.go:585","msg":"Connecting to RCON server at localhost:5001..."}
+{"level":"INFO","ts":"2025-11-20T16:45:59.140+0800","caller":"asaserver/server.go:586","msg":"   Instance: meijue"}
+{"level":"INFO","ts":"2025-11-20T16:45:59.140+0800","caller":"asaserver/server.go:587","msg":"   RCON Port: 5001"}
+{"level":"INFO","ts":"2025-11-20T16:45:59.197+0800","caller":"asaserver/server.go:599","msg":"Connected to RCON server"}
+{"level":"INFO","ts":"2025-11-20T16:45:59.197+0800","caller":"asaserver/server.go:622","msg":"Sending RCON command 'DoExit' to localhost:5001"}
+{"level":"INFO","ts":"2025-11-20T16:45:59.230+0800","caller":"asaserver/server.go:628","msg":"RCON response: Exiting... \n "}
+{"level":"INFO","ts":"2025-11-20T16:45:59.230+0800","caller":"asaserver/server.go:530","msg":"Server instance meijue reported 'Exiting...'. Awaiting shutdown..."}
+{"level":"INFO","ts":"2025-11-20T16:46:11.232+0800","caller":"asaserver/server.go:546","msg":"Server for instance meijue has exited."}
+{"level":"WARN","ts":"2025-11-20T16:47:26.415+0800","caller":"asaserver/server.go:246","msg":"Game port :7001 not found"}
+{"level":"WARN","ts":"2025-11-20T16:47:26.485+0800","caller":"asaserver/server.go:246","msg":"Game port :7001 not found"}
+{"level":"INFO","ts":"2025-11-20T16:47:26.485+0800","caller":"asaserver/server.go:384","msg":"Starting server for instance: meijue"}
+{"level":"INFO","ts":"2025-11-20T16:47:26.485+0800","caller":"asaserver/server.go:315","msg":"Backing up original configuration directory..."}
+{"level":"INFO","ts":"2025-11-20T16:47:26.517+0800","caller":"asaserver/server.go:460","msg":"Server started for instance: meijue. It should be fully operational in approximately 60 seconds."}
+{"level":"INFO","ts":"2025-11-20T16:47:26.517+0800","caller":"asaserver/server.go:461","msg":"Game log file: D:\\golang\\asa-server\\server-files\\ShooterGame\\Saved\\Logs\\ShooterGame.log"}
+{"level":"INFO","ts":"2025-11-20T16:48:26.518+0800","caller":"asaserver/server.go:352","msg":"Original configuration directory restored for instance: meijue"}
+{"level":"INFO","ts":"2025-11-20T16:48:26.519+0800","caller":"asaserver/server.go:82","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-20T16:48:26.519+0800","caller":"asaserver/server.go:82","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-20T16:51:30.895+0800","caller":"asaserver/server.go:515","msg":"Stopping server for instance: meijue"}
+{"level":"INFO","ts":"2025-11-20T16:51:30.915+0800","caller":"asaserver/server.go:585","msg":"Connecting to RCON server at localhost:5001..."}
+{"level":"INFO","ts":"2025-11-20T16:51:30.915+0800","caller":"asaserver/server.go:586","msg":"   Instance: meijue"}
+{"level":"INFO","ts":"2025-11-20T16:51:30.915+0800","caller":"asaserver/server.go:587","msg":"   RCON Port: 5001"}
+{"level":"INFO","ts":"2025-11-20T16:51:30.956+0800","caller":"asaserver/server.go:599","msg":"Connected to RCON server"}
+{"level":"INFO","ts":"2025-11-20T16:51:30.956+0800","caller":"asaserver/server.go:622","msg":"Sending RCON command 'DoExit' to localhost:5001"}
+{"level":"INFO","ts":"2025-11-20T16:51:30.989+0800","caller":"asaserver/server.go:628","msg":"RCON response: Exiting... \n "}
+{"level":"INFO","ts":"2025-11-20T16:51:30.989+0800","caller":"asaserver/server.go:530","msg":"Server instance meijue reported 'Exiting...'. Awaiting shutdown..."}
+{"level":"INFO","ts":"2025-11-20T16:51:42.991+0800","caller":"asaserver/server.go:546","msg":"Server for instance meijue has exited."}
+{"level":"INFO","ts":"2025-11-20T16:54:39.507+0800","caller":"webapi/api.go:1034","msg":"API server on http://localhost:8080"}
+{"level":"WARN","ts":"2025-11-20T16:54:56.393+0800","caller":"asaserver/server.go:246","msg":"Game port :7001 not found"}
+{"level":"WARN","ts":"2025-11-20T16:55:00.202+0800","caller":"asaserver/server.go:246","msg":"Game port :7001 not found"}
+{"level":"WARN","ts":"2025-11-20T16:55:00.235+0800","caller":"asaserver/server.go:246","msg":"Game port :7001 not found"}
+{"level":"INFO","ts":"2025-11-20T16:55:00.236+0800","caller":"asaserver/server.go:384","msg":"Starting server for instance: meijue"}
+{"level":"INFO","ts":"2025-11-20T16:55:00.236+0800","caller":"asaserver/server.go:315","msg":"Backing up original configuration directory..."}
+{"level":"INFO","ts":"2025-11-20T16:55:00.278+0800","caller":"asaserver/server.go:460","msg":"Server started for instance: meijue. It should be fully operational in approximately 60 seconds."}
+{"level":"INFO","ts":"2025-11-20T16:55:00.278+0800","caller":"asaserver/server.go:461","msg":"Game log file: D:\\golang\\asa-server\\server-files\\ShooterGame\\Saved\\Logs\\ShooterGame.log"}
+{"level":"INFO","ts":"2025-11-20T16:56:00.279+0800","caller":"asaserver/server.go:352","msg":"Original configuration directory restored for instance: meijue"}
+{"level":"INFO","ts":"2025-11-20T16:56:00.280+0800","caller":"asaserver/server.go:82","msg":"Loaded 2 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-20T16:56:00.280+0800","caller":"asaserver/server.go:82","msg":"Loaded 2 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-20T16:57:00.417+0800","caller":"webapi/api.go:1034","msg":"API server on http://localhost:8080"}
+{"level":"WARN","ts":"2025-11-20T16:57:12.100+0800","caller":"asaserver/server.go:246","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-20T16:57:13.389+0800","caller":"asaserver/server.go:246","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-20T16:57:15.671+0800","caller":"asaserver/server.go:246","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-20T16:57:15.704+0800","caller":"asaserver/server.go:246","msg":"Game port :7002 not found"}
+{"level":"INFO","ts":"2025-11-20T16:57:15.705+0800","caller":"asaserver/server.go:384","msg":"Starting server for instance: jibian"}
+{"level":"INFO","ts":"2025-11-20T16:57:15.705+0800","caller":"asaserver/server.go:315","msg":"Backing up original configuration directory..."}
+{"level":"INFO","ts":"2025-11-20T16:57:15.741+0800","caller":"asaserver/server.go:460","msg":"Server started for instance: jibian. It should be fully operational in approximately 60 seconds."}
+{"level":"INFO","ts":"2025-11-20T16:57:15.741+0800","caller":"asaserver/server.go:461","msg":"Game log file: D:\\golang\\asa-server\\server-files\\ShooterGame\\Saved\\Logs\\ShooterGame_2.log"}
+{"level":"INFO","ts":"2025-11-20T16:58:15.742+0800","caller":"asaserver/server.go:352","msg":"Original configuration directory restored for instance: jibian"}
+{"level":"INFO","ts":"2025-11-20T16:58:15.744+0800","caller":"asaserver/server.go:82","msg":"Loaded 2 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-20T16:58:15.744+0800","caller":"asaserver/server.go:82","msg":"Loaded 2 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-20T16:58:42.600+0800","caller":"asaserver/server.go:515","msg":"Stopping server for instance: jibian"}
+{"level":"INFO","ts":"2025-11-20T16:58:42.633+0800","caller":"asaserver/server.go:585","msg":"Connecting to RCON server at localhost:5002..."}
+{"level":"INFO","ts":"2025-11-20T16:58:42.633+0800","caller":"asaserver/server.go:586","msg":"   Instance: jibian"}
+{"level":"INFO","ts":"2025-11-20T16:58:42.633+0800","caller":"asaserver/server.go:587","msg":"   RCON Port: 5002"}
+{"level":"INFO","ts":"2025-11-20T16:58:42.702+0800","caller":"asaserver/server.go:599","msg":"Connected to RCON server"}
+{"level":"INFO","ts":"2025-11-20T16:58:42.702+0800","caller":"asaserver/server.go:622","msg":"Sending RCON command 'DoExit' to localhost:5002"}
+{"level":"INFO","ts":"2025-11-20T16:58:42.733+0800","caller":"asaserver/server.go:628","msg":"RCON response: Exiting... \n "}
+{"level":"INFO","ts":"2025-11-20T16:58:42.733+0800","caller":"asaserver/server.go:530","msg":"Server instance jibian reported 'Exiting...'. Awaiting shutdown..."}
+{"level":"WARN","ts":"2025-11-20T16:58:45.008+0800","caller":"asaserver/server.go:246","msg":"Game port :7002 not found"}
+{"level":"INFO","ts":"2025-11-20T16:58:54.735+0800","caller":"asaserver/server.go:546","msg":"Server for instance jibian has exited."}
+{"level":"INFO","ts":"2025-11-20T16:58:54.736+0800","caller":"asaserver/server.go:82","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-20T16:58:54.736+0800","caller":"asaserver/server.go:82","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"WARN","ts":"2025-11-20T16:59:24.767+0800","caller":"asaserver/server.go:246","msg":"Game port :7002 not found"}
+{"level":"INFO","ts":"2025-11-20T16:59:24.768+0800","caller":"asaserver/server.go:384","msg":"Starting server for instance: jibian"}
+{"level":"INFO","ts":"2025-11-20T16:59:24.768+0800","caller":"asaserver/server.go:315","msg":"Backing up original configuration directory..."}
+{"level":"INFO","ts":"2025-11-20T16:59:24.802+0800","caller":"asaserver/server.go:460","msg":"Server started for instance: jibian. It should be fully operational in approximately 60 seconds."}
+{"level":"INFO","ts":"2025-11-20T16:59:24.802+0800","caller":"asaserver/server.go:461","msg":"Game log file: D:\\golang\\asa-server\\server-files\\ShooterGame\\Saved\\Logs\\ShooterGame_2.log"}
+{"level":"INFO","ts":"2025-11-20T17:00:24.804+0800","caller":"asaserver/server.go:352","msg":"Original configuration directory restored for instance: jibian"}
+{"level":"INFO","ts":"2025-11-20T17:00:24.805+0800","caller":"asaserver/server.go:82","msg":"Loaded 2 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-20T17:00:24.805+0800","caller":"asaserver/server.go:82","msg":"Loaded 2 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-20T17:03:47.962+0800","caller":"asaserver/server.go:515","msg":"Stopping server for instance: jibian"}
+{"level":"INFO","ts":"2025-11-20T17:03:48.013+0800","caller":"asaserver/server.go:585","msg":"Connecting to RCON server at localhost:5002..."}
+{"level":"INFO","ts":"2025-11-20T17:03:48.013+0800","caller":"asaserver/server.go:586","msg":"   Instance: jibian"}
+{"level":"INFO","ts":"2025-11-20T17:03:48.013+0800","caller":"asaserver/server.go:587","msg":"   RCON Port: 5002"}
+{"level":"INFO","ts":"2025-11-20T17:03:48.067+0800","caller":"asaserver/server.go:599","msg":"Connected to RCON server"}
+{"level":"INFO","ts":"2025-11-20T17:03:48.067+0800","caller":"asaserver/server.go:622","msg":"Sending RCON command 'DoExit' to localhost:5002"}
+{"level":"INFO","ts":"2025-11-20T17:03:48.100+0800","caller":"asaserver/server.go:628","msg":"RCON response: Exiting... \n "}
+{"level":"INFO","ts":"2025-11-20T17:03:48.100+0800","caller":"asaserver/server.go:530","msg":"Server instance jibian reported 'Exiting...'. Awaiting shutdown..."}
+{"level":"INFO","ts":"2025-11-20T17:04:00.102+0800","caller":"asaserver/server.go:546","msg":"Server for instance jibian has exited."}
+{"level":"INFO","ts":"2025-11-20T17:04:00.103+0800","caller":"asaserver/server.go:82","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-20T17:04:00.103+0800","caller":"asaserver/server.go:82","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-20T17:04:07.219+0800","caller":"asaserver/server.go:515","msg":"Stopping server for instance: meijue"}
+{"level":"INFO","ts":"2025-11-20T17:04:07.245+0800","caller":"asaserver/server.go:585","msg":"Connecting to RCON server at localhost:5001..."}
+{"level":"INFO","ts":"2025-11-20T17:04:07.245+0800","caller":"asaserver/server.go:586","msg":"   Instance: meijue"}
+{"level":"INFO","ts":"2025-11-20T17:04:07.245+0800","caller":"asaserver/server.go:587","msg":"   RCON Port: 5001"}
+{"level":"INFO","ts":"2025-11-20T17:04:07.310+0800","caller":"asaserver/server.go:599","msg":"Connected to RCON server"}
+{"level":"INFO","ts":"2025-11-20T17:04:07.310+0800","caller":"asaserver/server.go:622","msg":"Sending RCON command 'DoExit' to localhost:5001"}
+{"level":"INFO","ts":"2025-11-20T17:04:07.344+0800","caller":"asaserver/server.go:628","msg":"RCON response: Exiting... \n "}
+{"level":"INFO","ts":"2025-11-20T17:04:07.344+0800","caller":"asaserver/server.go:530","msg":"Server instance meijue reported 'Exiting...'. Awaiting shutdown..."}
+{"level":"INFO","ts":"2025-11-20T17:04:15.345+0800","caller":"asaserver/server.go:546","msg":"Server for instance meijue has exited."}
+{"level":"INFO","ts":"2025-11-20T17:13:07.206+0800","caller":"webapi/api.go:1034","msg":"API server on http://localhost:8080"}
+{"level":"WARN","ts":"2025-11-20T17:13:11.814+0800","caller":"asaserver/server.go:246","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-20T17:13:11.856+0800","caller":"asaserver/server.go:246","msg":"Game port :7001 not found"}
+{"level":"WARN","ts":"2025-11-20T17:13:14.105+0800","caller":"asaserver/server.go:246","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-20T17:13:17.777+0800","caller":"asaserver/server.go:246","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-20T17:13:17.806+0800","caller":"asaserver/server.go:246","msg":"Game port :7002 not found"}
+{"level":"INFO","ts":"2025-11-20T17:13:17.807+0800","caller":"asaserver/server.go:384","msg":"Starting server for instance: jibian"}
+{"level":"INFO","ts":"2025-11-20T17:13:17.807+0800","caller":"asaserver/server.go:315","msg":"Backing up original configuration directory..."}
+{"level":"INFO","ts":"2025-11-20T17:13:17.839+0800","caller":"asaserver/server.go:460","msg":"Server started for instance: jibian. It should be fully operational in approximately 60 seconds."}
+{"level":"INFO","ts":"2025-11-20T17:13:17.839+0800","caller":"asaserver/server.go:461","msg":"Game log file: D:\\golang\\asa-server\\server-files\\ShooterGame\\Saved\\Logs\\ShooterGame.log"}
+{"level":"INFO","ts":"2025-11-20T17:14:14.545+0800","caller":"asaserver/server.go:515","msg":"Stopping server for instance: jibian"}
+{"level":"INFO","ts":"2025-11-20T17:14:14.589+0800","caller":"asaserver/server.go:585","msg":"Connecting to RCON server at localhost:5002..."}
+{"level":"INFO","ts":"2025-11-20T17:14:14.589+0800","caller":"asaserver/server.go:586","msg":"   Instance: jibian"}
+{"level":"INFO","ts":"2025-11-20T17:14:14.589+0800","caller":"asaserver/server.go:587","msg":"   RCON Port: 5002"}
+{"level":"INFO","ts":"2025-11-20T17:14:14.644+0800","caller":"asaserver/server.go:599","msg":"Connected to RCON server"}
+{"level":"INFO","ts":"2025-11-20T17:14:14.644+0800","caller":"asaserver/server.go:622","msg":"Sending RCON command 'DoExit' to localhost:5002"}
+{"level":"INFO","ts":"2025-11-20T17:14:14.677+0800","caller":"asaserver/server.go:628","msg":"RCON response: Exiting... \n "}
+{"level":"INFO","ts":"2025-11-20T17:14:14.678+0800","caller":"asaserver/server.go:530","msg":"Server instance jibian reported 'Exiting...'. Awaiting shutdown..."}
+{"level":"INFO","ts":"2025-11-20T17:14:17.841+0800","caller":"asaserver/server.go:352","msg":"Original configuration directory restored for instance: jibian"}
+{"level":"INFO","ts":"2025-11-20T17:14:17.842+0800","caller":"asaserver/server.go:82","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-20T17:14:17.842+0800","caller":"asaserver/server.go:82","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-20T17:14:26.680+0800","caller":"asaserver/server.go:546","msg":"Server for instance jibian has exited."}
+{"level":"WARN","ts":"2025-11-20T17:20:40.359+0800","caller":"asaserver/server.go:246","msg":"Game port :7002 not found"}
+{"level":"INFO","ts":"2025-11-20T17:21:04.786+0800","caller":"webapi/api.go:1034","msg":"API server on http://localhost:8080"}
+{"level":"WARN","ts":"2025-11-20T17:21:08.796+0800","caller":"asaserver/server.go:246","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-20T17:21:16.749+0800","caller":"asaserver/server.go:246","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-20T17:21:35.964+0800","caller":"asaserver/server.go:246","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-20T17:21:36.017+0800","caller":"asaserver/server.go:246","msg":"Game port :7001 not found"}
+{"level":"WARN","ts":"2025-11-20T17:21:43.108+0800","caller":"asaserver/server.go:246","msg":"Game port :7001 not found"}
+{"level":"WARN","ts":"2025-11-20T17:22:18.095+0800","caller":"asaserver/server.go:246","msg":"Game port :7001 not found"}
+{"level":"WARN","ts":"2025-11-20T17:24:33.395+0800","caller":"asaserver/server.go:246","msg":"Game port :7001 not found"}
+{"level":"WARN","ts":"2025-11-20T17:25:51.330+0800","caller":"asaserver/server.go:246","msg":"Game port :7001 not found"}
+{"level":"WARN","ts":"2025-11-20T17:28:41.225+0800","caller":"asaserver/server.go:246","msg":"Game port :7001 not found"}
+{"level":"WARN","ts":"2025-11-20T17:30:10.888+0800","caller":"asaserver/server.go:246","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-20T17:30:10.921+0800","caller":"asaserver/server.go:246","msg":"Game port :7001 not found"}
+{"level":"WARN","ts":"2025-11-20T17:30:15.454+0800","caller":"asaserver/server.go:246","msg":"Game port :7777 not found"}
+{"level":"WARN","ts":"2025-11-20T17:30:15.489+0800","caller":"asaserver/server.go:246","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-20T17:30:15.518+0800","caller":"asaserver/server.go:246","msg":"Game port :7001 not found"}
+{"level":"WARN","ts":"2025-11-20T17:31:13.394+0800","caller":"asaserver/server.go:246","msg":"Game port :7777 not found"}
+{"level":"INFO","ts":"2025-11-20T17:50:41.561+0800","caller":"webapi/api.go:1034","msg":"API server on http://localhost:8080"}
+{"level":"WARN","ts":"2025-11-20T17:50:52.861+0800","caller":"asaserver/server.go:246","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-20T17:50:52.920+0800","caller":"asaserver/server.go:246","msg":"Game port :7001 not found"}
+{"level":"WARN","ts":"2025-11-20T17:50:54.788+0800","caller":"asaserver/server.go:246","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-20T17:50:57.640+0800","caller":"asaserver/server.go:246","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-20T17:50:57.675+0800","caller":"asaserver/server.go:246","msg":"Game port :7002 not found"}
+{"level":"INFO","ts":"2025-11-20T17:50:57.676+0800","caller":"asaserver/server.go:384","msg":"Starting server for instance: jibian"}
+{"level":"INFO","ts":"2025-11-20T17:50:57.676+0800","caller":"asaserver/server.go:315","msg":"Backing up original configuration directory..."}
+{"level":"INFO","ts":"2025-11-20T17:50:57.712+0800","caller":"asaserver/server.go:467","msg":"Server started for instance: jibian. It should be fully operational in approximately 60 seconds."}
+{"level":"INFO","ts":"2025-11-20T17:50:57.712+0800","caller":"asaserver/server.go:468","msg":"Game log file: D:\\golang\\asa-server\\server-files\\ShooterGame\\Saved\\Logs\\ShooterGame.log"}
+{"level":"INFO","ts":"2025-11-20T17:51:57.713+0800","caller":"asaserver/server.go:352","msg":"Original configuration directory restored for instance: jibian"}
+{"level":"INFO","ts":"2025-11-20T17:51:57.714+0800","caller":"asaserver/server.go:82","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-20T17:51:57.714+0800","caller":"asaserver/server.go:82","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-20T18:03:57.111+0800","caller":"webapi/api.go:1034","msg":"API server on http://localhost:8080"}
+{"level":"WARN","ts":"2025-11-20T18:04:01.323+0800","caller":"asaserver/server.go:246","msg":"Game port :7001 not found"}
+{"level":"INFO","ts":"2025-11-20T18:04:07.908+0800","caller":"asaserver/server.go:549","msg":"Stopping server for instance: jibian"}
+{"level":"INFO","ts":"2025-11-20T18:04:07.928+0800","caller":"asaserver/server.go:619","msg":"Connecting to RCON server at localhost:5002..."}
+{"level":"INFO","ts":"2025-11-20T18:04:07.928+0800","caller":"asaserver/server.go:620","msg":"   Instance: jibian"}
+{"level":"INFO","ts":"2025-11-20T18:04:07.928+0800","caller":"asaserver/server.go:621","msg":"   RCON Port: 5002"}
+{"level":"INFO","ts":"2025-11-20T18:04:08.000+0800","caller":"asaserver/server.go:633","msg":"Connected to RCON server"}
+{"level":"INFO","ts":"2025-11-20T18:04:08.001+0800","caller":"asaserver/server.go:656","msg":"Sending RCON command 'DoExit' to localhost:5002"}
+{"level":"INFO","ts":"2025-11-20T18:04:08.049+0800","caller":"asaserver/server.go:662","msg":"RCON response: Exiting... \n "}
+{"level":"INFO","ts":"2025-11-20T18:04:08.049+0800","caller":"asaserver/server.go:564","msg":"Server instance jibian reported 'Exiting...'. Awaiting shutdown..."}
+{"level":"INFO","ts":"2025-11-20T18:04:20.052+0800","caller":"asaserver/server.go:580","msg":"Server for instance jibian has exited."}
+{"level":"WARN","ts":"2025-11-20T18:04:23.810+0800","caller":"asaserver/server.go:246","msg":"Game port :7001 not found"}
+{"level":"WARN","ts":"2025-11-20T18:04:27.688+0800","caller":"asaserver/server.go:246","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-20T18:04:27.715+0800","caller":"asaserver/server.go:246","msg":"Game port :7001 not found"}
+{"level":"WARN","ts":"2025-11-20T18:04:29.236+0800","caller":"asaserver/server.go:246","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-20T18:04:32.197+0800","caller":"asaserver/server.go:246","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-20T18:04:32.225+0800","caller":"asaserver/server.go:246","msg":"Game port :7002 not found"}
+{"level":"INFO","ts":"2025-11-20T18:04:32.225+0800","caller":"asaserver/server.go:384","msg":"Starting server for instance: jibian"}
+{"level":"INFO","ts":"2025-11-20T18:04:32.226+0800","caller":"asaserver/server.go:315","msg":"Backing up original configuration directory..."}
+{"level":"INFO","ts":"2025-11-20T18:04:32.245+0800","caller":"asaserver/server.go:482","msg":"Redirecting AsaApiLoader output to log file: D:\\golang\\asa-server\\server-files\\ShooterGame\\Saved\\Logs\\ShooterGame.log"}
+{"level":"INFO","ts":"2025-11-20T18:04:32.249+0800","caller":"asaserver/server.go:494","msg":"Server started for instance: jibian. It should be fully operational in approximately 60 seconds."}
+{"level":"INFO","ts":"2025-11-20T18:04:32.249+0800","caller":"asaserver/server.go:495","msg":"Game log file: D:\\golang\\asa-server\\server-files\\ShooterGame\\Saved\\Logs\\ShooterGame.log"}
+{"level":"INFO","ts":"2025-11-20T18:05:32.251+0800","caller":"asaserver/server.go:352","msg":"Original configuration directory restored for instance: jibian"}
+{"level":"INFO","ts":"2025-11-20T18:05:32.253+0800","caller":"asaserver/server.go:82","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-20T18:05:32.253+0800","caller":"asaserver/server.go:82","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"WARN","ts":"2025-11-20T18:07:04.198+0800","caller":"asaserver/server.go:246","msg":"Game port :7001 not found"}
+{"level":"INFO","ts":"2025-11-20T18:07:07.263+0800","caller":"asaserver/server.go:549","msg":"Stopping server for instance: jibian"}
+{"level":"INFO","ts":"2025-11-20T18:07:07.293+0800","caller":"asaserver/server.go:619","msg":"Connecting to RCON server at localhost:5002..."}
+{"level":"INFO","ts":"2025-11-20T18:07:07.293+0800","caller":"asaserver/server.go:620","msg":"   Instance: jibian"}
+{"level":"INFO","ts":"2025-11-20T18:07:07.293+0800","caller":"asaserver/server.go:621","msg":"   RCON Port: 5002"}
+{"level":"INFO","ts":"2025-11-20T18:07:07.360+0800","caller":"asaserver/server.go:633","msg":"Connected to RCON server"}
+{"level":"INFO","ts":"2025-11-20T18:07:07.360+0800","caller":"asaserver/server.go:656","msg":"Sending RCON command 'DoExit' to localhost:5002"}
+{"level":"INFO","ts":"2025-11-20T18:07:07.392+0800","caller":"asaserver/server.go:662","msg":"RCON response: Exiting... \n "}
+{"level":"INFO","ts":"2025-11-20T18:07:07.392+0800","caller":"asaserver/server.go:564","msg":"Server instance jibian reported 'Exiting...'. Awaiting shutdown..."}
+{"level":"WARN","ts":"2025-11-20T18:07:11.282+0800","caller":"asaserver/server.go:246","msg":"Game port :7002 not found"}
+{"level":"INFO","ts":"2025-11-20T18:07:19.394+0800","caller":"asaserver/server.go:580","msg":"Server for instance jibian has exited."}
+{"level":"WARN","ts":"2025-11-20T18:07:27.743+0800","caller":"asaserver/server.go:246","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-20T18:07:27.771+0800","caller":"asaserver/server.go:246","msg":"Game port :7001 not found"}
+{"level":"INFO","ts":"2025-11-20T18:07:53.226+0800","caller":"webapi/api.go:1034","msg":"API server on http://localhost:8080"}
+{"level":"WARN","ts":"2025-11-20T18:08:10.556+0800","caller":"asaserver/server.go:246","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-20T18:08:10.666+0800","caller":"asaserver/server.go:246","msg":"Game port :7001 not found"}
+{"level":"WARN","ts":"2025-11-20T18:08:13.860+0800","caller":"asaserver/server.go:246","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-20T18:08:13.892+0800","caller":"asaserver/server.go:246","msg":"Game port :7002 not found"}
+{"level":"INFO","ts":"2025-11-20T18:08:13.893+0800","caller":"asaserver/server.go:384","msg":"Starting server for instance: jibian"}
+{"level":"INFO","ts":"2025-11-20T18:08:13.893+0800","caller":"asaserver/server.go:315","msg":"Backing up original configuration directory..."}
+{"level":"INFO","ts":"2025-11-20T18:08:13.918+0800","caller":"asaserver/server.go:494","msg":"Server started for instance: jibian. It should be fully operational in approximately 60 seconds."}
+{"level":"INFO","ts":"2025-11-20T18:08:13.918+0800","caller":"asaserver/server.go:495","msg":"Game log file: D:\\golang\\asa-server\\server-files\\ShooterGame\\Saved\\Logs\\ShooterGame.log"}
+{"level":"WARN","ts":"2025-11-20T18:08:17.078+0800","caller":"asaserver/server.go:246","msg":"Game port :7002 not found"}
+{"level":"INFO","ts":"2025-11-20T18:09:13.920+0800","caller":"asaserver/server.go:352","msg":"Original configuration directory restored for instance: jibian"}
+{"level":"INFO","ts":"2025-11-20T18:09:13.920+0800","caller":"asaserver/server.go:82","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-20T18:09:13.921+0800","caller":"asaserver/server.go:82","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-20T21:13:06.281+0800","caller":"asaserver/server.go:549","msg":"Stopping server for instance: jibian"}
+{"level":"INFO","ts":"2025-11-20T21:13:06.326+0800","caller":"asaserver/server.go:619","msg":"Connecting to RCON server at localhost:5002..."}
+{"level":"INFO","ts":"2025-11-20T21:13:06.327+0800","caller":"asaserver/server.go:620","msg":"   Instance: jibian"}
+{"level":"INFO","ts":"2025-11-20T21:13:06.327+0800","caller":"asaserver/server.go:621","msg":"   RCON Port: 5002"}
+{"level":"INFO","ts":"2025-11-20T21:13:06.421+0800","caller":"asaserver/server.go:633","msg":"Connected to RCON server"}
+{"level":"INFO","ts":"2025-11-20T21:13:06.421+0800","caller":"asaserver/server.go:656","msg":"Sending RCON command 'DoExit' to localhost:5002"}
+{"level":"INFO","ts":"2025-11-20T21:13:06.467+0800","caller":"asaserver/server.go:662","msg":"RCON response: Exiting... \n "}
+{"level":"INFO","ts":"2025-11-20T21:13:06.468+0800","caller":"asaserver/server.go:564","msg":"Server instance jibian reported 'Exiting...'. Awaiting shutdown..."}
+{"level":"INFO","ts":"2025-11-20T21:13:16.470+0800","caller":"asaserver/server.go:580","msg":"Server for instance jibian has exited."}
+{"level":"WARN","ts":"2025-11-20T21:13:21.102+0800","caller":"asaserver/server.go:246","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-20T21:13:21.129+0800","caller":"asaserver/server.go:246","msg":"Game port :7001 not found"}
+{"level":"INFO","ts":"2025-11-20T21:21:54.096+0800","caller":"webapi/api.go:1034","msg":"API server on http://localhost:8080"}
+{"level":"WARN","ts":"2025-11-20T21:21:58.400+0800","caller":"asaserver/server.go:259","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-20T21:21:58.491+0800","caller":"asaserver/server.go:259","msg":"Game port :7001 not found"}
+{"level":"WARN","ts":"2025-11-20T21:22:00.549+0800","caller":"asaserver/server.go:259","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-20T21:22:03.501+0800","caller":"asaserver/server.go:259","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-20T21:22:03.534+0800","caller":"asaserver/server.go:259","msg":"Game port :7002 not found"}
+{"level":"INFO","ts":"2025-11-20T21:22:03.535+0800","caller":"asaserver/server.go:397","msg":"Starting server for instance: jibian"}
+{"level":"INFO","ts":"2025-11-20T21:22:03.535+0800","caller":"asaserver/server.go:328","msg":"Backing up original configuration directory..."}
+{"level":"INFO","ts":"2025-11-20T21:22:03.564+0800","caller":"asaserver/server.go:495","msg":"[jibian] Redirecting AsaApiLoader output to logger"}
+{"level":"INFO","ts":"2025-11-20T21:22:03.569+0800","caller":"asaserver/server.go:507","msg":"Server started for instance: jibian. It should be fully operational in approximately 60 seconds."}
+{"level":"INFO","ts":"2025-11-20T21:22:03.569+0800","caller":"asaserver/server.go:508","msg":"Game log file: D:\\golang\\asa-server\\server-files\\ShooterGame\\Saved\\Logs\\ShooterGame.log"}
+{"level":"INFO","ts":"2025-11-20T21:23:03.570+0800","caller":"asaserver/server.go:365","msg":"Original configuration directory restored for instance: jibian"}
+{"level":"INFO","ts":"2025-11-20T21:23:03.571+0800","caller":"asaserver/server.go:95","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-20T21:23:03.572+0800","caller":"asaserver/server.go:95","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-20T21:23:25.120+0800","caller":"asaserver/server.go:562","msg":"Stopping server for instance: jibian"}
+{"level":"INFO","ts":"2025-11-20T21:23:25.167+0800","caller":"asaserver/server.go:632","msg":"Connecting to RCON server at localhost:5002..."}
+{"level":"INFO","ts":"2025-11-20T21:23:25.167+0800","caller":"asaserver/server.go:633","msg":"   Instance: jibian"}
+{"level":"INFO","ts":"2025-11-20T21:23:25.167+0800","caller":"asaserver/server.go:634","msg":"   RCON Port: 5002"}
+{"level":"INFO","ts":"2025-11-20T21:23:25.226+0800","caller":"asaserver/server.go:646","msg":"Connected to RCON server"}
+{"level":"INFO","ts":"2025-11-20T21:23:25.226+0800","caller":"asaserver/server.go:669","msg":"Sending RCON command 'DoExit' to localhost:5002"}
+{"level":"INFO","ts":"2025-11-20T21:23:25.261+0800","caller":"asaserver/server.go:675","msg":"RCON response: Exiting... \n "}
+{"level":"INFO","ts":"2025-11-20T21:23:25.261+0800","caller":"asaserver/server.go:577","msg":"Server instance jibian reported 'Exiting...'. Awaiting shutdown..."}
+{"level":"INFO","ts":"2025-11-20T21:23:37.084+0800","caller":"asaserver/server.go:490","msg":"[jibian] [AsaApiLoader] \u001b[38;2;000;128;000m[Success]: Detected Server: ArkAscendedServer.exe\r\n\u001b[0m\u001b[38;2;000;128;000m[Success]: Detected Api: AsaApi.dll\r\n\u001b[0m\u001b[38;2;000;128;000m[Success]: Loader Completed, Reason: Success\r\n\u001b[0m"}
+{"level":"INFO","ts":"2025-11-20T21:23:37.263+0800","caller":"asaserver/server.go:593","msg":"Server for instance jibian has exited."}
+{"level":"INFO","ts":"2025-11-20T21:25:07.076+0800","caller":"webapi/api.go:1034","msg":"API server on http://localhost:8080"}
+{"level":"WARN","ts":"2025-11-20T21:25:17.821+0800","caller":"asaserver/server.go:259","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-20T21:25:17.848+0800","caller":"asaserver/server.go:259","msg":"Game port :7002 not found"}
+{"level":"INFO","ts":"2025-11-20T21:25:17.849+0800","caller":"asaserver/server.go:397","msg":"Starting server for instance: jibian"}
+{"level":"INFO","ts":"2025-11-20T21:25:17.849+0800","caller":"asaserver/server.go:328","msg":"Backing up original configuration directory..."}
+{"level":"INFO","ts":"2025-11-20T21:25:17.862+0800","caller":"asaserver/server.go:496","msg":"[jibian] Redirecting AsaApiLoader output to logger"}
+{"level":"INFO","ts":"2025-11-20T21:25:17.866+0800","caller":"asaserver/server.go:508","msg":"Server started for instance: jibian. It should be fully operational in approximately 60 seconds."}
+{"level":"INFO","ts":"2025-11-20T21:25:17.866+0800","caller":"asaserver/server.go:509","msg":"Game log file: D:\\golang\\asa-server\\server-files\\ShooterGame\\Saved\\Logs\\ShooterGame.log"}
+{"level":"INFO","ts":"2025-11-20T21:26:17.868+0800","caller":"asaserver/server.go:365","msg":"Original configuration directory restored for instance: jibian"}
+{"level":"INFO","ts":"2025-11-20T21:26:17.869+0800","caller":"asaserver/server.go:95","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-20T21:26:17.869+0800","caller":"asaserver/server.go:95","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-20T21:28:25.421+0800","caller":"webapi/api.go:1034","msg":"API server on http://localhost:8080"}
+{"level":"WARN","ts":"2025-11-20T21:28:32.133+0800","caller":"asaserver/server.go:259","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-20T21:28:46.142+0800","caller":"asaserver/server.go:259","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-20T21:28:46.168+0800","caller":"asaserver/server.go:259","msg":"Game port :7002 not found"}
+{"level":"INFO","ts":"2025-11-20T21:28:46.170+0800","caller":"asaserver/server.go:397","msg":"Starting server for instance: jibian"}
+{"level":"INFO","ts":"2025-11-20T21:28:46.170+0800","caller":"asaserver/server.go:328","msg":"Backing up original configuration directory..."}
+{"level":"INFO","ts":"2025-11-20T21:28:46.184+0800","caller":"asaserver/server.go:498","msg":"[jibian] Redirecting AsaApiLoader output to logger"}
+{"level":"INFO","ts":"2025-11-20T21:28:46.187+0800","caller":"asaserver/server.go:510","msg":"Server started for instance: jibian. It should be fully operational in approximately 60 seconds."}
+{"level":"INFO","ts":"2025-11-20T21:28:46.187+0800","caller":"asaserver/server.go:511","msg":"Game log file: D:\\golang\\asa-server\\server-files\\ShooterGame\\Saved\\Logs\\ShooterGame.log"}
+{"level":"INFO","ts":"2025-11-20T21:29:46.189+0800","caller":"asaserver/server.go:365","msg":"Original configuration directory restored for instance: jibian"}
+{"level":"INFO","ts":"2025-11-20T21:29:46.190+0800","caller":"asaserver/server.go:95","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-20T21:29:46.190+0800","caller":"asaserver/server.go:95","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-20T21:30:11.520+0800","caller":"asaserver/server.go:565","msg":"Stopping server for instance: jibian"}
+{"level":"INFO","ts":"2025-11-20T21:30:11.548+0800","caller":"asaserver/server.go:635","msg":"Connecting to RCON server at localhost:5002..."}
+{"level":"INFO","ts":"2025-11-20T21:30:11.548+0800","caller":"asaserver/server.go:636","msg":"   Instance: jibian"}
+{"level":"INFO","ts":"2025-11-20T21:30:11.548+0800","caller":"asaserver/server.go:637","msg":"   RCON Port: 5002"}
+{"level":"INFO","ts":"2025-11-20T21:30:11.609+0800","caller":"asaserver/server.go:649","msg":"Connected to RCON server"}
+{"level":"INFO","ts":"2025-11-20T21:30:11.609+0800","caller":"asaserver/server.go:672","msg":"Sending RCON command 'DoExit' to localhost:5002"}
+{"level":"INFO","ts":"2025-11-20T21:30:11.642+0800","caller":"asaserver/server.go:678","msg":"RCON response: Exiting... \n "}
+{"level":"INFO","ts":"2025-11-20T21:30:11.642+0800","caller":"asaserver/server.go:580","msg":"Server instance jibian reported 'Exiting...'. Awaiting shutdown..."}
+{"level":"INFO","ts":"2025-11-20T21:30:23.894+0800","caller":"asaserver/server.go:493","msg":"[jibian] [AsaApiLoader] \u001b[38;2;000;128;000m[Success]: Detected Server: ArkAscendedServer.exe\r\n\u001b[0m\u001b[38;2;000;128;000m[Success]: Detected Api: AsaApi.dll\r\n\u001b[0m\u001b[38;2;000;128;000m[Success]: Loader Completed, Reason: Success\r\n\u001b[0m"}
+{"level":"INFO","ts":"2025-11-20T21:30:25.645+0800","caller":"asaserver/server.go:596","msg":"Server for instance jibian has exited."}
+{"level":"INFO","ts":"2025-11-20T21:54:56.766+0800","caller":"webapi/api.go:1034","msg":"API server on http://localhost:8080"}
+{"level":"WARN","ts":"2025-11-20T21:55:02.706+0800","caller":"asaserver/server.go:261","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-20T21:55:06.496+0800","caller":"asaserver/server.go:261","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-20T21:55:06.528+0800","caller":"asaserver/server.go:261","msg":"Game port :7002 not found"}
+{"level":"INFO","ts":"2025-11-20T21:55:06.528+0800","caller":"asaserver/server.go:399","msg":"Starting server for instance: jibian"}
+{"level":"INFO","ts":"2025-11-20T21:55:06.528+0800","caller":"asaserver/server.go:330","msg":"Backing up original configuration directory..."}
+{"level":"INFO","ts":"2025-11-20T21:55:06.553+0800","caller":"asaserver/server.go:497","msg":"[jibian] Redirecting AsaApiLoader output to logger"}
+{"level":"INFO","ts":"2025-11-20T21:55:06.553+0800","caller":"asaserver/server.go:511","msg":"Server started for instance: jibian. It should be fully operational in approximately 60 seconds."}
+{"level":"INFO","ts":"2025-11-20T21:55:06.553+0800","caller":"asaserver/server.go:512","msg":"Game log file: D:\\golang\\asa-server\\server-files\\ShooterGame\\Saved\\Logs\\ShooterGame.log"}
+{"level":"INFO","ts":"2025-11-20T21:56:06.554+0800","caller":"asaserver/server.go:367","msg":"Original configuration directory restored for instance: jibian"}
+{"level":"INFO","ts":"2025-11-20T21:56:06.556+0800","caller":"asaserver/server.go:97","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-20T21:56:06.556+0800","caller":"asaserver/server.go:97","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-20T22:03:27.760+0800","caller":"asaserver/server.go:566","msg":"Stopping server for instance: jibian"}
+{"level":"INFO","ts":"2025-11-20T22:03:27.787+0800","caller":"asaserver/server.go:636","msg":"Connecting to RCON server at localhost:5002..."}
+{"level":"INFO","ts":"2025-11-20T22:03:27.787+0800","caller":"asaserver/server.go:637","msg":"   Instance: jibian"}
+{"level":"INFO","ts":"2025-11-20T22:03:27.787+0800","caller":"asaserver/server.go:638","msg":"   RCON Port: 5002"}
+{"level":"INFO","ts":"2025-11-20T22:03:27.834+0800","caller":"asaserver/server.go:650","msg":"Connected to RCON server"}
+{"level":"INFO","ts":"2025-11-20T22:03:27.834+0800","caller":"asaserver/server.go:673","msg":"Sending RCON command 'DoExit' to localhost:5002"}
+{"level":"INFO","ts":"2025-11-20T22:03:27.867+0800","caller":"asaserver/server.go:679","msg":"RCON response: Exiting... \n "}
+{"level":"INFO","ts":"2025-11-20T22:03:27.867+0800","caller":"asaserver/server.go:581","msg":"Server instance jibian reported 'Exiting...'. Awaiting shutdown..."}
+{"level":"INFO","ts":"2025-11-20T22:03:39.870+0800","caller":"asaserver/server.go:597","msg":"Server for instance jibian has exited."}
+{"level":"INFO","ts":"2025-11-20T22:07:15.814+0800","caller":"webapi/api.go:1034","msg":"API server on http://localhost:8080"}
+{"level":"WARN","ts":"2025-11-20T22:07:30.364+0800","caller":"asaserver/server.go:261","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-20T22:07:32.971+0800","caller":"asaserver/server.go:261","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-20T22:07:33.003+0800","caller":"asaserver/server.go:261","msg":"Game port :7002 not found"}
+{"level":"INFO","ts":"2025-11-20T22:07:33.004+0800","caller":"asaserver/server.go:399","msg":"Starting server for instance: jibian"}
+{"level":"INFO","ts":"2025-11-20T22:07:33.004+0800","caller":"asaserver/server.go:330","msg":"Backing up original configuration directory..."}
+{"level":"INFO","ts":"2025-11-20T22:07:33.029+0800","caller":"asaserver/server.go:505","msg":"[jibian] Redirecting AsaApiLoader output to logger"}
+{"level":"INFO","ts":"2025-11-20T22:07:33.030+0800","caller":"asaserver/server.go:519","msg":"Server started for instance: jibian. It should be fully operational in approximately 60 seconds."}
+{"level":"INFO","ts":"2025-11-20T22:07:33.030+0800","caller":"asaserver/server.go:520","msg":"Game log file: D:\\golang\\asa-server\\server-files\\ShooterGame\\Saved\\Logs\\ShooterGame.log"}
+{"level":"INFO","ts":"2025-11-20T22:07:33.043+0800","caller":"asaserver/server.go:491","msg":"[AsaApiLoader] \u001b[?9001h\u001b[?1004h"}
+{"level":"INFO","ts":"2025-11-20T22:07:33.046+0800","caller":"asaserver/server.go:491","msg":"[AsaApiLoader] \u001b[?25l\u001b[2J\u001b[m\u001b[38;2;0;128;0m\u001b[H[Success]: Detected Server: ArkAscendedServer.exe\r\n\u001b]0;D:\\golang\\asa-server\\server-files\\ShooterGame\\Binaries\\Win64\\AsaApiLoader.exe\u0007\u001b[?25h"}
+{"level":"INFO","ts":"2025-11-20T22:07:33.057+0800","caller":"asaserver/server.go:491","msg":"[AsaApiLoader] \u001b[m\u001b[38;2;0;128;0m[Success]: Detected Api: AsaApi.dll\r\n"}
+{"level":"INFO","ts":"2025-11-20T22:07:33.090+0800","caller":"asaserver/server.go:491","msg":"[AsaApiLoader] \u001b[m\u001b[38;5;2m11/20/25 22:07 [API][info] -----------------------------------------------\r\n"}
+{"level":"INFO","ts":"2025-11-20T22:07:33.103+0800","caller":"asaserver/server.go:491","msg":"[AsaApiLoader] \u001b[?25l\u001b[m\u001b[38;5;2m11/20/25 22:07 [API][info] ARK:SA Api V1.19\r\n11/20/25 22:07 [API][info] Brought to you by ArkServerApi\r\n11/20/25 22:07 [API][info] https://github.com/orgs/ArkServerApi\r\n11/20/25 22:07 [API][info] Website: https://ark-server-api.com\r\n11/20/25 22:07 [API][info] Loading...\u001b[10;1H\u001b[?25h"}
+{"level":"INFO","ts":"2025-11-20T22:07:36.300+0800","caller":"asaserver/server.go:491","msg":"[AsaApiLoader] \u001b[m\u001b[38;5;2m11/20/25 22:07 [API][info] Cache is still valid loading existing cache\r\n"}
+{"level":"INFO","ts":"2025-11-20T22:07:36.313+0800","caller":"asaserver/server.go:491","msg":"[AsaApiLoader] \u001b[m\u001b[38;5;2m11/20/25 22:07 [API][info] Reading cached offsets\r\n"}
+{"level":"INFO","ts":"2025-11-20T22:07:36.615+0800","caller":"asaserver/server.go:491","msg":"[AsaApiLoader] \u001b[m\u001b[38;5;2m11/20/25 22:07 [API][info] Reading cached bitfields\r\n"}
+{"level":"INFO","ts":"2025-11-20T22:07:36.624+0800","caller":"asaserver/server.go:491","msg":"[AsaApiLoader] \u001b[m"}
+{"level":"INFO","ts":"2025-11-20T22:07:36.640+0800","caller":"asaserver/server.go:491","msg":"[AsaApiLoader] \u001b[?25l\u001b[38;5;2m11/20/25 22:07 [API][info] Initialized hooks\u001b[15;1H\u001b[?25h"}
+{"level":"INFO","ts":"2025-11-20T22:07:36.655+0800","caller":"asaserver/server.go:491","msg":"[AsaApiLoader] \u001b[?25l\u001b[m\u001b[38;5;2m11/20/25 22:07 [API][info] API was successfully loaded\r\n11/20/25 22:07 [API][info] -----------------------------------------------\u001b[38;2;0;128;0m\u001b[18;1H[Success]: Loader Completed, Reason: Success\r\n\u001b[?25h"}
+{"level":"INFO","ts":"2025-11-20T22:07:38.100+0800","caller":"asaserver/server.go:491","msg":"[AsaApiLoader] \u001b[m\u001b[38;5;2m11/20/25 22:07 [API][info] UGameEngine::Init was called\r\n"}
+{"level":"INFO","ts":"2025-11-20T22:07:38.111+0800","caller":"asaserver/server.go:491","msg":"[AsaApiLoader] \u001b[?25l\u001b[m\u001b[38;5;2m11/20/25 22:07 [API][info] Loading plugins..\u001b[22;1H11/20/25 22:07 [API][info] Loaded plugin Ark:SA Permissions V1.03 (Manage permissions groups)\r\n11/20/25 22:07 [API][info] Loaded all plugins\r\n\u001b[?25h"}
+{"level":"INFO","ts":"2025-11-20T22:07:38.118+0800","caller":"asaserver/server.go:491","msg":"[AsaApiLoader] \u001b[m\n\u001b[38;5;2m"}
+{"level":"INFO","ts":"2025-11-20T22:07:38.188+0800","caller":"asaserver/server.go:491","msg":"[AsaApiLoader] \u001b[mSetting breakpad minidump AppID = 2399830\r"}
+{"level":"INFO","ts":"2025-11-20T22:07:38.188+0800","caller":"asaserver/server.go:491","msg":"[AsaApiLoader] \n"}
+{"level":"INFO","ts":"2025-11-20T22:07:43.185+0800","caller":"asaserver/server.go:491","msg":"[AsaApiLoader] \u001b[38;5;2m11/20/25 22:07 [API][info] AShooterGameMode::InitGame was called\r"}
+{"level":"INFO","ts":"2025-11-20T22:07:43.186+0800","caller":"asaserver/server.go:491","msg":"[AsaApiLoader] \u001b[m\n\u001b[38;5;2m"}
+{"level":"INFO","ts":"2025-11-20T22:07:43.207+0800","caller":"asaserver/server.go:491","msg":"[AsaApiLoader] \u001b[m"}
+{"level":"INFO","ts":"2025-11-20T22:08:13.854+0800","caller":"asaserver/server.go:491","msg":"[AsaApiLoader] src\\clientdll\\cminterface.cpp (2253) : !BLoggedOn()"}
+{"level":"INFO","ts":"2025-11-20T22:08:13.854+0800","caller":"asaserver/server.go:491","msg":"[AsaApiLoader] \r"}
+{"level":"INFO","ts":"2025-11-20T22:08:13.854+0800","caller":"asaserver/server.go:491","msg":"[AsaApiLoader] \nsrc\\clientdll\\cminterface.cpp (2253) : !BLoggedOn()\r"}
+{"level":"INFO","ts":"2025-11-20T22:08:13.869+0800","caller":"asaserver/server.go:491","msg":"[AsaApiLoader] \n"}
+{"level":"INFO","ts":"2025-11-20T22:08:13.911+0800","caller":"asaserver/server.go:491","msg":"[AsaApiLoader] \u001b[38;5;2m11/20/25 22:08 [API][info] SERVER ID: 165832495\r"}
+{"level":"INFO","ts":"2025-11-20T22:08:13.911+0800","caller":"asaserver/server.go:491","msg":"[AsaApiLoader] \u001b[m\n\u001b[38;5;2m"}
+{"level":"INFO","ts":"2025-11-20T22:08:13.932+0800","caller":"asaserver/server.go:491","msg":"[AsaApiLoader] \u001b[m"}
+{"level":"INFO","ts":"2025-11-20T22:08:33.031+0800","caller":"asaserver/server.go:367","msg":"Original configuration directory restored for instance: jibian"}
+{"level":"INFO","ts":"2025-11-20T22:08:33.032+0800","caller":"asaserver/server.go:97","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-20T22:08:33.032+0800","caller":"asaserver/server.go:97","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-20T22:18:21.713+0800","caller":"asaserver/server.go:574","msg":"Stopping server for instance: jibian"}
+{"level":"INFO","ts":"2025-11-20T22:18:21.743+0800","caller":"asaserver/server.go:644","msg":"Connecting to RCON server at localhost:5002..."}
+{"level":"INFO","ts":"2025-11-20T22:18:21.743+0800","caller":"asaserver/server.go:645","msg":"   Instance: jibian"}
+{"level":"INFO","ts":"2025-11-20T22:18:21.743+0800","caller":"asaserver/server.go:646","msg":"   RCON Port: 5002"}
+{"level":"INFO","ts":"2025-11-20T22:18:21.832+0800","caller":"asaserver/server.go:658","msg":"Connected to RCON server"}
+{"level":"INFO","ts":"2025-11-20T22:18:21.832+0800","caller":"asaserver/server.go:681","msg":"Sending RCON command 'DoExit' to localhost:5002"}
+{"level":"INFO","ts":"2025-11-20T22:18:21.879+0800","caller":"asaserver/server.go:687","msg":"RCON response: Exiting... \n "}
+{"level":"INFO","ts":"2025-11-20T22:18:21.879+0800","caller":"asaserver/server.go:589","msg":"Server instance jibian reported 'Exiting...'. Awaiting shutdown..."}
+{"level":"INFO","ts":"2025-11-20T22:18:35.882+0800","caller":"asaserver/server.go:605","msg":"Server for instance jibian has exited."}
+{"level":"INFO","ts":"2025-11-20T22:23:03.524+0800","caller":"webapi/api.go:1034","msg":"API server on http://localhost:8080"}
+{"level":"WARN","ts":"2025-11-20T22:23:19.888+0800","caller":"asaserver/server.go:289","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-20T22:23:25.003+0800","caller":"asaserver/server.go:289","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-20T22:23:25.039+0800","caller":"asaserver/server.go:289","msg":"Game port :7002 not found"}
+{"level":"INFO","ts":"2025-11-20T22:23:25.039+0800","caller":"asaserver/server.go:427","msg":"Starting server for instance: jibian"}
+{"level":"INFO","ts":"2025-11-20T22:23:25.039+0800","caller":"asaserver/server.go:358","msg":"Backing up original configuration directory..."}
+{"level":"INFO","ts":"2025-11-20T22:23:25.064+0800","caller":"asaserver/server.go:537","msg":"[jibian] Redirecting AsaApiLoader output to logger"}
+{"level":"INFO","ts":"2025-11-20T22:23:25.064+0800","caller":"asaserver/server.go:551","msg":"Server started for instance: jibian. It should be fully operational in approximately 60 seconds."}
+{"level":"INFO","ts":"2025-11-20T22:23:25.064+0800","caller":"asaserver/server.go:552","msg":"Game log file: D:\\golang\\asa-server\\server-files\\ShooterGame\\Saved\\Logs\\ShooterGame.log"}
+{"level":"INFO","ts":"2025-11-20T22:23:25.079+0800","caller":"asaserver/server.go:522","msg":"[jibian][AsaApiLoader] [Success]: Detected Server: ArkAscendedServer.exe\r\n\u001b]0;D:\\golang\\asa-server\\server-files\\ShooterGame\\Binaries\\Win64\\AsaApiLoader.exe\u0007"}
+{"level":"INFO","ts":"2025-11-20T22:23:25.092+0800","caller":"asaserver/server.go:522","msg":"[jibian][AsaApiLoader] [Success]: Detected Api: AsaApi.dll"}
+{"level":"INFO","ts":"2025-11-20T22:23:25.126+0800","caller":"asaserver/server.go:522","msg":"[jibian][AsaApiLoader] 11/20/25 22:23 [API][info] -----------------------------------------------"}
+{"level":"INFO","ts":"2025-11-20T22:23:25.138+0800","caller":"asaserver/server.go:522","msg":"[jibian][AsaApiLoader] 11/20/25 22:23 [API][info] ARK:SA Api V1.19\r\n11/20/25 22:23 [API][info] Brought to you by ArkServerApi\r\n11/20/25 22:23 [API][info] https://github.com/orgs/ArkServerApi\r\n11/20/25 22:23 [API][info] Website: https://ark-server-api.com\r\n11/20/25 22:23 [API][info] Loading..."}
+{"level":"INFO","ts":"2025-11-20T22:23:28.259+0800","caller":"asaserver/server.go:522","msg":"[jibian][AsaApiLoader] 11/20/25 22:23 [API][info] Cache is still valid loading existing cache"}
+{"level":"INFO","ts":"2025-11-20T22:23:28.278+0800","caller":"asaserver/server.go:522","msg":"[jibian][AsaApiLoader] 11/20/25 22:23 [API][info] Reading cached offsets"}
+{"level":"INFO","ts":"2025-11-20T22:23:28.517+0800","caller":"asaserver/server.go:522","msg":"[jibian][AsaApiLoader] 11/20/25 22:23 [API][info] Reading cached bitfields"}
+{"level":"INFO","ts":"2025-11-20T22:23:28.555+0800","caller":"asaserver/server.go:522","msg":"[jibian][AsaApiLoader] 11/20/25 22:23 [API][info] Initialized hooks11/20/25 22:23 [API][info] API was successfully loaded\r\n11/20/25 22:23 [API][info] -----------------------------------------------[Success]: Loader Completed, Reason: Success"}
+{"level":"INFO","ts":"2025-11-20T22:23:30.421+0800","caller":"asaserver/server.go:522","msg":"[jibian][AsaApiLoader] 11/20/25 22:23 [API][info] UGameEngine::Init was called"}
+{"level":"INFO","ts":"2025-11-20T22:23:30.431+0800","caller":"asaserver/server.go:522","msg":"[jibian][AsaApiLoader] 11/20/25 22:23 [API][info] Loading plugins..11/20/25 22:23 [API][info] Loaded plugin Ark:SA Permissions V1.03 (Manage permissions groups)\r\n11/20/25 22:23 [API][info] Loaded all plugins"}
+{"level":"INFO","ts":"2025-11-20T22:23:30.494+0800","caller":"asaserver/server.go:522","msg":"[jibian][AsaApiLoader] Setting breakpad minidump AppID = 2399830"}
+{"level":"INFO","ts":"2025-11-20T22:23:35.630+0800","caller":"asaserver/server.go:522","msg":"[jibian][AsaApiLoader] 11/20/25 22:23 [API][info] AShooterGameMode::InitGame was called"}
+{"level":"INFO","ts":"2025-11-20T22:24:06.702+0800","caller":"asaserver/server.go:522","msg":"[jibian][AsaApiLoader] src\\clientdll\\cminterface.cpp (2253) : !BLoggedOn()"}
+{"level":"INFO","ts":"2025-11-20T22:24:06.703+0800","caller":"asaserver/server.go:522","msg":"[jibian][AsaApiLoader] src\\clientdll\\cminterface.cpp (2253) : !BLoggedOn()"}
+{"level":"INFO","ts":"2025-11-20T22:24:06.760+0800","caller":"asaserver/server.go:522","msg":"[jibian][AsaApiLoader] 11/20/25 22:24 [API][info] SERVER ID: 165832495"}
+{"level":"INFO","ts":"2025-11-20T22:24:25.066+0800","caller":"asaserver/server.go:395","msg":"Original configuration directory restored for instance: jibian"}
+{"level":"INFO","ts":"2025-11-20T22:24:25.067+0800","caller":"asaserver/server.go:125","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-20T22:24:25.067+0800","caller":"asaserver/server.go:125","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"WARN","ts":"2025-11-20T22:25:27.611+0800","caller":"asaserver/server.go:289","msg":"Game port :7001 not found"}
+{"level":"WARN","ts":"2025-11-20T22:25:50.785+0800","caller":"asaserver/server.go:289","msg":"Game port :7001 not found"}
+{"level":"WARN","ts":"2025-11-21T08:29:39.418+0800","caller":"asaserver/server.go:289","msg":"Game port :7001 not found"}
+{"level":"WARN","ts":"2025-11-21T08:38:13.470+0800","caller":"asaserver/server.go:289","msg":"Game port :7001 not found"}
+{"level":"INFO","ts":"2025-11-21T08:38:18.122+0800","caller":"asaserver/server.go:606","msg":"Stopping server for instance: jibian"}
+{"level":"INFO","ts":"2025-11-21T08:38:18.153+0800","caller":"asaserver/server.go:676","msg":"Connecting to RCON server at localhost:5002..."}
+{"level":"INFO","ts":"2025-11-21T08:38:18.153+0800","caller":"asaserver/server.go:677","msg":"   Instance: jibian"}
+{"level":"INFO","ts":"2025-11-21T08:38:18.153+0800","caller":"asaserver/server.go:678","msg":"   RCON Port: 5002"}
+{"level":"INFO","ts":"2025-11-21T08:38:18.232+0800","caller":"asaserver/server.go:690","msg":"Connected to RCON server"}
+{"level":"INFO","ts":"2025-11-21T08:38:18.233+0800","caller":"asaserver/server.go:713","msg":"Sending RCON command 'DoExit' to localhost:5002"}
+{"level":"INFO","ts":"2025-11-21T08:38:18.268+0800","caller":"asaserver/server.go:719","msg":"RCON response: Exiting... \n "}
+{"level":"INFO","ts":"2025-11-21T08:38:18.268+0800","caller":"asaserver/server.go:621","msg":"Server instance jibian reported 'Exiting...'. Awaiting shutdown..."}
+{"level":"INFO","ts":"2025-11-21T08:38:30.269+0800","caller":"asaserver/server.go:637","msg":"Server for instance jibian has exited."}
+{"level":"WARN","ts":"2025-11-21T08:51:42.638+0800","caller":"asaserver/server.go:289","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-21T08:51:42.663+0800","caller":"asaserver/server.go:289","msg":"Game port :7001 not found"}
+{"level":"WARN","ts":"2025-11-21T09:11:13.400+0800","caller":"asaserver/server.go:289","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-21T09:11:13.436+0800","caller":"asaserver/server.go:289","msg":"Game port :7001 not found"}
+{"level":"WARN","ts":"2025-11-21T09:12:17.538+0800","caller":"asaserver/server.go:289","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-21T09:12:17.582+0800","caller":"asaserver/server.go:289","msg":"Game port :7001 not found"}
+{"level":"WARN","ts":"2025-11-21T09:12:18.887+0800","caller":"asaserver/server.go:289","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-21T09:14:19.508+0800","caller":"asaserver/server.go:289","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-21T09:14:34.776+0800","caller":"asaserver/server.go:289","msg":"Game port :7002 not found"}

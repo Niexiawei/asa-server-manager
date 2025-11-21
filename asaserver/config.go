@@ -38,6 +38,7 @@ type InstanceConfig struct {
 	SaveDir               string
 	ClusterID             string
 	CustomStartParameters string
+	EnableAsaPlugin       bool
 }
 
 // EnsureDirectories Initialize directories based on executable location
@@ -75,11 +76,12 @@ func LoadInstanceConfig(instanceName string) (*InstanceConfig, error) {
 	defer file.Close()
 
 	config := &InstanceConfig{
-		MaxPlayers: 70,
-		MapName:    "TheIsland_WP",
-		RCONPort:   27020,
-		QueryPort:  27015,
-		Port:       7777,
+		MaxPlayers:      70,
+		MapName:         "TheIsland_WP",
+		RCONPort:        27020,
+		QueryPort:       27015,
+		Port:            7777,
+		EnableAsaPlugin: false,
 	}
 
 	scanner := bufio.NewScanner(file)
@@ -130,6 +132,10 @@ func LoadInstanceConfig(instanceName string) (*InstanceConfig, error) {
 			config.ClusterID = value
 		case "CustomStartParameters":
 			config.CustomStartParameters = value
+		case "EnableMods":
+			config.EnableAsaPlugin = strings.ToLower(value) == "true"
+		case "EnableAsaPlugin":
+			config.EnableAsaPlugin = strings.ToLower(value) == "true"
 		}
 	}
 
@@ -162,6 +168,7 @@ ModIDs=%s
 CustomStartParameters=%s
 SaveDir=%s
 ClusterID=%s
+EnableAsaPlugin=%v
 `,
 		config.ServerName,
 		config.ServerPassword,
@@ -175,6 +182,7 @@ ClusterID=%s
 		config.CustomStartParameters,
 		config.SaveDir,
 		config.ClusterID,
+		config.EnableAsaPlugin,
 	)
 
 	if err := os.WriteFile(configFile, []byte(content), 0600); err != nil {
@@ -265,6 +273,22 @@ func UpdateInstanceConfig(instanceName string, updates map[string]interface{}) e
 			currentConfig.CustomStartParameters = str
 		}
 	}
+	if val, ok := updates["EnableMods"]; ok {
+		switch v := val.(type) {
+		case bool:
+			currentConfig.EnableAsaPlugin = v
+		case float64:
+			currentConfig.EnableAsaPlugin = v != 0
+		}
+	}
+	if val, ok := updates["EnableAsaPlugin"]; ok {
+		switch v := val.(type) {
+		case bool:
+			currentConfig.EnableAsaPlugin = v
+		case float64:
+			currentConfig.EnableAsaPlugin = v != 0
+		}
+	}
 
 	// Save updated config
 	return SaveInstanceConfig(instanceName, currentConfig)
@@ -350,6 +374,7 @@ func CreateDefaultInstanceConfig(instanceName string) *InstanceConfig {
 		SaveDir:               instanceName,
 		ClusterID:             "",
 		CustomStartParameters: "-NoBattlEye -crossplay -NoHangDetection",
+		EnableAsaPlugin:       true,
 	}
 }
 

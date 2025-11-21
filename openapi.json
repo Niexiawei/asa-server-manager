@@ -1436,6 +1436,11 @@
           "CustomStartParameters": {
             "type": "string",
             "description": "Custom server start parameters"
+          },
+          "EnableAsaPlugin": {
+            "type": "boolean",
+            "description": "Whether ASA plugins are enabled for the server",
+            "example": true
           }
         }
       },
@@ -1490,6 +1495,10 @@
           "CustomStartParameters": {
             "type": "string",
             "description": "Custom server start parameters"
+          },
+          "EnableAsaPlugin": {
+            "type": "boolean",
+            "description": "Whether ASA plugins are enabled for the server"
           }
         }
       },

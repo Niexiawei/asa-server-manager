@@ -101,6 +101,39 @@ export async function restartServer(name) {
   return handleResponse(response)
 }
 
+// 重启服务器实例（SSE 流式响应）
+export async function restartServerSSE(name, onMessage, onError, onComplete) {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/server/${name}/restart`, {
+      method: 'POST',
+    })
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
+
+    const reader = response.body.getReader()
+    const processor = createSSEStreamProcessor(onMessage)
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      processor.process(value)
+    }
+    
+    processor.flush()
+
+    if (onComplete) {
+      onComplete()
+    }
+  } catch (error) {
+    console.error('Restart server error:', error)
+    if (onError) {
+      onError(error)
+    }
+  }
+}
+
 // SSE 流处理辅助函数 - 正确处理 UTF-8 多字节字符
 function createSSEStreamProcessor(onMessage) {
   const decoder = new TextDecoder('utf-8')
@@ -356,6 +389,41 @@ export function streamInstanceLogs(instanceName, onLog, onError, onClose) {
     }
     eventSource.close()
   }
+
+  // Return a function to stop listening
+  return () => {
+    eventSource.close()
+    if (onClose) {
+      onClose()
+    }
+  }
+}
+
+// 获取最近 1000 条日志（使用 Server-Sent Events）
+export function getRecentInstanceLogs(instanceName, onLog, onError, onClose) {
+  const eventSource = new EventSource(`${API_BASE_URL}/api/logs/${instanceName}/recent`)
+
+  eventSource.onmessage = (event) => {
+    if (onLog) {
+      onLog(event.data)
+    }
+  }
+
+  eventSource.onerror = (error) => {
+    console.error('SSE connection error:', error)
+    if (onError) {
+      onError(error)
+    }
+    eventSource.close()
+  }
+
+  // 完成事件
+  eventSource.addEventListener('end', () => {
+    eventSource.close()
+    if (onClose) {
+      onClose()
+    }
+  })
 
   // Return a function to stop listening
   return () => {

@@ -488,7 +488,7 @@ func (s *APIServer) restartServer(c *gin.Context) {
 	c.Header("Access-Control-Allow-Headers", "Content-Type")
 
 	// Create channel to stream messages
-	msgChan := make(chan string, 100)
+	msgChan := make(chan string)
 	done := make(chan struct{})
 
 	// Run restart in a goroutine
@@ -1426,6 +1426,7 @@ type UpdateInstanceConfigRequest struct {
 	SaveDir               string `json:"SaveDir,omitempty"`
 	ClusterID             string `json:"ClusterID,omitempty"`
 	CustomStartParameters string `json:"CustomStartParameters,omitempty"`
+	EnableAsaPlugin       *bool  `json:"EnableAsaPlugin,omitempty"`
 }
 
 // updateInstanceConfig updates the configuration for an instance
@@ -1478,6 +1479,9 @@ func (s *APIServer) updateInstanceConfig(c *gin.Context) {
 	}
 	if req.CustomStartParameters != "" {
 		updates["CustomStartParameters"] = req.CustomStartParameters
+	}
+	if req.EnableAsaPlugin != nil {
+		updates["EnableAsaPlugin"] = *req.EnableAsaPlugin
 	}
 
 	if len(updates) == 0 {

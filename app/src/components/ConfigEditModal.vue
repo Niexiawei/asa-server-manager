@@ -144,6 +144,15 @@
           <span v-if="!editingConfig.ServerAdminPassword && formSubmitted"
                 class="error-text">管理员密码为必填项</span>
         </div>
+        <div class="config-edit-col">
+          <label>启用ASA插件</label>
+          <div class="plugin-div">
+            <a-switch
+                v-model="editingConfig.EnableAsaPlugin"
+                size="large"
+            />
+          </div>
+        </div>
       </div>
 
       <!-- 第四行 -->
@@ -203,7 +212,8 @@ const editingConfig = ref({
   ModIDs: '',
   SaveDir: '',
   ClusterID: '',
-  CustomStartParameters: ''
+  CustomStartParameters: '',
+  EnableAsaPlugin: false
 })
 
 // 监听外部 visible 属性变化
@@ -220,7 +230,7 @@ watch(() => props.config, (newConfig) => {
   if (localVisible.value) {
     initializeConfig()
   }
-}, { deep: true })
+}, {deep: true})
 
 // 初始化配置
 const initializeConfig = () => {
@@ -236,7 +246,8 @@ const initializeConfig = () => {
     ModIDs: props.config?.ModIDs || '',
     SaveDir: props.config?.SaveDir || '',
     ClusterID: props.config?.ClusterID || '',
-    CustomStartParameters: props.config?.CustomStartParameters || ''
+    CustomStartParameters: props.config?.CustomStartParameters || '',
+    EnableAsaPlugin: props.config?.EnableAsaPlugin || false
   }
   formSubmitted.value = false
 }
@@ -259,11 +270,11 @@ const isConfigFormValid = () => {
 // 处理保存
 const handleSave = () => {
   formSubmitted.value = true
-  
+
   if (!isConfigFormValid()) {
     return
   }
-  
+
   emit('save', editingConfig.value)
 }
 
@@ -273,7 +284,7 @@ const handleCancel = () => {
 }
 </script>
 
-<style scoped>
+<style scoped lang="less">
 .config-edit-grid {
   display: flex;
   flex-direction: column;
@@ -296,6 +307,17 @@ const handleCancel = () => {
   display: flex;
   flex-direction: column;
   gap: 6px;
+
+  .plugin-div{
+    height: 30px;
+    line-height: 30px;
+  }
+
+  :deep(.arco-switch) {
+    width: 60px !important;
+    flex-grow: 0;
+
+  }
 }
 
 .config-edit-col label,

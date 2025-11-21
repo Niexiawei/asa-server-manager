@@ -61,6 +61,7 @@
                     size="small"
                     @click="openConfigEditModal"
                     style="margin-left: 12px"
+                    :disabled="instanceData?.running"
                 >
                   编辑
                 </a-button>
@@ -74,6 +75,9 @@
                   <div class="config-item-content">
                     <div v-if="!item.type || item.type === 'text'" class="config-item-value">
                       {{ item.value }}
+                    </div>
+                    <div v-else-if="item.type === 'boolean'" class="config-item-value">
+                      <a-tag :color="item.value === '是' ? 'green' : 'gray'">{{ item.value }}</a-tag>
                     </div>
                     <div v-else-if="item.type === 'password'" class="password-wrapper">
                       <span class="config-item-value">
@@ -278,9 +282,11 @@ import WSStatusIndicator from '@/components/WSStatusIndicator.vue'
 import {
   getInstanceConfig,
   streamInstanceLogs,
+  getRecentInstanceLogs,
   startServer,
   stopServer,
   restartServer,
+  restartServerSSE,
   getGameIni,
   getGameUserSettings,
   updateGameIni,
@@ -301,6 +307,7 @@ const instanceData = ref(null)
 const logEndRef = ref(null)
 const logs = ref([])
 const isStreaming = ref(false)
+const loadingRecentLogs = ref(false)
 let stopLogStream_func = null
 
 const route = useRoute()
@@ -583,6 +590,11 @@ const fetchInstanceConfig = async () => {
         {
           label: '存档目录',
           value: config.SaveDir || '-'
+        },
+        {
+          label: '启用ASA插件',
+          value: config.EnableAsaPlugin ? '是' : '否',
+          type: 'boolean'
         }
       ]
 
@@ -656,7 +668,6 @@ const stopLogStream = () => {
 const clearLogs = () => {
   logs.value = []
 }
-
 // 打开配置编辑弹出框
 const openConfigEditModal = () => {
   configEditModalVisible.value = true
@@ -745,17 +756,33 @@ const restartInstance = () => {
     cancelText: '取消',
     onOk: async () => {
       try {
-        const data = await restartServer(instanceName)
-        if (data.success) {
-          // 停止日志监听（重启过程中会断开连接）
-          if (isStreaming.value) {
-            stopLogStream()
-          }
-        } else {
-          console.error('重启实例失败:', data.error)
+        // 停止日志监听（重启过程中会断开连接）
+        if (isStreaming.value) {
+          stopLogStream()
         }
+        
+        // 使用 SSE 方式调用重启
+        restartServerSSE(
+          instanceName,
+          // onMessage 回调 - 接收实时进度消息
+          (message) => {
+            console.log('Restart progress:', message)
+            // 可选：在 UI 中显示重启进度
+          },
+          // onError 回调 - 处理错误
+          (error) => {
+            console.error('重启实例失败:', error)
+            Message.error('重启实例失败')
+          },
+          // onComplete 回调 - 重启完成
+          () => {
+            console.log('Server restart completed')
+            Message.success('实例重启成功')
+          }
+        )
       } catch (error) {
         console.error('重启实例失败:', error)
+        Message.error('重启实例失败')
       }
     }
   })
@@ -792,7 +819,7 @@ onMounted(async () => {
         if (!isStreaming.value && instanceData.value?.running) {
           startLogStream()
         }
-      }, 100)
+      }, 2000)
     }
   })
 
