@@ -52,7 +52,7 @@
         <a-alert v-if="error" type="error" :title="`错误: ${error}`" closable/>
 
         <div v-else class="config-container">
-          <a-card title="服务器配置" class="config-section">
+          <a-card title="服务器配置" class="config-section server-config">
             <template #title>
               <div class="config-card-title">
                 <span>服务器配置</span>
@@ -171,7 +171,7 @@
             </a-card>
           </div>
 
-          <a-card title="实时日志" class="config-section">
+          <a-card title="实时日志" class="config-section log-viewer-card">
             <log-viewer ref="logViewerRef" :instance-name="instanceName"/>
           </a-card>
         </div>
@@ -776,6 +776,15 @@ onUnmounted(() => {
   gap: 20px;
 }
 
+.server-config {
+  height: auto !important;
+
+  :deep(.arco-card-body) {
+    height: auto !important;
+    box-sizing: border-box;
+  }
+}
+
 .config-section {
   border-radius: 6px;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
@@ -872,6 +881,7 @@ onUnmounted(() => {
   width: 100%;
   box-sizing: border-box;
   min-width: 0;
+  height: 450px !important;
 }
 
 .config-viewer-wrapper {
@@ -882,6 +892,10 @@ onUnmounted(() => {
   width: 100%;
   box-sizing: border-box;
   overflow: hidden;
+}
+
+.log-viewer-card{
+  height: 65vh !important;
 }
 
 /* 配置编辑潤弹框样式 */
