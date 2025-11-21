@@ -172,50 +172,7 @@
           </div>
 
           <a-card title="实时日志" class="config-section">
-            <a-space style="margin-bottom: 15px">
-              <a-button
-                  @click="startLogStream"
-                  type="primary"
-                  :disabled="!instanceData?.running || isStreaming"
-              >
-                {{ isStreaming ? '监听中...' : '开始监听' }}
-              </a-button>
-              <a-button
-                  @click="stopLogStream"
-                  status="warning"
-                  :disabled="!isStreaming"
-              >
-                停止监听
-              </a-button>
-              <a-button
-                  @click="clearLogs"
-                  :disabled="logs.length === 0"
-              >
-                清空日志
-              </a-button>
-              <span>
-                <a-badge :color="isStreaming ? 'green' : 'gray'"/>
-                {{ isStreaming ? '监听中' : '已停止' }}
-              </span>
-              <span>日志行数: {{ logs.length }}</span>
-            </a-space>
-
-            <div class="log-container">
-              <div class="log-content">
-                <div
-                    v-for="(log, index) in logs"
-                    :key="index"
-                    class="log-line"
-                >
-                  <span class="log-number">{{ index + 1 }}</span>
-                  <span class="log-text">{{ log }}</span>
-                </div>
-                <div v-if="logs.length === 0" class="empty-logs">
-                  <a-empty description="暂无日志"/>
-                </div>
-              </div>
-              <div ref="logEndRef"></div>
-            </div>
+            <log-viewer ref="logViewerRef" :instance-name="instanceName"/>
           </a-card>
         </div>
       </a-spin>
@@ -279,6 +236,7 @@ import ConfigEditor from '@/components/ConfigEditor.vue'
 import ConfigFileViewer from '@/components/ConfigFileViewer.vue'
 import ConfigEditModal from '@/components/ConfigEditModal.vue'
 import WSStatusIndicator from '@/components/WSStatusIndicator.vue'
+import LogViewer from '@/components/LogViewer.vue'
 import {
   getInstanceConfig,
   streamInstanceLogs,
@@ -304,11 +262,6 @@ import {Modal, Message} from '@arco-design/web-vue'
 const loading = ref(true)
 const error = ref(null)
 const instanceData = ref(null)
-const logEndRef = ref(null)
-const logs = ref([])
-const isStreaming = ref(false)
-const loadingRecentLogs = ref(false)
-let stopLogStream_func = null
 
 const route = useRoute()
 const instanceName = route.params.name
@@ -349,6 +302,9 @@ const gameUserSettingsFileInput = ref(null)
 const configEditModalVisible = ref(false)
 const savingConfig = ref(false)
 
+// 日志查看器引用
+const logViewerRef = ref(null)
+
 // 监听 WebSocket 事件，实时更新实例运行状态
 watch(
     () => getInstanceStatus(instanceName),
@@ -358,28 +314,14 @@ watch(
         if (instanceData.value) {
           instanceData.value.running = newStatus.running
         }
-
-        // 如果实例启动，自动开始日志监听
-        if (newStatus.running && !isStreaming.value) {
-          // 延迟100ms以确保服务器完全启动
-          setTimeout(() => {
-            if (!isStreaming.value && instanceData.value?.running) {
-              startLogStream()
-            }
-          }, 100)
-        }
-
-        // 如果实例被停止，自动停止日志监听
-        if (!newStatus.running && isStreaming.value) {
-          stopLogStream()
-        }
       }
     }
 )
 
-// 监听 WebSocket server_started 事件，自动开始日志监听
-let unlistenServerStarted = null
+// 监听 server_starting 事件，自动开启日志获取
 let unlistenServerStarting = null
+
+// 监听 server_stopped 事件，自动关闭日志获取
 let unlistenServerStopped = null
 
 // 计算实例是否在启动或停止中
@@ -633,41 +575,7 @@ const fetchInstanceConfig = async () => {
   }
 }
 
-// 开始监听日志
-const startLogStream = () => {
-  isStreaming.value = true
-  logs.value = []
 
-  stopLogStream_func = streamInstanceLogs(
-      instanceName,
-      // onLog 回调
-      (line) => {
-        logs.value.push(line)
-      },
-      // onError 回调
-      (error) => {
-        console.error('日志流错误:', error)
-      },
-      // onClose 回调
-      () => {
-        isStreaming.value = false
-      }
-  )
-}
-
-// 停止监听日志
-const stopLogStream = () => {
-  if (stopLogStream_func) {
-    stopLogStream_func()
-    stopLogStream_func = null
-  }
-  isStreaming.value = false
-}
-
-// 清空日志
-const clearLogs = () => {
-  logs.value = []
-}
 // 打开配置编辑弹出框
 const openConfigEditModal = () => {
   configEditModalVisible.value = true
@@ -733,10 +641,6 @@ const stopInstance = () => {
           if (instanceData.value) {
             instanceData.value.running = false
           }
-          // 停止日志监听
-          if (isStreaming.value) {
-            stopLogStream()
-          }
         } else {
           console.error('停止实例失败:', data.error)
         }
@@ -756,29 +660,24 @@ const restartInstance = () => {
     cancelText: '取消',
     onOk: async () => {
       try {
-        // 停止日志监听（重启过程中会断开连接）
-        if (isStreaming.value) {
-          stopLogStream()
-        }
-        
         // 使用 SSE 方式调用重启
         restartServerSSE(
-          instanceName,
-          // onMessage 回调 - 接收实时进度消息
-          (message) => {
-            console.log('Restart progress:', message)
-            // 可选：在 UI 中显示重启进度
-          },
-          // onError 回调 - 处理错误
-          (error) => {
-            console.error('重启实例失败:', error)
-            Message.error('重启实例失败')
-          },
-          // onComplete 回调 - 重启完成
-          () => {
-            console.log('Server restart completed')
-            Message.success('实例重启成功')
-          }
+            instanceName,
+            // onMessage 回调 - 接收实时进度消息
+            (message) => {
+              console.log('Restart progress:', message)
+              // 可选：在 UI 中显示重启进度
+            },
+            // onError 回调 - 处理错误
+            (error) => {
+              console.error('重启实例失败:', error)
+              Message.error('重启实例失败')
+            },
+            // onComplete 回调 - 重启完成
+            () => {
+              console.log('Server restart completed')
+              Message.success('实例重启成功')
+            }
         )
       } catch (error) {
         console.error('重启实例失败:', error)
@@ -799,70 +698,53 @@ onMounted(async () => {
     instanceData.value = cachedStatus
   }
 
-  // 如果进入页面时服务器已经在运行，自动启动日志监听
-  if (instanceData.value?.running && !isStreaming.value) {
-    console.log('Server is already running when entering the page, auto-starting log stream')
+  if (instanceData.value?.running) {
     setTimeout(() => {
-      if (!isStreaming.value && instanceData.value?.running) {
-        startLogStream()
-      }
-    }, 100)
+      logViewerRef.value.startLogStream()
+    }, 500)
   }
 
-  // 监听当前实例的 server_starting 事件（实例开始启动时）
+  // 监听 server_starting 事件，自动开启日志获取
   unlistenServerStarting = onServerEvent('server_starting', (event) => {
     if (event.instance_name === instanceName) {
-      console.log('Server starting event received, preparing for log stream')
-      // Instance is starting, will auto-start log streaming when server_started event is received
-
-      setTimeout(() => {
-        if (!isStreaming.value && instanceData.value?.running) {
-          startLogStream()
-        }
-      }, 2000)
+      // 提前启动日志监听，无需等待完全启动
+      if (logViewerRef.value && !logViewerRef.value.isStreaming) {
+        nextTick(() => {
+          setTimeout(() => {
+            logViewerRef.value.startLogStream()
+          }, 500)
+        })
+      }
     }
   })
 
-  // 监听当前实例的 server_started 事件
-  unlistenServerStarted = onServerEvent('server_started', (event) => {
-    if (event.instance_name === instanceName) {
-      console.log('Server started event received, auto-starting log stream')
-      // 延迟100ms确保服务器完全启动
-    }
-  })
-
-  // 监听当前实例的 server_stopped 事件
+  // 监听 server_stopped 事件，自动关闭日志获取
   unlistenServerStopped = onServerEvent('server_stopped', (event) => {
     if (event.instance_name === instanceName) {
-      console.log('Server stopped event received, auto-stopping log stream')
-      if (isStreaming.value) {
-        stopLogStream()
+      // 停止日志监听
+      if (logViewerRef.value && logViewerRef.value.isStreaming) {
+        logViewerRef.value.stopLogStream()
       }
     }
   })
 })
 
-
 onUnmounted(() => {
-  // 停止日志监听
-  if (isStreaming.value) {
-    stopLogStream()
-  }
-
-  // 取消 WebSocket 事件监听
+  // 移除事件监听
   if (unlistenServerStarting) {
     unlistenServerStarting()
-  }
-  if (unlistenServerStarted) {
-    unlistenServerStarted()
   }
   if (unlistenServerStopped) {
     unlistenServerStopped()
   }
+  // 停止日志监听
+  if (logViewerRef.value && logViewerRef.value.isStreaming) {
+    logViewerRef.value.stopLogStream()
+  }
 })
 </script>
 
-<style scoped>
+<style scoped lang="less">
 .instance-detail {
   height: 100%;
   display: flex;
@@ -897,6 +779,12 @@ onUnmounted(() => {
 .config-section {
   border-radius: 6px;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  height: 700px;
+
+  :deep(.arco-card-body) {
+    height: calc(100% - 45.5px);
+    box-sizing: border-box;
+  }
 }
 
 /* 配置一縎标题样式 */
@@ -905,116 +793,6 @@ onUnmounted(() => {
   align-items: center;
   justify-content: space-between;
   width: 100%;
-}
-
-:deep(.arco-descriptions-row) {
-  padding: 12px 0;
-}
-
-:deep(.arco-descriptions-item-label) {
-  font-weight: 600;
-  color: #333;
-  min-width: 120px;
-}
-
-:deep(.arco-descriptions-item-content) {
-  color: #666;
-  word-break: break-all;
-}
-
-/* 日志样式 */
-.log-container {
-  border: 1px solid #d9d9d9;
-  border-radius: 4px;
-  background-color: #fafafa;
-  overflow: hidden;
-  height: 60vh;
-  display: flex;
-  flex-direction: column;
-}
-
-.log-content {
-  flex: 1;
-  overflow-y: auto;
-  padding: 10px;
-  font-family: 'Courier New', monospace;
-  font-size: 12px;
-  background-color: #1f1f1f;
-  color: #e0e0e0;
-}
-
-.log-line {
-  display: flex;
-  margin-bottom: 2px;
-  white-space: pre-wrap;
-  word-break: break-word;
-  line-height: 1.5;
-}
-
-.log-number {
-  display: inline-block;
-  min-width: 50px;
-  margin-right: 10px;
-  color: #888;
-  user-select: none;
-  flex-shrink: 0;
-}
-
-.log-text {
-  flex: 1;
-  color: #e0e0e0;
-}
-
-.empty-logs {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  height: 100%;
-  color: #999;
-}
-
-/* 滚动条样式 */
-.log-content::-webkit-scrollbar {
-  width: 8px;
-}
-
-.log-content::-webkit-scrollbar-track {
-  background: #2a2a2a;
-}
-
-.log-content::-webkit-scrollbar-thumb {
-  background: #555;
-  border-radius: 4px;
-}
-
-.log-content::-webkit-scrollbar-thumb:hover {
-  background: #777;
-}
-
-/* 配置文件编辑器样式 */
-.config-editor-container {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.config-editor-toolbar {
-  padding: 10px 0;
-  border-bottom: 1px solid #d9d9d9;
-}
-
-.config-textarea {
-  min-height: 500px;
-  font-family: 'Courier New', monospace;
-  font-size: 13px;
-  line-height: 1.5;
-}
-
-/* 高级配置项样式 */
-.advanced-config-items {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
 }
 
 .config-item {
@@ -1078,31 +856,6 @@ onUnmounted(() => {
   gap: 8px;
 }
 
-/* 配置文件查看器样式 */
-.config-file-viewer {
-  border: 1px solid #d9d9d9;
-  border-radius: 4px;
-  background-color: #fafafa;
-  overflow: hidden;
-  min-height: 200px;
-  max-height: 600px;
-  display: flex;
-  flex-direction: column;
-}
-
-.file-content {
-  flex: 1;
-  overflow-y: auto;
-  padding: 12px 16px;
-  font-family: 'Courier New', monospace;
-  font-size: 12px;
-  white-space: pre-wrap;
-  word-wrap: break-word;
-  line-height: 1.6;
-  color: #333;
-  background-color: #f5f5f5;
-}
-
 /* 配置文件行布局 */
 .config-files-row {
   display: grid;
@@ -1123,7 +876,7 @@ onUnmounted(() => {
 
 .config-viewer-wrapper {
   flex: 1;
-  height: 500px;
+  height: calc(100% - 47px);
   display: flex;
   flex-direction: column;
   width: 100%;

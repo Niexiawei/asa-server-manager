@@ -67,7 +67,6 @@ let stopStreamFn = null
 // 开始监听日志
 const startLogStream = () => {
   if (isStreaming.value) return
-
   isStreaming.value = true
   stopStreamFn = streamSystemLogs(
       (log) => {

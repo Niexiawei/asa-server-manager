@@ -5,6 +5,7 @@
           @click="startLogStream"
           type="primary"
           :disabled="isStreaming"
+          ref="startButtonRef"
       >
         {{ isStreaming ? '监听中...' : '开始监听' }}
       </a-button>
@@ -12,6 +13,7 @@
           @click="stopLogStream"
           status="warning"
           :disabled="!isStreaming"
+          ref="stopButtonRef"
       >
         停止监听
       </a-button>
@@ -111,6 +113,20 @@ const clearLogs = () => {
 onUnmounted(() => {
   if (isStreaming.value) {
     stopLogStream()
+  }
+})
+
+// 暴露函数给父组件
+defineExpose({
+  startLogStream,
+  stopLogStream,
+  clearLogs,
+  // 暴露状态供父组件检查
+  get isStreaming() {
+    return isStreaming.value
+  },
+  get logs() {
+    return logs.value
   }
 })
 </script>

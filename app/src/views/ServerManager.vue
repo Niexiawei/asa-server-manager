@@ -116,10 +116,12 @@
         :title="`${selectedInstanceName} - 实时日志`"
         width="1000px"
         :body-style="{height: '600px'}"
-        @cancel="selectedInstanceName = ''"
+        @cancel="logViewerClose"
+        :footer="false"
     >
       <div style="height: 100%; display: flex; flex-direction: column;">
-        <log-viewer 
+        <log-viewer
+            ref="logViewerRef"
             v-if="selectedInstanceName"
             :instance-name="selectedInstanceName"
             style="flex: 1;"
@@ -145,13 +147,21 @@
 </template>
 
 <script setup>
-import {ref, reactive, onMounted, onUnmounted, watch, computed} from 'vue'
+import {ref, reactive, onMounted, onUnmounted, watch, computed, nextTick} from 'vue'
 import {useRouter} from 'vue-router'
-import {listInstances, createInstance, startServer, stopServer, restartServer, restartServerSSE, deleteInstance} from '@/apis/api.js'
+import {
+  listInstances,
+  createInstance,
+  startServer,
+  stopServer,
+  restartServer,
+  restartServerSSE,
+  deleteInstance
+} from '@/apis/api.js'
 import {Modal, Button} from '@arco-design/web-vue';
 import {serverStore, updateInstancesInStore} from '@/store/serverStore.js'
 import WSStatusIndicator from '@/components/WSStatusIndicator.vue'
-import LogViewer from '@/views/ServerController/components/LogViewer.vue'
+import LogViewer from '@/components/LogViewer.vue'
 
 // 状态管理
 const router = useRouter()
@@ -163,6 +173,8 @@ const selectedInstanceName = ref('')
 const form = reactive({
   instanceName: ''
 })
+
+const logViewerRef = ref()
 
 // 获取实例列表
 const fetchInstances = async () => {
@@ -182,6 +194,20 @@ const fetchInstances = async () => {
     loading.value = false
   }
 }
+
+function logViewerClose() {
+  selectedInstanceName.value = ''
+  if (logViewerRef && logViewerRef.value && logViewerRef.value.isStreaming) {
+    logViewerRef.value.stopLogStream()
+  }
+}
+
+onUnmounted(() => {
+  // 停止日志监听
+  if (logViewerRef.value && logViewerRef.value.isStreaming) {
+    logViewerRef.value.stopLogStream()
+  }
+})
 
 // 创建实例
 const createInstanceHandler = async ({values, errors}) => {
@@ -266,21 +292,21 @@ const restartInstance = async (name) => {
       try {
         // 使用 SSE 方式调用重启
         restartServerSSE(
-          name,
-          // onMessage 回调 - 接收实时进度消息
-          (message) => {
-            console.log('Restart progress:', message)
-            // 可选：在 UI 中显示重启进度
-          },
-          // onError 回调 - 处理错误
-          (error) => {
-            console.error('重启实例失败:', error)
-          },
-          // onComplete 回调 - 重启完成
-          () => {
-            console.log('Server restart completed')
-            // 重启不改变本地状态，等待后续自动更新
-          }
+            name,
+            // onMessage 回调 - 接收实时进度消息
+            (message) => {
+              console.log('Restart progress:', message)
+              // 可选：在 UI 中显示重启进度
+            },
+            // onError 回调 - 处理错误
+            (error) => {
+              console.error('重启实例失败:', error)
+            },
+            // onComplete 回调 - 重启完成
+            () => {
+              console.log('Server restart completed')
+              // 重启不改变本地状态，等待后续自动更新
+            }
         )
       } catch (error) {
         console.error('重启实例失败:', error)
@@ -317,6 +343,12 @@ const deleteInstanceHandler = async (name) => {
 const viewInstanceLogs = (name) => {
   selectedInstanceName.value = name
   logModalVisible.value = true
+  let instance = instances.value.find(item => item.name == name)
+  if (instance?.running) {
+    nextTick(() => {
+      logViewerRef.value.startLogStream()
+    })
+  }
 }
 
 // 监听全局服务器状态变化
@@ -348,10 +380,6 @@ const viewInstanceDetail = (name) => {
   })
 }
 
-// 计算 WebSocket 连接状态显示
-const wsStatusText = computed(() => {
-  return serverStore.connected ? '实时同步中' : '连接中...'
-})
 </script>
 
 <style scoped>

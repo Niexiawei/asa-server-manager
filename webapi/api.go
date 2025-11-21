@@ -1075,36 +1075,27 @@ func ActionAPI(ctx context.Context, cmd *cli.Command) error {
 func (s *APIServer) streamInstanceLogs(c *gin.Context) {
 	instanceName := c.Param("name")
 
-	// Get the log file path for the instance
-	logPath, exists := asaserver.GetInstanceLogFile(instanceName)
-	if !exists {
-		// Try to get the log path if not in mapping
-		var err error
-		logPath, err = asaserver.GetGameLogFilePath(instanceName)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, StatusResponse{
-				Success: false,
-				Error:   fmt.Sprintf("failed to get log file path: %v", err),
-			})
-			return
-		}
-	}
-
-	// Check if log file exists
-	if _, err := os.Stat(logPath); os.IsNotExist(err) {
-		c.JSON(http.StatusNotFound, StatusResponse{
-			Success: false,
-			Error:   fmt.Sprintf("log file not found: %s", logPath),
-		})
-		return
-	}
-
 	// Set SSE headers
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")
 	c.Header("Access-Control-Allow-Origin", "*")
 	c.Header("Access-Control-Allow-Headers", "Content-Type")
+
+	// Get the log file path for the instance
+	logPath, exists := asaserver.GetInstanceLogFile(instanceName)
+	if !exists {
+		fmt.Fprintf(c.Writer, "data: %s\n\n", "failed to get log file path")
+		c.Writer.Flush()
+		return
+	}
+
+	// Check if log file exists
+	if _, err := os.Stat(logPath); os.IsNotExist(err) {
+		fmt.Fprintf(c.Writer, "data: %s\n\n", "log file not found")
+		c.Writer.Flush()
+		return
+	}
 
 	// Create a channel to receive log lines with larger buffer to prevent message loss
 	logChan := make(chan string)
