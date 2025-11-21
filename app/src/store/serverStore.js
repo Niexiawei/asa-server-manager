@@ -1,11 +1,12 @@
 import { reactive, ref } from 'vue'
-import { connectWebSocket, disconnectWebSocket, onAnyServerEvent } from '@/apis/api.js'
+import { connectWebSocket, disconnectWebSocket, onAnyServerEvent, sendWebSocketMessage, startReconnect, stopReconnect, isWebSocketConnected } from '@/utils/wsManager.js'
 
 // 全局服务器状态存储
 export const serverStore = reactive({
   instances: new Map(),
   connected: false,
-  connectionError: null
+  connectionError: null,
+  isReconnecting: false
 })
 
 // WebSocket 事件处理函数
@@ -87,6 +88,10 @@ export function initializeWebSocket() {
         console.log('WebSocket initialized')
         serverStore.connected = true
         serverStore.connectionError = null
+        serverStore.isReconnecting = false
+        
+        // 停止重连尝试
+        stopReconnect()
         
         // 监听所有服务器事件
         onAnyServerEvent(handleServerEvent)
@@ -96,18 +101,27 @@ export function initializeWebSocket() {
       (error) => {
         console.error('WebSocket connection error:', error)
         serverStore.connectionError = error.message || 'WebSocket 连接失败'
+        // 启动自动重连
+        startReconnect(() => {
+          initializeWebSocket()
+        })
         resolve(false)
       },
       () => {
         console.log('WebSocket disconnected')
         serverStore.connected = false
+        // 启动自动重连
+        startReconnect(() => {
+          initializeWebSocket()
+        })
       }
     )
   })
 }
 
-// 关闭 WebSocket 连接
+// 关闭WebSocket 连接
 export function closeWebSocket() {
+  stopReconnect()
   disconnectWebSocket()
   serverStore.connected = false
   serverStore.instances.clear()
@@ -133,4 +147,16 @@ export function getInstanceStatus(instanceName) {
 // 获取所有实例
 export function getAllInstances() {
   return Array.from(serverStore.instances.values())
+}
+
+// 手动触发重新连接
+export function manualReconnect() {
+  console.log('Manual reconnect triggered')
+  if (serverStore.connected) {
+    console.log('Already connected, no need to reconnect')
+    return
+  }
+  startReconnect(() => {
+    initializeWebSocket()
+  })
 }

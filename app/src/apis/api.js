@@ -520,105 +520,38 @@ export async function uploadGameUserSettingsFile(instanceName, file) {
   return handleResponse(response)
 }
 
-// WebSocket 事件监听器管理
-let wsConnection = null
-const eventListeners = new Map()
+// 导入 WebSocket 管理器
+import {
+  connectWebSocket,
+  disconnectWebSocket,
+  onServerEvent,
+  onAnyServerEvent,
+  isWebSocketConnected,
+  sendWebSocketMessage,
+  connectRCONWebSocket,
+  disconnectRCONWebSocket,
+  sendRCONCommandViaWebSocket,
+  onRCONMessage,
+  isRCONWebSocketConnected,
+  startReconnect,
+  stopReconnect,
+  getWebSocketStatus
+} from '@/utils/wsManager.js'
 
-// 生成唯一的客户端 ID
-function generateClientId() {
-  return 'client_' + Math.random().toString(36).substring(2, 15) + '_' + Date.now()
-}
-
-// 建立 WebSocket 连接
-export function connectWebSocket(onOpen, onError, onClose) {
-  const wsUrl = `ws://127.0.0.1:8080/api/ws/events`
-  const clientId = generateClientId()
-  
-  try {
-    wsConnection = new WebSocket(wsUrl)
-    
-    wsConnection.onopen = () => {
-      console.log('WebSocket connected with client ID:', clientId)
-      // 发送客户端 ID 给服务器
-      wsConnection.send(JSON.stringify({
-        client_id: clientId,
-        type: 'heartbeat'
-      }))
-      if (onOpen) onOpen(clientId)
-    }
-    
-    wsConnection.onmessage = (event) => {
-      try {
-        const message = JSON.parse(event.data)
-        console.log('WebSocket message received:', message)
-        
-        // 触发所有注册的监听器
-        eventListeners.forEach((callbacks, eventType) => {
-          if (!eventType || message.event_type === eventType) {
-            callbacks.forEach(callback => {
-              try {
-                callback(message)
-              } catch (err) {
-                console.error('Error in event listener:', err)
-              }
-            })
-          }
-        })
-      } catch (err) {
-        console.error('Failed to parse WebSocket message:', err)
-      }
-    }
-    
-    wsConnection.onerror = (error) => {
-      console.error('WebSocket error:', error)
-      if (onError) onError(error)
-    }
-    
-    wsConnection.onclose = () => {
-      console.log('WebSocket closed')
-      wsConnection = null
-      if (onClose) onClose()
-    }
-  } catch (err) {
-    console.error('Failed to connect WebSocket:', err)
-    if (onError) onError(err)
-  }
-}
-
-// 断开 WebSocket 连接
-export function disconnectWebSocket() {
-  if (wsConnection) {
-    wsConnection.close()
-    wsConnection = null
-    eventListeners.clear()
-  }
-}
-
-// 监听特定事件类型
-export function onServerEvent(eventType, callback) {
-  if (!eventListeners.has(eventType)) {
-    eventListeners.set(eventType, [])
-  }
-  eventListeners.get(eventType).push(callback)
-  
-  // 返回取消监听函数
-  return () => {
-    const callbacks = eventListeners.get(eventType)
-    if (callbacks) {
-      const index = callbacks.indexOf(callback)
-      if (index > -1) {
-        callbacks.splice(index, 1)
-      }
-    }
-  }
-}
-
-// 监听所有服务器事件
-export function onAnyServerEvent(callback) {
-  return onServerEvent(null, callback)
-}
-
-// 获取 WebSocket 连接状态
-export function isWebSocketConnected() {
-  return wsConnection !== null && wsConnection.readyState === WebSocket.OPEN
+// 重新导出这些函数供其他模块使用
+export {
+  connectWebSocket,
+  disconnectWebSocket,
+  onServerEvent,
+  onAnyServerEvent,
+  isWebSocketConnected,
+  sendWebSocketMessage,
+  connectRCONWebSocket,
+  disconnectRCONWebSocket,
+  sendRCONCommandViaWebSocket,
+  onRCONMessage,
+  isRCONWebSocketConnected,
+  startReconnect,
+  stopReconnect,
+  getWebSocketStatus
 }

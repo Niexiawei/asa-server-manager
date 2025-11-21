@@ -1,12 +1,15 @@
 package webapi
 
 import (
+	"asa-server/asaserver"
 	"asa-server/logger"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gorcon/rcon"
 	"github.com/gorilla/websocket"
 )
 
@@ -21,9 +24,32 @@ type ServerEvent struct {
 
 // ClientMessage represents a message from WebSocket client
 type ClientMessage struct {
-	ClientID string `json:"client_id"`
+	ClientID string `json:"client_id,omitempty"`
 	Type     string `json:"type"`
 	Data     string `json:"data,omitempty"`
+}
+
+// RCONMessage represents RCON-related messages
+type RCONMessage struct {
+	Action       string `json:"action"` // "connect", "disconnect", "command"
+	InstanceName string `json:"instance_name,omitempty"`
+	Command      string `json:"command,omitempty"`
+}
+
+// RCONResponse represents response from RCON operations
+type RCONResponse struct {
+	Success      bool   `json:"success"`
+	Message      string `json:"message,omitempty"`
+	Response     string `json:"response,omitempty"`
+	Error        string `json:"error,omitempty"`
+	InstanceName string `json:"instance_name,omitempty"`
+}
+
+// RCONClientConnection holds per-connection RCON state
+type RCONClientConnection struct {
+	conn        *rcon.Conn
+	connectedTo string // instance name connected to
+	mu          sync.Mutex
 }
 
 var wsUpgrader = websocket.Upgrader{
@@ -33,6 +59,14 @@ var wsUpgrader = websocket.Upgrader{
 		return true
 	},
 }
+
+// WebSocket ping/pong 配置
+const (
+	// pong 响应的等待超时
+	pongWait = 10 * time.Second
+	// 客户端心跳超时时间（如果客户端在此时间内没有发送任何消息则断开连接）
+	heartbeatTimeout = 90 * time.Second
+)
 
 // handleServerEvents handles WebSocket connections for server events (global broadcast)
 func (s *APIServer) handleServerEvents(c *gin.Context) {
@@ -48,6 +82,24 @@ func (s *APIServer) handleServerEvents(c *gin.Context) {
 	s.clients[conn] = true
 	s.mu.Unlock()
 
+	// 创建心跳超时 ticker
+	heartbeatTicker := time.NewTicker(heartbeatTimeout)
+	defer heartbeatTicker.Stop()
+
+	// 用于控制心跳检测
+	done := make(chan struct{})
+	defer close(done)
+
+	// 启动心跳超时检测 goroutine
+	go func() {
+		<-heartbeatTicker.C
+		logger.GetLogger().Warnf("Server events WebSocket: Client heartbeat timeout, closing connection")
+		conn.Close()
+		s.mu.Lock()
+		delete(s.clients, conn)
+		s.mu.Unlock()
+	}()
+
 	// Send initial connection message
 	s.sendEventToAll(ServerEvent{
 		EventType:    "connected",
@@ -61,13 +113,37 @@ func (s *APIServer) handleServerEvents(c *gin.Context) {
 		var msg ClientMessage
 		err := conn.ReadJSON(&msg)
 		if err != nil {
-			// Unregister client on disconnect
-			s.mu.Lock()
-			delete(s.clients, conn)
-			s.mu.Unlock()
-			break
+			err2 := conn.WriteJSON(gin.H{
+				"error": err.Error(),
+			})
+
+			if err2 != nil {
+				logger.GetLogger().Debugf("Failed to send pong: %v", err)
+				s.mu.Lock()
+				delete(s.clients, conn)
+				s.mu.Unlock()
+				break
+			}
+			continue
 		}
-		// Handle client messages if needed (heartbeat, etc.)
+
+		// 重置心跳超时 ticker（收到任何消息）
+		heartbeatTicker.Reset(heartbeatTimeout)
+		// 处理客户端 ping 消息
+		if msg.Type == "ping" {
+			// 发送 pong 响应
+			err = conn.WriteJSON(gin.H{
+				"type": "pong",
+			})
+
+			if err != nil {
+				logger.GetLogger().Debugf("Failed to send pong: %v", err)
+				s.mu.Lock()
+				delete(s.clients, conn)
+				s.mu.Unlock()
+				break
+			}
+		}
 	}
 }
 
@@ -161,6 +237,257 @@ func (s *APIServer) BroadcastServerRestartFailed(instanceName string, err error)
 		Message:      fmt.Sprintf("Failed to restart server: %v", err),
 		Status:       "failed",
 	})
+}
+
+// handleRCONEvents handles WebSocket connections for RCON commands
+func (s *APIServer) handleRCONEvents(c *gin.Context) {
+	conn, err := wsUpgrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		logger.GetLogger().Warnf("WebSocket upgrade error for RCON: %v", err)
+		return
+	}
+	defer conn.Close()
+
+	// 创建每个连接独有的 RCON 状态
+	rconConn := &RCONClientConnection{}
+	defer func() {
+		rconConn.mu.Lock()
+		if rconConn.conn != nil {
+			rconConn.conn.Close()
+		}
+		rconConn.mu.Unlock()
+	}()
+
+	// 创建心跳超时 ticker
+	heartbeatTicker := time.NewTicker(heartbeatTimeout)
+	defer heartbeatTicker.Stop()
+
+	// 用于控制心跳检测
+	done := make(chan struct{})
+	defer close(done)
+
+	// 设置 pong 处理器
+	conn.SetPongHandler(func(string) error {
+		conn.SetReadDeadline(time.Now().Add(pongWait))
+		// 重置心跳超时 ticker
+		heartbeatTicker.Reset(heartbeatTimeout)
+		return nil
+	})
+
+	// 启动心跳超时检测 goroutine
+	go func() {
+		<-heartbeatTicker.C
+		logger.GetLogger().Warnf("RCON WebSocket: Client heartbeat timeout, closing connection")
+		conn.Close()
+	}()
+
+	// Keep connection open and listen for RCON commands
+	for {
+		var msg RCONMessage
+		err := conn.ReadJSON(&msg)
+		if err != nil {
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				logger.GetLogger().Warnf("WebSocket error: %v", err)
+			}
+			break
+		}
+
+		// 重置心跳超时 ticker（收到任何消息）
+		heartbeatTicker.Reset(heartbeatTimeout)
+
+		// 处理客户端 ping 消息
+		if msg.Action == "ping" {
+			err = conn.WriteJSON(gin.H{
+				"action": "pong",
+			})
+			if err != nil {
+				logger.GetLogger().Debugf("Failed to send pong to RCON: %v", err)
+				break
+			}
+			continue
+		}
+
+		// Handle RCON message
+		response := s.handleRCONMessage(rconConn, &msg)
+		err = conn.WriteJSON(response)
+		if err != nil {
+			logger.GetLogger().Warnf("Failed to write RCON response: %v", err)
+			break
+		}
+	}
+}
+
+// handleRCONMessage processes a single RCON message
+func (s *APIServer) handleRCONMessage(rconConn *RCONClientConnection, msg *RCONMessage) RCONResponse {
+	switch msg.Action {
+	case "connect":
+		return s.rconConnect(rconConn, msg.InstanceName)
+	case "disconnect":
+		return s.rconDisconnect(rconConn)
+	case "command":
+		return s.rconExecuteCommand(rconConn, msg.Command)
+	default:
+		return RCONResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Unknown action: %s", msg.Action),
+		}
+	}
+}
+
+// rconConnect establishes RCON connection to a server instance
+func (s *APIServer) rconConnect(rconConn *RCONClientConnection, instanceName string) RCONResponse {
+	if instanceName == "" {
+		return RCONResponse{
+			Success: false,
+			Error:   "instanceName is not found",
+		}
+	}
+
+	// Validate instance is running
+	running, err := asaserver.IsServerRunning(instanceName)
+	if err != nil || !running {
+		return RCONResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Server instance '%s' is not running", instanceName),
+		}
+	}
+
+	// Load instance config
+	config, err := asaserver.LoadInstanceConfig(instanceName)
+	if err != nil {
+		return RCONResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to load config for instance '%s': %v", instanceName, err),
+		}
+	}
+
+	// Validate RCON password
+	if config.ServerAdminPassword == "" {
+		return RCONResponse{
+			Success: false,
+			Error:   fmt.Sprintf("RCON password is empty for instance '%s'. Please set ServerAdminPassword in config", instanceName),
+		}
+	}
+
+	// Disconnect from previous instance if connected
+	if rconConn.conn != nil {
+		rconConn.mu.Lock()
+		rconConn.conn.Close()
+		rconConn.conn = nil
+		rconConn.connectedTo = ""
+		rconConn.mu.Unlock()
+	}
+
+	// Connect to RCON server with retry logic
+	rconAddr := fmt.Sprintf("localhost:%d", config.RCONPort)
+	logger.GetLogger().Infof("WebSocket RCON: Connecting to %s for instance '%s'...", rconAddr, instanceName)
+
+	var client *rcon.Conn
+	var connectErr error
+
+	// Try to connect with timeout and retry
+	for attempt := 1; attempt <= 3; attempt++ {
+		client, connectErr = rcon.Dial(rconAddr, config.ServerAdminPassword)
+		if connectErr == nil {
+			logger.GetLogger().Infof("WebSocket RCON: Connected to instance '%s'", instanceName)
+			break
+		}
+
+		logger.GetLogger().Warnf("WebSocket RCON: Attempt %d failed: %v", attempt, connectErr)
+		if attempt < 3 {
+			logger.GetLogger().Info("WebSocket RCON: Retrying in 2 seconds...")
+			time.Sleep(2 * time.Second)
+		}
+	}
+
+	if connectErr != nil {
+		logger.GetLogger().Errorf("WebSocket RCON: Failed to connect to %s: %v", rconAddr, connectErr)
+		return RCONResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to connect to RCON server at %s: %v", rconAddr, connectErr),
+		}
+	}
+
+	// Store connection
+	rconConn.mu.Lock()
+	rconConn.conn = client
+	rconConn.connectedTo = instanceName
+	rconConn.mu.Unlock()
+
+	return RCONResponse{
+		Success:      true,
+		Message:      fmt.Sprintf("Successfully connected to RCON server for instance '%s'", instanceName),
+		InstanceName: instanceName,
+	}
+}
+
+// rconDisconnect closes RCON connection
+func (s *APIServer) rconDisconnect(rconConn *RCONClientConnection) RCONResponse {
+	rconConn.mu.Lock()
+	defer rconConn.mu.Unlock()
+
+	if rconConn.conn == nil {
+		return RCONResponse{
+			Success: false,
+			Error:   "No RCON connection established",
+		}
+	}
+
+	connectedTo := rconConn.connectedTo
+	err := rconConn.conn.Close()
+	rconConn.conn = nil
+	rconConn.connectedTo = ""
+
+	if err != nil {
+		return RCONResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Error closing RCON connection: %v", err),
+		}
+	}
+
+	return RCONResponse{
+		Success:      true,
+		Message:      fmt.Sprintf("Disconnected from instance '%s'", connectedTo),
+		InstanceName: connectedTo,
+	}
+}
+
+// rconExecuteCommand executes an RCON command
+func (s *APIServer) rconExecuteCommand(rconConn *RCONClientConnection, command string) RCONResponse {
+	rconConn.mu.Lock()
+	defer rconConn.mu.Unlock()
+
+	if rconConn.conn == nil {
+		return RCONResponse{
+			Success: false,
+			Error:   "No RCON connection established. Please connect first.",
+		}
+	}
+
+	if command == "" {
+		return RCONResponse{
+			Success: false,
+			Error:   "Command cannot be empty",
+		}
+	}
+
+	logger.GetLogger().Infof("WebSocket RCON: Executing command on instance '%s': %s", rconConn.connectedTo, command)
+
+	response, err := rconConn.conn.Execute(command)
+	if err != nil {
+		logger.GetLogger().Errorf("WebSocket RCON: Command execution failed: %v", err)
+		return RCONResponse{
+			Success: false,
+			Error:   fmt.Sprintf("RCON command execution failed: %v", err),
+		}
+	}
+
+	logger.GetLogger().Infof("WebSocket RCON: Response: %s", response)
+	return RCONResponse{
+		Success:      true,
+		Response:     response,
+		InstanceName: rconConn.connectedTo,
+	}
 }
 
 // ========== Public broadcast functions for external use ==========

@@ -105,75 +105,82 @@
           </a-card>
 
           <!-- 配置文件区域 -->
-          <div class="config-files-row">
-            <!-- Game.ini 配置 -->
-            <a-card title="Game.ini 配置" class="config-section config-file-card">
-              <a-space style="margin-bottom: 15px">
-                <a-button
-                    @click="loadGameIni"
-                    type="primary"
-                    :loading="loadingGameIni"
-                >
-                  加载文件
-                </a-button>
-                <a-button
-                    @click="triggerGameIniUpload"
-                    status="success"
-                >
-                  上传文件
-                </a-button>
-                <a-button
-                    @click="gameIniEditModalVisible = true"
-                    type="primary"
-                >
-                  编辑文件
-                </a-button>
-              </a-space>
+          <a-collapse v-model:active-key="activeCollapseKeys" class="config-files-collapse">
+            <a-collapse-item key="config-files" header="实例配置文件">
+              <div class="config-files-row">
+                <!-- Game.ini 配置 -->
+                <a-card title="Game.ini 配置" class="config-section config-file-card">
+                  <a-space style="margin-bottom: 15px">
+                    <a-button
+                        @click="loadGameIni"
+                        type="primary"
+                        :loading="loadingGameIni"
+                    >
+                      加载文件
+                    </a-button>
+                    <a-button
+                        @click="triggerGameIniUpload"
+                        status="success"
+                    >
+                      上传文件
+                    </a-button>
+                    <a-button
+                        @click="gameIniEditModalVisible = true"
+                        type="primary"
+                    >
+                      编辑文件
+                    </a-button>
+                  </a-space>
 
-              <div class="config-viewer-wrapper">
-                <config-file-viewer
-                    :content="gameIniContent"
-                    language="ini"
-                />
+                  <div class="config-viewer-wrapper">
+                    <config-file-viewer
+                        :content="gameIniContent"
+                        language="ini"
+                    />
+                  </div>
+                </a-card>
+
+                <!-- GameUserSettings.ini 配置 -->
+                <a-card title="GameUserSettings.ini 配置" class="config-section config-file-card">
+                  <a-space style="margin-bottom: 15px">
+                    <a-button
+                        @click="loadGameUserSettings"
+                        type="primary"
+                        :loading="loadingGameUserSettings"
+                    >
+                      加载文件
+                    </a-button>
+                    <a-button
+                        @click="triggerGameUserSettingsUpload"
+                        status="success"
+                    >
+                      上传文件
+                    </a-button>
+                    <a-button
+                        @click="gameUserSettingsEditModalVisible = true"
+                        type="primary"
+                    >
+                      编辑文件
+                    </a-button>
+                  </a-space>
+
+                  <div class="config-viewer-wrapper">
+                    <config-file-viewer
+                        :content="gameUserSettingsContent"
+                        language="ini"
+                    />
+                  </div>
+                </a-card>
               </div>
-            </a-card>
-
-            <!-- GameUserSettings.ini 配置 -->
-            <a-card title="GameUserSettings.ini 配置" class="config-section config-file-card">
-              <a-space style="margin-bottom: 15px">
-                <a-button
-                    @click="loadGameUserSettings"
-                    type="primary"
-                    :loading="loadingGameUserSettings"
-                >
-                  加载文件
-                </a-button>
-                <a-button
-                    @click="triggerGameUserSettingsUpload"
-                    status="success"
-                >
-                  上传文件
-                </a-button>
-                <a-button
-                    @click="gameUserSettingsEditModalVisible = true"
-                    type="primary"
-                >
-                  编辑文件
-                </a-button>
-              </a-space>
-
-              <div class="config-viewer-wrapper">
-                <config-file-viewer
-                    :content="gameUserSettingsContent"
-                    language="ini"
-                />
-              </div>
-            </a-card>
-          </div>
+            </a-collapse-item>
+          </a-collapse>
 
           <a-card title="实时日志" class="config-section log-viewer-card">
             <log-viewer ref="logViewerRef" :instance-name="instanceName"/>
           </a-card>
+
+          <!-- RCON 交互式终端 -->
+          <rcon-terminal :instance-name="instanceName" :instance-running="instanceData?.running || false" />
         </div>
       </a-spin>
     </a-card>
@@ -237,6 +244,7 @@ import ConfigFileViewer from '@/components/ConfigFileViewer.vue'
 import ConfigEditModal from '@/components/ConfigEditModal.vue'
 import WSStatusIndicator from '@/components/WSStatusIndicator.vue'
 import LogViewer from '@/components/LogViewer.vue'
+import RconTerminal from '@/components/RconTerminal.vue'
 import {
   getInstanceConfig,
   streamInstanceLogs,
@@ -257,6 +265,7 @@ import {serverStore, getInstanceStatus} from '@/store/serverStore.js'
 import {onServerEvent} from '@/apis/api.js'
 import {IconLeft, IconEyeInvisible, IconEye} from '@arco-design/web-vue/es/icon'
 import {Modal, Message} from '@arco-design/web-vue'
+import VueWebTerminal from 'vue-web-terminal'
 
 // Monaco Editor 引用 - 已移至 ConfigEditor 组件
 const loading = ref(true)
@@ -304,6 +313,11 @@ const savingConfig = ref(false)
 
 // 日志查看器引用
 const logViewerRef = ref(null)
+
+// 配置文件折叠面板状态
+const activeCollapseKeys = ref([])
+
+
 
 // 监听 WebSocket 事件，实时更新实例运行状态
 watch(
@@ -729,6 +743,8 @@ onMounted(async () => {
   })
 })
 
+
+
 onUnmounted(() => {
   // 移除事件监听
   if (unlistenServerStarting) {
@@ -869,7 +885,7 @@ onUnmounted(() => {
 .config-files-row {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 20px;
+  gap: 5px;
   width: 100%;
   box-sizing: border-box;
   overflow: hidden;
@@ -894,9 +910,17 @@ onUnmounted(() => {
   overflow: hidden;
 }
 
-.log-viewer-card{
+.log-viewer-card {
   height: 65vh !important;
 }
 
+.config-files-collapse {
+  :deep(.arco-collapse-item-content) {
+    padding-left: 13px !important;
+  }
+}
+
 /* 配置编辑潤弹框样式 */
+
+
 </style>

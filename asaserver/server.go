@@ -677,10 +677,7 @@ func SendRCONCommand(instanceName string, command string) (string, error) {
 	logger.GetLogger().Infof("   Instance: %s", instanceName)
 	logger.GetLogger().Infof("   RCON Port: %d", config.RCONPort)
 
-	var client interface {
-		Execute(string) (string, error)
-		Close() error
-	}
+	var client *rcon.Conn
 	var connectErr error
 
 	// Try to connect with timeout and retry
@@ -707,8 +704,8 @@ func SendRCONCommand(instanceName string, command string) (string, error) {
 		logger.GetLogger().Error("  4. Check server log for 'RCON password' or 'authentication' errors")
 		return "", fmt.Errorf("failed to connect to RCON server at %s: %w", rconAddr, connectErr)
 	}
-	defer client.Close()
 
+	defer client.Close()
 	// Send command
 	logger.GetLogger().Infof("Sending RCON command '%s' to %s", command, rconAddr)
 	response, err := client.Execute(command)

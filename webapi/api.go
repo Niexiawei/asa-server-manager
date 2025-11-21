@@ -115,6 +115,7 @@ func (s *APIServer) setupRoutes() {
 
 	// WebSocket endpoints
 	s.engine.GET("/api/ws/events", s.handleServerEvents)
+	s.engine.GET("/api/ws/rcon", s.handleRCONEvents)
 }
 
 // ========== Response types ==========

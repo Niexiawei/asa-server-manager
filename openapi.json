@@ -1202,6 +1202,36 @@
           }
         }
       }
+    },
+    "/api/ws/rcon": {
+      "get": {
+        "summary": "WebSocket connection for RCON command execution",
+        "description": "Establishes a WebSocket connection for interactive RCON command execution. Each WebSocket connection maintains its own independent RCON session. Supports connect, disconnect, and command actions.",
+        "tags": ["WebSocket"],
+        "operationId": "handleRCONEvents",
+        "responses": {
+          "101": {
+            "description": "Switching Protocols - WebSocket connection established for RCON commands",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RCONResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request - WebSocket upgrade failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1679,6 +1709,53 @@
           }
         },
         "required": ["event_type", "timestamp", "message"]
+      },
+      "RCONMessage": {
+        "type": "object",
+        "description": "Message sent from WebSocket client to server for RCON operations",
+        "properties": {
+          "action": {
+            "type": "string",
+            "description": "Action to perform",
+            "enum": ["connect", "disconnect", "command", "ping"]
+          },
+          "instance_name": {
+            "type": "string",
+            "description": "Name of the instance (required for connect action)"
+          },
+          "command": {
+            "type": "string",
+            "description": "RCON command to execute (required for command action)"
+          }
+        },
+        "required": ["action"]
+      },
+      "RCONResponseData": {
+        "type": "object",
+        "description": "Response from RCON operations",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "description": "Whether the operation succeeded"
+          },
+          "message": {
+            "type": "string",
+            "description": "Operation status message"
+          },
+          "response": {
+            "type": "string",
+            "description": "RCON command execution response (for command action)"
+          },
+          "error": {
+            "type": "string",
+            "description": "Error message if operation failed"
+          },
+          "instance_name": {
+            "type": "string",
+            "description": "Name of the connected instance"
+          }
+        },
+        "required": ["success"]
       }
     }
   },
