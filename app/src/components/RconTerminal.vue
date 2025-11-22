@@ -151,7 +151,7 @@ onUnmounted(() => {
   height: 100%;
 
   :deep(.arco-card-body) {
-    height: calc(100% - 45.5px);
+    height: 100%;
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
@@ -164,11 +164,10 @@ onUnmounted(() => {
   flex-direction: column;
   width: 100%;
   box-sizing: border-box;
-  min-height: 400px;
+  height: calc(100% - 40px);
   border: 1px solid #e5e5e5;
   border-radius: 4px;
   background-color: #1e1e1e;
-  overflow: hidden;
 }
 
 .rcon-disconnected-tip {

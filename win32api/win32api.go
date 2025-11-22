@@ -1,6 +1,10 @@
 package win32api
 
 import (
+	"fmt"
+	"os/exec"
+	"strconv"
+	"strings"
 	"syscall"
 	"unsafe"
 
@@ -137,4 +141,72 @@ func MinimizeWindowsByPID(pid uint32, onlyVisible bool) ([]uintptr, error) {
 		minimized = append(minimized, uintptr(h))
 	}
 	return minimized, nil
+}
+
+// GetPIDByPort 根据占用的端口号查询进程ID
+// port: 应用占用的端口号
+// 返回: 进程ID、错误信息
+func GetPIDByPort(port int) (int, error) {
+	cmd := exec.Command("netstat", "-ano")
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+
+	output, err := cmd.Output()
+	if err != nil {
+		return 0, fmt.Errorf("failed to execute netstat: %w", err)
+	}
+
+	netstatOutput := string(output)
+	portStr := fmt.Sprintf(":%d", port)
+
+	// Split output into lines and search for the port
+	lines := strings.Split(netstatOutput, "\n")
+	for _, line := range lines {
+		if strings.Contains(line, portStr) {
+			// The last field in the line is the PID
+			fields := strings.Fields(line)
+			if len(fields) > 2 {
+				if !strings.Contains(fields[1], portStr) {
+					continue
+				}
+				pid, err := strconv.Atoi(fields[len(fields)-1])
+				if err == nil && pid > 0 {
+					return pid, nil
+				}
+			}
+		}
+	}
+
+	return 0, fmt.Errorf("no process found listening on port %d", port)
+}
+
+// HideWindowByPID 根据进程ID隐藏应用窗口
+// pid: 应用的进程ID
+// onlyVisible: 是否仅隐藏可见窗口（true 仅隐藏可见窗口，false 隐藏所有窗口）
+// 返回: 被隐藏的窗口句柄列表、错误信息
+func HideWindowByPID(pid uint32, onlyVisible bool) ([]uintptr, error) {
+	hwnds, err := enumWindows(func(hwnd windows.Handle) bool {
+		if onlyVisible && !isWindowVisible(hwnd) {
+			return false
+		}
+		wpid, err := getWindowProcessID(hwnd)
+		if err != nil {
+			return false
+		}
+		return wpid == pid
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if len(hwnds) == 0 {
+		return nil, fmt.Errorf("no windows found for PID %d", pid)
+	}
+
+	const SW_HIDE = 0 // 隐藏窗口
+	var hidden []uintptr
+	for _, h := range hwnds {
+		procShowWindow.Call(uintptr(h), uintptr(SW_HIDE))
+		hidden = append(hidden, uintptr(h))
+	}
+	return hidden, nil
 }

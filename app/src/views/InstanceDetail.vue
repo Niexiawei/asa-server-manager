@@ -230,7 +230,6 @@
         title="RCON 交互式终端"
         draggable
         :width="1000"
-        height="60vh"
         :mask="false"
         unmountOnClose
         :footer="false"
@@ -865,7 +864,7 @@ onUnmounted(() => {
 }
 
 .config-grid-item .config-item {
-  height: auto;
+  height: 26px;
   padding: 12px 16px;
   display: flex;
   align-items: center;
@@ -941,7 +940,7 @@ onUnmounted(() => {
 /* RCON Modal 调整 */
 .rcon-modal-content {
   width: 100%;
-  height: 100%;
+  height: 60vh;
   display: flex;
   flex-direction: column;
 }

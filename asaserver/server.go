@@ -280,19 +280,43 @@ func IsServerRunning(instanceName string) (bool, error) {
 
 	netstatOutput := string(output)
 
-	// Check if both the game port and RCON port are in the output
-	gamePortStr := fmt.Sprintf("*:%d", config.Port)
-	gamePortStr2 := fmt.Sprintf("0.0.0.0:%d", config.Port)
-	// Both ports must be present in the netstat output for the server to be considered running
-	hasGamePort := strings.Contains(netstatOutput, gamePortStr)
-	hasGamePort2 := strings.Contains(netstatOutput, gamePortStr2)
+	lines := strings.Split(netstatOutput, "\n")
 
-	if !hasGamePort && !hasGamePort2 {
-		logger.GetLogger().Warnf("Game port :%d not found", config.Port)
-		return false, nil
+	portStr := fmt.Sprintf(":%d", config.Port)
+
+	for _, line := range lines {
+		if strings.Contains(line, portStr) {
+			// The last field in the line is the PID
+			fields := strings.Fields(line)
+			if len(fields) > 2 {
+				if !strings.Contains(fields[1], portStr) {
+					continue
+				}
+				pid, err := strconv.Atoi(fields[len(fields)-1])
+				if err == nil && pid > 0 {
+					return true, nil
+				}
+			}
+		}
 	}
+	logger.GetLogger().Warnf("Game port :%d not found", config.Port)
+	return false, nil
 
-	return true, nil
+	//return 0, fmt.Errorf("no process found listening on port %d", port)
+
+	// Check if both the game port and RCON port are in the output
+	//gamePortStr := fmt.Sprintf("*:%d", config.Port)
+	//gamePortStr2 := fmt.Sprintf("0.0.0.0:%d", config.Port)
+	//// Both ports must be present in the netstat output for the server to be considered running
+	//hasGamePort := strings.Contains(netstatOutput, gamePortStr)
+	//hasGamePort2 := strings.Contains(netstatOutput, gamePortStr2)
+	//
+	//if !hasGamePort && !hasGamePort2 {
+	//	logger.GetLogger().Warnf("Game port :%d not found", config.Port)
+	//	return false, nil
+	//}
+	//
+	//return true, nil
 }
 
 // CopyDir copies a directory recursively
@@ -581,7 +605,10 @@ func GetPIDByPort(port int) (int, error) {
 		if strings.Contains(line, portStr) {
 			// The last field in the line is the PID
 			fields := strings.Fields(line)
-			if len(fields) > 0 {
+			if len(fields) > 2 {
+				if !strings.Contains(fields[1], portStr) {
+					continue
+				}
 				pid, err := strconv.Atoi(fields[len(fields)-1])
 				if err == nil && pid > 0 {
 					return pid, nil
@@ -822,6 +849,9 @@ func GetInstancePID(instanceName string) (int, error) {
 // quotifyIfNeeded wraps a string in double quotes if it contains special characters
 // that could interfere with command-line parameter parsing
 func quotifyIfNeeded(value string) string {
+	if value == "" {
+		return value
+	}
 	// Check if the value contains any special characters that need quoting
 	// ARK server uses ? as parameter separator, so we need to quote values containing special characters
 	return fmt.Sprintf("\"%s\"", value)

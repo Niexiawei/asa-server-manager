@@ -1494,9 +1494,7 @@ func (s *APIServer) updateInstanceConfig(c *gin.Context) {
 	if req.ServerName != "" {
 		updates["ServerName"] = req.ServerName
 	}
-	if req.ServerPassword != "" {
-		updates["ServerPassword"] = req.ServerPassword
-	}
+	updates["ServerPassword"] = req.ServerPassword
 	if req.ServerAdminPassword != "" {
 		updates["ServerAdminPassword"] = req.ServerAdminPassword
 	}
