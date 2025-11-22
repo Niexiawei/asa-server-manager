@@ -3,14 +3,19 @@ package asaserver
 import (
 	"archive/zip"
 	"asa-server/logger"
+	"bufio"
+	"bytes"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"syscall"
 	"time"
+
+	"github.com/aymanbagabas/go-pty"
 )
 
 // DownloadAndExtractSteamCmd downloads and extracts SteamCMD to the steamcmd folder
@@ -200,8 +205,6 @@ func initializeSteamCmd(outputWriter ...io.Writer) error {
 		return fmt.Errorf("SteamCMD initialization/updating failed: %w", err)
 	}
 
-	fmt.Println("cmd Run 999")
-
 	logMsg = "SteamCMD initialized/updating successfully."
 	logger.GetLogger().Info(logMsg)
 	if writer != nil {
@@ -236,10 +239,13 @@ func DownloadAndUpdateArkServer(outputCallback ...io.Writer) error {
 	if err := os.MkdirAll(ServerFilesDir, 0755); err != nil {
 		return fmt.Errorf("failed to create server-files directory: %w", err)
 	}
-
+	pp, err := pty.New()
+	if err != nil {
+		return fmt.Errorf("failed to open pty: %w", err)
+	}
 	// Run SteamCMD with arguments to install/update ARK server
 	// App ID 2430930 is ARK: Survival Ascended
-	cmd := exec.Command(
+	cmd := pp.Command(
 		steamCmdExe,
 		"+force_install_dir", ServerFilesDir,
 		"+login", "anonymous",
@@ -247,12 +253,29 @@ func DownloadAndUpdateArkServer(outputCallback ...io.Writer) error {
 		"+quit",
 	)
 
-	// Redirect stdout and stderr via callback
-	cmd.Stdout = outputWriter
-	cmd.Stderr = outputWriter
+	CleanConsoleOutput := func(r io.Reader, w io.Writer) error {
+		// 匹配 ANSI 转义序列以及上面提到的控制符
+		// 包括 ESC [ ? ... h/l/m 等序列
+		ansiRegexp := regexp.MustCompile(`\x1b\[[0-9;?]*[a-zA-Z]`)
+		// 去除其它 C0 控制字符（保留换行符 \n）
+		ctrlRegexp := regexp.MustCompile(`[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]`)
 
-	// Windows specific: hide the cmd window
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+		scanner := bufio.NewScanner(r)
+		for scanner.Scan() {
+			line := scanner.Bytes()
+
+			// 去掉 ANSI / 控制字符
+			line = ansiRegexp.ReplaceAll(line, []byte{})
+			line = ctrlRegexp.ReplaceAll(line, []byte{})
+
+			// 输出，保证每行以换行符结尾
+			line = bytes.TrimRight(line, " \t")
+			if _, err := w.Write(append(line, '\n')); err != nil {
+				return err
+			}
+		}
+		return scanner.Err()
+	}
 
 	// Run SteamCMD
 	logMsg = "Running SteamCMD update..."
@@ -260,10 +283,18 @@ func DownloadAndUpdateArkServer(outputCallback ...io.Writer) error {
 	if outputWriter != nil {
 		outputWriter.Write([]byte(logMsg + "\n"))
 	}
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("SteamCMD update failed: %w", err)
+	defer pp.Close()
+
+	if outputWriter != nil {
+		go CleanConsoleOutput(pp, outputWriter)
 	}
 
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start SteamCMD: %w", err)
+	}
+	if err := cmd.Wait(); err != nil {
+		return fmt.Errorf("SteamCMD update failed: %w", err)
+	}
 	logMsg = "ARK server installation/update completed successfully."
 	logger.GetLogger().Info(logMsg)
 	if outputWriter != nil {

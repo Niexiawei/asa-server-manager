@@ -1584,3 +1584,78 @@
 {"level":"WARN","ts":"2025-11-22T19:06:12.310+0800","caller":"asaserver/server.go:291","msg":"Game port :9234 not found"}
 {"level":"WARN","ts":"2025-11-22T19:09:29.520+0800","caller":"asaserver/server.go:291","msg":"Game port :7002 not found"}
 {"level":"WARN","ts":"2025-11-22T19:09:29.570+0800","caller":"asaserver/server.go:291","msg":"Game port :9234 not found"}
+{"level":"INFO","ts":"2025-11-22T19:50:14.153+0800","caller":"webapi/api.go:1036","msg":"API server on http://localhost:8080"}
+{"level":"WARN","ts":"2025-11-22T19:50:19.561+0800","caller":"asaserver/server.go:291","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-22T19:50:19.619+0800","caller":"asaserver/server.go:291","msg":"Game port :9234 not found"}
+{"level":"WARN","ts":"2025-11-22T19:50:21.086+0800","caller":"asaserver/server.go:291","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-22T19:50:21.166+0800","caller":"asaserver/server.go:291","msg":"Game port :9234 not found"}
+{"level":"INFO","ts":"2025-11-22T19:50:23.033+0800","caller":"asaserver/installer.go:34","msg":"SteamCMD already installed."}
+{"level":"INFO","ts":"2025-11-22T19:50:23.033+0800","caller":"asaserver/installer.go:200","msg":"Running SteamCMD initialization/updating..."}
+{"level":"INFO","ts":"2025-11-22T19:50:28.050+0800","caller":"asaserver/installer.go:209","msg":"SteamCMD initialized/updating successfully."}
+{"level":"INFO","ts":"2025-11-22T19:50:28.050+0800","caller":"asaserver/installer.go:233","msg":"Installing/updating ARK server..."}
+{"level":"INFO","ts":"2025-11-22T19:50:28.057+0800","caller":"asaserver/installer.go:320","msg":"Running SteamCMD update..."}
+{"level":"INFO","ts":"2025-11-22T19:51:05.714+0800","caller":"asaserver/installer.go:337","msg":"ARK server installation/update completed successfully."}
+{"level":"INFO","ts":"2025-11-22T19:51:05.714+0800","caller":"asaserver/installer.go:352","msg":"Server configuration directory already exists. Skipping initial verification."}
+{"level":"WARN","ts":"2025-11-22T19:51:05.983+0800","caller":"asaserver/server.go:291","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-22T19:51:06.015+0800","caller":"asaserver/server.go:291","msg":"Game port :9234 not found"}
+{"level":"INFO","ts":"2025-11-22T19:52:37.448+0800","caller":"webapi/api.go:1036","msg":"API server on http://localhost:8080"}
+{"level":"WARN","ts":"2025-11-22T19:52:43.560+0800","caller":"asaserver/server.go:291","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-22T19:52:43.593+0800","caller":"asaserver/server.go:291","msg":"Game port :9234 not found"}
+{"level":"INFO","ts":"2025-11-22T19:52:46.784+0800","caller":"asaserver/installer.go:35","msg":"SteamCMD already installed."}
+{"level":"INFO","ts":"2025-11-22T19:52:46.784+0800","caller":"asaserver/installer.go:201","msg":"Running SteamCMD initialization/updating..."}
+{"level":"INFO","ts":"2025-11-22T19:52:49.980+0800","caller":"asaserver/installer.go:210","msg":"SteamCMD initialized/updating successfully."}
+{"level":"INFO","ts":"2025-11-22T19:52:49.980+0800","caller":"asaserver/installer.go:234","msg":"Installing/updating ARK server..."}
+{"level":"INFO","ts":"2025-11-22T19:52:49.986+0800","caller":"asaserver/installer.go:328","msg":"Running SteamCMD update..."}
+{"level":"INFO","ts":"2025-11-22T19:53:19.683+0800","caller":"asaserver/installer.go:345","msg":"ARK server installation/update completed successfully."}
+{"level":"INFO","ts":"2025-11-22T19:53:19.684+0800","caller":"asaserver/installer.go:360","msg":"Server configuration directory already exists. Skipping initial verification."}
+{"level":"WARN","ts":"2025-11-22T19:53:19.723+0800","caller":"asaserver/server.go:291","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-22T19:53:19.751+0800","caller":"asaserver/server.go:291","msg":"Game port :9234 not found"}
+{"level":"INFO","ts":"2025-11-22T19:55:28.253+0800","caller":"webapi/api.go:1036","msg":"API server on http://localhost:8080"}
+{"level":"INFO","ts":"2025-11-22T19:55:50.797+0800","caller":"asaserver/installer.go:31","msg":"SteamCMD already installed."}
+{"level":"INFO","ts":"2025-11-22T19:55:50.797+0800","caller":"asaserver/installer.go:197","msg":"Running SteamCMD initialization/updating..."}
+{"level":"INFO","ts":"2025-11-22T19:55:54.383+0800","caller":"asaserver/installer.go:206","msg":"SteamCMD initialized/updating successfully."}
+{"level":"INFO","ts":"2025-11-22T19:55:54.383+0800","caller":"asaserver/installer.go:230","msg":"Installing/updating ARK server..."}
+{"level":"INFO","ts":"2025-11-22T19:55:54.388+0800","caller":"asaserver/installer.go:324","msg":"Running SteamCMD update..."}
+{"level":"INFO","ts":"2025-11-22T19:56:43.799+0800","caller":"asaserver/installer.go:341","msg":"ARK server installation/update completed successfully."}
+{"level":"INFO","ts":"2025-11-22T19:56:43.799+0800","caller":"asaserver/installer.go:356","msg":"Server configuration directory already exists. Skipping initial verification."}
+{"level":"WARN","ts":"2025-11-22T19:56:43.910+0800","caller":"asaserver/server.go:291","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-22T19:56:43.939+0800","caller":"asaserver/server.go:291","msg":"Game port :9234 not found"}
+{"level":"INFO","ts":"2025-11-22T20:02:10.310+0800","caller":"webapi/api.go:1036","msg":"API server on http://localhost:8080"}
+{"level":"WARN","ts":"2025-11-22T20:02:22.040+0800","caller":"asaserver/server.go:291","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-22T20:02:22.158+0800","caller":"asaserver/server.go:291","msg":"Game port :9234 not found"}
+{"level":"INFO","ts":"2025-11-22T20:02:26.070+0800","caller":"asaserver/installer.go:34","msg":"SteamCMD already installed."}
+{"level":"INFO","ts":"2025-11-22T20:02:26.070+0800","caller":"asaserver/installer.go:200","msg":"Running SteamCMD initialization/updating..."}
+{"level":"INFO","ts":"2025-11-22T20:02:33.500+0800","caller":"asaserver/installer.go:209","msg":"SteamCMD initialized/updating successfully."}
+{"level":"INFO","ts":"2025-11-22T20:02:33.500+0800","caller":"asaserver/installer.go:233","msg":"Installing/updating ARK server..."}
+{"level":"INFO","ts":"2025-11-22T20:02:33.507+0800","caller":"asaserver/installer.go:282","msg":"Running SteamCMD update..."}
+{"level":"INFO","ts":"2025-11-22T20:03:08.779+0800","caller":"asaserver/installer.go:299","msg":"ARK server installation/update completed successfully."}
+{"level":"INFO","ts":"2025-11-22T20:03:08.779+0800","caller":"asaserver/installer.go:314","msg":"Server configuration directory already exists. Skipping initial verification."}
+{"level":"WARN","ts":"2025-11-22T20:03:08.817+0800","caller":"asaserver/server.go:291","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-22T20:03:08.845+0800","caller":"asaserver/server.go:291","msg":"Game port :9234 not found"}
+{"level":"INFO","ts":"2025-11-22T20:04:53.045+0800","caller":"webapi/api.go:1036","msg":"API server on http://localhost:8080"}
+{"level":"INFO","ts":"2025-11-22T21:17:55.834+0800","caller":"webapi/api.go:1036","msg":"API server on http://localhost:8080"}
+{"level":"WARN","ts":"2025-11-22T21:19:05.320+0800","caller":"asaserver/server.go:291","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-22T21:19:05.383+0800","caller":"asaserver/server.go:291","msg":"Game port :9234 not found"}
+{"level":"WARN","ts":"2025-11-22T21:19:10.629+0800","caller":"asaserver/server.go:291","msg":"Game port :9234 not found"}
+{"level":"WARN","ts":"2025-11-22T21:19:19.062+0800","caller":"asaserver/server.go:291","msg":"Game port :9234 not found"}
+{"level":"WARN","ts":"2025-11-22T21:19:54.818+0800","caller":"asaserver/server.go:291","msg":"Game port :9234 not found"}
+{"level":"WARN","ts":"2025-11-22T21:19:54.846+0800","caller":"asaserver/server.go:291","msg":"Game port :9234 not found"}
+{"level":"INFO","ts":"2025-11-22T21:19:54.847+0800","caller":"asaserver/server.go:429","msg":"Starting server for instance: meijue"}
+{"level":"INFO","ts":"2025-11-22T21:19:54.847+0800","caller":"asaserver/server.go:360","msg":"Backing up original configuration directory..."}
+{"level":"INFO","ts":"2025-11-22T21:19:55.658+0800","caller":"asaserver/server.go:553","msg":"Server started for instance: meijue. It should be fully operational in approximately 60 seconds."}
+{"level":"INFO","ts":"2025-11-22T21:19:55.658+0800","caller":"asaserver/server.go:554","msg":"Game log file: D:\\golang\\asa-server\\server-files\\ShooterGame\\Saved\\Logs\\ShooterGame.log"}
+{"level":"INFO","ts":"2025-11-22T21:20:55.659+0800","caller":"asaserver/server.go:397","msg":"Original configuration directory restored for instance: meijue"}
+{"level":"INFO","ts":"2025-11-22T21:20:55.661+0800","caller":"asaserver/server.go:125","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-22T21:20:55.661+0800","caller":"asaserver/server.go:125","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-22T21:22:41.609+0800","caller":"asaserver/server.go:608","msg":"Stopping server for instance: meijue"}
+{"level":"INFO","ts":"2025-11-22T21:22:41.642+0800","caller":"asaserver/server.go:678","msg":"Connecting to RCON server at localhost:5001..."}
+{"level":"INFO","ts":"2025-11-22T21:22:41.642+0800","caller":"asaserver/server.go:679","msg":"   Instance: meijue"}
+{"level":"INFO","ts":"2025-11-22T21:22:41.642+0800","caller":"asaserver/server.go:680","msg":"   RCON Port: 5001"}
+{"level":"INFO","ts":"2025-11-22T21:22:41.716+0800","caller":"asaserver/server.go:689","msg":"Connected to RCON server"}
+{"level":"INFO","ts":"2025-11-22T21:22:41.716+0800","caller":"asaserver/server.go:712","msg":"Sending RCON command 'DoExit' to localhost:5001"}
+{"level":"INFO","ts":"2025-11-22T21:22:41.749+0800","caller":"asaserver/server.go:718","msg":"RCON response: Exiting... \n "}
+{"level":"INFO","ts":"2025-11-22T21:22:41.749+0800","caller":"asaserver/server.go:623","msg":"Server instance meijue reported 'Exiting...'. Awaiting shutdown..."}
+{"level":"INFO","ts":"2025-11-22T21:22:53.751+0800","caller":"asaserver/server.go:639","msg":"Server for instance meijue has exited."}
+{"level":"WARN","ts":"2025-11-22T21:23:09.242+0800","caller":"asaserver/server.go:291","msg":"Game port :9234 not found"}
+{"level":"WARN","ts":"2025-11-22T21:23:12.664+0800","caller":"asaserver/server.go:291","msg":"Game port :9234 not found"}
+{"level":"WARN","ts":"2025-11-22T21:23:26.881+0800","caller":"asaserver/server.go:291","msg":"Game port :9234 not found"}

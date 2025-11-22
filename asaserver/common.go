@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -286,4 +287,28 @@ func FindLatestLogFile(logsDir string) (string, error) {
 func FileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil || !os.IsNotExist(err)
+}
+
+var ansiRegexp = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
+
+func splitOnNewlineOrCR(data []byte, atEOF bool) (advance int, token []byte, err error) {
+	// 查找 \n 或 \r 的最早位置
+	for i, b := range data {
+		if b == '\n' || b == '\r' {
+			// 返回不包含分隔符的 token（类似 ScanLines）
+			return i + 1, dropSep(data[:i], b), nil
+		}
+	}
+	// 如果到 EOF，返回剩余的数据（如果非空）
+	if atEOF && len(data) > 0 {
+		return len(data), data, nil
+	}
+	// 需要更多数据
+	return 0, nil, nil
+}
+
+// 如果希望去掉 CR/LF 之后仍保留 token，这里只是示例（可按需修改）
+func dropSep(b []byte, sep byte) []byte {
+	// 直接返回 b（不包含 sep），如果想保留 sep 则改这里
+	return b
 }
