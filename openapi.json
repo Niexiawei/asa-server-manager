@@ -1206,7 +1206,7 @@
     "/api/ws/rcon": {
       "get": {
         "summary": "WebSocket connection for RCON command execution",
-        "description": "Establishes a WebSocket connection for interactive RCON command execution. Each WebSocket connection maintains its own independent RCON session. Supports connect, disconnect, and command actions.",
+        "description": "Establishes a WebSocket connection for interactive RCON command execution. Each command is executed independently with a temporary RCON connection to the specified instance. No persistent connection state is maintained.",
         "tags": ["WebSocket"],
         "operationId": "handleRCONEvents",
         "responses": {
@@ -1717,11 +1717,11 @@
           "action": {
             "type": "string",
             "description": "Action to perform",
-            "enum": ["connect", "disconnect", "command", "ping"]
+            "enum": ["command", "ping"]
           },
           "instance_name": {
             "type": "string",
-            "description": "Name of the instance (required for connect action)"
+            "description": "Name of the instance (required for command action)"
           },
           "command": {
             "type": "string",

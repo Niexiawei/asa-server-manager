@@ -1,21 +1,8 @@
 <template>
-  <a-card title="RCON 交互式终端" class="rcon-terminal-card">
+  <a-card :title="headerDisable ? null :'RCON终端'" class="rcon-terminal-card"
+          :bordered="false"
+  >
     <a-space style="margin-bottom: 15px">
-      <a-button
-          @click="connectRCON"
-          :loading="rconConnecting"
-          :disabled="rconConnected || !instanceRunning"
-          type="primary"
-      >
-        连接 RCON
-      </a-button>
-      <a-button
-          @click="disconnectRCON"
-          :disabled="!rconConnected"
-          status="warning"
-      >
-        断开连接
-      </a-button>
       <a-tag :color="rconConnected ? 'green' : 'gray'">
         {{ rconConnected ? '已连接' : '未连接' }}
       </a-tag>
@@ -31,13 +18,13 @@
       />
     </div>
     <div v-else class="rcon-disconnected-tip">
-      <a-empty description="点击上方按钮连接 RCON 服务器"/>
+      <a-empty description="请刷新页面或在 Game.ini 中配置 ServerAdminPassword"/>
     </div>
   </a-card>
 </template>
 
 <script setup>
-import {ref, onUnmounted, computed} from 'vue'
+import {ref, onUnmounted, computed, onMounted} from 'vue'
 import VueWebTerminal from 'vue-web-terminal'
 import {TerminalApi} from 'vue-web-terminal';
 import {Message} from '@arco-design/web-vue'
@@ -56,6 +43,10 @@ const props = defineProps({
   instanceRunning: {
     type: Boolean,
     default: false
+  },
+  headerDisable: {
+    type: Boolean,
+    default: false
   }
 })
 
@@ -64,20 +55,15 @@ const terminalId = "ASAServerRcon"
 // RCON 相关
 const rconTerminalRef = ref(null)
 const rconConnected = ref(false)
-const rconConnecting = ref(false)
-const rconWelcomeMessage = 'RCON 交互式终端 - 请输入命令'
 let unlistenRCONMessage = null
+let pendingCommandCallback = null  // 存储待执行的命令回调
 
 // 连接 RCON
-const connectRCON = () => {
-  rconConnecting.value = true
+const initRCON = () => {
   connectRCONWebSocket(
       () => {
         rconConnected.value = true
-        rconConnecting.value = false
         Message.success('RCON 已连接')
-        // 发送 connect 命令
-        sendRCONCommandViaWebSocket('connect', props.instanceName)
         // 监听 RCON 消息
         unlistenRCONMessage = onRCONMessage((message) => {
           console.log('RCON message:', message)
@@ -85,7 +71,6 @@ const connectRCON = () => {
         })
       },
       (error) => {
-        rconConnecting.value = false
         Message.error('RCON 连接失败')
         console.error('RCON connection error:', error)
       },
@@ -96,22 +81,13 @@ const connectRCON = () => {
   )
 }
 
-// 断开 RCON
-const disconnectRCON = () => {
-  if (unlistenRCONMessage) {
-    unlistenRCONMessage()
-  }
-  disconnectRCONWebSocket()
-  rconConnected.value = false
-  Message.success('RCON 已断开')
-}
-
 // 处理 RCON 命令执行
 const handleRCONCommand = (key, command, success, failed) => {
   console.log(key, command)
   console.log('Executing RCON command:', command)
-  sendRCONCommandViaWebSocket('command', props.instanceName, key)
-  success()
+  // 保存成功回调，等待响应后执行
+  pendingCommandCallback = success
+  sendRCONCommandViaWebSocket('command', props.instanceName, command)
 }
 
 // 处理 RCON 消息响应
@@ -124,7 +100,6 @@ const handleRCONMessage = (message) => {
   if (message.success === false) {
     // 错误消息
     if (message.error) {
-      TerminalApi.push
       rconTerminalRef.value.print(message.error)
     } else if (message.message) {
       rconTerminalRef.value.print(message.message)
@@ -138,7 +113,6 @@ const handleRCONMessage = (message) => {
         tag: '',
         content: message.response
       })
-      // rconTerminalRef.value.print(message.response)
     } else if (message.message) {
       TerminalApi.pushMessage(terminalId, {
         type: "normal",
@@ -146,10 +120,20 @@ const handleRCONMessage = (message) => {
         tag: '',
         content: message.message
       })
-      // rconTerminalRef.value.print(message.message)
     }
   }
+
+  // 收到回复后执行待执行的命令回调
+  if (pendingCommandCallback) {
+    pendingCommandCallback()
+    pendingCommandCallback = null
+  }
 }
+
+onMounted(() => {
+  // 自动初始化 RCON 连接
+  initRCON()
+})
 
 onUnmounted(() => {
   // 断开 RCON 连接
@@ -164,8 +148,7 @@ onUnmounted(() => {
 
 <style scoped lang="less">
 .rcon-terminal-card {
-  height: 500px !important;
-  margin-top: 20px;
+  height: 100%;
 
   :deep(.arco-card-body) {
     height: calc(100% - 45.5px);

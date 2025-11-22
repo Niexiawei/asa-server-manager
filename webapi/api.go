@@ -935,12 +935,12 @@ func (s *APIServer) restoreBackup(c *gin.Context) {
 // updateServer updates the base server
 // SSE Writer for streaming update progress
 type SSEWriter struct {
-	c chan string
+	c chan []byte
 }
 
 func (w *SSEWriter) Write(p []byte) (n int, err error) {
 	select {
-	case w.c <- string(p):
+	case w.c <- p:
 		return len(p), nil
 	default:
 		// Channel full, skip this message
@@ -957,7 +957,7 @@ func (s *APIServer) updateServer(c *gin.Context) {
 	c.Header("Access-Control-Allow-Headers", "Content-Type")
 
 	// Create channel to stream update progress
-	updateChan := make(chan string, 100)
+	updateChan := make(chan []byte)
 	done := make(chan struct{})
 
 	// Run update in a goroutine
@@ -965,13 +965,13 @@ func (s *APIServer) updateServer(c *gin.Context) {
 		defer close(updateChan)
 		// Send SteamCMD download and extract message
 		select {
-		case updateChan <- "Downloading and extracting SteamCMD...":
+		case updateChan <- []byte("Downloading and extracting SteamCMD..."):
 		case <-done:
 			return
 		}
 		if err := asaserver.DownloadAndExtractSteamCmd(&SSEWriter{c: updateChan}); err != nil {
 			select {
-			case updateChan <- fmt.Sprintf("Error: Failed to download SteamCMD: %v", err):
+			case updateChan <- []byte(fmt.Sprintf("Error: Failed to download SteamCMD: %v", err)):
 			case <-done:
 			}
 			return
@@ -979,13 +979,13 @@ func (s *APIServer) updateServer(c *gin.Context) {
 
 		// Send ARK server update message
 		select {
-		case updateChan <- "Downloading and updating ARK server files...":
+		case updateChan <- []byte("Downloading and updating ARK server files..."):
 		case <-done:
 			return
 		}
 		if err := asaserver.DownloadAndUpdateArkServer(&SSEWriter{c: updateChan}); err != nil {
 			select {
-			case updateChan <- fmt.Sprintf("Error: Failed to update ARK server: %v", err):
+			case updateChan <- []byte(fmt.Sprintf("Error: Failed to update ARK server: %v", err)):
 			case <-done:
 			}
 			return
@@ -993,13 +993,13 @@ func (s *APIServer) updateServer(c *gin.Context) {
 
 		// Server verification
 		select {
-		case updateChan <- "Verifying server installation...":
+		case updateChan <- []byte("Verifying server installation..."):
 		case <-done:
 			return
 		}
 		if err := asaserver.VerifyServerInstallation(false); err != nil {
 			select {
-			case updateChan <- fmt.Sprintf("Error: Server verification failed: %v", err):
+			case updateChan <- []byte(fmt.Sprintf("Error: Server verification failed: %v", err)):
 			case <-done:
 			}
 			return
@@ -1007,7 +1007,7 @@ func (s *APIServer) updateServer(c *gin.Context) {
 
 		// Update completed
 		select {
-		case updateChan <- "Server update completed successfully!":
+		case updateChan <- []byte("Server update completed successfully!"):
 		case <-done:
 		}
 	}()

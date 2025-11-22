@@ -10,35 +10,34 @@
 
   <!-- 服务器更新日志 -->
   <a-modal
-    v-model:visible="updateModalVisible"
-    title="服务器更新"
-    :width="800"
-    :footer="false"
-    @cancel="handleCancelUpdate"
+      v-model:visible="updateModalVisible"
+      :title="updating ? '服务器更新中...':'服务器更新'"
+      :width="800"
+      :footer="false"
+      @cancel="handleCancelUpdate"
   >
     <div class="update-log-container">
       <div class="update-log">
-        <div 
-          v-for="(log, index) in updateLogs" 
-          :key="index"
-          class="log-line"
+        <div
+            v-for="(log, index) in updateLogs"
+            :key="index"
+            class="log-line"
         >
           {{ log }}
         </div>
       </div>
-      <a-spin v-if="updating" :size="32" class="update-spinner" />
     </div>
   </a-modal>
 </template>
 
 <script setup>
-import { ref } from 'vue'
-import { 
-  startAllServers, 
-  stopAllServers, 
+import {ref} from 'vue'
+import {
+  startAllServers,
+  stopAllServers,
   updateServer
 } from '@/apis/api.js'
-import { Message, Modal } from '@arco-design/web-vue'
+import {Message, Modal} from '@arco-design/web-vue'
 
 const props = defineProps({
   instances: {
@@ -68,27 +67,27 @@ const startAllServersHandler = async () => {
       updateLogs.value = []
 
       await startAllServers(
-        (message) => {
-          updateLogs.value.push(message)
-          // 自动滚动到下方
-          setTimeout(() => {
-            const logContainer = document.querySelector('.update-log')
-            if (logContainer) {
-              logContainer.scrollTop = logContainer.scrollHeight
-            }
-          }, 0)
-        },
-        (error) => {
-          console.error('启动服务器错误:', error)
-          updateLogs.value.push(`错误: ${error.message}`)
-          updating.value = false
-        },
-        () => {
-          updating.value = false
-          updateLogs.value.push('\n业务处理完成')
-          Message.success('所有服务器已启动')
-          emits('refresh')
-        }
+          (message) => {
+            updateLogs.value.push(message)
+            // 自动滚动到下方
+            setTimeout(() => {
+              const logContainer = document.querySelector('.update-log')
+              if (logContainer) {
+                logContainer.scrollTop = logContainer.scrollHeight
+              }
+            }, 0)
+          },
+          (error) => {
+            console.error('启动服务器错误:', error)
+            updateLogs.value.push(`错误: ${error.message}`)
+            updating.value = false
+          },
+          () => {
+            updating.value = false
+            updateLogs.value.push('\n业务处理完成')
+            Message.success('所有服务器已启动')
+            emits('refresh')
+          }
       )
     }
   })
@@ -107,27 +106,27 @@ const stopAllServersHandler = async () => {
       updateLogs.value = []
 
       await stopAllServers(
-        (message) => {
-          updateLogs.value.push(message)
-          // 自动滚动到下方
-          setTimeout(() => {
-            const logContainer = document.querySelector('.update-log')
-            if (logContainer) {
-              logContainer.scrollTop = logContainer.scrollHeight
-            }
-          }, 0)
-        },
-        (error) => {
-          console.error('停止服务器错误:', error)
-          updateLogs.value.push(`错误: ${error.message}`)
-          updating.value = false
-        },
-        () => {
-          updating.value = false
-          updateLogs.value.push('\n业务处理完成')
-          Message.success('所有服务器已停止')
-          emits('refresh')
-        }
+          (message) => {
+            updateLogs.value.push(message)
+            // 自动滚动到下方
+            setTimeout(() => {
+              const logContainer = document.querySelector('.update-log')
+              if (logContainer) {
+                logContainer.scrollTop = logContainer.scrollHeight
+              }
+            }, 0)
+          },
+          (error) => {
+            console.error('停止服务器错误:', error)
+            updateLogs.value.push(`错误: ${error.message}`)
+            updating.value = false
+          },
+          () => {
+            updating.value = false
+            updateLogs.value.push('\n业务处理完成')
+            Message.success('所有服务器已停止')
+            emits('refresh')
+          }
       )
     }
   })
@@ -150,25 +149,25 @@ const updateServerHandler = async () => {
         updateLogs.value = []
 
         await stopAllServers(
-          (message) => {
-            updateLogs.value.push(message)
-            setTimeout(() => {
-              const logContainer = document.querySelector('.update-log')
-              if (logContainer) {
-                logContainer.scrollTop = logContainer.scrollHeight
-              }
-            }, 0)
-          },
-          (error) => {
-            console.error('停止服务器错误:', error)
-            updateLogs.value.push(`错误: ${error.message}`)
-            updating.value = false
-          },
-          () => {
-            updating.value = false
-            updateLogs.value.push('\n所有服务器已停止，现在可以更新')
-            updateModalVisible.value = false
-          }
+            (message) => {
+              updateLogs.value.push(message)
+              setTimeout(() => {
+                const logContainer = document.querySelector('.update-log')
+                if (logContainer) {
+                  logContainer.scrollTop = logContainer.scrollHeight
+                }
+              }, 0)
+            },
+            (error) => {
+              console.error('停止服务器错误:', error)
+              updateLogs.value.push(`错误: ${error.message}`)
+              updating.value = false
+            },
+            () => {
+              updating.value = false
+              updateLogs.value.push('\n所有服务器已停止，现在可以更新')
+              updateModalVisible.value = false
+            }
         )
       }
     })
@@ -187,30 +186,30 @@ const updateServerHandler = async () => {
       updateAbortController = new AbortController()
 
       await updateServer(
-        (message) => {
-          // onMessage callback
-          updateLogs.value.push(message)
-          // 自动滚动到下方
-          setTimeout(() => {
-            const logContainer = document.querySelector('.update-log')
-            if (logContainer) {
-              logContainer.scrollTop = logContainer.scrollHeight
-            }
-          }, 0)
-        },
-        (error) => {
-          // onError callback
-          console.error('更新日志错误:', error)
-          updateLogs.value.push(`错误: ${error.message}`)
-          updating.value = false
-        },
-        () => {
-          // onComplete callback
-          updating.value = false
-          updateLogs.value.push('\n更新流程完成1')
-          Message.success('服务器更新成功')
-          emits('refresh')
-        }
+          (message) => {
+            // onMessage callback
+            updateLogs.value.push(message)
+            // 自动滚动到下方
+            setTimeout(() => {
+              const logContainer = document.querySelector('.update-log')
+              if (logContainer) {
+                logContainer.scrollTop = logContainer.scrollHeight
+              }
+            }, 0)
+          },
+          (error) => {
+            // onError callback
+            console.error('更新日志错误:', error)
+            updateLogs.value.push(`错误: ${error.message}`)
+            updating.value = false
+          },
+          () => {
+            // onComplete callback
+            updating.value = false
+            updateLogs.value.push('\n更新完成')
+            Message.success('服务器更新成功')
+            emits('refresh')
+          }
       )
     }
   })
@@ -238,10 +237,11 @@ const handleCancelUpdate = () => {
 }
 </script>
 
-<style scoped>
+<style scoped lang="less">
 .update-log-container {
   position: relative;
   height: 400px;
+  overflow: hidden;
 }
 
 .update-log {
@@ -250,6 +250,7 @@ const handleCancelUpdate = () => {
   border: 1px solid #e5e7eb;
   border-radius: 4px;
   padding: 12px;
+  box-sizing: border-box;
   background-color: #fafafa;
   overflow-y: auto;
   font-family: 'Monaco', 'Courier New', monospace;
@@ -261,12 +262,5 @@ const handleCancelUpdate = () => {
   color: #333;
   word-break: break-all;
   white-space: pre-wrap;
-}
-
-.update-spinner {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
 }
 </style>

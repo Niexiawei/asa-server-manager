@@ -29,6 +29,7 @@
 <script setup>
 import {ref, watch} from 'vue';
 import {useRouter, useRoute} from "vue-router";
+import "@/app.less"
 
 const router = useRouter()
 const route = useRoute()
@@ -43,7 +44,7 @@ watch(() => route.path, (newPath) => {
   } else if (newPath === '/system-logs') {
     currentRoute.value = 'system-logs';
   }
-}, { immediate: true });
+}, {immediate: true});
 
 const handleMenuClick = (key) => {
   currentRoute.value = key;
@@ -67,7 +68,7 @@ const handleMenuClick = (key) => {
 };
 </script>
 
-<style>
+<style lang="less">
 .main-body {
   width: 100%;
   height: 100vh;

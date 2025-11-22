@@ -5,7 +5,6 @@ import (
 	"asa-server/logger"
 	"fmt"
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -43,13 +42,6 @@ type RCONResponse struct {
 	Response     string `json:"response,omitempty"`
 	Error        string `json:"error,omitempty"`
 	InstanceName string `json:"instance_name,omitempty"`
-}
-
-// RCONClientConnection holds per-connection RCON state
-type RCONClientConnection struct {
-	conn        *rcon.Conn
-	connectedTo string // instance name connected to
-	mu          sync.Mutex
 }
 
 var wsUpgrader = websocket.Upgrader{
@@ -248,16 +240,6 @@ func (s *APIServer) handleRCONEvents(c *gin.Context) {
 	}
 	defer conn.Close()
 
-	// 创建每个连接独有的 RCON 状态
-	rconConn := &RCONClientConnection{}
-	defer func() {
-		rconConn.mu.Lock()
-		if rconConn.conn != nil {
-			rconConn.conn.Close()
-		}
-		rconConn.mu.Unlock()
-	}()
-
 	// 创建心跳超时 ticker
 	heartbeatTicker := time.NewTicker(heartbeatTimeout)
 	defer heartbeatTicker.Stop()
@@ -265,14 +247,6 @@ func (s *APIServer) handleRCONEvents(c *gin.Context) {
 	// 用于控制心跳检测
 	done := make(chan struct{})
 	defer close(done)
-
-	// 设置 pong 处理器
-	conn.SetPongHandler(func(string) error {
-		conn.SetReadDeadline(time.Now().Add(pongWait))
-		// 重置心跳超时 ticker
-		heartbeatTicker.Reset(heartbeatTimeout)
-		return nil
-	})
 
 	// 启动心跳超时检测 goroutine
 	go func() {
@@ -307,8 +281,8 @@ func (s *APIServer) handleRCONEvents(c *gin.Context) {
 			continue
 		}
 
-		// Handle RCON message
-		response := s.handleRCONMessage(rconConn, &msg)
+		// Handle RCON command
+		response := s.handleRCONMessage(&msg)
 		err = conn.WriteJSON(response)
 		if err != nil {
 			logger.GetLogger().Warnf("Failed to write RCON response: %v", err)
@@ -318,14 +292,10 @@ func (s *APIServer) handleRCONEvents(c *gin.Context) {
 }
 
 // handleRCONMessage processes a single RCON message
-func (s *APIServer) handleRCONMessage(rconConn *RCONClientConnection, msg *RCONMessage) RCONResponse {
+func (s *APIServer) handleRCONMessage(msg *RCONMessage) RCONResponse {
 	switch msg.Action {
-	case "connect":
-		return s.rconConnect(rconConn, msg.InstanceName)
-	case "disconnect":
-		return s.rconDisconnect(rconConn)
 	case "command":
-		return s.rconExecuteCommand(rconConn, msg.Command)
+		return s.rconExecuteCommand(msg.InstanceName, msg.Command)
 	default:
 		return RCONResponse{
 			Success: false,
@@ -334,12 +304,19 @@ func (s *APIServer) handleRCONMessage(rconConn *RCONClientConnection, msg *RCONM
 	}
 }
 
-// rconConnect establishes RCON connection to a server instance
-func (s *APIServer) rconConnect(rconConn *RCONClientConnection, instanceName string) RCONResponse {
+// rconExecuteCommand executes an RCON command with a temporary connection
+func (s *APIServer) rconExecuteCommand(instanceName string, command string) RCONResponse {
+	if command == "" {
+		return RCONResponse{
+			Success: false,
+			Error:   "Command cannot be empty",
+		}
+	}
+
 	if instanceName == "" {
 		return RCONResponse{
 			Success: false,
-			Error:   "instanceName is not found",
+			Error:   "No RCON instance selected. Please connect first.",
 		}
 	}
 
@@ -369,111 +346,27 @@ func (s *APIServer) rconConnect(rconConn *RCONClientConnection, instanceName str
 		}
 	}
 
-	// Disconnect from previous instance if connected
-	if rconConn.conn != nil {
-		rconConn.mu.Lock()
-		rconConn.conn.Close()
-		rconConn.conn = nil
-		rconConn.connectedTo = ""
-		rconConn.mu.Unlock()
-	}
-
-	// Connect to RCON server with retry logic
+	// Create temporary RCON connection for this command
 	rconAddr := fmt.Sprintf("localhost:%d", config.RCONPort)
-	logger.GetLogger().Infof("WebSocket RCON: Connecting to %s for instance '%s'...", rconAddr, instanceName)
+	logger.GetLogger().Infof("WebSocket RCON: Creating temporary connection to %s for command execution on instance '%s': %s", rconAddr, instanceName, command)
 
-	var client *rcon.Conn
-	var connectErr error
-
-	// Try to connect with timeout and retry
-	for attempt := 1; attempt <= 3; attempt++ {
-		client, connectErr = rcon.Dial(rconAddr, config.ServerAdminPassword)
-		if connectErr == nil {
-			logger.GetLogger().Infof("WebSocket RCON: Connected to instance '%s'", instanceName)
-			break
-		}
-
-		logger.GetLogger().Warnf("WebSocket RCON: Attempt %d failed: %v", attempt, connectErr)
-		if attempt < 3 {
-			logger.GetLogger().Info("WebSocket RCON: Retrying in 2 seconds...")
-			time.Sleep(2 * time.Second)
-		}
-	}
-
+	client, connectErr := rcon.Dial(rconAddr, config.ServerAdminPassword)
 	if connectErr != nil {
-		logger.GetLogger().Errorf("WebSocket RCON: Failed to connect to %s: %v", rconAddr, connectErr)
+		logger.GetLogger().Errorf("WebSocket RCON: Failed to create temporary connection to %s: %v", rconAddr, connectErr)
 		return RCONResponse{
 			Success: false,
 			Error:   fmt.Sprintf("Failed to connect to RCON server at %s: %v", rconAddr, connectErr),
 		}
 	}
 
-	// Store connection
-	rconConn.mu.Lock()
-	rconConn.conn = client
-	rconConn.connectedTo = instanceName
-	rconConn.mu.Unlock()
+	logger.GetLogger().Infof("WebSocket RCON: Temporary connection established to instance '%s'", instanceName)
 
-	return RCONResponse{
-		Success:      true,
-		Message:      fmt.Sprintf("Successfully connected to RCON server for instance '%s'", instanceName),
-		InstanceName: instanceName,
-	}
-}
+	// Execute command with temporary connection
+	response, err := client.Execute(command)
+	// Immediately close the temporary connection
+	client.Close()
+	logger.GetLogger().Infof("WebSocket RCON: Closed temporary connection for instance '%s'", instanceName)
 
-// rconDisconnect closes RCON connection
-func (s *APIServer) rconDisconnect(rconConn *RCONClientConnection) RCONResponse {
-	rconConn.mu.Lock()
-	defer rconConn.mu.Unlock()
-
-	if rconConn.conn == nil {
-		return RCONResponse{
-			Success: false,
-			Error:   "No RCON connection established",
-		}
-	}
-
-	connectedTo := rconConn.connectedTo
-	err := rconConn.conn.Close()
-	rconConn.conn = nil
-	rconConn.connectedTo = ""
-
-	if err != nil {
-		return RCONResponse{
-			Success: false,
-			Error:   fmt.Sprintf("Error closing RCON connection: %v", err),
-		}
-	}
-
-	return RCONResponse{
-		Success:      true,
-		Message:      fmt.Sprintf("Disconnected from instance '%s'", connectedTo),
-		InstanceName: connectedTo,
-	}
-}
-
-// rconExecuteCommand executes an RCON command
-func (s *APIServer) rconExecuteCommand(rconConn *RCONClientConnection, command string) RCONResponse {
-	rconConn.mu.Lock()
-	defer rconConn.mu.Unlock()
-
-	if rconConn.conn == nil {
-		return RCONResponse{
-			Success: false,
-			Error:   "No RCON connection established. Please connect first.",
-		}
-	}
-
-	if command == "" {
-		return RCONResponse{
-			Success: false,
-			Error:   "Command cannot be empty",
-		}
-	}
-
-	logger.GetLogger().Infof("WebSocket RCON: Executing command on instance '%s': %s", rconConn.connectedTo, command)
-
-	response, err := rconConn.conn.Execute(command)
 	if err != nil {
 		logger.GetLogger().Errorf("WebSocket RCON: Command execution failed: %v", err)
 		return RCONResponse{
@@ -486,7 +379,7 @@ func (s *APIServer) rconExecuteCommand(rconConn *RCONClientConnection, command s
 	return RCONResponse{
 		Success:      true,
 		Response:     response,
-		InstanceName: rconConn.connectedTo,
+		InstanceName: instanceName,
 	}
 }
 

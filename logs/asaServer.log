@@ -1302,3 +1302,285 @@
 {"level":"INFO","ts":"2025-11-21T19:44:57.884+0800","caller":"webapi/ws.go:485","msg":"WebSocket RCON: Response: Server received, But no response!! \n "}
 {"level":"INFO","ts":"2025-11-21T19:45:07.096+0800","caller":"webapi/ws.go:474","msg":"WebSocket RCON: Executing command on instance 'meijue': listplayers"}
 {"level":"INFO","ts":"2025-11-21T19:45:07.096+0800","caller":"webapi/ws.go:485","msg":"WebSocket RCON: Response: Server received, But no response!! \n "}
+{"level":"INFO","ts":"2025-11-21T19:51:09.768+0800","caller":"webapi/api.go:1036","msg":"API server on http://localhost:8080"}
+{"level":"INFO","ts":"2025-11-21T19:51:13.654+0800","caller":"webapi/ws.go:383","msg":"WebSocket RCON: Connecting to localhost:5001 for instance 'meijue'..."}
+{"level":"INFO","ts":"2025-11-21T19:51:13.708+0800","caller":"webapi/ws.go:392","msg":"WebSocket RCON: Connected to instance 'meijue'"}
+{"level":"INFO","ts":"2025-11-21T19:51:20.571+0800","caller":"webapi/ws.go:383","msg":"WebSocket RCON: Connecting to localhost:5001 for instance 'meijue'..."}
+{"level":"INFO","ts":"2025-11-21T19:51:20.644+0800","caller":"webapi/ws.go:392","msg":"WebSocket RCON: Connected to instance 'meijue'"}
+{"level":"INFO","ts":"2025-11-21T19:51:24.036+0800","caller":"webapi/ws.go:474","msg":"WebSocket RCON: Executing command on instance 'meijue': listplayers"}
+{"level":"INFO","ts":"2025-11-21T19:51:24.052+0800","caller":"webapi/ws.go:486","msg":"WebSocket RCON: Response: No Players Connected \n "}
+{"level":"INFO","ts":"2025-11-21T19:51:25.296+0800","caller":"webapi/ws.go:474","msg":"WebSocket RCON: Executing command on instance 'meijue': listplayers"}
+{"level":"INFO","ts":"2025-11-21T19:51:25.320+0800","caller":"webapi/ws.go:486","msg":"WebSocket RCON: Response: No Players Connected \n "}
+{"level":"INFO","ts":"2025-11-21T19:51:26.264+0800","caller":"webapi/ws.go:474","msg":"WebSocket RCON: Executing command on instance 'meijue': listplayers"}
+{"level":"INFO","ts":"2025-11-21T19:51:26.292+0800","caller":"webapi/ws.go:486","msg":"WebSocket RCON: Response: No Players Connected \n "}
+{"level":"INFO","ts":"2025-11-21T19:51:28.017+0800","caller":"webapi/ws.go:474","msg":"WebSocket RCON: Executing command on instance 'meijue': broadcast"}
+{"level":"INFO","ts":"2025-11-21T19:51:28.025+0800","caller":"webapi/ws.go:486","msg":"WebSocket RCON: Response: Server received, But no response!! \n "}
+{"level":"INFO","ts":"2025-11-21T19:51:31.730+0800","caller":"webapi/ws.go:474","msg":"WebSocket RCON: Executing command on instance 'meijue': getgamelog"}
+{"level":"INFO","ts":"2025-11-21T19:51:31.758+0800","caller":"webapi/ws.go:486","msg":"WebSocket RCON: Response: Server received, But no response!! \n "}
+{"level":"INFO","ts":"2025-11-21T19:51:46.778+0800","caller":"webapi/ws.go:474","msg":"WebSocket RCON: Executing command on instance 'meijue': getgamelog"}
+{"level":"INFO","ts":"2025-11-21T19:51:46.778+0800","caller":"webapi/ws.go:486","msg":"WebSocket RCON: Response: Keep Alive"}
+{"level":"INFO","ts":"2025-11-21T19:51:48.117+0800","caller":"webapi/ws.go:474","msg":"WebSocket RCON: Executing command on instance 'meijue': getgamelog"}
+{"level":"INFO","ts":"2025-11-21T19:51:48.117+0800","caller":"webapi/ws.go:486","msg":"WebSocket RCON: Response: Server received, But no response!! \n "}
+{"level":"INFO","ts":"2025-11-21T19:51:49.787+0800","caller":"webapi/ws.go:474","msg":"WebSocket RCON: Executing command on instance 'meijue': getgamelog"}
+{"level":"INFO","ts":"2025-11-21T19:51:49.787+0800","caller":"webapi/ws.go:486","msg":"WebSocket RCON: Response: Server received, But no response!! \n "}
+{"level":"INFO","ts":"2025-11-21T19:53:47.771+0800","caller":"webapi/ws.go:474","msg":"WebSocket RCON: Executing command on instance 'meijue': getgamelog"}
+{"level":"INFO","ts":"2025-11-21T19:53:47.772+0800","caller":"webapi/ws.go:486","msg":"WebSocket RCON: Response: Server received, But no response!! \n "}
+{"level":"INFO","ts":"2025-11-21T19:53:48.807+0800","caller":"webapi/ws.go:474","msg":"WebSocket RCON: Executing command on instance 'meijue': getgamelog"}
+{"level":"INFO","ts":"2025-11-21T19:53:48.807+0800","caller":"webapi/ws.go:486","msg":"WebSocket RCON: Response: Keep Alive"}
+{"level":"INFO","ts":"2025-11-21T19:53:51.331+0800","caller":"webapi/ws.go:474","msg":"WebSocket RCON: Executing command on instance 'meijue': broadcast"}
+{"level":"INFO","ts":"2025-11-21T19:53:51.331+0800","caller":"webapi/ws.go:486","msg":"WebSocket RCON: Response: Keep Alive"}
+{"level":"INFO","ts":"2025-11-21T20:10:27.322+0800","caller":"webapi/api.go:1036","msg":"API server on http://localhost:8080"}
+{"level":"INFO","ts":"2025-11-21T20:10:46.202+0800","caller":"webapi/ws.go:351","msg":"WebSocket RCON: Creating temporary connection to localhost:5001 for command execution on instance 'meijue': getgamelog"}
+{"level":"INFO","ts":"2025-11-21T20:10:46.279+0800","caller":"webapi/ws.go:362","msg":"WebSocket RCON: Temporary connection established to instance 'meijue'"}
+{"level":"INFO","ts":"2025-11-21T20:10:46.324+0800","caller":"webapi/ws.go:370","msg":"WebSocket RCON: Closed temporary connection for instance 'meijue'"}
+{"level":"INFO","ts":"2025-11-21T20:10:46.324+0800","caller":"webapi/ws.go:380","msg":"WebSocket RCON: Response: Server received, But no response!! \n "}
+{"level":"INFO","ts":"2025-11-21T20:10:48.861+0800","caller":"webapi/ws.go:351","msg":"WebSocket RCON: Creating temporary connection to localhost:5001 for command execution on instance 'meijue': broadcast message"}
+{"level":"INFO","ts":"2025-11-21T20:10:48.931+0800","caller":"webapi/ws.go:362","msg":"WebSocket RCON: Temporary connection established to instance 'meijue'"}
+{"level":"INFO","ts":"2025-11-21T20:10:48.978+0800","caller":"webapi/ws.go:370","msg":"WebSocket RCON: Closed temporary connection for instance 'meijue'"}
+{"level":"INFO","ts":"2025-11-21T20:10:48.978+0800","caller":"webapi/ws.go:380","msg":"WebSocket RCON: Response: Server received, But no response!! \n "}
+{"level":"INFO","ts":"2025-11-21T20:10:50.919+0800","caller":"webapi/ws.go:351","msg":"WebSocket RCON: Creating temporary connection to localhost:5001 for command execution on instance 'meijue': getgamelog"}
+{"level":"INFO","ts":"2025-11-21T20:10:50.979+0800","caller":"webapi/ws.go:362","msg":"WebSocket RCON: Temporary connection established to instance 'meijue'"}
+{"level":"INFO","ts":"2025-11-21T20:10:51.028+0800","caller":"webapi/ws.go:370","msg":"WebSocket RCON: Closed temporary connection for instance 'meijue'"}
+{"level":"INFO","ts":"2025-11-21T20:10:51.028+0800","caller":"webapi/ws.go:380","msg":"WebSocket RCON: Response: Server received, But no response!! \n "}
+{"level":"INFO","ts":"2025-11-21T20:10:56.485+0800","caller":"webapi/ws.go:351","msg":"WebSocket RCON: Creating temporary connection to localhost:5001 for command execution on instance 'meijue': listplayers"}
+{"level":"INFO","ts":"2025-11-21T20:10:56.560+0800","caller":"webapi/ws.go:362","msg":"WebSocket RCON: Temporary connection established to instance 'meijue'"}
+{"level":"INFO","ts":"2025-11-21T20:10:56.608+0800","caller":"webapi/ws.go:370","msg":"WebSocket RCON: Closed temporary connection for instance 'meijue'"}
+{"level":"INFO","ts":"2025-11-21T20:10:56.608+0800","caller":"webapi/ws.go:380","msg":"WebSocket RCON: Response: No Players Connected \n "}
+{"level":"WARN","ts":"2025-11-21T20:14:11.276+0800","caller":"webapi/ws.go:264","msg":"WebSocket error: websocket: close 1005 (no status)"}
+{"level":"WARN","ts":"2025-11-21T20:15:41.279+0800","caller":"webapi/ws.go:254","msg":"RCON WebSocket: Client heartbeat timeout, closing connection"}
+{"level":"INFO","ts":"2025-11-21T20:43:33.327+0800","caller":"webapi/ws.go:351","msg":"WebSocket RCON: Creating temporary connection to localhost:5001 for command execution on instance 'meijue': listplayers"}
+{"level":"INFO","ts":"2025-11-21T20:43:33.422+0800","caller":"webapi/ws.go:362","msg":"WebSocket RCON: Temporary connection established to instance 'meijue'"}
+{"level":"INFO","ts":"2025-11-21T20:43:33.469+0800","caller":"webapi/ws.go:370","msg":"WebSocket RCON: Closed temporary connection for instance 'meijue'"}
+{"level":"INFO","ts":"2025-11-21T20:43:33.469+0800","caller":"webapi/ws.go:380","msg":"WebSocket RCON: Response: No Players Connected \n "}
+{"level":"INFO","ts":"2025-11-21T20:43:34.543+0800","caller":"webapi/ws.go:351","msg":"WebSocket RCON: Creating temporary connection to localhost:5001 for command execution on instance 'meijue': listplayers"}
+{"level":"INFO","ts":"2025-11-21T20:43:34.591+0800","caller":"webapi/ws.go:362","msg":"WebSocket RCON: Temporary connection established to instance 'meijue'"}
+{"level":"INFO","ts":"2025-11-21T20:43:34.637+0800","caller":"webapi/ws.go:370","msg":"WebSocket RCON: Closed temporary connection for instance 'meijue'"}
+{"level":"INFO","ts":"2025-11-21T20:43:34.637+0800","caller":"webapi/ws.go:380","msg":"WebSocket RCON: Response: No Players Connected \n "}
+{"level":"INFO","ts":"2025-11-21T20:43:37.452+0800","caller":"webapi/ws.go:351","msg":"WebSocket RCON: Creating temporary connection to localhost:5001 for command execution on instance 'meijue': broadcast message"}
+{"level":"INFO","ts":"2025-11-21T20:43:37.536+0800","caller":"webapi/ws.go:362","msg":"WebSocket RCON: Temporary connection established to instance 'meijue'"}
+{"level":"INFO","ts":"2025-11-21T20:43:37.583+0800","caller":"webapi/ws.go:370","msg":"WebSocket RCON: Closed temporary connection for instance 'meijue'"}
+{"level":"INFO","ts":"2025-11-21T20:43:37.583+0800","caller":"webapi/ws.go:380","msg":"WebSocket RCON: Response: Server received, But no response!! \n "}
+{"level":"WARN","ts":"2025-11-21T20:44:02.526+0800","caller":"webapi/ws.go:264","msg":"WebSocket error: websocket: close 1005 (no status)"}
+{"level":"WARN","ts":"2025-11-21T20:44:02.575+0800","caller":"asaserver/server.go:289","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-21T20:46:03.520+0800","caller":"webapi/ws.go:264","msg":"WebSocket error: websocket: close 1005 (no status)"}
+{"level":"WARN","ts":"2025-11-21T20:50:14.394+0800","caller":"webapi/ws.go:264","msg":"WebSocket error: websocket: close 1005 (no status)"}
+{"level":"WARN","ts":"2025-11-21T20:54:31.220+0800","caller":"webapi/ws.go:264","msg":"WebSocket error: websocket: close 1005 (no status)"}
+{"level":"WARN","ts":"2025-11-21T20:54:35.092+0800","caller":"webapi/ws.go:264","msg":"WebSocket error: websocket: close 1005 (no status)"}
+{"level":"WARN","ts":"2025-11-21T20:54:37.550+0800","caller":"webapi/ws.go:264","msg":"WebSocket error: websocket: close 1005 (no status)"}
+{"level":"INFO","ts":"2025-11-21T20:58:39.958+0800","caller":"webapi/ws.go:351","msg":"WebSocket RCON: Creating temporary connection to localhost:5001 for command execution on instance 'meijue': listplayers"}
+{"level":"INFO","ts":"2025-11-21T20:58:40.013+0800","caller":"webapi/ws.go:362","msg":"WebSocket RCON: Temporary connection established to instance 'meijue'"}
+{"level":"INFO","ts":"2025-11-21T20:58:40.046+0800","caller":"webapi/ws.go:370","msg":"WebSocket RCON: Closed temporary connection for instance 'meijue'"}
+{"level":"INFO","ts":"2025-11-21T20:58:40.046+0800","caller":"webapi/ws.go:380","msg":"WebSocket RCON: Response: No Players Connected \n "}
+{"level":"WARN","ts":"2025-11-21T20:58:48.026+0800","caller":"webapi/ws.go:264","msg":"WebSocket error: websocket: close 1005 (no status)"}
+{"level":"INFO","ts":"2025-11-21T20:58:50.504+0800","caller":"asaserver/server.go:606","msg":"Stopping server for instance: meijue"}
+{"level":"INFO","ts":"2025-11-21T20:58:50.533+0800","caller":"asaserver/server.go:676","msg":"Connecting to RCON server at localhost:5001..."}
+{"level":"INFO","ts":"2025-11-21T20:58:50.533+0800","caller":"asaserver/server.go:677","msg":"   Instance: meijue"}
+{"level":"INFO","ts":"2025-11-21T20:58:50.533+0800","caller":"asaserver/server.go:678","msg":"   RCON Port: 5001"}
+{"level":"INFO","ts":"2025-11-21T20:58:50.592+0800","caller":"asaserver/server.go:687","msg":"Connected to RCON server"}
+{"level":"INFO","ts":"2025-11-21T20:58:50.592+0800","caller":"asaserver/server.go:710","msg":"Sending RCON command 'DoExit' to localhost:5001"}
+{"level":"INFO","ts":"2025-11-21T20:58:50.626+0800","caller":"asaserver/server.go:716","msg":"RCON response: Exiting... \n "}
+{"level":"INFO","ts":"2025-11-21T20:58:50.626+0800","caller":"asaserver/server.go:621","msg":"Server instance meijue reported 'Exiting...'. Awaiting shutdown..."}
+{"level":"INFO","ts":"2025-11-21T20:59:02.628+0800","caller":"asaserver/server.go:637","msg":"Server for instance meijue has exited."}
+{"level":"WARN","ts":"2025-11-21T20:59:40.828+0800","caller":"asaserver/server.go:289","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-21T20:59:40.860+0800","caller":"asaserver/server.go:289","msg":"Game port :9234 not found"}
+{"level":"WARN","ts":"2025-11-21T20:59:43.865+0800","caller":"asaserver/server.go:289","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-21T20:59:43.894+0800","caller":"asaserver/server.go:289","msg":"Game port :9234 not found"}
+{"level":"INFO","ts":"2025-11-21T20:59:47.167+0800","caller":"asaserver/installer.go:29","msg":"SteamCMD already installed."}
+{"level":"INFO","ts":"2025-11-21T20:59:47.167+0800","caller":"asaserver/installer.go:195","msg":"Running SteamCMD initialization/updating..."}
+{"level":"INFO","ts":"2025-11-21T20:59:50.882+0800","caller":"asaserver/installer.go:206","msg":"SteamCMD initialized/updating successfully."}
+{"level":"INFO","ts":"2025-11-21T20:59:50.882+0800","caller":"asaserver/installer.go:230","msg":"Installing/updating ARK server..."}
+{"level":"INFO","ts":"2025-11-21T20:59:50.882+0800","caller":"asaserver/installer.go:259","msg":"Running SteamCMD update..."}
+{"level":"INFO","ts":"2025-11-21T21:00:52.449+0800","caller":"asaserver/installer.go:268","msg":"ARK server installation/update completed successfully."}
+{"level":"INFO","ts":"2025-11-21T21:00:52.450+0800","caller":"asaserver/installer.go:283","msg":"Server configuration directory already exists. Skipping initial verification."}
+{"level":"WARN","ts":"2025-11-21T21:00:52.566+0800","caller":"asaserver/server.go:289","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-21T21:00:52.599+0800","caller":"asaserver/server.go:289","msg":"Game port :9234 not found"}
+{"level":"INFO","ts":"2025-11-21T21:03:29.471+0800","caller":"asaserver/installer.go:29","msg":"SteamCMD already installed."}
+{"level":"INFO","ts":"2025-11-21T21:03:29.471+0800","caller":"asaserver/installer.go:195","msg":"Running SteamCMD initialization/updating..."}
+{"level":"INFO","ts":"2025-11-21T21:03:32.175+0800","caller":"asaserver/installer.go:206","msg":"SteamCMD initialized/updating successfully."}
+{"level":"INFO","ts":"2025-11-21T21:03:32.175+0800","caller":"asaserver/installer.go:230","msg":"Installing/updating ARK server..."}
+{"level":"INFO","ts":"2025-11-21T21:03:32.175+0800","caller":"asaserver/installer.go:259","msg":"Running SteamCMD update..."}
+{"level":"INFO","ts":"2025-11-21T21:04:00.209+0800","caller":"asaserver/installer.go:268","msg":"ARK server installation/update completed successfully."}
+{"level":"INFO","ts":"2025-11-21T21:04:00.209+0800","caller":"asaserver/installer.go:283","msg":"Server configuration directory already exists. Skipping initial verification."}
+{"level":"WARN","ts":"2025-11-21T21:04:00.348+0800","caller":"asaserver/server.go:289","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-21T21:04:00.388+0800","caller":"asaserver/server.go:289","msg":"Game port :9234 not found"}
+{"level":"INFO","ts":"2025-11-21T21:06:03.725+0800","caller":"webapi/api.go:1036","msg":"API server on http://localhost:8080"}
+{"level":"INFO","ts":"2025-11-21T21:06:24.050+0800","caller":"asaserver/installer.go:29","msg":"SteamCMD already installed."}
+{"level":"INFO","ts":"2025-11-21T21:06:24.050+0800","caller":"asaserver/installer.go:195","msg":"Running SteamCMD initialization/updating..."}
+{"level":"INFO","ts":"2025-11-21T21:06:27.557+0800","caller":"asaserver/installer.go:206","msg":"SteamCMD initialized/updating successfully."}
+{"level":"INFO","ts":"2025-11-21T21:06:27.557+0800","caller":"asaserver/installer.go:230","msg":"Installing/updating ARK server..."}
+{"level":"INFO","ts":"2025-11-21T21:06:27.557+0800","caller":"asaserver/installer.go:259","msg":"Running SteamCMD update..."}
+{"level":"INFO","ts":"2025-11-21T21:06:54.316+0800","caller":"asaserver/installer.go:268","msg":"ARK server installation/update completed successfully."}
+{"level":"INFO","ts":"2025-11-21T21:06:54.316+0800","caller":"asaserver/installer.go:283","msg":"Server configuration directory already exists. Skipping initial verification."}
+{"level":"WARN","ts":"2025-11-21T21:06:54.393+0800","caller":"asaserver/server.go:289","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-21T21:06:54.424+0800","caller":"asaserver/server.go:289","msg":"Game port :9234 not found"}
+{"level":"INFO","ts":"2025-11-21T21:17:05.883+0800","caller":"webapi/api.go:1036","msg":"API server on http://localhost:8080"}
+{"level":"WARN","ts":"2025-11-21T21:17:08.638+0800","caller":"asaserver/server.go:289","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-21T21:17:08.673+0800","caller":"asaserver/server.go:289","msg":"Game port :9234 not found"}
+{"level":"INFO","ts":"2025-11-21T21:17:15.457+0800","caller":"asaserver/installer.go:29","msg":"SteamCMD already installed."}
+{"level":"INFO","ts":"2025-11-21T21:17:15.457+0800","caller":"asaserver/installer.go:195","msg":"Running SteamCMD initialization/updating..."}
+{"level":"INFO","ts":"2025-11-21T21:17:20.014+0800","caller":"asaserver/installer.go:206","msg":"SteamCMD initialized/updating successfully."}
+{"level":"INFO","ts":"2025-11-21T21:17:20.014+0800","caller":"asaserver/installer.go:230","msg":"Installing/updating ARK server..."}
+{"level":"INFO","ts":"2025-11-21T21:17:20.015+0800","caller":"asaserver/installer.go:260","msg":"Running SteamCMD update..."}
+{"level":"INFO","ts":"2025-11-21T21:17:47.797+0800","caller":"asaserver/installer.go:269","msg":"ARK server installation/update completed successfully."}
+{"level":"INFO","ts":"2025-11-21T21:17:47.797+0800","caller":"asaserver/installer.go:284","msg":"Server configuration directory already exists. Skipping initial verification."}
+{"level":"WARN","ts":"2025-11-21T21:17:47.911+0800","caller":"asaserver/server.go:289","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-21T21:17:47.941+0800","caller":"asaserver/server.go:289","msg":"Game port :9234 not found"}
+{"level":"WARN","ts":"2025-11-21T21:18:41.606+0800","caller":"asaserver/server.go:289","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-21T21:18:41.668+0800","caller":"asaserver/server.go:289","msg":"Game port :9234 not found"}
+{"level":"WARN","ts":"2025-11-21T21:18:45.481+0800","caller":"asaserver/server.go:289","msg":"Game port :9234 not found"}
+{"level":"WARN","ts":"2025-11-21T21:18:45.512+0800","caller":"asaserver/server.go:289","msg":"Game port :9234 not found"}
+{"level":"INFO","ts":"2025-11-21T21:18:45.512+0800","caller":"asaserver/server.go:427","msg":"Starting server for instance: meijue"}
+{"level":"INFO","ts":"2025-11-21T21:18:45.512+0800","caller":"asaserver/server.go:358","msg":"Backing up original configuration directory..."}
+{"level":"INFO","ts":"2025-11-21T21:18:45.750+0800","caller":"asaserver/server.go:551","msg":"Server started for instance: meijue. It should be fully operational in approximately 60 seconds."}
+{"level":"INFO","ts":"2025-11-21T21:18:45.750+0800","caller":"asaserver/server.go:552","msg":"Game log file: D:\\golang\\asa-server\\server-files\\ShooterGame\\Saved\\Logs\\ShooterGame.log"}
+{"level":"INFO","ts":"2025-11-21T21:19:45.751+0800","caller":"asaserver/server.go:395","msg":"Original configuration directory restored for instance: meijue"}
+{"level":"INFO","ts":"2025-11-21T21:19:45.752+0800","caller":"asaserver/server.go:125","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-21T21:19:45.752+0800","caller":"asaserver/server.go:125","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-21T21:22:36.778+0800","caller":"webapi/ws.go:351","msg":"WebSocket RCON: Creating temporary connection to localhost:5001 for command execution on instance 'meijue': SaveWorld"}
+{"level":"INFO","ts":"2025-11-21T21:22:36.822+0800","caller":"webapi/ws.go:362","msg":"WebSocket RCON: Temporary connection established to instance 'meijue'"}
+{"level":"INFO","ts":"2025-11-21T21:22:37.068+0800","caller":"webapi/ws.go:370","msg":"WebSocket RCON: Closed temporary connection for instance 'meijue'"}
+{"level":"INFO","ts":"2025-11-21T21:22:37.068+0800","caller":"webapi/ws.go:380","msg":"WebSocket RCON: Response: World Saved \n "}
+{"level":"INFO","ts":"2025-11-21T21:23:31.308+0800","caller":"webapi/ws.go:351","msg":"WebSocket RCON: Creating temporary connection to localhost:5001 for command execution on instance 'meijue': SaveWorld"}
+{"level":"INFO","ts":"2025-11-21T21:23:31.373+0800","caller":"webapi/ws.go:362","msg":"WebSocket RCON: Temporary connection established to instance 'meijue'"}
+{"level":"INFO","ts":"2025-11-21T21:23:31.612+0800","caller":"webapi/ws.go:370","msg":"WebSocket RCON: Closed temporary connection for instance 'meijue'"}
+{"level":"INFO","ts":"2025-11-21T21:23:31.612+0800","caller":"webapi/ws.go:380","msg":"WebSocket RCON: Response: World Saved \n "}
+{"level":"WARN","ts":"2025-11-21T21:23:33.706+0800","caller":"webapi/ws.go:264","msg":"WebSocket error: websocket: close 1005 (no status)"}
+{"level":"WARN","ts":"2025-11-21T21:23:43.183+0800","caller":"asaserver/server.go:289","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-21T21:23:57.239+0800","caller":"webapi/ws.go:264","msg":"WebSocket error: websocket: close 1005 (no status)"}
+{"level":"WARN","ts":"2025-11-21T21:24:27.448+0800","caller":"webapi/ws.go:264","msg":"WebSocket error: websocket: close 1005 (no status)"}
+{"level":"WARN","ts":"2025-11-21T21:24:28.984+0800","caller":"webapi/ws.go:264","msg":"WebSocket error: websocket: close 1005 (no status)"}
+{"level":"WARN","ts":"2025-11-21T21:24:32.748+0800","caller":"webapi/ws.go:264","msg":"WebSocket error: websocket: close 1005 (no status)"}
+{"level":"WARN","ts":"2025-11-21T21:24:47.744+0800","caller":"webapi/ws.go:264","msg":"WebSocket error: websocket: close 1005 (no status)"}
+{"level":"WARN","ts":"2025-11-21T21:30:07.844+0800","caller":"webapi/ws.go:264","msg":"WebSocket error: websocket: close 1005 (no status)"}
+{"level":"WARN","ts":"2025-11-21T21:31:37.856+0800","caller":"webapi/ws.go:254","msg":"RCON WebSocket: Client heartbeat timeout, closing connection"}
+{"level":"WARN","ts":"2025-11-21T21:35:57.070+0800","caller":"webapi/ws.go:264","msg":"WebSocket error: websocket: close 1005 (no status)"}
+{"level":"WARN","ts":"2025-11-21T21:36:55.559+0800","caller":"webapi/ws.go:264","msg":"WebSocket error: websocket: close 1005 (no status)"}
+{"level":"WARN","ts":"2025-11-21T21:39:50.994+0800","caller":"webapi/ws.go:264","msg":"WebSocket error: websocket: close 1005 (no status)"}
+{"level":"WARN","ts":"2025-11-21T21:41:20.997+0800","caller":"webapi/ws.go:254","msg":"RCON WebSocket: Client heartbeat timeout, closing connection"}
+{"level":"WARN","ts":"2025-11-21T21:48:10.535+0800","caller":"webapi/ws.go:264","msg":"WebSocket error: websocket: close 1005 (no status)"}
+{"level":"INFO","ts":"2025-11-21T21:48:42.942+0800","caller":"webapi/ws.go:351","msg":"WebSocket RCON: Creating temporary connection to localhost:5001 for command execution on instance 'meijue': listplayers"}
+{"level":"INFO","ts":"2025-11-21T21:48:43.005+0800","caller":"webapi/ws.go:362","msg":"WebSocket RCON: Temporary connection established to instance 'meijue'"}
+{"level":"INFO","ts":"2025-11-21T21:48:43.040+0800","caller":"webapi/ws.go:370","msg":"WebSocket RCON: Closed temporary connection for instance 'meijue'"}
+{"level":"INFO","ts":"2025-11-21T21:48:43.040+0800","caller":"webapi/ws.go:380","msg":"WebSocket RCON: Response: No Players Connected \n "}
+{"level":"INFO","ts":"2025-11-21T21:51:55.708+0800","caller":"webapi/api.go:1036","msg":"API server on http://localhost:8080"}
+{"level":"INFO","ts":"2025-11-21T21:52:22.396+0800","caller":"webapi/api.go:1036","msg":"API server on http://localhost:8080"}
+{"level":"WARN","ts":"2025-11-21T21:52:52.104+0800","caller":"webapi/ws.go:264","msg":"WebSocket error: websocket: close 1005 (no status)"}
+{"level":"INFO","ts":"2025-11-21T21:53:13.703+0800","caller":"asaserver/server.go:606","msg":"Stopping server for instance: meijue"}
+{"level":"INFO","ts":"2025-11-21T21:53:13.736+0800","caller":"asaserver/server.go:676","msg":"Connecting to RCON server at localhost:5001..."}
+{"level":"INFO","ts":"2025-11-21T21:53:13.736+0800","caller":"asaserver/server.go:677","msg":"   Instance: meijue"}
+{"level":"INFO","ts":"2025-11-21T21:53:13.736+0800","caller":"asaserver/server.go:678","msg":"   RCON Port: 5001"}
+{"level":"INFO","ts":"2025-11-21T21:53:13.787+0800","caller":"asaserver/server.go:687","msg":"Connected to RCON server"}
+{"level":"INFO","ts":"2025-11-21T21:53:13.788+0800","caller":"asaserver/server.go:710","msg":"Sending RCON command 'DoExit' to localhost:5001"}
+{"level":"INFO","ts":"2025-11-21T21:53:13.821+0800","caller":"asaserver/server.go:716","msg":"RCON response: Exiting... \n "}
+{"level":"INFO","ts":"2025-11-21T21:53:13.821+0800","caller":"asaserver/server.go:621","msg":"Server instance meijue reported 'Exiting...'. Awaiting shutdown..."}
+{"level":"INFO","ts":"2025-11-21T21:53:35.826+0800","caller":"asaserver/server.go:637","msg":"Server for instance meijue has exited."}
+{"level":"WARN","ts":"2025-11-21T21:53:38.692+0800","caller":"asaserver/server.go:289","msg":"Game port :9234 not found"}
+{"level":"WARN","ts":"2025-11-21T21:53:48.248+0800","caller":"asaserver/server.go:289","msg":"Game port :9234 not found"}
+{"level":"WARN","ts":"2025-11-21T21:53:51.656+0800","caller":"asaserver/server.go:289","msg":"Game port :9234 not found"}
+{"level":"WARN","ts":"2025-11-21T21:53:51.691+0800","caller":"asaserver/server.go:289","msg":"Game port :9234 not found"}
+{"level":"INFO","ts":"2025-11-21T21:53:51.691+0800","caller":"asaserver/server.go:427","msg":"Starting server for instance: meijue"}
+{"level":"INFO","ts":"2025-11-21T21:53:51.691+0800","caller":"asaserver/server.go:358","msg":"Backing up original configuration directory..."}
+{"level":"INFO","ts":"2025-11-21T21:53:51.749+0800","caller":"asaserver/server.go:551","msg":"Server started for instance: meijue. It should be fully operational in approximately 60 seconds."}
+{"level":"INFO","ts":"2025-11-21T21:53:51.749+0800","caller":"asaserver/server.go:552","msg":"Game log file: D:\\golang\\asa-server\\server-files\\ShooterGame\\Saved\\Logs\\ShooterGame.log"}
+{"level":"INFO","ts":"2025-11-21T21:54:51.750+0800","caller":"asaserver/server.go:395","msg":"Original configuration directory restored for instance: meijue"}
+{"level":"INFO","ts":"2025-11-21T21:54:51.751+0800","caller":"asaserver/server.go:125","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-21T21:54:51.751+0800","caller":"asaserver/server.go:125","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-21T22:00:17.857+0800","caller":"asaserver/server.go:606","msg":"Stopping server for instance: meijue"}
+{"level":"INFO","ts":"2025-11-21T22:00:17.893+0800","caller":"asaserver/server.go:676","msg":"Connecting to RCON server at localhost:5001..."}
+{"level":"INFO","ts":"2025-11-21T22:00:17.893+0800","caller":"asaserver/server.go:677","msg":"   Instance: meijue"}
+{"level":"INFO","ts":"2025-11-21T22:00:17.893+0800","caller":"asaserver/server.go:678","msg":"   RCON Port: 5001"}
+{"level":"INFO","ts":"2025-11-21T22:00:17.964+0800","caller":"asaserver/server.go:687","msg":"Connected to RCON server"}
+{"level":"INFO","ts":"2025-11-21T22:00:17.964+0800","caller":"asaserver/server.go:710","msg":"Sending RCON command 'DoExit' to localhost:5001"}
+{"level":"INFO","ts":"2025-11-21T22:00:17.997+0800","caller":"asaserver/server.go:716","msg":"RCON response: Exiting... \n "}
+{"level":"INFO","ts":"2025-11-21T22:00:17.997+0800","caller":"asaserver/server.go:621","msg":"Server instance meijue reported 'Exiting...'. Awaiting shutdown..."}
+{"level":"INFO","ts":"2025-11-21T22:00:40.000+0800","caller":"asaserver/server.go:637","msg":"Server for instance meijue has exited."}
+{"level":"INFO","ts":"2025-11-21T22:03:26.221+0800","caller":"webapi/api.go:1036","msg":"API server on http://localhost:8080"}
+{"level":"WARN","ts":"2025-11-21T22:03:35.896+0800","caller":"asaserver/server.go:291","msg":"Game port :9234 not found"}
+{"level":"WARN","ts":"2025-11-21T22:03:39.564+0800","caller":"asaserver/server.go:291","msg":"Game port :9234 not found"}
+{"level":"WARN","ts":"2025-11-21T22:03:39.662+0800","caller":"asaserver/server.go:291","msg":"Game port :9234 not found"}
+{"level":"INFO","ts":"2025-11-21T22:03:39.664+0800","caller":"asaserver/server.go:429","msg":"Starting server for instance: meijue"}
+{"level":"INFO","ts":"2025-11-21T22:03:39.665+0800","caller":"asaserver/server.go:360","msg":"Backing up original configuration directory..."}
+{"level":"INFO","ts":"2025-11-21T22:03:39.812+0800","caller":"asaserver/server.go:553","msg":"Server started for instance: meijue. It should be fully operational in approximately 60 seconds."}
+{"level":"INFO","ts":"2025-11-21T22:03:39.813+0800","caller":"asaserver/server.go:554","msg":"Game log file: D:\\golang\\asa-server\\server-files\\ShooterGame\\Saved\\Logs\\ShooterGame.log"}
+{"level":"INFO","ts":"2025-11-21T22:04:39.815+0800","caller":"asaserver/server.go:397","msg":"Original configuration directory restored for instance: meijue"}
+{"level":"INFO","ts":"2025-11-21T22:04:39.816+0800","caller":"asaserver/server.go:125","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-21T22:04:39.816+0800","caller":"asaserver/server.go:125","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-22T10:54:12.387+0800","caller":"webapi/ws.go:351","msg":"WebSocket RCON: Creating temporary connection to localhost:5001 for command execution on instance 'meijue': saveworld"}
+{"level":"INFO","ts":"2025-11-22T10:54:12.432+0800","caller":"webapi/ws.go:362","msg":"WebSocket RCON: Temporary connection established to instance 'meijue'"}
+{"level":"INFO","ts":"2025-11-22T10:54:12.644+0800","caller":"webapi/ws.go:368","msg":"WebSocket RCON: Closed temporary connection for instance 'meijue'"}
+{"level":"INFO","ts":"2025-11-22T10:54:12.644+0800","caller":"webapi/ws.go:378","msg":"WebSocket RCON: Response: World Saved \n "}
+{"level":"INFO","ts":"2025-11-22T10:54:16.297+0800","caller":"webapi/ws.go:351","msg":"WebSocket RCON: Creating temporary connection to localhost:5001 for command execution on instance 'meijue': listplayers"}
+{"level":"INFO","ts":"2025-11-22T10:54:16.341+0800","caller":"webapi/ws.go:362","msg":"WebSocket RCON: Temporary connection established to instance 'meijue'"}
+{"level":"INFO","ts":"2025-11-22T10:54:16.374+0800","caller":"webapi/ws.go:368","msg":"WebSocket RCON: Closed temporary connection for instance 'meijue'"}
+{"level":"INFO","ts":"2025-11-22T10:54:16.374+0800","caller":"webapi/ws.go:378","msg":"WebSocket RCON: Response: No Players Connected \n "}
+{"level":"WARN","ts":"2025-11-22T10:54:31.159+0800","caller":"webapi/ws.go:264","msg":"WebSocket error: websocket: close 1005 (no status)"}
+{"level":"WARN","ts":"2025-11-22T14:27:25.444+0800","caller":"webapi/ws.go:264","msg":"WebSocket error: websocket: close 1005 (no status)"}
+{"level":"INFO","ts":"2025-11-22T14:28:06.590+0800","caller":"webapi/ws.go:351","msg":"WebSocket RCON: Creating temporary connection to localhost:5001 for command execution on instance 'meijue': listplayers"}
+{"level":"INFO","ts":"2025-11-22T14:28:06.632+0800","caller":"webapi/ws.go:362","msg":"WebSocket RCON: Temporary connection established to instance 'meijue'"}
+{"level":"INFO","ts":"2025-11-22T14:28:06.666+0800","caller":"webapi/ws.go:368","msg":"WebSocket RCON: Closed temporary connection for instance 'meijue'"}
+{"level":"INFO","ts":"2025-11-22T14:28:06.666+0800","caller":"webapi/ws.go:378","msg":"WebSocket RCON: Response: No Players Connected \n "}
+{"level":"WARN","ts":"2025-11-22T14:28:11.622+0800","caller":"webapi/ws.go:264","msg":"WebSocket error: websocket: close 1005 (no status)"}
+{"level":"WARN","ts":"2025-11-22T14:28:27.295+0800","caller":"webapi/ws.go:264","msg":"WebSocket error: websocket: close 1005 (no status)"}
+{"level":"WARN","ts":"2025-11-22T14:59:01.264+0800","caller":"asaserver/server.go:291","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-22T14:59:03.787+0800","caller":"asaserver/server.go:291","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-22T14:59:03.817+0800","caller":"asaserver/server.go:291","msg":"Game port :7002 not found"}
+{"level":"INFO","ts":"2025-11-22T14:59:03.818+0800","caller":"asaserver/server.go:429","msg":"Starting server for instance: jibian"}
+{"level":"INFO","ts":"2025-11-22T14:59:03.818+0800","caller":"asaserver/server.go:360","msg":"Backing up original configuration directory..."}
+{"level":"INFO","ts":"2025-11-22T14:59:03.942+0800","caller":"asaserver/server.go:539","msg":"[jibian] Redirecting AsaApiLoader output to logger"}
+{"level":"INFO","ts":"2025-11-22T14:59:03.942+0800","caller":"asaserver/server.go:553","msg":"Server started for instance: jibian. It should be fully operational in approximately 60 seconds."}
+{"level":"INFO","ts":"2025-11-22T14:59:03.942+0800","caller":"asaserver/server.go:554","msg":"Game log file: D:\\golang\\asa-server\\server-files\\ShooterGame\\Saved\\Logs\\ShooterGame_2.log"}
+{"level":"INFO","ts":"2025-11-22T14:59:03.959+0800","caller":"asaserver/server.go:524","msg":"[jibian][AsaApiLoader] [Success]: Detected Server: ArkAscendedServer.exe\r\n\u001b]0;D:\\golang\\asa-server\\server-files\\ShooterGame\\Binaries\\Win64\\AsaApiLoader.exe\u0007"}
+{"level":"INFO","ts":"2025-11-22T14:59:03.978+0800","caller":"asaserver/server.go:524","msg":"[jibian][AsaApiLoader] [Success]: Detected Api: AsaApi.dll"}
+{"level":"INFO","ts":"2025-11-22T14:59:04.034+0800","caller":"asaserver/server.go:524","msg":"[jibian][AsaApiLoader] 11/22/25 14:59 [API][info] Deleted log file: ArkApi_30460_2025-11-20_18-04.log"}
+{"level":"INFO","ts":"2025-11-22T14:59:04.042+0800","caller":"asaserver/server.go:524","msg":"[jibian][AsaApiLoader] 11/22/25 14:59 [API][info] Deleted log file: ArkApi_3820_2025-11-20_17-40.log\r\n11/22/25 14:59 [API][info] Deleted log file: ArkApi_40224_2025-11-20_22-07.log\r\n11/22/25 14:59 [API][info] Deleted log file: ArkApi_43084_2025-11-20_21-55.log\r\n11/22/25 14:59 [API][info] Deleted log file: ArkApi_44296_2025-11-20_17-35.log\r\n11/22/25 14:59 [API][info] Deleted log file: ArkApi_45140_2025-11-20_21-28.log\r\n11/22/25 14:59 [API][info] Deleted log file: ArkApi_45676_2025-11-21_11-31.log\r\n11/22/25 14:59 [API][info] Deleted log file: ArkApi_45928_2025-11-20_17-14.log\r\n11/22/25 14:59 [API][info] Deleted log file: ArkApi_49060_2025-11-20_18-08.log\r\n11/22/25 14:59 [API][info] Deleted log file: ArkApi_51008_2025-11-20_21-22.log\r\n11/22/25 14:59 [API][info] Deleted log file: ArkApi_53256_2025-11-21_11-11.log\r\n11/22/25 14:59 [API][info] Deleted log file: ArkApi_53620_2025-11-20_21-25.log\r\n11/22/25 14:59 [API][info] Deleted log file: ArkApi_54796_2025-11-20_22-23.log\r\n11/22/25 14:59 [API][info] Deleted log file: connection_log_7001.txt\r\n11/22/25 14:59 [API][info] Deleted log file: connection_log_7002.txt\r\n11/22/25 14:59 [API][info] Deleted log file: connection_log_7777.txt\r\n11/22/25 14:59 [API][info] -----------------------------------------------\r\n11/22/25 14:59 [API][info] ARK:SA Api V1.19\r\n11/22/25 14:59 [API][info] Brought to you by ArkServerApi\r\n11/22/25 14:59 [API][info] https://github.com/orgs/ArkServerApi\r\n11/22/25 14:59 [API][info] Website: https://ark-server-api.com\r\n11/22/25 14:59 [API][info] Loading..."}
+{"level":"INFO","ts":"2025-11-22T14:59:24.150+0800","caller":"asaserver/server.go:524","msg":"[jibian][AsaApiLoader] 11/22/25 14:59 [API][info] Cache files downloaded and processed successfully"}
+{"level":"INFO","ts":"2025-11-22T14:59:24.152+0800","caller":"asaserver/server.go:524","msg":"[jibian][AsaApiLoader] 11/22/25 14:59 [API][info] Cache is still valid loading existing cache"}
+{"level":"INFO","ts":"2025-11-22T14:59:24.152+0800","caller":"asaserver/server.go:524","msg":"[jibian][AsaApiLoader] 11/22/25 14:59 [API][info] Reading cached offsets"}
+{"level":"INFO","ts":"2025-11-22T14:59:24.435+0800","caller":"asaserver/server.go:524","msg":"[jibian][AsaApiLoader] 11/22/25 14:59 [API][info] Reading cached bitfields"}
+{"level":"INFO","ts":"2025-11-22T14:59:24.458+0800","caller":"asaserver/server.go:524","msg":"[jibian][AsaApiLoader] 11/22/25 14:59 [API][info] Initialized hooks"}
+{"level":"INFO","ts":"2025-11-22T14:59:24.458+0800","caller":"asaserver/server.go:524","msg":"[jibian][AsaApiLoader] 11/22/25 14:59 [API][info] API was successfully loaded"}
+{"level":"INFO","ts":"2025-11-22T14:59:24.458+0800","caller":"asaserver/server.go:524","msg":"[jibian][AsaApiLoader] 11/22/25 14:59 [API][info] -----------------------------------------------"}
+{"level":"INFO","ts":"2025-11-22T14:59:24.459+0800","caller":"asaserver/server.go:524","msg":"[jibian][AsaApiLoader] [Success]: Loader Completed, Reason: Success"}
+{"level":"INFO","ts":"2025-11-22T14:59:26.436+0800","caller":"asaserver/server.go:524","msg":"[jibian][AsaApiLoader] 11/22/25 14:59 [API][info] UGameEngine::Init was called"}
+{"level":"INFO","ts":"2025-11-22T14:59:26.436+0800","caller":"asaserver/server.go:524","msg":"[jibian][AsaApiLoader] 11/22/25 14:59 [API][info] Loading plugins.."}
+{"level":"INFO","ts":"2025-11-22T14:59:26.454+0800","caller":"asaserver/server.go:524","msg":"[jibian][AsaApiLoader] 11/22/25 14:59 [API][info] Loaded plugin Ark:SA Permissions V1.03 (Manage permis\r\nssions groups)"}
+{"level":"INFO","ts":"2025-11-22T14:59:26.455+0800","caller":"asaserver/server.go:524","msg":"[jibian][AsaApiLoader] 11/22/25 14:59 [API][info] Loaded all plugins"}
+{"level":"INFO","ts":"2025-11-22T14:59:26.525+0800","caller":"asaserver/server.go:524","msg":"[jibian][AsaApiLoader] Setting breakpad minidump AppID = 2399830"}
+{"level":"WARN","ts":"2025-11-22T14:59:28.360+0800","caller":"asaserver/server.go:291","msg":"Game port :7002 not found"}
+{"level":"INFO","ts":"2025-11-22T14:59:30.298+0800","caller":"asaserver/server.go:524","msg":"[jibian][AsaApiLoader] 11/22/25 14:59 [API][info] AShooterGameMode::InitGame was called"}
+{"level":"INFO","ts":"2025-11-22T15:00:03.944+0800","caller":"asaserver/server.go:397","msg":"Original configuration directory restored for instance: jibian"}
+{"level":"INFO","ts":"2025-11-22T15:00:03.945+0800","caller":"asaserver/server.go:125","msg":"Loaded 2 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-22T15:00:03.945+0800","caller":"asaserver/server.go:125","msg":"Loaded 2 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-22T15:00:04.916+0800","caller":"asaserver/server.go:524","msg":"[jibian][AsaApiLoader] src\\clientdll\\cminterface.cpp (2253) : !BLoggedOn()"}
+{"level":"INFO","ts":"2025-11-22T15:00:04.917+0800","caller":"asaserver/server.go:524","msg":"[jibian][AsaApiLoader] src\\clientdll\\cminterface.cpp (2253) : !BLoggedOn()"}
+{"level":"INFO","ts":"2025-11-22T15:00:04.964+0800","caller":"asaserver/server.go:524","msg":"[jibian][AsaApiLoader] 11/22/25 15:00 [API][info] SERVER ID: 165832495"}
+{"level":"INFO","ts":"2025-11-22T15:01:29.918+0800","caller":"asaserver/server.go:608","msg":"Stopping server for instance: jibian"}
+{"level":"INFO","ts":"2025-11-22T15:01:29.952+0800","caller":"asaserver/server.go:678","msg":"Connecting to RCON server at localhost:5002..."}
+{"level":"INFO","ts":"2025-11-22T15:01:29.952+0800","caller":"asaserver/server.go:679","msg":"   Instance: jibian"}
+{"level":"INFO","ts":"2025-11-22T15:01:29.952+0800","caller":"asaserver/server.go:680","msg":"   RCON Port: 5002"}
+{"level":"INFO","ts":"2025-11-22T15:01:30.015+0800","caller":"asaserver/server.go:689","msg":"Connected to RCON server"}
+{"level":"INFO","ts":"2025-11-22T15:01:30.015+0800","caller":"asaserver/server.go:712","msg":"Sending RCON command 'DoExit' to localhost:5002"}
+{"level":"INFO","ts":"2025-11-22T15:01:30.047+0800","caller":"asaserver/server.go:718","msg":"RCON response: Exiting... \n "}
+{"level":"INFO","ts":"2025-11-22T15:01:30.047+0800","caller":"asaserver/server.go:623","msg":"Server instance jibian reported 'Exiting...'. Awaiting shutdown..."}
+{"level":"INFO","ts":"2025-11-22T15:01:40.049+0800","caller":"asaserver/server.go:639","msg":"Server for instance jibian has exited."}
+{"level":"INFO","ts":"2025-11-22T15:01:40.050+0800","caller":"asaserver/server.go:125","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-22T15:01:40.050+0800","caller":"asaserver/server.go:125","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-22T15:01:45.195+0800","caller":"asaserver/server.go:608","msg":"Stopping server for instance: meijue"}
+{"level":"INFO","ts":"2025-11-22T15:01:45.227+0800","caller":"asaserver/server.go:678","msg":"Connecting to RCON server at localhost:5001..."}
+{"level":"INFO","ts":"2025-11-22T15:01:45.227+0800","caller":"asaserver/server.go:679","msg":"   Instance: meijue"}
+{"level":"INFO","ts":"2025-11-22T15:01:45.227+0800","caller":"asaserver/server.go:680","msg":"   RCON Port: 5001"}
+{"level":"INFO","ts":"2025-11-22T15:01:45.274+0800","caller":"asaserver/server.go:689","msg":"Connected to RCON server"}
+{"level":"INFO","ts":"2025-11-22T15:01:45.274+0800","caller":"asaserver/server.go:712","msg":"Sending RCON command 'DoExit' to localhost:5001"}
+{"level":"INFO","ts":"2025-11-22T15:01:45.306+0800","caller":"asaserver/server.go:718","msg":"RCON response: Exiting... \n "}
+{"level":"INFO","ts":"2025-11-22T15:01:45.306+0800","caller":"asaserver/server.go:623","msg":"Server instance meijue reported 'Exiting...'. Awaiting shutdown..."}
+{"level":"INFO","ts":"2025-11-22T15:01:57.308+0800","caller":"asaserver/server.go:639","msg":"Server for instance meijue has exited."}
+{"level":"WARN","ts":"2025-11-22T19:05:32.952+0800","caller":"asaserver/server.go:291","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-22T19:05:32.979+0800","caller":"asaserver/server.go:291","msg":"Game port :9234 not found"}
+{"level":"WARN","ts":"2025-11-22T19:05:33.605+0800","caller":"asaserver/server.go:291","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-22T19:05:33.635+0800","caller":"asaserver/server.go:291","msg":"Game port :9234 not found"}
+{"level":"WARN","ts":"2025-11-22T19:06:09.467+0800","caller":"asaserver/server.go:291","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-22T19:06:09.498+0800","caller":"asaserver/server.go:291","msg":"Game port :9234 not found"}
+{"level":"WARN","ts":"2025-11-22T19:06:12.282+0800","caller":"asaserver/server.go:291","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-22T19:06:12.310+0800","caller":"asaserver/server.go:291","msg":"Game port :9234 not found"}
+{"level":"WARN","ts":"2025-11-22T19:09:29.520+0800","caller":"asaserver/server.go:291","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-22T19:09:29.570+0800","caller":"asaserver/server.go:291","msg":"Game port :9234 not found"}

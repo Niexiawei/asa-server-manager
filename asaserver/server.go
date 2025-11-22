@@ -281,11 +281,13 @@ func IsServerRunning(instanceName string) (bool, error) {
 	netstatOutput := string(output)
 
 	// Check if both the game port and RCON port are in the output
-	gamePortStr := fmt.Sprintf(":%d", config.Port)
+	gamePortStr := fmt.Sprintf("*:%d", config.Port)
+	gamePortStr2 := fmt.Sprintf("0.0.0.0:%d", config.Port)
 	// Both ports must be present in the netstat output for the server to be considered running
 	hasGamePort := strings.Contains(netstatOutput, gamePortStr)
+	hasGamePort2 := strings.Contains(netstatOutput, gamePortStr2)
 
-	if !hasGamePort {
+	if !hasGamePort && !hasGamePort2 {
 		logger.GetLogger().Warnf("Game port :%d not found", config.Port)
 		return false, nil
 	}

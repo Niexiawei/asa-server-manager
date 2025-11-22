@@ -44,6 +44,15 @@
             >
               重启
             </a-button>
+            <a-divider direction="vertical" :margin="8" style="height: 24px"/>
+            <a-button
+                @click="rconFloatingVisible = true"
+                :disabled="!instanceData?.running"
+                type="primary"
+                size="small"
+            >
+              RCON 终端
+            </a-button>
           </a-space>
         </div>
       </template>
@@ -178,9 +187,6 @@
           <a-card title="实时日志" class="config-section log-viewer-card">
             <log-viewer ref="logViewerRef" :instance-name="instanceName"/>
           </a-card>
-
-          <!-- RCON 交互式终端 -->
-          <rcon-terminal :instance-name="instanceName" :instance-running="instanceData?.running || false" />
         </div>
       </a-spin>
     </a-card>
@@ -218,7 +224,24 @@
         @cancel="gameUserSettingsEditModalVisible = false"
     />
 
-    <!-- 隐藏的文件输入框 -->
+    <!-- RCON 浮窗 Modal -->
+    <a-modal
+        v-model:visible="rconFloatingVisible"
+        title="RCON 交互式终端"
+        draggable
+        :width="1000"
+        height="60vh"
+        :mask="false"
+        unmountOnClose
+        :footer="false"
+        class="rcon-modal"
+    >
+      <div class="rcon-modal-content">
+        <rcon-terminal :headerDisable="true"
+                       :instance-name="instanceName" :instance-running="instanceData?.running || false"/>
+      </div>
+    </a-modal>
+
     <input
         ref="gameIniFileInput"
         type="file"
@@ -263,7 +286,7 @@ import {
 } from '@/apis/api.js'
 import {serverStore, getInstanceStatus} from '@/store/serverStore.js'
 import {onServerEvent} from '@/apis/api.js'
-import {IconLeft, IconEyeInvisible, IconEye} from '@arco-design/web-vue/es/icon'
+import {IconLeft, IconEyeInvisible, IconEye, IconClose, IconMinus, IconPlus} from '@arco-design/web-vue/es/icon'
 import {Modal, Message} from '@arco-design/web-vue'
 import VueWebTerminal from 'vue-web-terminal'
 
@@ -317,7 +340,8 @@ const logViewerRef = ref(null)
 // 配置文件折叠面板状态
 const activeCollapseKeys = ref([])
 
-
+// RCON 浮窗相关
+const rconFloatingVisible = ref(false)
 
 // 监听 WebSocket 事件，实时更新实例运行状态
 watch(
@@ -338,11 +362,7 @@ let unlistenServerStarting = null
 // 监听 server_stopped 事件，自动关闭日志获取
 let unlistenServerStopped = null
 
-// 计算实例是否在启动或停止中
-const instanceChanging = computed(() => {
-  const status = getInstanceStatus(instanceName)
-  return status && (status.status === 'starting' || status.status === 'stopping')
-})
+// ... existing code ...
 
 // 获取所有配置项
 const getAllConfigItems = () => {
@@ -743,8 +763,6 @@ onMounted(async () => {
   })
 })
 
-
-
 onUnmounted(() => {
   // 移除事件监听
   if (unlistenServerStarting) {
@@ -920,7 +938,13 @@ onUnmounted(() => {
   }
 }
 
-/* 配置编辑潤弹框样式 */
+/* RCON Modal 调整 */
+.rcon-modal-content {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
 
 
 </style>
