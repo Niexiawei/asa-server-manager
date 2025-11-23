@@ -1513,9 +1513,7 @@ func (s *APIServer) updateInstanceConfig(c *gin.Context) {
 	if req.Port != nil {
 		updates["Port"] = *req.Port
 	}
-	if req.ModIDs != "" {
-		updates["ModIDs"] = req.ModIDs
-	}
+	updates["ModIDs"] = req.ModIDs
 	if req.SaveDir != "" {
 		updates["SaveDir"] = req.SaveDir
 	}
