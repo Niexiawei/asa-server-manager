@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -486,4 +487,113 @@ func CheckForDuplicatePorts() error {
 	}
 
 	return nil
+}
+
+// SyncInstanceConfigFromSource syncs instance configuration and Config folder from a source instance
+// It copies:
+// 1. The entire Config folder (all files)
+// 2. Specific fields from instance_config.ini: ModIDs, CustomStartParameters, ServerPassword, ServerAdminPassword, EnableAsaPlugin
+// The target instance keeps its other configuration fields (ServerName, Port, RCONPort, QueryPort, MaxPlayers, MapName, SaveDir, ClusterID)
+func SyncInstanceConfigFromSource(sourceInstanceName, targetInstanceName string) error {
+	// Load source instance configuration
+	sourceConfig, err := LoadInstanceConfig(sourceInstanceName)
+	if err != nil {
+		return fmt.Errorf("failed to load source instance config: %w", err)
+	}
+
+	// Load target instance configuration
+	targetConfig, err := LoadInstanceConfig(targetInstanceName)
+	if err != nil {
+		return fmt.Errorf("failed to load target instance config: %w", err)
+	}
+
+	// Sync specific fields from source to target
+	// Keep target's ServerName, Port, RCONPort, QueryPort, MaxPlayers, MapName, SaveDir, ClusterID
+	targetConfig.ModIDs = sourceConfig.ModIDs
+	targetConfig.CustomStartParameters = sourceConfig.CustomStartParameters
+	targetConfig.ServerPassword = sourceConfig.ServerPassword
+	targetConfig.ServerAdminPassword = sourceConfig.ServerAdminPassword
+	targetConfig.EnableAsaPlugin = sourceConfig.EnableAsaPlugin
+
+	// Save updated target configuration
+	if err := SaveInstanceConfig(targetInstanceName, targetConfig); err != nil {
+		return fmt.Errorf("failed to save target instance config: %w", err)
+	}
+
+	// Copy entire Config folder from source to target
+	sourceConfigDir := filepath.Join(InstancesDir, sourceInstanceName, "Config")
+	targetConfigDir := filepath.Join(InstancesDir, targetInstanceName, "Config")
+
+	// Check if source Config directory exists
+	if _, err := os.Stat(sourceConfigDir); os.IsNotExist(err) {
+		return fmt.Errorf("source instance Config directory not found: %s", sourceConfigDir)
+	}
+
+	// Create target Config directory if it doesn't exist
+	if err := os.MkdirAll(targetConfigDir, 0755); err != nil {
+		return fmt.Errorf("failed to create target Config directory: %w", err)
+	}
+
+	// Copy all files from source Config to target Config
+	entries, err := os.ReadDir(sourceConfigDir)
+	if err != nil {
+		return fmt.Errorf("failed to read source Config directory: %w", err)
+	}
+
+	for _, entry := range entries {
+		srcPath := filepath.Join(sourceConfigDir, entry.Name())
+		dstPath := filepath.Join(targetConfigDir, entry.Name())
+
+		if entry.IsDir() {
+			// Recursively copy directories
+			if err := CopyDir(srcPath, dstPath); err != nil {
+				return fmt.Errorf("failed to copy directory %s: %w", entry.Name(), err)
+			}
+		} else {
+			// Copy file
+			srcFile, err := os.Open(srcPath)
+			if err != nil {
+				return fmt.Errorf("failed to open source file %s: %w", entry.Name(), err)
+			}
+
+			dstFile, err := os.Create(dstPath)
+			if err != nil {
+				srcFile.Close()
+				return fmt.Errorf("failed to create target file %s: %w", entry.Name(), err)
+			}
+
+			if _, err := io.Copy(dstFile, srcFile); err != nil {
+				srcFile.Close()
+				dstFile.Close()
+				return fmt.Errorf("failed to copy file %s: %w", entry.Name(), err)
+			}
+
+			srcFile.Close()
+			dstFile.Close()
+		}
+	}
+
+	return nil
+}
+
+// SyncInstanceConfigToMultiple syncs instance configuration and Config folder from a source instance to multiple target instances
+// It syncs:
+// 1. The entire Config folder (all files)
+// 2. Specific fields from instance_config.ini: ModIDs, CustomStartParameters, ServerPassword, ServerAdminPassword, EnableAsaPlugin
+// The target instances keep their other configuration fields (ServerName, Port, RCONPort, QueryPort, MaxPlayers, MapName, SaveDir, ClusterID)
+// Returns a map of target instance names to their sync results (error or nil if successful)
+func SyncInstanceConfigToMultiple(sourceInstanceName string, targetInstanceNames []string) map[string]error {
+	results := make(map[string]error)
+
+	// Validate that we have target instances
+	if len(targetInstanceNames) == 0 {
+		return results
+	}
+
+	// Sync to each target instance
+	for _, targetName := range targetInstanceNames {
+		results[targetName] = SyncInstanceConfigFromSource(sourceInstanceName, targetName)
+	}
+
+	return results
 }

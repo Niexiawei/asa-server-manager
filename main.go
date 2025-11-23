@@ -155,6 +155,12 @@ func main() {
 				Action: asaserver.ActionConfigRestart,
 			},
 			{
+				Name:      "sync-config",
+				Usage:     "Synchronize game config files from base server to instances",
+				ArgsUsage: "<instance_name> [instance_name2] [...]",
+				Action:    asaserver.ActionSyncGameConfig,
+			},
+			{
 				Name:  "api",
 				Usage: "Start HTTP API server",
 				Flags: []cli.Flag{

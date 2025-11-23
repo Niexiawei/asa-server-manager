@@ -108,6 +108,8 @@ func (s *APIServer) setupRoutes() {
 		config.POST("/:name/game-user-settings", s.uploadGameUserSettings)
 		config.PUT("/:name/game-ini", s.updateGameIni)
 		config.PUT("/:name/game-user-settings", s.updateGameUserSettings)
+		config.POST("/sync", s.syncGameConfig)
+		config.POST("/sync-instance", s.syncInstanceConfig)
 	}
 
 	// Server update endpoints
@@ -161,6 +163,15 @@ type RestoreRequest struct {
 
 type ConfigFileRequest struct {
 	Content string `json:"content" binding:"required"`
+}
+
+type SyncConfigRequest struct {
+	Instances []string `json:"instances" binding:"required,min=1"`
+}
+
+type SyncInstanceConfigRequest struct {
+	SourceInstance  string   `json:"source_instance" binding:"required"`
+	TargetInstances []string `json:"target_instances" binding:"required,min=1"`
 }
 
 // ========== Handlers ==========
@@ -1546,5 +1557,123 @@ func (s *APIServer) updateInstanceConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, StatusResponse{
 		Success: true,
 		Message: fmt.Sprintf("Instance config updated successfully for '%s'", instanceName),
+	})
+}
+
+// syncGameConfig syncs game configuration files (Game.ini and GameUserSettings.ini) from base server to instances
+func (s *APIServer) syncGameConfig(c *gin.Context) {
+	var req SyncConfigRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, StatusResponse{
+			Success: false,
+			Error:   err.Error(),
+		})
+		return
+	}
+
+	if len(req.Instances) == 0 {
+		c.JSON(http.StatusBadRequest, StatusResponse{
+			Success: false,
+			Error:   "At least one instance name is required",
+		})
+		return
+	}
+
+	// Sync config for each instance
+	var failedInstances []string
+	var successInstances []string
+
+	for _, instanceName := range req.Instances {
+		if err := asaserver.SyncGameConfigToInstance(instanceName); err != nil {
+			logger.GetLogger().Errorf("Failed to sync config for instance '%s': %v", instanceName, err)
+			failedInstances = append(failedInstances, instanceName)
+		} else {
+			logger.GetLogger().Infof("Successfully synced game configuration for instance '%s'", instanceName)
+			successInstances = append(successInstances, instanceName)
+		}
+	}
+
+	// Return results
+	if len(failedInstances) > 0 {
+		c.JSON(http.StatusInternalServerError, StatusResponse{
+			Success: false,
+			Message: fmt.Sprintf("%d of %d instances synced successfully", len(successInstances), len(req.Instances)),
+			Error:   fmt.Sprintf("failed to sync configuration for instances: %v", failedInstances),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, StatusResponse{
+		Success: true,
+		Message: fmt.Sprintf("Configuration synced successfully for %d instances", len(successInstances)),
+		Data: gin.H{
+			"synced_instances": successInstances,
+			"count":            len(successInstances),
+		},
+	})
+}
+
+// syncInstanceConfig syncs instance configuration and Config folder from a source instance to multiple target instances
+func (s *APIServer) syncInstanceConfig(c *gin.Context) {
+	var req SyncInstanceConfigRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, StatusResponse{
+			Success: false,
+			Error:   err.Error(),
+		})
+		return
+	}
+
+	if len(req.TargetInstances) == 0 {
+		c.JSON(http.StatusBadRequest, StatusResponse{
+			Success: false,
+			Error:   "At least one target instance name is required",
+		})
+		return
+	}
+
+	// Sync config from source to each target instance
+	results := asaserver.SyncInstanceConfigToMultiple(req.SourceInstance, req.TargetInstances)
+
+	// Separate successful and failed instances
+	var successInstances []string
+	var failedInstances []map[string]interface{}
+
+	for instanceName, err := range results {
+		if err != nil {
+			failedInstances = append(failedInstances, map[string]interface{}{
+				"instance": instanceName,
+				"error":    err.Error(),
+			})
+			logger.GetLogger().Errorf("Failed to sync config for instance '%s': %v", instanceName, err)
+		} else {
+			successInstances = append(successInstances, instanceName)
+			logger.GetLogger().Infof("Successfully synced config from '%s' to instance '%s'", req.SourceInstance, instanceName)
+		}
+	}
+
+	// Return results
+	if len(failedInstances) > 0 {
+		c.JSON(http.StatusInternalServerError, StatusResponse{
+			Success: false,
+			Message: fmt.Sprintf("Synced %d of %d target instances", len(successInstances), len(req.TargetInstances)),
+			Error:   fmt.Sprintf("Failed to sync %d instances", len(failedInstances)),
+			Data: gin.H{
+				"synced_instances": successInstances,
+				"failed_instances": failedInstances,
+				"success_count":    len(successInstances),
+				"failure_count":    len(failedInstances),
+			},
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, StatusResponse{
+		Success: true,
+		Message: fmt.Sprintf("Instance configuration synced successfully from '%s' to %d target instances", req.SourceInstance, len(successInstances)),
+		Data: gin.H{
+			"synced_instances": successInstances,
+			"count":            len(successInstances),
+		},
 	})
 }

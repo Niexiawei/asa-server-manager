@@ -999,6 +999,106 @@
         }
       }
     },
+    "/api/config/sync": {
+      "post": {
+        "summary": "Synchronize game config files from base server to instances",
+        "description": "Syncs Game.ini and GameUserSettings.ini files from the base server directory to instance Config folders. Only updates entries that don't exist in the instance configuration files, preserving existing instance-specific settings.",
+        "tags": ["Configuration"],
+        "operationId": "syncGameConfig",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SyncConfigRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Configuration synced successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncConfigResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/config/sync-instance": {
+      "post": {
+        "summary": "Sync instance configuration and files from source to multiple target instances",
+        "description": "Synchronizes instance configuration (ModIDs, CustomStartParameters, ServerPassword, ServerAdminPassword, EnableAsaPlugin) and entire Config folder from a source instance to multiple target instances. Target instances keep their other configuration fields (ServerName, Port, RCONPort, QueryPort, MaxPlayers, MapName, SaveDir, ClusterID) intact.",
+        "tags": ["Configuration"],
+        "operationId": "syncInstanceConfig",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SyncInstanceConfigRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Instance configuration synced successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncInstanceConfigResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/config/{name}/game-user-settings": {
       "get": {
         "summary": "Get GameUserSettings.ini configuration file content",
@@ -1542,6 +1642,121 @@
           }
         },
         "required": ["content"]
+      },
+      "SyncConfigRequest": {
+        "type": "object",
+        "description": "Request to synchronize game config files to instances",
+        "properties": {
+          "instances": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "List of instance names to sync configuration to",
+            "example": ["instance1", "instance2"]
+          }
+        },
+        "required": ["instances"]
+      },
+      "SyncConfigResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/StatusResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "object",
+                "properties": {
+                  "synced_instances": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "List of successfully synced instances"
+                  },
+                  "count": {
+                    "type": "integer",
+                    "description": "Number of successfully synced instances"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "SyncInstanceConfigRequest": {
+        "type": "object",
+        "description": "Request to sync instance configuration and Config folder from source to multiple target instances",
+        "properties": {
+          "source_instance": {
+            "type": "string",
+            "description": "Name of the source instance to sync from"
+          },
+          "target_instances": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "List of target instance names to sync to",
+            "example": ["instance1", "instance2"]
+          }
+        },
+        "required": ["source_instance", "target_instances"]
+      },
+      "SyncInstanceConfigResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/StatusResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "object",
+                "properties": {
+                  "synced_instances": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "List of successfully synced target instances"
+                  },
+                  "failed_instances": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "instance": {
+                          "type": "string",
+                          "description": "Instance name that failed to sync"
+                        },
+                        "error": {
+                          "type": "string",
+                          "description": "Error message"
+                        }
+                      }
+                    },
+                    "description": "List of instances that failed to sync with error details"
+                  },
+                  "success_count": {
+                    "type": "integer",
+                    "description": "Number of successfully synced instances"
+                  },
+                  "failure_count": {
+                    "type": "integer",
+                    "description": "Number of instances that failed to sync"
+                  },
+                  "count": {
+                    "type": "integer",
+                    "description": "Total number of successfully synced instances"
+                  }
+                }
+              }
+            }
+          }
+        ]
       },
       "ConfigFileResponse": {
         "allOf": [

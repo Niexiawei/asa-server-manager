@@ -482,6 +482,46 @@ func ActionConfigRestart(ctx context.Context, cmd *cli.Command) error {
 	return nil
 }
 
+func ActionSyncGameConfig(ctx context.Context, cmd *cli.Command) error {
+	args := cmd.Args()
+	var instanceNames []string
+
+	// Get instance names from arguments
+	if args.Len() > 0 {
+		for i := 0; i < args.Len(); i++ {
+			instanceName := args.Get(i)
+			if instanceName != "" {
+				instanceNames = append(instanceNames, instanceName)
+			}
+		}
+	}
+
+	// If no instances provided, show error
+	if len(instanceNames) == 0 {
+		return fmt.Errorf("at least one instance name required")
+	}
+
+	// Sync config for each instance
+	var failedInstances []string
+	for _, instanceName := range instanceNames {
+		logger.GetLogger().Infof("Syncing game configuration for instance '%s'...", instanceName)
+		if err := SyncGameConfigToInstance(instanceName); err != nil {
+			logger.GetLogger().Errorf("Failed to sync config for instance '%s': %v", instanceName, err)
+			failedInstances = append(failedInstances, instanceName)
+			continue
+		}
+		logger.GetLogger().Infof("Successfully synced game configuration for instance '%s'", instanceName)
+	}
+
+	// Report results
+	if len(failedInstances) > 0 {
+		return fmt.Errorf("failed to sync configuration for instances: %v", failedInstances)
+	}
+
+	logger.GetLogger().Infof("All %d instances synced successfully", len(instanceNames))
+	return nil
+}
+
 // Helper functions
 
 func selectInstance() string {

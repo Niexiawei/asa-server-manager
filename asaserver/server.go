@@ -3,12 +3,14 @@ package asaserver
 import (
 	"asa-server/logger"
 	"asa-server/win32api"
+	"bufio"
 	"fmt"
 	"io"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -855,4 +857,169 @@ func quotifyIfNeeded(value string) string {
 	// Check if the value contains any special characters that need quoting
 	// ARK server uses ? as parameter separator, so we need to quote values containing special characters
 	return fmt.Sprintf("\"%s\"", value)
+}
+
+// parseIniContent parses INI file content into a map of sections and their key-value pairs
+// Format: [Section]\nkey=value\n
+func parseIniContent(content string) map[string]map[string]string {
+	result := make(map[string]map[string]string)
+	var currentSection string
+
+	scanner := bufio.NewScanner(strings.NewReader(content))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+
+		// Skip empty lines and comments
+		if line == "" || strings.HasPrefix(line, ";") || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		// Check for section header
+		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
+			currentSection = strings.TrimSpace(line[1 : len(line)-1])
+			if _, exists := result[currentSection]; !exists {
+				result[currentSection] = make(map[string]string)
+			}
+			continue
+		}
+
+		// Parse key-value pair
+		if strings.Contains(line, "=") && currentSection != "" {
+			parts := strings.SplitN(line, "=", 2)
+			if len(parts) == 2 {
+				key := strings.TrimSpace(parts[0])
+				value := strings.TrimSpace(parts[1])
+				result[currentSection][key] = value
+			}
+		}
+	}
+
+	return result
+}
+
+// mergeIniConfigs merges a source INI configuration into a destination configuration
+// Only adds entries that don't exist in the destination configuration
+func mergeIniConfigs(destination map[string]map[string]string, source map[string]map[string]string) map[string]map[string]string {
+	for section, sourceValues := range source {
+		if _, sectionExists := destination[section]; !sectionExists {
+			// Add the entire section if it doesn't exist
+			destination[section] = make(map[string]string)
+		}
+
+		// Add keys that don't exist in the destination section
+		for key, value := range sourceValues {
+			if _, keyExists := destination[section][key]; !keyExists {
+				destination[section][key] = value
+			}
+		}
+	}
+
+	return destination
+}
+
+// serializeIniContent converts a parsed INI structure back to INI file content format
+func serializeIniContent(iniData map[string]map[string]string) string {
+	var result strings.Builder
+
+	// Sort sections for consistent output
+	sections := make([]string, 0, len(iniData))
+	for section := range iniData {
+		sections = append(sections, section)
+	}
+	sort.Strings(sections)
+
+	for i, section := range sections {
+		if i > 0 {
+			result.WriteString("\n")
+		}
+
+		result.WriteString(fmt.Sprintf("[%s]\n", section))
+
+		// Sort keys within section for consistent output
+		keys := make([]string, 0, len(iniData[section]))
+		for key := range iniData[section] {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+
+		for _, key := range keys {
+			result.WriteString(fmt.Sprintf("%s=%s\n", key, iniData[section][key]))
+		}
+	}
+
+	return result.String()
+}
+
+// SyncGameConfigToInstance reads Game.ini and GameUserSettings.ini from the base server directory
+// and merges them with the instance's config files, only adding entries that don't exist in the instance files
+func SyncGameConfigToInstance(instanceName string) error {
+	baseConfigDir := filepath.Join(ServerFilesDir, "ShooterGame/Saved/Config/WindowsServer")
+	instanceConfigDir := filepath.Join(InstancesDir, instanceName, "Config")
+
+	// Ensure instance config directory exists
+	if err := os.MkdirAll(instanceConfigDir, 0755); err != nil {
+		return fmt.Errorf("failed to create instance config directory: %w", err)
+	}
+
+	// Process Game.ini
+	gameIniSourcePath := filepath.Join(baseConfigDir, "Game.ini")
+	gameIniDestPath := filepath.Join(instanceConfigDir, "Game.ini")
+
+	if err := syncConfigFile(gameIniSourcePath, gameIniDestPath); err != nil {
+		return fmt.Errorf("failed to sync Game.ini: %w", err)
+	}
+
+	// Process GameUserSettings.ini
+	gameUserSettingsSourcePath := filepath.Join(baseConfigDir, "GameUserSettings.ini")
+	gameUserSettingsDestPath := filepath.Join(instanceConfigDir, "GameUserSettings.ini")
+
+	if err := syncConfigFile(gameUserSettingsSourcePath, gameUserSettingsDestPath); err != nil {
+		return fmt.Errorf("failed to sync GameUserSettings.ini: %w", err)
+	}
+
+	logger.GetLogger().Infof("Configuration files synced for instance '%s'", instanceName)
+	return nil
+}
+
+// syncConfigFile synchronizes a single INI config file
+// It reads the source file, parses it, merges it with the destination file (only adding missing entries)
+func syncConfigFile(sourcePath, destPath string) error {
+	// Check if source file exists
+	if _, err := os.Stat(sourcePath); os.IsNotExist(err) {
+		return nil // Source doesn't exist, nothing to sync
+	}
+
+	// Read source file
+	sourceContent, err := os.ReadFile(sourcePath)
+	if err != nil {
+		return fmt.Errorf("failed to read source config file: %w", err)
+	}
+
+	sourceParsed := parseIniContent(string(sourceContent))
+
+	// Read and parse destination file if it exists
+	var destParsed map[string]map[string]string
+	if _, err := os.Stat(destPath); err == nil {
+		destContent, err := os.ReadFile(destPath)
+		if err != nil {
+			return fmt.Errorf("failed to read destination config file: %w", err)
+		}
+		destParsed = parseIniContent(string(destContent))
+	} else {
+		// Destination doesn't exist, create empty structure
+		destParsed = make(map[string]map[string]string)
+	}
+
+	// Merge source into destination (only add missing entries)
+	merged := mergeIniConfigs(destParsed, sourceParsed)
+
+	// Serialize back to INI format
+	mergedContent := serializeIniContent(merged)
+
+	// Write the merged content to destination
+	if err := os.WriteFile(destPath, []byte(mergedContent), 0644); err != nil {
+		return fmt.Errorf("failed to write merged config file: %w", err)
+	}
+
+	return nil
 }
