@@ -11,6 +11,9 @@
       <RconCommand 
         :instances="instances" 
       />
+      <SyncConfigManagement 
+        :instances="instances" 
+      />
     </a-card>
   </div>
 </template>
@@ -22,6 +25,7 @@ import { Message } from '@arco-design/web-vue'
 import GlobalServerControl from '@/views/ServerController/components/GlobalServerControl.vue'
 import BackupManagement from '@/views/ServerController/components/BackupManagement.vue'
 import RconCommand from '@/views/ServerController/components/RconCommand.vue'
+import SyncConfigManagement from '@/views/ServerController/components/SyncConfigManagement.vue'
 
 // 状态管理
 const instances = ref([])
