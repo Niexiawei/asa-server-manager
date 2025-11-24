@@ -520,6 +520,23 @@ export async function uploadGameUserSettingsFile(instanceName, file) {
   return handleResponse(response)
 }
 
+// 同步实例配置
+export async function syncInstanceConfig(sourceInstance, targetInstances, syncCustomStartParameters, syncEnableAsaPlugin) {
+  const response = await fetch(`${API_BASE_URL}/api/config/sync-instance`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      source_instance: sourceInstance,
+      target_instances: targetInstances,
+      sync_custom_start_parameters: syncCustomStartParameters,
+      sync_enable_asa_plugin: syncEnableAsaPlugin,
+    }),
+  })
+  return handleResponse(response)
+}
+
 // 导入 WebSocket 管理器
 import {
   connectWebSocket,

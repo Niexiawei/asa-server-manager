@@ -492,9 +492,11 @@ func CheckForDuplicatePorts() error {
 // SyncInstanceConfigFromSource syncs instance configuration and Config folder from a source instance
 // It copies:
 // 1. The entire Config folder (all files)
-// 2. Specific fields from instance_config.ini: ModIDs, CustomStartParameters, ServerPassword, ServerAdminPassword, EnableAsaPlugin
+// 2. Specific fields from instance_config.ini: ModIDs, ServerPassword, ServerAdminPassword
+// 3. CustomStartParameters (if syncCustomStartParameters is true)
+// 4. EnableAsaPlugin (if syncEnableAsaPlugin is true)
 // The target instance keeps its other configuration fields (ServerName, Port, RCONPort, QueryPort, MaxPlayers, MapName, SaveDir, ClusterID)
-func SyncInstanceConfigFromSource(sourceInstanceName, targetInstanceName string) error {
+func SyncInstanceConfigFromSource(sourceInstanceName, targetInstanceName string, syncCustomStartParameters bool, syncEnableAsaPlugin bool) error {
 	// Load source instance configuration
 	sourceConfig, err := LoadInstanceConfig(sourceInstanceName)
 	if err != nil {
@@ -510,10 +512,18 @@ func SyncInstanceConfigFromSource(sourceInstanceName, targetInstanceName string)
 	// Sync specific fields from source to target
 	// Keep target's ServerName, Port, RCONPort, QueryPort, MaxPlayers, MapName, SaveDir, ClusterID
 	targetConfig.ModIDs = sourceConfig.ModIDs
-	targetConfig.CustomStartParameters = sourceConfig.CustomStartParameters
 	targetConfig.ServerPassword = sourceConfig.ServerPassword
 	targetConfig.ServerAdminPassword = sourceConfig.ServerAdminPassword
-	targetConfig.EnableAsaPlugin = sourceConfig.EnableAsaPlugin
+
+	// Conditionally sync CustomStartParameters
+	if syncCustomStartParameters {
+		targetConfig.CustomStartParameters = sourceConfig.CustomStartParameters
+	}
+
+	// Conditionally sync EnableAsaPlugin
+	if syncEnableAsaPlugin {
+		targetConfig.EnableAsaPlugin = sourceConfig.EnableAsaPlugin
+	}
 
 	// Save updated target configuration
 	if err := SaveInstanceConfig(targetInstanceName, targetConfig); err != nil {
@@ -577,12 +587,15 @@ func SyncInstanceConfigFromSource(sourceInstanceName, targetInstanceName string)
 }
 
 // SyncInstanceConfigToMultiple syncs instance configuration and Config folder from a source instance to multiple target instances
+// with optional flags to control which fields are synced
 // It syncs:
 // 1. The entire Config folder (all files)
-// 2. Specific fields from instance_config.ini: ModIDs, CustomStartParameters, ServerPassword, ServerAdminPassword, EnableAsaPlugin
+// 2. Specific fields from instance_config.ini: ModIDs, ServerPassword, ServerAdminPassword
+// 3. CustomStartParameters (if syncCustomStartParameters is true)
+// 4. EnableAsaPlugin (if syncEnableAsaPlugin is true)
 // The target instances keep their other configuration fields (ServerName, Port, RCONPort, QueryPort, MaxPlayers, MapName, SaveDir, ClusterID)
 // Returns a map of target instance names to their sync results (error or nil if successful)
-func SyncInstanceConfigToMultiple(sourceInstanceName string, targetInstanceNames []string) map[string]error {
+func SyncInstanceConfigToMultiple(sourceInstanceName string, targetInstanceNames []string, syncCustomStartParameters *bool, syncEnableAsaPlugin *bool) map[string]error {
 	results := make(map[string]error)
 
 	// Validate that we have target instances
@@ -590,9 +603,19 @@ func SyncInstanceConfigToMultiple(sourceInstanceName string, targetInstanceNames
 		return results
 	}
 
+	// Default values for optional sync flags (sync by default if not specified)
+	syncStartParams := true
+	syncPlugin := true
+	if syncCustomStartParameters != nil {
+		syncStartParams = *syncCustomStartParameters
+	}
+	if syncEnableAsaPlugin != nil {
+		syncPlugin = *syncEnableAsaPlugin
+	}
+
 	// Sync to each target instance
 	for _, targetName := range targetInstanceNames {
-		results[targetName] = SyncInstanceConfigFromSource(sourceInstanceName, targetName)
+		results[targetName] = SyncInstanceConfigFromSource(sourceInstanceName, targetName, syncStartParams, syncPlugin)
 	}
 
 	return results

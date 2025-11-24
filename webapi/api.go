@@ -170,8 +170,10 @@ type SyncConfigRequest struct {
 }
 
 type SyncInstanceConfigRequest struct {
-	SourceInstance  string   `json:"source_instance" binding:"required"`
-	TargetInstances []string `json:"target_instances" binding:"required,min=1"`
+	SourceInstance            string   `json:"source_instance" binding:"required"`
+	TargetInstances           []string `json:"target_instances" binding:"required,min=1"`
+	SyncCustomStartParameters *bool    `json:"sync_custom_start_parameters,omitempty"`
+	SyncEnableAsaPlugin       *bool    `json:"sync_enable_asa_plugin,omitempty"`
 }
 
 // ========== Handlers ==========
@@ -1633,7 +1635,7 @@ func (s *APIServer) syncInstanceConfig(c *gin.Context) {
 	}
 
 	// Sync config from source to each target instance
-	results := asaserver.SyncInstanceConfigToMultiple(req.SourceInstance, req.TargetInstances)
+	results := asaserver.SyncInstanceConfigToMultiple(req.SourceInstance, req.TargetInstances, req.SyncCustomStartParameters, req.SyncEnableAsaPlugin)
 
 	// Separate successful and failed instances
 	var successInstances []string

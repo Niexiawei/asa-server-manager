@@ -1798,3 +1798,53 @@
 {"level":"INFO","ts":"2025-11-23T22:15:12.140+0800","caller":"asaserver/server.go:666","msg":"Server for instance meijue has exited."}
 {"level":"WARN","ts":"2025-11-23T23:41:25.112+0800","caller":"asaserver/server.go:302","msg":"Game port :7002 not found"}
 {"level":"WARN","ts":"2025-11-23T23:41:25.150+0800","caller":"asaserver/server.go:302","msg":"Game port :9234 not found"}
+{"level":"WARN","ts":"2025-11-24T08:34:12.582+0800","caller":"asaserver/server.go:302","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-24T08:34:12.626+0800","caller":"asaserver/server.go:302","msg":"Game port :9234 not found"}
+{"level":"WARN","ts":"2025-11-24T09:54:57.710+0800","caller":"asaserver/server.go:302","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-24T09:54:57.738+0800","caller":"asaserver/server.go:302","msg":"Game port :9234 not found"}
+{"level":"WARN","ts":"2025-11-24T09:54:59.567+0800","caller":"asaserver/server.go:302","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-24T09:54:59.599+0800","caller":"asaserver/server.go:302","msg":"Game port :9234 not found"}
+{"level":"WARN","ts":"2025-11-24T09:55:05.999+0800","caller":"asaserver/server.go:302","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-24T09:55:06.027+0800","caller":"asaserver/server.go:302","msg":"Game port :9234 not found"}
+{"level":"WARN","ts":"2025-11-24T09:56:19.866+0800","caller":"asaserver/server.go:302","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-24T09:56:19.922+0800","caller":"asaserver/server.go:302","msg":"Game port :9234 not found"}
+{"level":"WARN","ts":"2025-11-24T09:58:01.171+0800","caller":"asaserver/server.go:302","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-24T09:58:01.200+0800","caller":"asaserver/server.go:302","msg":"Game port :9234 not found"}
+{"level":"WARN","ts":"2025-11-24T10:00:31.458+0800","caller":"asaserver/server.go:302","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-24T10:00:31.487+0800","caller":"asaserver/server.go:302","msg":"Game port :9234 not found"}
+{"level":"WARN","ts":"2025-11-24T10:04:47.108+0800","caller":"asaserver/server.go:302","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-24T10:04:47.180+0800","caller":"asaserver/server.go:302","msg":"Game port :9234 not found"}
+{"level":"INFO","ts":"2025-11-24T10:05:05.286+0800","caller":"webapi/api.go:1047","msg":"API server on http://localhost:8080"}
+{"level":"INFO","ts":"2025-11-24T10:05:10.685+0800","caller":"webapi/api.go:1651","msg":"Successfully synced config from 'jibian' to instance 'meijue'"}
+{"level":"WARN","ts":"2025-11-24T10:05:16.099+0800","caller":"asaserver/server.go:304","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-24T10:05:16.176+0800","caller":"asaserver/server.go:304","msg":"Game port :9234 not found"}
+{"level":"WARN","ts":"2025-11-24T10:05:26.017+0800","caller":"asaserver/server.go:304","msg":"Game port :9234 not found"}
+{"level":"WARN","ts":"2025-11-24T10:05:59.692+0800","caller":"asaserver/server.go:304","msg":"Game port :9234 not found"}
+{"level":"WARN","ts":"2025-11-24T10:06:05.042+0800","caller":"asaserver/server.go:304","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-24T10:06:05.069+0800","caller":"asaserver/server.go:304","msg":"Game port :9234 not found"}
+{"level":"WARN","ts":"2025-11-24T10:07:28.104+0800","caller":"asaserver/server.go:304","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-24T10:07:28.136+0800","caller":"asaserver/server.go:304","msg":"Game port :9234 not found"}
+{"level":"WARN","ts":"2025-11-24T10:07:30.362+0800","caller":"asaserver/server.go:304","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-24T10:07:30.429+0800","caller":"asaserver/server.go:304","msg":"Game port :9234 not found"}
+{"level":"WARN","ts":"2025-11-24T10:07:34.313+0800","caller":"asaserver/server.go:304","msg":"Game port :9234 not found"}
+{"level":"WARN","ts":"2025-11-24T10:07:42.950+0800","caller":"asaserver/server.go:304","msg":"Game port :9234 not found"}
+{"level":"WARN","ts":"2025-11-24T10:08:11.754+0800","caller":"asaserver/server.go:304","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-24T10:08:11.794+0800","caller":"asaserver/server.go:304","msg":"Game port :9234 not found"}
+{"level":"INFO","ts":"2025-11-24T10:08:15.982+0800","caller":"webapi/api.go:1651","msg":"Successfully synced config from 'meijue' to instance 'jibian'"}
+{"level":"WARN","ts":"2025-11-24T10:08:17.025+0800","caller":"asaserver/server.go:304","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-24T10:08:17.053+0800","caller":"asaserver/server.go:304","msg":"Game port :9234 not found"}
+{"level":"WARN","ts":"2025-11-24T10:08:19.872+0800","caller":"asaserver/server.go:304","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-24T10:08:23.970+0800","caller":"asaserver/server.go:304","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-24T10:08:23.996+0800","caller":"asaserver/server.go:304","msg":"Game port :9234 not found"}
+{"level":"WARN","ts":"2025-11-24T10:08:26.429+0800","caller":"asaserver/server.go:304","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-24T10:08:30.615+0800","caller":"asaserver/server.go:304","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-24T10:08:30.643+0800","caller":"asaserver/server.go:304","msg":"Game port :9234 not found"}
+{"level":"WARN","ts":"2025-11-24T10:12:58.672+0800","caller":"asaserver/server.go:304","msg":"Game port :9234 not found"}
+{"level":"WARN","ts":"2025-11-24T10:15:01.718+0800","caller":"asaserver/server.go:304","msg":"Game port :9234 not found"}
+{"level":"WARN","ts":"2025-11-24T10:15:03.684+0800","caller":"asaserver/server.go:304","msg":"Game port :9234 not found"}
+{"level":"WARN","ts":"2025-11-24T10:15:55.348+0800","caller":"asaserver/server.go:304","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-24T10:15:55.382+0800","caller":"asaserver/server.go:304","msg":"Game port :9234 not found"}
+{"level":"WARN","ts":"2025-11-24T10:16:00.100+0800","caller":"asaserver/server.go:304","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-24T10:16:00.212+0800","caller":"asaserver/server.go:304","msg":"Game port :9234 not found"}
+{"level":"WARN","ts":"2025-11-24T10:18:26.567+0800","caller":"asaserver/server.go:304","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-24T10:18:26.608+0800","caller":"asaserver/server.go:304","msg":"Game port :9234 not found"}

@@ -102,6 +102,13 @@
                   >
                     查看日志
                   </a-button>
+                  <a-button
+                      @click="openSyncModal(instance.name)"
+                      type="primary"
+                      size="small"
+                  >
+                    同步配置
+                  </a-button>
                 </template>
               </a-card>
             </a-col>
@@ -128,6 +135,17 @@
         />
       </div>
     </a-modal>
+
+    <!-- 配置同步弹窗 -->
+    <sync-config-modal
+        :visible="syncModalVisible"
+        :instances="instances"
+        :source-instance="selectedSourceInstance"
+        @update:visible="syncModalVisible = $event"
+        @sync-complete="handleSyncComplete"
+    />
+
+    <!-- 创建实例弹窗 -->
     <a-modal
         v-model:visible="showCreateModal"
         title="创建新实例"
@@ -162,6 +180,7 @@ import {Modal, Button} from '@arco-design/web-vue';
 import {serverStore, updateInstancesInStore} from '@/store/serverStore.js'
 import WSStatusIndicator from '@/components/WSStatusIndicator.vue'
 import LogViewer from '@/components/LogViewer.vue'
+import SyncConfigModal from '@/components/SyncConfigModal.vue'
 
 // 状态管理
 const router = useRouter()
@@ -175,6 +194,8 @@ const form = reactive({
 })
 
 const logViewerRef = ref()
+const syncModalVisible = ref(false)
+const selectedSourceInstance = ref('')
 
 // 获取实例列表
 const fetchInstances = async () => {
@@ -380,6 +401,19 @@ const viewInstanceDetail = (name) => {
   })
 }
 
+// 打开配置同步弹窗
+const openSyncModal = (instanceName) => {
+  selectedSourceInstance.value = instanceName
+  syncModalVisible.value = true
+}
+
+// 处理同步完成事件
+const handleSyncComplete = (result) => {
+  // 可在此添加配置同步完成后的处理逻辑
+  console.log('Config sync completed:', result)
+  fetchInstances()
+}
+
 </script>
 
 <style scoped>
@@ -480,5 +514,11 @@ const viewInstanceDetail = (name) => {
   font-size: 14px;
   word-break: break-all;
   flex: 1;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  font-size: 14px;
 }
 </style>
