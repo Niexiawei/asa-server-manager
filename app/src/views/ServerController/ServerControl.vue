@@ -11,6 +11,9 @@
       <RconCommand 
         :instances="instances" 
       />
+      <GameConfigSync 
+        :instances="instances" 
+      />
       <SyncConfigManagement 
         :instances="instances" 
       />
@@ -25,6 +28,7 @@ import { Message } from '@arco-design/web-vue'
 import GlobalServerControl from '@/views/ServerController/components/GlobalServerControl.vue'
 import BackupManagement from '@/views/ServerController/components/BackupManagement.vue'
 import RconCommand from '@/views/ServerController/components/RconCommand.vue'
+import GameConfigSync from '@/views/ServerController/components/GameConfigSync.vue'
 import SyncConfigManagement from '@/views/ServerController/components/SyncConfigManagement.vue'
 
 // 状态管理

@@ -399,6 +399,7 @@ const saveGameIni = async (content) => {
     if (data.success) {
       Message.success('Game.ini 已保存')
       gameIniEdited.value = false
+      await loadGameIni()
     } else {
       Message.error(data.error || '保存 Game.ini 失败')
     }
@@ -467,6 +468,7 @@ const saveGameUserSettings = async (content) => {
     if (data.success) {
       Message.success('GameUserSettings.ini 已保存')
       gameUserSettingsEdited.value = false
+      await loadGameUserSettings()
     } else {
       Message.error(data.error || '保存 GameUserSettings.ini 失败')
     }

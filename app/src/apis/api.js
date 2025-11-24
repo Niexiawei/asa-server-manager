@@ -537,6 +537,20 @@ export async function syncInstanceConfig(sourceInstance, targetInstances, syncCu
   return handleResponse(response)
 }
 
+// 同步游戏配置（Game.ini 和 GameUserSettings.ini）
+export async function syncGameConfig(instances) {
+  const response = await fetch(`${API_BASE_URL}/api/config/sync`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      instances: instances,
+    }),
+  })
+  return handleResponse(response)
+}
+
 // 导入 WebSocket 管理器
 import {
   connectWebSocket,
