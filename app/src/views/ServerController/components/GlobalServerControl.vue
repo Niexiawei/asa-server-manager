@@ -135,7 +135,7 @@ const stopAllServersHandler = async () => {
 // 更新服务器
 const updateServerHandler = async () => {
   // 检查是否有实例正在运行
-  const runningInstances = props.instances.filter(i => i.running)
+  const runningInstances = props?.instances?.filter(i => i.running) || []
   if (runningInstances.length > 0) {
     Modal.confirm({
       title: '无法更新',

@@ -29,6 +29,8 @@ type APIServer struct {
 	clients map[*websocket.Conn]bool
 }
 
+var serverActionsLock sync.Mutex
+
 var ApiServerPort = 19193
 
 var globalAPIServer *APIServer
@@ -426,7 +428,14 @@ func (s *APIServer) renameInstance(c *gin.Context) {
 // startServer starts a server instance
 func (s *APIServer) startServer(c *gin.Context) {
 	name := c.Param("name")
-
+	if !serverActionsLock.TryLock() {
+		c.JSON(http.StatusInternalServerError, StatusResponse{
+			Success: false,
+			Error:   fmt.Sprintf("there are other services being started or stopped"),
+		})
+		return
+	}
+	defer serverActionsLock.Unlock()
 	// Check if server is already running first (synchronous validation)
 	running, err := asaserver.IsServerRunning(name)
 	if err != nil {
@@ -480,7 +489,14 @@ func (s *APIServer) startServer(c *gin.Context) {
 // stopServer stops a server instance
 func (s *APIServer) stopServer(c *gin.Context) {
 	name := c.Param("name")
-
+	if !serverActionsLock.TryLock() {
+		c.JSON(http.StatusInternalServerError, StatusResponse{
+			Success: false,
+			Error:   fmt.Sprintf("there are other services being started or stopped"),
+		})
+		return
+	}
+	defer serverActionsLock.Unlock()
 	// Broadcast server stopping event
 	s.BroadcastServerStopping(name)
 

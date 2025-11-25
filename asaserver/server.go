@@ -3,12 +3,15 @@ package asaserver
 import (
 	"asa-server/logger"
 	"asa-server/win32api"
+	"bufio"
+	"bytes"
 	"fmt"
 	"io"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -110,6 +113,8 @@ func InitializeLogMapping() error {
 				if event.Name != LogMappingFile {
 					continue
 				}
+
+				fmt.Println(event)
 
 				mappings, err := LoadLogMappingFromFile()
 				if err != nil {
@@ -535,6 +540,30 @@ func StartServer(instanceName string) error {
 	}
 
 	if arkAsaApiRunning {
+		CleanConsoleOutput := func(r io.Reader, w io.Writer) error {
+			// 匹配 ANSI 转义序列以及上面提到的控制符
+			// 包括 ESC [ ? ... h/l/m 等序列
+			ansiRegexp := regexp.MustCompile(`\x1b\[[0-9;?]*[a-zA-Z]`)
+			// 去除其它 C0 控制字符（保留换行符 \n）
+			ctrlRegexp := regexp.MustCompile(`[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]`)
+
+			scanner := bufio.NewScanner(r)
+			for scanner.Scan() {
+				line := scanner.Bytes()
+
+				// 去掉 ANSI / 控制字符
+				line = ansiRegexp.ReplaceAll(line, []byte{})
+				line = ctrlRegexp.ReplaceAll(line, []byte{})
+
+				// 输出，保证每行以换行符结尾
+				line = bytes.TrimRight(line, " \t")
+				if _, err := w.Write(append(line, '\n')); err != nil {
+					return err
+				}
+			}
+			return scanner.Err()
+		}
+
 		pp, err := pty.New()
 		if err != nil {
 			log.Fatalf("failed to open pty: %s", err)
@@ -542,10 +571,9 @@ func StartServer(instanceName string) error {
 
 		logWriter := &LogWriter{
 			loggerFn: func(msg string) {
-				// Remove ANSI escape sequences before logging
-				cleanMsg := removeANSIEscapes(msg)
-				if cleanMsg != "" {
-					logger.GetLogger().Infof("[%s][AsaApiLoader] %s", instanceName, cleanMsg)
+				msg = strings.TrimRight(msg, "\n\r")
+				if msg != "" {
+					logger.GetLogger().Infof("[%s][AsaApiLoader] %s", instanceName, msg)
 				}
 			},
 		}
@@ -559,7 +587,7 @@ func StartServer(instanceName string) error {
 			logger.GetLogger().Warnf("Failed to save PID for instance %s: %v", instanceName, err)
 		}
 
-		go io.Copy(logWriter, pp)
+		go CleanConsoleOutput(pp, logWriter)
 		logger.GetLogger().Infof("[%s] Redirecting AsaApiLoader output to logger", instanceName)
 	} else {
 		cmd := exec.Command(arkExe, args...)
@@ -645,8 +673,16 @@ func StopServer(instanceName string) error {
 			return fmt.Errorf("failed to find process PID: %w", err)
 		}
 	}
-	response, rconErr := SendRCONCommand(instanceName, "DoExit")
-	if rconErr == nil && strings.Contains(response, "Exiting") {
+
+	savewordres, err := SendRCONCommand(instanceName, "saveworld")
+	if err != nil {
+		logger.GetLogger().Errorf("%s saveworld faild err:%s", instanceName, err)
+	} else {
+		logger.GetLogger().Infof("%s saveworld response:%s", instanceName, savewordres)
+	}
+
+	response, err := SendRCONCommand(instanceName, "DoExit")
+	if err == nil && strings.Contains(response, "Exiting") {
 		logger.GetLogger().Infof("Server instance %s reported 'Exiting...'. Awaiting shutdown...", instanceName)
 		// Wait for process to finish using win32api.IsProcessExited
 	} else {

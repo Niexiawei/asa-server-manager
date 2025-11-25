@@ -1,9 +1,9 @@
 package winservice
 
 import (
-	"asa-server/asaserver"
 	"asa-server/webapi"
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -30,19 +30,6 @@ type program struct {
 // Start starts the service
 func (p *program) Start(s service.Service) error {
 	log.Printf("Starting %s service \n", ServiceName)
-
-	// Ensure directories exist
-	if err := asaserver.EnsureDirectories(); err != nil {
-		log.Printf("Failed to ensure directories: %v\n", err)
-		return err
-	}
-
-	// Initialize log mapping from persistent storage
-	if err := asaserver.InitializeLogMapping(); err != nil {
-		log.Printf("Failed to initialize log mapping: %v\n", err)
-		return err
-	}
-
 	// Create API server
 	p.apiServer = webapi.NewAPIServer()
 
@@ -54,7 +41,7 @@ func (p *program) Start(s service.Service) error {
 		// Wait a bit for the service to be fully initialized
 		time.Sleep(2 * time.Second)
 
-		if err := p.apiServer.StartWithContext(ctx); err != nil && err != context.Canceled {
+		if err := p.apiServer.StartWithContext(ctx); err != nil && !errors.Is(err, context.Canceled) {
 			log.Printf("Failed to start API server: %v\n", err)
 		}
 	}()

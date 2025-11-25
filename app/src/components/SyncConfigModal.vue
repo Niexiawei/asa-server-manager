@@ -113,7 +113,7 @@ const syncEnableAsaPlugin = ref(true)
 const selectedSourceInstance = computed(() => props.sourceInstance)
 
 const availableInstances = computed(() => {
-  return props.instances.filter(i => i.name !== selectedSourceInstance.value)
+  return props.instances?.filter(i => i.name !== selectedSourceInstance.value) || []
 })
 
 // 切换目标实例选中状态

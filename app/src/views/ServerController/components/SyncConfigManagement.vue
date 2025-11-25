@@ -119,7 +119,7 @@ const syncForm = reactive({
 
 // 计算目标实例选项（排除源实例）
 const targetInstanceOptions = computed(() => {
-  return props.instances.filter(instance => instance.name !== syncForm.sourceInstance)
+  return props.instances?.filter(instance => instance.name !== syncForm.sourceInstance) || []
 })
 
 // 源实例变化时清空目标实例

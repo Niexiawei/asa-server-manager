@@ -40,8 +40,13 @@
 
       <div class="log-viewer">
         <div class="log-container" ref="logContainer">
-          <div class="log-line" v-for="(log, index) in logs" :key="index">
-            {{ log }}
+          <div
+              v-for="(log, index) in logs"
+              :key="index"
+              class="log-line"
+          >
+            <span class="log-number">{{ index + 1 }}</span>
+            <span class="log-text">{{ log }}</span>
           </div>
           <div v-if="logs.length === 0" class="log-empty">
             暂无日志。点击"开始监听"按钮开始实时查看系统日志。
@@ -159,16 +164,33 @@ onBeforeUnmount(() => {
   padding: 15px;
   box-sizing: border-box;
   font-family: 'Courier New', monospace;
-  font-size: 13px;
-  color: #00d084;
+  font-size: 14px;
+  color: var(--color-white);
   white-space: pre-wrap;
   word-wrap: break-word;
   line-height: 1.5;
 }
 
 .log-line {
-  margin: 0;
-  padding: 2px 0;
+  display: flex;
+  margin-bottom: 2px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.5;
+}
+
+.log-number {
+  display: inline-block;
+  min-width: 50px;
+  margin-right: 10px;
+  color: #888;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.log-text {
+  flex: 1;
+  color: #e0e0e0;
 }
 
 .log-empty {

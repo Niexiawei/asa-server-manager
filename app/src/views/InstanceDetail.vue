@@ -292,7 +292,7 @@ import VueWebTerminal from 'vue-web-terminal'
 // Monaco Editor 引用 - 已移至 ConfigEditor 组件
 const loading = ref(true)
 const error = ref(null)
-const instanceData = ref(null)
+const instanceData = ref([])
 
 const route = useRoute()
 const instanceName = route.params.name
@@ -517,7 +517,7 @@ const fetchInstanceConfig = async () => {
   try {
     const data = await getInstanceConfig(instanceName)
     if (data.success && data.data) {
-      const instance = data.data
+      const instance = data.data || []
       instanceData.value = instance
 
       const config = instance.config || {}

@@ -304,8 +304,18 @@ type LogMapping struct {
 func LoadLogMappingFromFile() (map[string]string, error) {
 	mappings := make(map[string]string)
 
-	// If file doesn't exist, return empty mappings
+	// If file doesn't exist, create an empty mapping file
 	if _, err := os.Stat(LogMappingFile); os.IsNotExist(err) {
+		emptyMapping := LogMapping{
+			Mappings: mappings,
+		}
+		data, err := json.MarshalIndent(emptyMapping, "", "  ")
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal empty log mapping: %w", err)
+		}
+		if err := os.WriteFile(LogMappingFile, data, 0644); err != nil {
+			return nil, fmt.Errorf("failed to create log mapping file: %w", err)
+		}
 		return mappings, nil
 	}
 
