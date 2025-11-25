@@ -8,7 +8,7 @@ export function buildWebSocketUrl(url, token = "") {
 
     // In development mode, connect directly to backend server
     if (import.meta.env.DEV) {
-        const proxyTarget = import.meta.env.VITE_PROXY_TARGET || 'http://localhost:8080'
+        const proxyTarget = import.meta.env.VITE_PROXY_TARGET || 'http://localhost:19193'
         const wsTarget = proxyTarget.replace(/^https?:/, location.protocol === 'https:' ? 'wss:' : 'ws:')
         return urlJoin(wsTarget, url, `?${authParam.join('&')}`)
     }

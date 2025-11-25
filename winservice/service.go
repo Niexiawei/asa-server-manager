@@ -44,7 +44,7 @@ func (p *program) Start(s service.Service) error {
 	}
 
 	// Create API server
-	p.apiServer = webapi.NewAPIServer(8080)
+	p.apiServer = webapi.NewAPIServer()
 
 	// Start the API server in a separate goroutine
 	ctx, cancel := context.WithCancel(context.Background())

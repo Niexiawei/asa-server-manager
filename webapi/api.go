@@ -1,6 +1,7 @@
 package webapi
 
 import (
+	"asa-server/app"
 	"asa-server/asaserver"
 	"asa-server/logger"
 	"context"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/gin-contrib/cors"
+	"github.com/gin-contrib/static"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"github.com/urfave/cli/v3"
@@ -27,17 +29,18 @@ type APIServer struct {
 	clients map[*websocket.Conn]bool
 }
 
+var ApiServerPort = 19193
+
 var globalAPIServer *APIServer
 
 // NewAPIServer creates a new API server instance
-func NewAPIServer(port int) *APIServer {
+func NewAPIServer() *APIServer {
 	gin.SetMode(gin.ReleaseMode)
 	engine := gin.Default()
 	engine.Use(cors.Default())
-
 	server := &APIServer{
 		engine:  engine,
-		port:    port,
+		port:    ApiServerPort,
 		clients: make(map[*websocket.Conn]bool),
 	}
 
@@ -52,9 +55,18 @@ func NewAPIServer(port int) *APIServer {
 
 // setupRoutes configures all API endpoints
 func (s *APIServer) setupRoutes() {
-	// Health check endpoint
-	s.engine.GET("/health", s.health)
+	distFs := app.GetDistFs()
+	fs, err := static.EmbedFolder(distFs, "dist")
+	if err != nil {
+		panic(err)
+	}
+	appVue := func() gin.HandlerFunc {
+		return static.Serve("/", fs)
+	}
+	//s.engine.StaticFS("/", http.FS(distFs))
+	s.engine.Use(appVue())
 
+	s.engine.GET("/health", s.health)
 	// Instance management endpoints
 	instances := s.engine.Group("/api/instances")
 	{
@@ -1079,9 +1091,8 @@ func (s *APIServer) StartWithContext(ctx context.Context) error {
 
 // ActionAPI starts the HTTP API server
 func ActionAPI(ctx context.Context, cmd *cli.Command) error {
-	port := cmd.Int("port")
 	logger.SetLogMode(logger.HttpApiMode)
-	apiServer := NewAPIServer(port)
+	apiServer := NewAPIServer()
 	return apiServer.Start()
 }
 

@@ -45,6 +45,16 @@ func main() {
 		Name:    "asa-manager",
 		Usage:   "ARK Server Ascended Instance Management Tool",
 		Version: "1.0.0",
+		Flags: []cli.Flag{
+			&cli.IntFlag{
+				Name:        "api-port",
+				Aliases:     []string{"port"},
+				Usage:       "http server port",
+				DefaultText: "19193",
+				Value:       19193,
+				Destination: &webapi.ApiServerPort,
+			},
+		},
 		Commands: []*cli.Command{
 			{
 				Name:  "update",
@@ -161,15 +171,8 @@ func main() {
 				Action:    asaserver.ActionSyncGameConfig,
 			},
 			{
-				Name:  "api",
-				Usage: "Start HTTP API server",
-				Flags: []cli.Flag{
-					&cli.IntFlag{
-						Name:  "port",
-						Value: 8080,
-						Usage: "HTTP server port",
-					},
-				},
+				Name:   "api",
+				Usage:  "Start HTTP API server",
 				Action: webapi.ActionAPI,
 			},
 			{
