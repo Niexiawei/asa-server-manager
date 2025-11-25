@@ -212,8 +212,8 @@ func main() {
 	}
 
 	if isService {
-		winservice.RunService(false)
 		logger.SetLogMode(logger.ServicesMode)
+		winservice.RunService(false)
 		return
 	}
 

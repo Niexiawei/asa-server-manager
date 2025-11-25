@@ -442,6 +442,10 @@ func StartServer(instanceName string) error {
 	if running, err := IsServerRunning(instanceName); err == nil && running {
 		logger.GetLogger().Warnf("Server for instance %s is already running.", instanceName)
 		return nil
+	} else {
+		if err := RemoveInstanceLogMapping(instanceName); err != nil {
+			logger.GetLogger().Warnf("Failed to remove log mapping for instance %s: %v", instanceName, err)
+		}
 	}
 
 	// Check for duplicate ports
