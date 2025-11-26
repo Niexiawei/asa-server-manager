@@ -134,8 +134,22 @@ func main() {
 			{
 				Name:      "restore",
 				Usage:     "Restore a backup to an instance",
-				ArgsUsage: "<instance_name>",
-				Action:    asaserver.ActionRestore,
+				ArgsUsage: "<instance_name> <backup_file>",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{
+						Name:  "worldfile",
+						Usage: "Restore worldfile (SaveDir)",
+					},
+					&cli.BoolFlag{
+						Name:  "instance-config",
+						Usage: "Restore instance_config.ini",
+					},
+					&cli.BoolFlag{
+						Name:  "game-config",
+						Usage: "Restore game config files (Config directory)",
+					},
+				},
+				Action: asaserver.ActionRestore,
 			},
 			{
 				Name:   "start-all",
@@ -158,11 +172,6 @@ func main() {
 				Usage:     "View GameUserSettings.ini configuration file for an instance",
 				ArgsUsage: "[instance_name]",
 				Action:    asaserver.ActionViewGameUserSettings,
-			},
-			{
-				Name:   "config-restart",
-				Usage:  "Configure restart manager",
-				Action: asaserver.ActionConfigRestart,
 			},
 			{
 				Name:      "sync-config",

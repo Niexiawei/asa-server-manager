@@ -48,6 +48,37 @@
       </a-list>
     </div>
   </a-card>
+
+  <!-- 恢复选项对话框 -->
+  <a-modal
+      v-model:visible="restoreModal.visible"
+      title="选择要恢复的内容"
+      ok-text="恢复"
+      cancel-text="取消"
+      width="760px"
+      @ok="confirmRestore"
+      :confirm-loading="restoreModal.confirmLoading"
+  >
+    <a-form layout="vertical">
+      <a-form-item label="实例">
+        <div style="font-size: 14px">{{ restoreModal.instanceName }}</div>
+      </a-form-item>
+      <a-form-item label="备份文件">
+        <div style="font-size: 14px">{{ restoreModal.backupFile }}</div>
+      </a-form-item>
+      <a-form-item label="下列组件将被恢复：">
+        <a-checkbox v-model="restoreModal.options.restoreWorldfile">
+          worldfile (世界文件/SaveDir)
+        </a-checkbox>
+        <a-checkbox v-model="restoreModal.options.restoreInstanceConfig">
+          instance_config.ini (实例配置)
+        </a-checkbox>
+        <a-checkbox v-model="restoreModal.options.restoreGameConfig">
+          Config (游戏配置)
+        </a-checkbox>
+      </a-form-item>
+    </a-form>
+  </a-modal>
 </template>
 
 <script setup>
@@ -72,6 +103,19 @@ const backupForm = reactive({
   instance: ''
 })
 const loading = ref(false)
+
+// 恢复选项模态框
+const restoreModal = reactive({
+  visible: false,
+  backupFile: '',
+  instanceName: '',
+  confirmLoading: false,
+  options: {
+    restoreWorldfile: true,
+    restoreInstanceConfig: true,
+    restoreGameConfig: true
+  }
+})
 
 // 获取备份列表
 const fetchBackups = async () => {
@@ -121,16 +165,60 @@ const restoreBackupHandler = async (backupFile) => {
     return
   }
 
+  // 打开恢复选项对话框
+  restoreModal.visible = true
+  restoreModal.backupFile = backupFile
+  restoreModal.instanceName = backupForm.instance
+  restoreModal.options = {
+    restoreWorldfile: true,
+    restoreInstanceConfig: true,
+    restoreGameConfig: true
+  }
+}
+
+// 确认恢复备份
+const confirmRestore = async () => {
+  if (!restoreModal.instanceName || !restoreModal.backupFile) return
+  
+  // 检查是否至少选择了一个组件
+  const { restoreWorldfile, restoreInstanceConfig, restoreGameConfig } = restoreModal.options
+  if (!restoreWorldfile && !restoreInstanceConfig && !restoreGameConfig) {
+    Message.warning('请至少选择一个要恢复的组件')
+    return
+  }
+
+  // 构建恢复内容描述
+  const components = []
+  if (restoreWorldfile) components.push('worldfile (世界文件/SaveDir)')
+  if (restoreInstanceConfig) components.push('instance_config.ini (实例配置)')
+  if (restoreGameConfig) components.push('Config (游戲配置)')
+  const componentsList = components.map((c, i) => `${i + 1}. ${c}`).join('\n')
+
+  // 二次确认
   Modal.confirm({
-    title: '确认',
-    content: `确定要将备份 "${backupFile}" 恢复到实例 "${backupForm.instance}" 吗？`,
-    okText: '确定',
+    title: '确认恢复备份',
+    content: `确定要将以下内容从备份 "${restoreModal.backupFile}" 恢复到实例 "${restoreModal.instanceName}" 吗？
+
+将恢复的内容：
+${componentsList}
+
+此操作不可撤销，请谨慎操作！`,
+    okText: '确认恢复',
     cancelText: '取消',
+    okButtonProps: { status: 'danger' },
     onOk: async () => {
+      loading.value = true
+      restoreModal.confirmLoading = true
+      
       try {
-        const data = await restoreBackup(backupForm.instance, backupFile)
+        const data = await restoreBackup(
+          restoreModal.instanceName,
+          restoreModal.backupFile,
+          restoreModal.options
+        )
         if (data.success) {
           Message.success('备份恢复成功')
+          restoreModal.visible = false
         } else {
           console.error('恢复备份失败:', data.error)
           Message.error('恢复备份失败: ' + (data.error || '未知错误'))
@@ -138,6 +226,9 @@ const restoreBackupHandler = async (backupFile) => {
       } catch (error) {
         console.error('恢复备份失败:', error)
         Message.error('恢复备份失败: ' + error.message)
+      } finally {
+        loading.value = false
+        restoreModal.confirmLoading = false
       }
     }
   })

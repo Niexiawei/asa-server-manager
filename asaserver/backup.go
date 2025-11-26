@@ -97,8 +97,75 @@ func BackupInstanceWorld(instanceName string) error {
 	return nil
 }
 
+// RestoreOption defines which components to restore from backup
+type RestoreOption struct {
+	RestoreWorldfile      bool // Restore worldfile (SaveDir content)
+	RestoreInstanceConfig bool // Restore instance_config.ini
+	RestoreGameConfig     bool // Restore instanceconfig (Config directory)
+}
+
+// RestoreOptionFunc is a function that modifies RestoreOption
+type RestoreOptionFunc func(*RestoreOption)
+
+// WithRestoreWorldfile enables restoring worldfile
+func WithRestoreWorldfile() RestoreOptionFunc {
+	return func(opt *RestoreOption) {
+		opt.RestoreWorldfile = true
+	}
+}
+
+// WithRestoreInstanceConfig enables restoring instance_config.ini
+func WithRestoreInstanceConfig() RestoreOptionFunc {
+	return func(opt *RestoreOption) {
+		opt.RestoreInstanceConfig = true
+	}
+}
+
+// WithRestoreGameConfig enables restoring game config (Config directory)
+func WithRestoreGameConfig() RestoreOptionFunc {
+	return func(opt *RestoreOption) {
+		opt.RestoreGameConfig = true
+	}
+}
+
+// WithRestoreAll enables restoring all components
+func WithRestoreAll() RestoreOptionFunc {
+	return func(opt *RestoreOption) {
+		opt.RestoreWorldfile = true
+		opt.RestoreInstanceConfig = true
+		opt.RestoreGameConfig = true
+	}
+}
+
+// NewRestoreOption creates a default RestoreOption with all components enabled
+func NewRestoreOption(optFuncs ...RestoreOptionFunc) *RestoreOption {
+	// Default: restore everything
+	opt := &RestoreOption{
+		RestoreWorldfile:      false,
+		RestoreInstanceConfig: false,
+		RestoreGameConfig:     false,
+	}
+
+	// Apply option functions
+	for _, fn := range optFuncs {
+		fn(opt)
+	}
+
+	return opt
+}
+
 // RestoreBackupToInstance restores a backup to an instance
-func RestoreBackupToInstance(instanceName string, backupFile string) error {
+// If instanceName is empty and instance doesn't exist, creates new instance
+// Instance config and game config are optional (may not exist in backup)
+// Can customize what to restore using RestoreOptionFunc options
+func RestoreBackupToInstance(instanceName string, backupFile string, optFuncs ...RestoreOptionFunc) error {
+	// Create restore options
+	options := NewRestoreOption(optFuncs...)
+	// If instance name is empty, use default or return error
+	if instanceName == "" {
+		return fmt.Errorf("instance name cannot be empty")
+	}
+
 	running, err := IsServerRunning(instanceName)
 	if err == nil && running {
 		logger.GetLogger().Warnf("Server for instance '%s' is running. Stop it before restoring a backup.", instanceName)
@@ -110,13 +177,27 @@ func RestoreBackupToInstance(instanceName string, backupFile string) error {
 		return fmt.Errorf("backup file not found: %s", backupFile)
 	}
 
-	// Load instance configuration
-	config, err := LoadInstanceConfig(instanceName)
-	if err != nil {
-		return fmt.Errorf("failed to load instance config: %w", err)
+	// Check if instance exists, if not create it
+	instanceBaseDir := filepath.Join(InstancesDir, instanceName)
+	if _, err := os.Stat(instanceBaseDir); os.IsNotExist(err) {
+		logger.GetLogger().Infof("Instance '%s' does not exist. Creating new instance...", instanceName)
+		// Create instance directory structure
+		if err := os.MkdirAll(filepath.Join(instanceBaseDir, "Config"), 0755); err != nil {
+			return fmt.Errorf("failed to create instance directory: %w", err)
+		}
+		// Create default configuration
+		config := CreateDefaultInstanceConfig(instanceName)
+		if err := SaveInstanceConfig(instanceName, config); err != nil {
+			return fmt.Errorf("failed to create default instance config: %w", err)
+		}
+		logger.GetLogger().Infof("Instance '%s' created successfully", instanceName)
 	}
 
-	instanceBaseDir := filepath.Join(InstancesDir, instanceName)
+	// Load instance configuration (may fail if not in backup, that's OK)
+	config, configLoadErr := LoadInstanceConfig(instanceName)
+	if configLoadErr != nil {
+		logger.GetLogger().Warnf("Failed to load instance config: %v (will use default)", configLoadErr)
+	}
 
 	logger.GetLogger().Infof("Extracting backup to instance '%s'...", instanceName)
 
@@ -141,6 +222,8 @@ func RestoreBackupToInstance(instanceName string, backupFile string) error {
 
 	tarReader := tar.NewReader(zstdReader)
 
+	var restoredCount int
+
 	for {
 		header, err := tarReader.Next()
 		if err == io.EOF {
@@ -155,25 +238,30 @@ func RestoreBackupToInstance(instanceName string, backupFile string) error {
 		name := header.Name
 
 		switch {
-		case len(name) > 0 && name[0:1] == "w" && len(name) > 9 && name[0:9] == "worldfile":
+		case options.RestoreWorldfile && len(name) > 0 && name[0:1] == "w" && len(name) > 9 && name[0:9] == "worldfile":
 			// worldfile/* -> SaveDir/...
 			relPath := name[9:]
 			if len(relPath) > 0 && relPath[0] == '/' {
 				relPath = relPath[1:]
 			}
-			target = filepath.Join(config.SaveDir, relPath)
-		case name == "instance_config.ini":
-			// instance_config.ini -> instanceBaseDir/instance_config.ini
+			// Use SaveDir from loaded config, or use instance name as default
+			saveDir := instanceName
+			if configLoadErr == nil && config.SaveDir != "" {
+				saveDir = config.SaveDir
+			}
+			target = filepath.Join(filepath.Join(ServerFilesDir, "ShooterGame/Saved", saveDir), relPath)
+		case options.RestoreInstanceConfig && name == "instance_config.ini":
+			// instance_config.ini -> instanceBaseDir/instance_config.ini (optional)
 			target = filepath.Join(instanceBaseDir, "instance_config.ini")
-		case len(name) > 0 && name[0:1] == "i" && len(name) > 14 && name[0:14] == "instanceconfig":
-			// instanceconfig/* -> instanceBaseDir/Config/...
+		case options.RestoreGameConfig && len(name) > 0 && name[0:1] == "i" && len(name) > 14 && name[0:14] == "instanceconfig":
+			// instanceconfig/* -> instanceBaseDir/Config/... (optional)
 			relPath := name[14:]
 			if len(relPath) > 0 && relPath[0] == '/' {
 				relPath = relPath[1:]
 			}
 			target = filepath.Join(instanceBaseDir, "Config", relPath)
 		default:
-			// Skip unknown files
+			// Skip unknown files or disabled restore options
 			continue
 		}
 
@@ -200,9 +288,10 @@ func RestoreBackupToInstance(instanceName string, backupFile string) error {
 			return fmt.Errorf("failed to write file: %w", err)
 		}
 		f.Close()
+		restoredCount++
 	}
 
-	logger.GetLogger().Infof("Backup successfully loaded into instance '%s'.", instanceName)
+	logger.GetLogger().Infof("Backup successfully loaded into instance '%s' (%d files restored).", instanceName, restoredCount)
 	return nil
 }
 

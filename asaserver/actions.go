@@ -369,56 +369,81 @@ func ActionBackup(ctx context.Context, cmd *cli.Command) error {
 }
 
 func ActionRestore(ctx context.Context, cmd *cli.Command) error {
+	// ... existing code ...
 	args := cmd.Args()
 	if args.Len() < 1 {
 		return fmt.Errorf("instance name required")
 	}
-
 	instanceName := args.Get(0)
 
-	backups, err := GetAvailableBackups()
-	if err != nil {
-		return err
+	if args.Len() < 2 {
+		return fmt.Errorf("backup file path required")
+	}
+	backupFile := args.Get(1)
+
+	// Check if backup file exists
+	if _, err := os.Stat(backupFile); err != nil {
+		return fmt.Errorf("backup file not found: %s", backupFile)
 	}
 
-	if len(backups) == 0 {
-		logger.GetLogger().Warn("No backups found.")
-		return nil
+	// Get restore options from flags
+	restoreWorldfile := cmd.Bool("worldfile")
+	restoreInstanceConfig := cmd.Bool("instance-config")
+	restoreGameConfig := cmd.Bool("game-config")
+
+	// If no options specified, restore all
+	if !restoreWorldfile && !restoreInstanceConfig && !restoreGameConfig {
+		restoreWorldfile = true
+		restoreInstanceConfig = true
+		restoreGameConfig = true
 	}
 
-	logger.GetLogger().Info("Available backups:")
-	for i, backup := range backups {
-		logger.GetLogger().Infof("  %d) %s", i+1, filepath.Base(backup))
+	// Build restore options description
+	components := []string{}
+	// ... existing code ...
+	if restoreWorldfile {
+		components = append(components, "worldfile (世界文件/SaveDir)")
+	}
+	if restoreInstanceConfig {
+		components = append(components, "instance_config.ini (实例配置)")
+	}
+	if restoreGameConfig {
+		components = append(components, "Config (游戏配置)")
 	}
 
-	fmt.Print("Select a backup (number): ")
+	// Display confirmation message
+	logger.GetLogger().Warnf("确认要从备份 \"%s\" 恢复到实例 \"%s\" 吗？", filepath.Base(backupFile), instanceName)
+	logger.GetLogger().Info("\n将恢复的内容：")
+	for i, comp := range components {
+		logger.GetLogger().Infof("  %d. %s", i+1, comp)
+	}
+	logger.GetLogger().Warn("\n此操作不可撤销，请谨慎操作！")
+	fmt.Print("\n请输入 'yes' 确认恢复或 'no' 取消: ")
+
 	scanner := bufio.NewScanner(os.Stdin)
 	if !scanner.Scan() {
 		return fmt.Errorf("failed to read input")
 	}
 
-	choice, err := strconv.Atoi(strings.TrimSpace(scanner.Text()))
-	if err != nil || choice < 1 || choice > len(backups) {
-		logger.GetLogger().Warn("Invalid selection.")
+	confirm := strings.TrimSpace(strings.ToLower(scanner.Text()))
+	if confirm != "yes" {
+		logger.GetLogger().Info("恢复已取消")
 		return nil
 	}
 
-	selectedBackup := backups[choice-1]
-
-	logger.GetLogger().Warn("WARNING: Restoring this backup may overwrite existing worlds.")
-	fmt.Print("Type 'CONFIRM' to proceed or 'cancel' to abort: ")
-
-	if !scanner.Scan() {
-		return fmt.Errorf("failed to read input")
+	// Build restore option functions
+	var optFuncs []RestoreOptionFunc
+	if restoreWorldfile {
+		optFuncs = append(optFuncs, WithRestoreWorldfile())
+	}
+	if restoreInstanceConfig {
+		optFuncs = append(optFuncs, WithRestoreInstanceConfig())
+	}
+	if restoreGameConfig {
+		optFuncs = append(optFuncs, WithRestoreGameConfig())
 	}
 
-	response := strings.TrimSpace(scanner.Text())
-	if response != "CONFIRM" {
-		logger.GetLogger().Info("Restore cancelled.")
-		return nil
-	}
-
-	return RestoreBackupToInstance(instanceName, selectedBackup)
+	return RestoreBackupToInstance(instanceName, backupFile, optFuncs...)
 }
 
 func ActionStartAll(ctx context.Context, cmd *cli.Command) error {
@@ -472,12 +497,6 @@ func ActionViewGameUserSettings(ctx context.Context, cmd *cli.Command) error {
 	logger.GetLogger().Infof("GameUserSettings.ini for instance '%s':", instanceName)
 	logger.GetLogger().Info(content)
 
-	return nil
-}
-
-func ActionConfigRestart(ctx context.Context, cmd *cli.Command) error {
-	logger.GetLogger().Warn("Restart manager configuration is not yet implemented.")
-	logger.GetLogger().Info("You can manually edit the restart configuration file when ready.")
 	return nil
 }
 
@@ -627,7 +646,7 @@ func manageInstanceMenu(instanceName string) error {
 					if err != nil {
 						logger.GetLogger().Errorf("Invalid backup number: %v", err)
 					} else if choice > 0 && choice <= len(backups) {
-						if err := RestoreBackupToInstance(instanceName, backups[choice-1]); err != nil {
+						if err := RestoreBackupToInstance(instanceName, backups[choice-1], WithRestoreAll()); err != nil {
 							logger.GetLogger().Errorf("Error restoring backup: %v", err)
 						}
 					} else {

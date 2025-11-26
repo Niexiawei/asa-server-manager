@@ -182,7 +182,10 @@ type BackupRequest struct {
 }
 
 type RestoreRequest struct {
-	BackupFile string `json:"backup_file" binding:"required"`
+	BackupFile            string `json:"backup_file" binding:"required"`
+	RestoreWorldfile      *bool  `json:"restore_worldfile,omitempty"`
+	RestoreInstanceConfig *bool  `json:"restore_instance_config,omitempty"`
+	RestoreGameConfig     *bool  `json:"restore_game_config,omitempty"`
 }
 
 type ConfigFileRequest struct {
@@ -948,6 +951,7 @@ func (s *APIServer) listBackups(c *gin.Context) {
 }
 
 // restoreBackup restores a backup to an instance
+// If instance doesn't exist, creates it automatically
 func (s *APIServer) restoreBackup(c *gin.Context) {
 	name := c.Param("name")
 
@@ -960,7 +964,44 @@ func (s *APIServer) restoreBackup(c *gin.Context) {
 		return
 	}
 
-	if err := asaserver.RestoreBackupToInstance(name, req.BackupFile); err != nil {
+	// If name is empty from URL, try to use name from backup metadata
+	// For now, name must be provided in URL
+	if name == "" {
+		c.JSON(http.StatusBadRequest, StatusResponse{
+			Success: false,
+			Error:   "instance name is required (provide in URL path)",
+		})
+		return
+	}
+
+	// Build restore options based on request parameters
+	var optFuncs []asaserver.RestoreOptionFunc
+
+	// Default behavior: restore all if no parameters specified
+	// If any parameter is specified, use explicit values
+	hasExplicitOptions := req.RestoreWorldfile != nil || req.RestoreInstanceConfig != nil || req.RestoreGameConfig != nil
+
+	if !hasExplicitOptions {
+		// No parameters specified - restore everything
+		optFuncs = append(optFuncs, asaserver.WithRestoreAll())
+	} else {
+		// Parameters specified - use explicit values with defaults to false
+		restoreWorldfile := req.RestoreWorldfile != nil && *req.RestoreWorldfile
+		restoreInstanceConfig := req.RestoreInstanceConfig != nil && *req.RestoreInstanceConfig
+		restoreGameConfig := req.RestoreGameConfig != nil && *req.RestoreGameConfig
+
+		if restoreWorldfile {
+			optFuncs = append(optFuncs, asaserver.WithRestoreWorldfile())
+		}
+		if restoreInstanceConfig {
+			optFuncs = append(optFuncs, asaserver.WithRestoreInstanceConfig())
+		}
+		if restoreGameConfig {
+			optFuncs = append(optFuncs, asaserver.WithRestoreGameConfig())
+		}
+	}
+
+	if err := asaserver.RestoreBackupToInstance(name, req.BackupFile, optFuncs...); err != nil {
 		c.JSON(http.StatusInternalServerError, StatusResponse{
 			Success: false,
 			Error:   err.Error(),

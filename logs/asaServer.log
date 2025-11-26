@@ -2294,3 +2294,12 @@
 {"level":"WARN","ts":"2025-11-26T12:04:48.573+0800","caller":"asaserver/server.go:307","msg":"Game port :7002 not found"}
 {"level":"INFO","ts":"2025-11-26T12:04:48.573+0800","caller":"asaserver/backup.go:51","msg":"Creating backup for instance: jibian..."}
 {"level":"INFO","ts":"2025-11-26T12:04:48.941+0800","caller":"asaserver/backup.go:96","msg":"Backup successfully created: D:\\golang\\asa-server\\backups\\jibian_2025-11-26_12-04-48.tar.zstd"}
+{"level":"WARN","ts":"2025-11-26T14:50:01.182+0800","caller":"asaserver/server.go:307","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-26T14:50:01.217+0800","caller":"asaserver/server.go:307","msg":"Game port :9234 not found"}
+{"level":"WARN","ts":"2025-11-26T14:50:21.004+0800","caller":"asaserver/server.go:307","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-26T14:50:21.037+0800","caller":"asaserver/server.go:307","msg":"Game port :9234 not found"}
+{"level":"WARN","ts":"2025-11-26T14:57:05.592+0800","caller":"asaserver/server.go:307","msg":"Game port :7002 not found"}
+{"level":"WARN","ts":"2025-11-26T14:57:05.648+0800","caller":"asaserver/server.go:307","msg":"Game port :9234 not found"}
+{"level":"WARN","ts":"2025-11-26T14:57:09.374+0800","caller":"asaserver/server.go:307","msg":"Game port :7002 not found"}
+{"level":"INFO","ts":"2025-11-26T14:57:09.374+0800","caller":"asaserver/backup.go:51","msg":"Creating backup for instance: jibian..."}
+{"level":"INFO","ts":"2025-11-26T14:57:09.766+0800","caller":"asaserver/backup.go:96","msg":"Backup successfully created: D:\\golang\\asa-server\\backups\\jibian_2025-11-26_14-57-09.tar.zstd"}

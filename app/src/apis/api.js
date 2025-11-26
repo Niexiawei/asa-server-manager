@@ -327,14 +327,29 @@ export async function listBackups() {
   return handleResponse(response)
 }
 
-// 恢复备份
-export async function restoreBackup(name, backupFile) {
+// 恢复备份（可选择恢复的内容）
+export async function restoreBackup(name, backupFile, options = {}) {
+  const requestBody = {
+    backup_file: backupFile
+  }
+  
+  // 如果提供了选项参数，添加到请求体
+  if (options.restoreWorldfile !== undefined) {
+    requestBody.restore_worldfile = options.restoreWorldfile
+  }
+  if (options.restoreInstanceConfig !== undefined) {
+    requestBody.restore_instance_config = options.restoreInstanceConfig
+  }
+  if (options.restoreGameConfig !== undefined) {
+    requestBody.restore_game_config = options.restoreGameConfig
+  }
+  
   const response = await fetch(`${API_BASE_URL}/api/backup/${name}/restore`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ backup_file: backupFile }),
+    body: JSON.stringify(requestBody),
   })
   return handleResponse(response)
 }
