@@ -310,13 +310,13 @@ export async function sendRCONCommand(name, command) {
 }
 
 // 创建备份
-export async function createBackup(name, worldFolder) {
+export async function createBackup(name) {
   const response = await fetch(`${API_BASE_URL}/api/backup/${name}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ world_folder: worldFolder }),
+    body: JSON.stringify({}),
   })
   return handleResponse(response)
 }

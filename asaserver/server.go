@@ -510,10 +510,16 @@ func StartServer(instanceName string) error {
 
 	if config.ClusterID != "" {
 		clusterDir := filepath.Join(BaseDir, "clusters", config.ClusterID)
-		args = append(args,
-			fmt.Sprintf("-ClusterDirOverride=%s", clusterDir),
-			fmt.Sprintf("-ClusterId=%s", config.ClusterID),
-		)
+		if strings.Contains(config.CustomStartParameters, "-ClusterDirOverride") {
+			args = append(args,
+				fmt.Sprintf("-ClusterId=%s", config.ClusterID),
+			)
+		} else {
+			args = append(args,
+				fmt.Sprintf("-ClusterDirOverride=%s", clusterDir),
+				fmt.Sprintf("-ClusterId=%s", config.ClusterID),
+			)
+		}
 	}
 
 	var (

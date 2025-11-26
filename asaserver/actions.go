@@ -359,14 +359,13 @@ func ActionRename(ctx context.Context, cmd *cli.Command) error {
 
 func ActionBackup(ctx context.Context, cmd *cli.Command) error {
 	args := cmd.Args()
-	if args.Len() < 2 {
-		return fmt.Errorf("instance name and world folder required")
+	if args.Len() < 1 {
+		return fmt.Errorf("instance name required")
 	}
 
 	instanceName := args.Get(0)
-	worldFolder := args.Get(1)
 
-	return BackupInstanceWorld(instanceName, worldFolder)
+	return BackupInstanceWorld(instanceName)
 }
 
 func ActionRestore(ctx context.Context, cmd *cli.Command) error {
@@ -609,12 +608,8 @@ func manageInstanceMenu(instanceName string) error {
 				}
 			}
 		case "6":
-			fmt.Print("Enter world folder name: ")
-			if scanner.Scan() {
-				worldFolder := strings.TrimSpace(scanner.Text())
-				if err := BackupInstanceWorld(instanceName, worldFolder); err != nil {
-					logger.GetLogger().Errorf("Error backing up world: %v", err)
-				}
+			if err := BackupInstanceWorld(instanceName); err != nil {
+				logger.GetLogger().Errorf("Error backing up world: %v", err)
 			}
 		case "7":
 			// Simulate restore action with local backup selection

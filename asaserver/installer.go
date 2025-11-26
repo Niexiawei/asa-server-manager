@@ -12,7 +12,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"syscall"
 	"time"
 
 	"github.com/aymanbagabas/go-pty"
@@ -181,19 +180,43 @@ func extractZip(zipPath string, destDir string) error {
 func initializeSteamCmd(outputWriter ...io.Writer) error {
 	steamCmdExe := filepath.Join(SteamCmdDir, "steamcmd.exe")
 
-	// Create command with +quit argument to exit immediately after initialization
-	cmd := exec.Command(steamCmdExe, "+quit")
-
 	// Redirect stdout and stderr based on callback
 	var writer io.Writer
 	if len(outputWriter) > 0 && outputWriter[0] != nil {
 		writer = outputWriter[0]
 	}
-	cmd.Stdout = writer
-	cmd.Stderr = writer
 
-	// Windows specific: hide the cmd window
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	pp, err := pty.New()
+	if err != nil {
+		return fmt.Errorf("failed to open pty: %w", err)
+	}
+
+	// Create command with +quit argument to exit immediately after initialization
+	cmd := pp.Command(steamCmdExe, "+quit")
+
+	CleanConsoleOutput := func(r io.Reader, w io.Writer) error {
+		// 匹配 ANSI 转义序列以及上面提到的控制符
+		// 包括 ESC [ ? ... h/l/m 等序列
+		ansiRegexp := regexp.MustCompile(`\x1b\[[0-9;?]*[a-zA-Z]`)
+		// 去除其它 C0 控制字符（保留换行符 \n）
+		ctrlRegexp := regexp.MustCompile(`[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]`)
+
+		scanner := bufio.NewScanner(r)
+		for scanner.Scan() {
+			line := scanner.Bytes()
+
+			// 去掉 ANSI / 控制字符
+			line = ansiRegexp.ReplaceAll(line, []byte{})
+			line = ctrlRegexp.ReplaceAll(line, []byte{})
+
+			// 输出，保证每行以换行符结尾
+			line = bytes.TrimRight(line, " \t")
+			if _, err := w.Write(append(line, '\n')); err != nil {
+				return err
+			}
+		}
+		return scanner.Err()
+	}
 
 	// Run SteamCMD
 	logMsg := "Running SteamCMD initialization/updating..."
@@ -201,6 +224,11 @@ func initializeSteamCmd(outputWriter ...io.Writer) error {
 	if writer != nil {
 		writer.Write([]byte(logMsg + "\n"))
 	}
+
+	if writer != nil {
+		go CleanConsoleOutput(pp, writer)
+	}
+
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("SteamCMD initialization/updating failed: %w", err)
 	}
@@ -243,6 +271,11 @@ func DownloadAndUpdateArkServer(outputCallback ...io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("failed to open pty: %w", err)
 	}
+
+	if outputWriter != nil {
+		outputWriter.Write([]byte(fmt.Sprintf("install to dir: %s", ServerFilesDir)))
+	}
+
 	// Run SteamCMD with arguments to install/update ARK server
 	// App ID 2430930 is ARK: Survival Ascended
 	cmd := pp.Command(

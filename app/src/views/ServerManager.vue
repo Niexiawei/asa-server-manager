@@ -92,6 +92,7 @@
                       @click="deleteInstanceHandler(instance.name)"
                       status="danger"
                       size="small"
+                      :disabled="instance.running"
                   >
                     删除
                   </a-button>

@@ -132,6 +132,17 @@ func (s *APIServer) setupRoutes() {
 	// WebSocket endpoints
 	s.engine.GET("/api/ws/events", s.handleServerEvents)
 	s.engine.GET("/api/ws/rcon", s.handleRCONEvents)
+
+	s.engine.NoRoute(func(c *gin.Context) {
+		f, err := distFs.Open("dist/index.html")
+		if err != nil {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		defer f.Close()
+		data, _ := io.ReadAll(f)
+		c.Data(200, "text/html; charset=utf-8", data)
+	})
 }
 
 // ========== Response types ==========
@@ -168,7 +179,6 @@ type RCONCommandRequest struct {
 }
 
 type BackupRequest struct {
-	WorldFolder string `json:"world_folder" binding:"required"`
 }
 
 type RestoreRequest struct {
@@ -902,16 +912,7 @@ func (s *APIServer) sendRCONCommand(c *gin.Context) {
 func (s *APIServer) backupInstance(c *gin.Context) {
 	name := c.Param("name")
 
-	var req BackupRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, StatusResponse{
-			Success: false,
-			Error:   err.Error(),
-		})
-		return
-	}
-
-	if err := asaserver.BackupInstanceWorld(name, req.WorldFolder); err != nil {
+	if err := asaserver.BackupInstanceWorld(name); err != nil {
 		c.JSON(http.StatusInternalServerError, StatusResponse{
 			Success: false,
 			Error:   err.Error(),
