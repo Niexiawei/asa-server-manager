@@ -3,6 +3,7 @@ package webapi
 import (
 	"asa-server/app"
 	"asa-server/asaserver"
+	"asa-server/backup"
 	"asa-server/logger"
 	"context"
 	"fmt"
@@ -915,7 +916,7 @@ func (s *APIServer) sendRCONCommand(c *gin.Context) {
 func (s *APIServer) backupInstance(c *gin.Context) {
 	name := c.Param("name")
 
-	if err := asaserver.BackupInstanceWorld(name); err != nil {
+	if err := backup.BackupInstanceWorld(name); err != nil {
 		c.JSON(http.StatusInternalServerError, StatusResponse{
 			Success: false,
 			Error:   err.Error(),
@@ -931,7 +932,7 @@ func (s *APIServer) backupInstance(c *gin.Context) {
 
 // listBackups returns all available backups
 func (s *APIServer) listBackups(c *gin.Context) {
-	backups, err := asaserver.GetAvailableBackups()
+	backups, err := backup.GetAvailableBackups()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, StatusResponse{
 			Success: false,
@@ -975,7 +976,7 @@ func (s *APIServer) restoreBackup(c *gin.Context) {
 	}
 
 	// Build restore options based on request parameters
-	var optFuncs []asaserver.RestoreOptionFunc
+	var optFuncs []backup.RestoreOptionFunc
 
 	// Default behavior: restore all if no parameters specified
 	// If any parameter is specified, use explicit values
@@ -983,7 +984,7 @@ func (s *APIServer) restoreBackup(c *gin.Context) {
 
 	if !hasExplicitOptions {
 		// No parameters specified - restore everything
-		optFuncs = append(optFuncs, asaserver.WithRestoreAll())
+		optFuncs = append(optFuncs, backup.WithRestoreAll())
 	} else {
 		// Parameters specified - use explicit values with defaults to false
 		restoreWorldfile := req.RestoreWorldfile != nil && *req.RestoreWorldfile
@@ -991,17 +992,17 @@ func (s *APIServer) restoreBackup(c *gin.Context) {
 		restoreGameConfig := req.RestoreGameConfig != nil && *req.RestoreGameConfig
 
 		if restoreWorldfile {
-			optFuncs = append(optFuncs, asaserver.WithRestoreWorldfile())
+			optFuncs = append(optFuncs, backup.WithRestoreWorldfile())
 		}
 		if restoreInstanceConfig {
-			optFuncs = append(optFuncs, asaserver.WithRestoreInstanceConfig())
+			optFuncs = append(optFuncs, backup.WithRestoreInstanceConfig())
 		}
 		if restoreGameConfig {
-			optFuncs = append(optFuncs, asaserver.WithRestoreGameConfig())
+			optFuncs = append(optFuncs, backup.WithRestoreGameConfig())
 		}
 	}
 
-	if err := asaserver.RestoreBackupToInstance(name, req.BackupFile, optFuncs...); err != nil {
+	if err := backup.RestoreBackupToInstance(name, req.BackupFile, optFuncs...); err != nil {
 		c.JSON(http.StatusInternalServerError, StatusResponse{
 			Success: false,
 			Error:   err.Error(),

@@ -2,6 +2,7 @@ package actions
 
 import (
 	"asa-server/asaserver"
+	"asa-server/backup"
 	"asa-server/logger"
 	"bufio"
 	"context"
@@ -349,7 +350,7 @@ func ActionBackup(ctx context.Context, cmd *cli.Command) error {
 
 	instanceName := args.Get(0)
 
-	return asaserver.BackupInstanceWorld(instanceName)
+	return backup.BackupInstanceWorld(instanceName)
 }
 
 func ActionRestore(ctx context.Context, cmd *cli.Command) error {
@@ -416,18 +417,18 @@ func ActionRestore(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	// Build restore option functions
-	var optFuncs []asaserver.RestoreOptionFunc
+	var optFuncs []backup.RestoreOptionFunc
 	if restoreWorldfile {
-		optFuncs = append(optFuncs, asaserver.WithRestoreWorldfile())
+		optFuncs = append(optFuncs, backup.WithRestoreWorldfile())
 	}
 	if restoreInstanceConfig {
-		optFuncs = append(optFuncs, asaserver.WithRestoreInstanceConfig())
+		optFuncs = append(optFuncs, backup.WithRestoreInstanceConfig())
 	}
 	if restoreGameConfig {
-		optFuncs = append(optFuncs, asaserver.WithRestoreGameConfig())
+		optFuncs = append(optFuncs, backup.WithRestoreGameConfig())
 	}
 
-	return asaserver.RestoreBackupToInstance(instanceName, backupFile, optFuncs...)
+	return backup.RestoreBackupToInstance(instanceName, backupFile, optFuncs...)
 }
 
 func ActionStartAll(ctx context.Context, cmd *cli.Command) error {
@@ -630,18 +631,18 @@ func manageInstanceMenu(instanceName string) error {
 				}
 			}
 		case "6":
-			if err := asaserver.BackupInstanceWorld(instanceName); err != nil {
+			if err := backup.BackupInstanceWorld(instanceName); err != nil {
 				logger.GetLogger().Errorf("Error backing up world: %v", err)
 			}
 		case "7":
 			// Simulate restore action with local backup selection
-			backups, err := asaserver.GetAvailableBackups()
+			backups, err := backup.GetAvailableBackups()
 			if err != nil {
 				logger.GetLogger().Errorf("Error retrieving backups: %v", err)
 			} else if len(backups) > 0 {
 				logger.GetLogger().Info("Available backups:")
-				for i, backup := range backups {
-					logger.GetLogger().Infof("  %d) %s", i+1, filepath.Base(backup))
+				for i, _backup := range backups {
+					logger.GetLogger().Infof("  %d) %s", i+1, filepath.Base(_backup))
 				}
 				fmt.Print("Select a backup (number): ")
 				if scanner.Scan() {
@@ -649,7 +650,7 @@ func manageInstanceMenu(instanceName string) error {
 					if err != nil {
 						logger.GetLogger().Errorf("Invalid backup number: %v", err)
 					} else if choice > 0 && choice <= len(backups) {
-						if err := asaserver.RestoreBackupToInstance(instanceName, backups[choice-1], asaserver.WithRestoreAll()); err != nil {
+						if err := backup.RestoreBackupToInstance(instanceName, backups[choice-1], backup.WithRestoreAll()); err != nil {
 							logger.GetLogger().Errorf("Error restoring backup: %v", err)
 						}
 					} else {

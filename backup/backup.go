@@ -1,7 +1,8 @@
-package asaserver
+package backup
 
 import (
 	"archive/tar"
+	"asa-server/asaserver"
 	"asa-server/logger"
 	"fmt"
 	"io"
@@ -15,14 +16,14 @@ import (
 
 // BackupInstanceWorld creates a backup of an instance world using its SaveDir from configuration
 func BackupInstanceWorld(instanceName string) error {
-	running, err := IsServerRunning(instanceName)
+	running, err := asaserver.IsServerRunning(instanceName)
 	if err == nil && running {
 		logger.GetLogger().Warnf("Server for instance '%s' is running. Stop it before creating a backup.", instanceName)
 		return fmt.Errorf("server is running")
 	}
 
 	// Load instance configuration to get SaveDir
-	config, err := LoadInstanceConfig(instanceName)
+	config, err := asaserver.LoadInstanceConfig(instanceName)
 	if err != nil {
 		return fmt.Errorf("failed to load instance config: %w", err)
 	}
@@ -32,21 +33,21 @@ func BackupInstanceWorld(instanceName string) error {
 		return fmt.Errorf("SaveDir not configured for instance '%s'", instanceName)
 	}
 
-	savePath := filepath.Join(ServerFilesDir, "ShooterGame/Saved", instanceName)
+	savePath := filepath.Join(asaserver.ServerFilesDir, "ShooterGame/Saved", instanceName)
 
 	if _, err := os.Stat(savePath); err != nil {
 		return fmt.Errorf("SaveDir '%s' not found in instance '%s'", saveDir, instanceName)
 	}
 
 	// Create backups directory
-	if err := os.MkdirAll(BackupsDir, 0755); err != nil {
+	if err := os.MkdirAll(asaserver.BackupsDir, 0755); err != nil {
 		return fmt.Errorf("failed to create backups directory: %w", err)
 	}
 
 	// Create archive name with timestamp
 	timestamp := time.Now().Format("2006-01-02_15-04-05")
 	archiveName := fmt.Sprintf("%s_%s.tar.zstd", instanceName, timestamp)
-	archivePath := filepath.Join(BackupsDir, archiveName)
+	archivePath := filepath.Join(asaserver.BackupsDir, archiveName)
 
 	logger.GetLogger().Infof("Creating backup for instance: %s...", instanceName)
 
@@ -67,7 +68,7 @@ func BackupInstanceWorld(instanceName string) error {
 	tarWriter := tar.NewWriter(zstdWriter)
 	defer tarWriter.Close()
 
-	instanceBaseDir := filepath.Join(InstancesDir, instanceName)
+	instanceBaseDir := filepath.Join(asaserver.InstancesDir, instanceName)
 
 	// Add SaveDir (world data) to archive
 	if err := addFilesToTar(tarWriter, savePath, "worldfile"); err != nil {
@@ -166,7 +167,7 @@ func RestoreBackupToInstance(instanceName string, backupFile string, optFuncs ..
 		return fmt.Errorf("instance name cannot be empty")
 	}
 
-	running, err := IsServerRunning(instanceName)
+	running, err := asaserver.IsServerRunning(instanceName)
 	if err == nil && running {
 		logger.GetLogger().Warnf("Server for instance '%s' is running. Stop it before restoring a backup.", instanceName)
 		return fmt.Errorf("server is running")
@@ -178,7 +179,7 @@ func RestoreBackupToInstance(instanceName string, backupFile string, optFuncs ..
 	}
 
 	// Check if instance exists, if not create it
-	instanceBaseDir := filepath.Join(InstancesDir, instanceName)
+	instanceBaseDir := filepath.Join(asaserver.InstancesDir, instanceName)
 	if _, err := os.Stat(instanceBaseDir); os.IsNotExist(err) {
 		logger.GetLogger().Infof("Instance '%s' does not exist. Creating new instance...", instanceName)
 		// Create instance directory structure
@@ -186,15 +187,15 @@ func RestoreBackupToInstance(instanceName string, backupFile string, optFuncs ..
 			return fmt.Errorf("failed to create instance directory: %w", err)
 		}
 		// Create default configuration
-		config := CreateDefaultInstanceConfig(instanceName)
-		if err := SaveInstanceConfig(instanceName, config); err != nil {
+		config := asaserver.CreateDefaultInstanceConfig(instanceName)
+		if err := asaserver.SaveInstanceConfig(instanceName, config); err != nil {
 			return fmt.Errorf("failed to create default instance config: %w", err)
 		}
 		logger.GetLogger().Infof("Instance '%s' created successfully", instanceName)
 	}
 
 	// Load instance configuration (may fail if not in backup, that's OK)
-	config, configLoadErr := LoadInstanceConfig(instanceName)
+	config, configLoadErr := asaserver.LoadInstanceConfig(instanceName)
 	if configLoadErr != nil {
 		logger.GetLogger().Warnf("Failed to load instance config: %v (will use default)", configLoadErr)
 	}
@@ -249,7 +250,7 @@ func RestoreBackupToInstance(instanceName string, backupFile string, optFuncs ..
 			if configLoadErr == nil && config.SaveDir != "" {
 				saveDir = config.SaveDir
 			}
-			target = filepath.Join(filepath.Join(ServerFilesDir, "ShooterGame/Saved", saveDir), relPath)
+			target = filepath.Join(filepath.Join(asaserver.ServerFilesDir, "ShooterGame/Saved", saveDir), relPath)
 		case options.RestoreInstanceConfig && name == "instance_config.ini":
 			// instance_config.ini -> instanceBaseDir/instance_config.ini (optional)
 			target = filepath.Join(instanceBaseDir, "instance_config.ini")
@@ -297,7 +298,7 @@ func RestoreBackupToInstance(instanceName string, backupFile string, optFuncs ..
 
 // GetAvailableBackups returns a list of available backups
 func GetAvailableBackups() ([]string, error) {
-	entries, err := os.ReadDir(BackupsDir)
+	entries, err := os.ReadDir(asaserver.BackupsDir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return []string{}, nil
@@ -308,7 +309,7 @@ func GetAvailableBackups() ([]string, error) {
 	var backups []string
 	for _, entry := range entries {
 		if !entry.IsDir() && filepath.Ext(entry.Name()) == ".zstd" {
-			backups = append(backups, filepath.Join(BackupsDir, entry.Name()))
+			backups = append(backups, filepath.Join(asaserver.BackupsDir, entry.Name()))
 		}
 	}
 
