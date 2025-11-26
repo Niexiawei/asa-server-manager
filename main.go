@@ -57,6 +57,12 @@ func main() {
 		},
 		Commands: []*cli.Command{
 			{
+				Name:      "manage",
+				Usage:     "Manage instance interactively",
+				ArgsUsage: "[instance_name]",
+				Action:    asaserver.ActionManage,
+			},
+			{
 				Name:  "update",
 				Usage: "Install or update the base server",
 				Flags: []cli.Flag{
@@ -76,12 +82,6 @@ func main() {
 				Name:   "create",
 				Usage:  "Create a new instance",
 				Action: asaserver.ActionCreate,
-			},
-			{
-				Name:      "manage",
-				Usage:     "Manage instance interactively",
-				ArgsUsage: "[instance_name]",
-				Action:    asaserver.ActionManage,
 			},
 			{
 				Name:      "start",

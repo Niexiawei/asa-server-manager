@@ -123,23 +123,6 @@ func ActionCreate(ctx context.Context, cmd *cli.Command) error {
 	return nil
 }
 
-func ActionManage(ctx context.Context, cmd *cli.Command) error {
-	args := cmd.Args()
-	instanceName := ""
-	if args.Len() > 0 {
-		instanceName = args.Get(0)
-	}
-
-	if instanceName == "" {
-		instanceName = selectInstance()
-		if instanceName == "" {
-			return fmt.Errorf("no instance selected")
-		}
-	}
-
-	return manageInstanceMenu(instanceName)
-}
-
 func ActionStart(ctx context.Context, cmd *cli.Command) error {
 	args := cmd.Args()
 	if args.Len() < 1 {
@@ -540,23 +523,43 @@ func ActionSyncGameConfig(ctx context.Context, cmd *cli.Command) error {
 	return nil
 }
 
-// Helper functions
+func ActionManage(ctx context.Context, cmd *cli.Command) error {
+	args := cmd.Args()
+	instanceName := ""
+	if args.Len() > 0 {
+		instanceName = args.Get(0)
+	}
 
+	if instanceName == "" {
+		for {
+			instanceName = selectInstance()
+			if instanceName == "" {
+				fmt.Println("no instance selected")
+				continue
+			}
+			break
+		}
+	}
+
+	return manageInstanceMenu(instanceName)
+}
+
+// Helper functions
 func selectInstance() string {
 	instances, err := GetAvailableInstances()
 	if err != nil {
-		logger.GetLogger().Errorf("Error getting instances: %v", err)
+		fmt.Printf("Error getting instances: %v \n", err)
 		return ""
 	}
 
 	if len(instances) == 0 {
-		logger.GetLogger().Warn("No instances found.")
+		fmt.Println("No instances found.")
 		return ""
 	}
 
-	logger.GetLogger().Info("Available instances:")
+	fmt.Println("Available instances:")
 	for i, inst := range instances {
-		logger.GetLogger().Infof("  %d) %s", i+1, inst)
+		fmt.Printf("  %d) %s \n", i+1, inst)
 	}
 
 	fmt.Print("Select an instance (number): ")
@@ -567,10 +570,9 @@ func selectInstance() string {
 
 	choice, err := strconv.Atoi(strings.TrimSpace(scanner.Text()))
 	if err != nil || choice < 1 || choice > len(instances) {
-		logger.GetLogger().Warn("Invalid selection.")
+		fmt.Println("Invalid selection.")
 		return ""
 	}
-
 	return instances[choice-1]
 }
 
@@ -702,9 +704,18 @@ func manageInstanceMenu(instanceName string) error {
 				}
 			}
 		case "0":
-			return nil
+			backMain := func() error {
+				instanceName = selectInstance()
+				if instanceName == "" {
+					return fmt.Errorf("no instance selected")
+				}
+				return manageInstanceMenu(instanceName)
+			}
+			if err := backMain(); err != nil {
+				fmt.Println(err)
+			}
 		default:
-			logger.GetLogger().Warn("Invalid option.")
+			fmt.Println("Invalid option.")
 		}
 	}
 
