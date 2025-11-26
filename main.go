@@ -1,6 +1,7 @@
 package main
 
 import (
+	"asa-server/actions"
 	"asa-server/asaserver"
 	"asa-server/logger"
 	"asa-server/webapi"
@@ -60,7 +61,7 @@ func main() {
 				Name:      "manage",
 				Usage:     "Manage instance interactively",
 				ArgsUsage: "[instance_name]",
-				Action:    asaserver.ActionManage,
+				Action:    actions.ActionManage,
 			},
 			{
 				Name:  "update",
@@ -71,65 +72,65 @@ func main() {
 						Usage: "Force re-run server verification even if config exists",
 					},
 				},
-				Action: asaserver.ActionUpdate,
+				Action: actions.ActionUpdate,
 			},
 			{
 				Name:   "list",
 				Usage:  "List all available instances",
-				Action: asaserver.ActionList,
+				Action: actions.ActionList,
 			},
 			{
 				Name:   "create",
 				Usage:  "Create a new instance",
-				Action: asaserver.ActionCreate,
+				Action: actions.ActionCreate,
 			},
 			{
 				Name:      "start",
 				Usage:     "Start a server instance",
 				ArgsUsage: "<instance_name>",
-				Action:    asaserver.ActionStart,
+				Action:    actions.ActionStart,
 			},
 			{
 				Name:      "stop",
 				Usage:     "Stop a server instance",
 				ArgsUsage: "<instance_name>",
-				Action:    asaserver.ActionStop,
+				Action:    actions.ActionStop,
 			},
 			{
 				Name:      "restart",
 				Usage:     "Restart a server instance",
 				ArgsUsage: "<instance_name>",
-				Action:    asaserver.ActionRestart,
+				Action:    actions.ActionRestart,
 			},
 			{
 				Name:      "status",
 				Usage:     "Check server status",
 				ArgsUsage: "[instance_name]",
-				Action:    asaserver.ActionStatus,
+				Action:    actions.ActionStatus,
 			},
 			{
 				Name:      "rcon",
 				Usage:     "Send RCON command to server",
 				ArgsUsage: "<instance_name> <command>",
-				Action:    asaserver.ActionRCON,
+				Action:    actions.ActionRCON,
 			},
 			{
 				Name:      "delete",
 				Usage:     "Delete an instance",
 				ArgsUsage: "<instance_name>",
-				Action:    asaserver.ActionDelete,
+				Action:    actions.ActionDelete,
 			},
 			{
 				Name:      "rename",
 				Usage:     "Rename an instance",
 				ArgsUsage: "<instance_name>",
-				Action:    asaserver.ActionRename,
+				Action:    actions.ActionRename,
 			},
 			{
 				Name:      "backup",
 				Usage:     "Create a backup of an instance world",
 				ArgsUsage: "<instance_name> <world_folder>",
-				Action:    asaserver.ActionBackup,
+				Action:    actions.ActionBackup,
 			},
 			{
 				Name:      "restore",
@@ -149,35 +150,35 @@ func main() {
 						Usage: "Restore game config files (Config directory)",
 					},
 				},
-				Action: asaserver.ActionRestore,
+				Action: actions.ActionRestore,
 			},
 			{
 				Name:   "start-all",
 				Usage:  "Start all instances",
-				Action: asaserver.ActionStartAll,
+				Action: actions.ActionStartAll,
 			},
 			{
 				Name:   "stop-all",
 				Usage:  "Stop all instances",
-				Action: asaserver.ActionStopAll,
+				Action: actions.ActionStopAll,
 			},
 			{
 				Name:      "view-game",
 				Usage:     "View Game.ini configuration file for an instance",
 				ArgsUsage: "[instance_name]",
-				Action:    asaserver.ActionViewGameIni,
+				Action:    actions.ActionViewGameIni,
 			},
 			{
 				Name:      "view-game-user-settings",
 				Usage:     "View GameUserSettings.ini configuration file for an instance",
 				ArgsUsage: "[instance_name]",
-				Action:    asaserver.ActionViewGameUserSettings,
+				Action:    actions.ActionViewGameUserSettings,
 			},
 			{
 				Name:      "sync-config",
 				Usage:     "Synchronize game config files from base server to instances",
 				ArgsUsage: "<instance_name> [instance_name2] [...]",
-				Action:    asaserver.ActionSyncGameConfig,
+				Action:    actions.ActionSyncGameConfig,
 			},
 			{
 				Name:   "api",

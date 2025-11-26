@@ -1,6 +1,7 @@
-package asaserver
+package actions
 
 import (
+	"asa-server/asaserver"
 	"asa-server/logger"
 	"bufio"
 	"context"
@@ -21,12 +22,12 @@ func ActionUpdate(ctx context.Context, cmd *cli.Command) error {
 
 	stdoutFmt := os.Stdout
 	// Download and extract SteamCMD
-	if err := DownloadAndExtractSteamCmd(stdoutFmt); err != nil {
+	if err := asaserver.DownloadAndExtractSteamCmd(stdoutFmt); err != nil {
 		return err
 	}
 
 	// Download and update ARK server
-	if err := DownloadAndUpdateArkServer(stdoutFmt); err != nil {
+	if err := asaserver.DownloadAndUpdateArkServer(stdoutFmt); err != nil {
 		return err
 	}
 
@@ -34,7 +35,7 @@ func ActionUpdate(ctx context.Context, cmd *cli.Command) error {
 	forceServer := cmd.Bool("force-server")
 
 	// Verify server installation by running it to generate config files
-	if err := VerifyServerInstallation(forceServer); err != nil {
+	if err := asaserver.VerifyServerInstallation(forceServer); err != nil {
 		return err
 	}
 
@@ -43,19 +44,19 @@ func ActionUpdate(ctx context.Context, cmd *cli.Command) error {
 }
 
 func ActionList(ctx context.Context, cmd *cli.Command) error {
-	instances, err := GetAvailableInstances()
+	instances, err := asaserver.GetAvailableInstances()
 	if err != nil {
 		return err
 	}
 
 	if len(instances) == 0 {
-		logger.GetLogger().Warnf("No instances found in '%s'.", InstancesDir)
+		logger.GetLogger().Warnf("No instances found in '%s'.", asaserver.InstancesDir)
 		return nil
 	}
 
 	logger.GetLogger().Info("Available instances:")
 	for _, inst := range instances {
-		running, _ := IsServerRunning(inst)
+		running, _ := asaserver.IsServerRunning(inst)
 		status := "OFFLINE"
 		if running {
 			status = "ONLINE"
@@ -80,22 +81,22 @@ func ActionCreate(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	// Check if instance already exists
-	if _, err := os.Stat(filepath.Join(InstancesDir, instanceName)); err == nil {
+	if _, err := os.Stat(filepath.Join(asaserver.InstancesDir, instanceName)); err == nil {
 		logger.GetLogger().Warnf("Instance '%s' already exists.", instanceName)
 		return nil
 	}
 
 	// Create instance directory
-	if err := os.MkdirAll(filepath.Join(InstancesDir, instanceName, "Config"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(asaserver.InstancesDir, instanceName, "Config"), 0755); err != nil {
 		return fmt.Errorf("failed to create instance directory: %w", err)
 	}
 
 	// Copy base server configuration files to instance Config directory
-	baseConfigDir := filepath.Join(ServerFilesDir, "ShooterGame/Saved/Config/WindowsServer")
-	instanceConfigDir := filepath.Join(InstancesDir, instanceName, "Config")
+	baseConfigDir := filepath.Join(asaserver.ServerFilesDir, "ShooterGame/Saved/Config/WindowsServer")
+	instanceConfigDir := filepath.Join(asaserver.InstancesDir, instanceName, "Config")
 	if _, err := os.Stat(baseConfigDir); err == nil {
 		logger.GetLogger().Infof("Copying base server configuration files to instance '%s'...", instanceName)
-		if err := CopyDir(baseConfigDir, instanceConfigDir); err != nil {
+		if err := asaserver.CopyDir(baseConfigDir, instanceConfigDir); err != nil {
 			logger.GetLogger().Warnf("Failed to copy base server configuration: %v", err)
 			// Continue anyway as this is not critical
 		}
@@ -104,13 +105,13 @@ func ActionCreate(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	// Create default configuration
-	config := CreateDefaultInstanceConfig(instanceName)
-	if err := SaveInstanceConfig(instanceName, config); err != nil {
+	config := asaserver.CreateDefaultInstanceConfig(instanceName)
+	if err := asaserver.SaveInstanceConfig(instanceName, config); err != nil {
 		return err
 	}
 
 	// Create empty Game.ini if not already copied from base server
-	gameIniPath := filepath.Join(InstancesDir, instanceName, "Config", "Game.ini")
+	gameIniPath := filepath.Join(asaserver.InstancesDir, instanceName, "Config", "Game.ini")
 	if _, err := os.Stat(gameIniPath); os.IsNotExist(err) {
 		if err := os.WriteFile(gameIniPath, []byte(""), 0644); err != nil {
 			return fmt.Errorf("failed to create Game.ini: %w", err)
@@ -118,7 +119,7 @@ func ActionCreate(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	logger.GetLogger().Infof("Instance '%s' created successfully.", instanceName)
-	logger.GetLogger().Infof("Configuration file: %s", filepath.Join(InstancesDir, instanceName, "instance_config.ini"))
+	logger.GetLogger().Infof("Configuration file: %s", filepath.Join(asaserver.InstancesDir, instanceName, "instance_config.ini"))
 
 	return nil
 }
@@ -130,7 +131,7 @@ func ActionStart(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	instanceName := args.Get(0)
-	return StartServer(instanceName)
+	return asaserver.StartServer(instanceName)
 }
 
 func ActionStop(ctx context.Context, cmd *cli.Command) error {
@@ -140,7 +141,7 @@ func ActionStop(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	instanceName := args.Get(0)
-	return StopServer(instanceName)
+	return asaserver.StopServer(instanceName)
 }
 
 func ActionRestart(ctx context.Context, cmd *cli.Command) error {
@@ -150,14 +151,14 @@ func ActionRestart(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	instanceName := args.Get(0)
-	return RestartServer(instanceName)
+	return asaserver.RestartServer(instanceName)
 }
 
 func ActionStatus(ctx context.Context, cmd *cli.Command) error {
 	args := cmd.Args()
 	if args.Len() == 0 {
 		// Show status of all instances
-		instances, err := GetAvailableInstances()
+		instances, err := asaserver.GetAvailableInstances()
 		if err != nil {
 			return err
 		}
@@ -170,7 +171,7 @@ func ActionStatus(ctx context.Context, cmd *cli.Command) error {
 		logger.GetLogger().Info("Checking running instances...")
 		runningCount := 0
 		for _, instanceName := range instances {
-			running, err := IsServerRunning(instanceName)
+			running, err := asaserver.IsServerRunning(instanceName)
 			if err == nil && running {
 				logger.GetLogger().Infof("  %s is running", instanceName)
 				runningCount++
@@ -188,7 +189,7 @@ func ActionStatus(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	instanceName := args.Get(0)
-	running, err := IsServerRunning(instanceName)
+	running, err := asaserver.IsServerRunning(instanceName)
 	if err != nil {
 		return err
 	}
@@ -215,7 +216,7 @@ func ActionRCON(ctx context.Context, cmd *cli.Command) error {
 }
 
 func actionRCONImpl(instanceName string, command string) error {
-	response, err := SendRCONCommand(instanceName, command)
+	response, err := asaserver.SendRCONCommand(instanceName, command)
 	if err != nil {
 		return err
 	}
@@ -251,24 +252,24 @@ func ActionDelete(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	// Stop instance if running
-	if running, _ := IsServerRunning(instanceName); running {
+	if running, _ := asaserver.IsServerRunning(instanceName); running {
 		logger.GetLogger().Infof("Stopping instance '%s'...", instanceName)
-		if err := StopServer(instanceName); err != nil {
+		if err := asaserver.StopServer(instanceName); err != nil {
 			logger.GetLogger().Errorf("Error stopping server: %v", err)
 		}
 	}
 
 	// Delete instance directory
-	instanceDir := filepath.Join(InstancesDir, instanceName)
+	instanceDir := filepath.Join(asaserver.InstancesDir, instanceName)
 	if err := os.RemoveAll(instanceDir); err != nil {
 		return fmt.Errorf("failed to delete instance directory: %w", err)
 	}
 
 	// Delete save directories
-	savePath := filepath.Join(ServerFilesDir, "ShooterGame/Saved", instanceName)
+	savePath := filepath.Join(asaserver.ServerFilesDir, "ShooterGame/Saved", instanceName)
 	os.RemoveAll(savePath)
 
-	savedArksPath := filepath.Join(ServerFilesDir, "ShooterGame/Saved/SavedArks", instanceName)
+	savedArksPath := filepath.Join(asaserver.ServerFilesDir, "ShooterGame/Saved/SavedArks", instanceName)
 	os.RemoveAll(savedArksPath)
 
 	logger.GetLogger().Infof("Instance '%s' has been deleted.", instanceName)
@@ -305,35 +306,35 @@ func ActionRename(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	// Stop instance if running
-	if running, _ := IsServerRunning(instanceName); running {
+	if running, _ := asaserver.IsServerRunning(instanceName); running {
 		logger.GetLogger().Infof("Stopping instance '%s' before renaming...", instanceName)
-		if err := StopServer(instanceName); err != nil {
+		if err := asaserver.StopServer(instanceName); err != nil {
 			return fmt.Errorf("failed to stop server: %w", err)
 		}
 	}
 
 	// Rename instance directory
-	oldPath := filepath.Join(InstancesDir, instanceName)
-	newPath := filepath.Join(InstancesDir, newName)
+	oldPath := filepath.Join(asaserver.InstancesDir, instanceName)
+	newPath := filepath.Join(asaserver.InstancesDir, newName)
 
 	if err := os.Rename(oldPath, newPath); err != nil {
 		return fmt.Errorf("failed to rename instance directory: %w", err)
 	}
 
 	// Rename save directories
-	oldSavePath := filepath.Join(ServerFilesDir, "ShooterGame/Saved", instanceName)
-	newSavePath := filepath.Join(ServerFilesDir, "ShooterGame/Saved", newName)
+	oldSavePath := filepath.Join(asaserver.ServerFilesDir, "ShooterGame/Saved", instanceName)
+	newSavePath := filepath.Join(asaserver.ServerFilesDir, "ShooterGame/Saved", newName)
 	os.Rename(oldSavePath, newSavePath)
 
-	oldArksPath := filepath.Join(ServerFilesDir, "ShooterGame/Saved/SavedArks", instanceName)
-	newArksPath := filepath.Join(ServerFilesDir, "ShooterGame/Saved/SavedArks", newName)
+	oldArksPath := filepath.Join(asaserver.ServerFilesDir, "ShooterGame/Saved/SavedArks", instanceName)
+	newArksPath := filepath.Join(asaserver.ServerFilesDir, "ShooterGame/Saved/SavedArks", newName)
 	os.Rename(oldArksPath, newArksPath)
 
 	// Update SaveDir in configuration
-	config, err := LoadInstanceConfig(newName)
+	config, err := asaserver.LoadInstanceConfig(newName)
 	if err == nil {
 		config.SaveDir = newName
-		SaveInstanceConfig(newName, config)
+		asaserver.SaveInstanceConfig(newName, config)
 	}
 
 	logger.GetLogger().Infof("Instance renamed from '%s' to '%s'.", instanceName, newName)
@@ -348,7 +349,7 @@ func ActionBackup(ctx context.Context, cmd *cli.Command) error {
 
 	instanceName := args.Get(0)
 
-	return BackupInstanceWorld(instanceName)
+	return asaserver.BackupInstanceWorld(instanceName)
 }
 
 func ActionRestore(ctx context.Context, cmd *cli.Command) error {
@@ -415,26 +416,26 @@ func ActionRestore(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	// Build restore option functions
-	var optFuncs []RestoreOptionFunc
+	var optFuncs []asaserver.RestoreOptionFunc
 	if restoreWorldfile {
-		optFuncs = append(optFuncs, WithRestoreWorldfile())
+		optFuncs = append(optFuncs, asaserver.WithRestoreWorldfile())
 	}
 	if restoreInstanceConfig {
-		optFuncs = append(optFuncs, WithRestoreInstanceConfig())
+		optFuncs = append(optFuncs, asaserver.WithRestoreInstanceConfig())
 	}
 	if restoreGameConfig {
-		optFuncs = append(optFuncs, WithRestoreGameConfig())
+		optFuncs = append(optFuncs, asaserver.WithRestoreGameConfig())
 	}
 
-	return RestoreBackupToInstance(instanceName, backupFile, optFuncs...)
+	return asaserver.RestoreBackupToInstance(instanceName, backupFile, optFuncs...)
 }
 
 func ActionStartAll(ctx context.Context, cmd *cli.Command) error {
-	return StartAllInstances()
+	return asaserver.StartAllInstances()
 }
 
 func ActionStopAll(ctx context.Context, cmd *cli.Command) error {
-	return StopAllInstances()
+	return asaserver.StopAllInstances()
 }
 
 func ActionViewGameIni(ctx context.Context, cmd *cli.Command) error {
@@ -449,7 +450,7 @@ func ActionViewGameIni(ctx context.Context, cmd *cli.Command) error {
 		}
 	}
 
-	content, err := GetGameIniContent(instanceName)
+	content, err := asaserver.GetGameIniContent(instanceName)
 	if err != nil {
 		return err
 	}
@@ -472,7 +473,7 @@ func ActionViewGameUserSettings(ctx context.Context, cmd *cli.Command) error {
 		}
 	}
 
-	content, err := GetGameUserSettingsContent(instanceName)
+	content, err := asaserver.GetGameUserSettingsContent(instanceName)
 	if err != nil {
 		return err
 	}
@@ -506,7 +507,7 @@ func ActionSyncGameConfig(ctx context.Context, cmd *cli.Command) error {
 	var failedInstances []string
 	for _, instanceName := range instanceNames {
 		logger.GetLogger().Infof("Syncing game configuration for instance '%s'...", instanceName)
-		if err := SyncGameConfigToInstance(instanceName); err != nil {
+		if err := asaserver.SyncGameConfigToInstance(instanceName); err != nil {
 			logger.GetLogger().Errorf("Failed to sync config for instance '%s': %v", instanceName, err)
 			failedInstances = append(failedInstances, instanceName)
 			continue
@@ -546,7 +547,7 @@ func ActionManage(ctx context.Context, cmd *cli.Command) error {
 
 // Helper functions
 func selectInstance() string {
-	instances, err := GetAvailableInstances()
+	instances, err := asaserver.GetAvailableInstances()
 	if err != nil {
 		fmt.Printf("Error getting instances: %v \n", err)
 		return ""
@@ -600,19 +601,19 @@ func manageInstanceMenu(instanceName string) error {
 		choice := strings.TrimSpace(scanner.Text())
 		switch choice {
 		case "1":
-			if err := StartServer(instanceName); err != nil {
+			if err := asaserver.StartServer(instanceName); err != nil {
 				logger.GetLogger().Errorf("Error starting server: %v", err)
 			}
 		case "2":
-			if err := StopServer(instanceName); err != nil {
+			if err := asaserver.StopServer(instanceName); err != nil {
 				logger.GetLogger().Errorf("Error stopping server: %v", err)
 			}
 		case "3":
-			if err := RestartServer(instanceName); err != nil {
+			if err := asaserver.RestartServer(instanceName); err != nil {
 				logger.GetLogger().Errorf("Error restarting server: %v", err)
 			}
 		case "4":
-			running, err := IsServerRunning(instanceName)
+			running, err := asaserver.IsServerRunning(instanceName)
 			if err != nil {
 				logger.GetLogger().Errorf("Error checking server status: %v", err)
 			} else if running {
@@ -629,12 +630,12 @@ func manageInstanceMenu(instanceName string) error {
 				}
 			}
 		case "6":
-			if err := BackupInstanceWorld(instanceName); err != nil {
+			if err := asaserver.BackupInstanceWorld(instanceName); err != nil {
 				logger.GetLogger().Errorf("Error backing up world: %v", err)
 			}
 		case "7":
 			// Simulate restore action with local backup selection
-			backups, err := GetAvailableBackups()
+			backups, err := asaserver.GetAvailableBackups()
 			if err != nil {
 				logger.GetLogger().Errorf("Error retrieving backups: %v", err)
 			} else if len(backups) > 0 {
@@ -648,7 +649,7 @@ func manageInstanceMenu(instanceName string) error {
 					if err != nil {
 						logger.GetLogger().Errorf("Invalid backup number: %v", err)
 					} else if choice > 0 && choice <= len(backups) {
-						if err := RestoreBackupToInstance(instanceName, backups[choice-1], WithRestoreAll()); err != nil {
+						if err := asaserver.RestoreBackupToInstance(instanceName, backups[choice-1], asaserver.WithRestoreAll()); err != nil {
 							logger.GetLogger().Errorf("Error restoring backup: %v", err)
 						}
 					} else {
@@ -677,23 +678,23 @@ func manageInstanceMenu(instanceName string) error {
 					logger.GetLogger().Warn("New name is the same as the old name.")
 				default:
 					// Perform rename
-					if running, _ := IsServerRunning(instanceName); running {
+					if running, _ := asaserver.IsServerRunning(instanceName); running {
 						logger.GetLogger().Info("Stopping server before rename...")
-						if err := StopServer(instanceName); err != nil {
+						if err := asaserver.StopServer(instanceName); err != nil {
 							logger.GetLogger().Errorf("Error stopping server: %v", err)
 						}
 					}
-					oldPath := filepath.Join(InstancesDir, instanceName)
-					newPath := filepath.Join(InstancesDir, newName)
+					oldPath := filepath.Join(asaserver.InstancesDir, instanceName)
+					newPath := filepath.Join(asaserver.InstancesDir, newName)
 					if err := os.Rename(oldPath, newPath); err != nil {
 						logger.GetLogger().Errorf("Error renaming instance directory: %v", err)
 					} else {
-						config, err := LoadInstanceConfig(newName)
+						config, err := asaserver.LoadInstanceConfig(newName)
 						if err != nil {
 							logger.GetLogger().Errorf("Error loading instance config: %v", err)
 						} else {
 							config.SaveDir = newName
-							if err := SaveInstanceConfig(newName, config); err != nil {
+							if err := asaserver.SaveInstanceConfig(newName, config); err != nil {
 								logger.GetLogger().Errorf("Error saving instance config: %v", err)
 							} else {
 								logger.GetLogger().Infof("Instance renamed to '%s'.", newName)
@@ -724,11 +725,11 @@ func manageInstanceMenu(instanceName string) error {
 
 func viewInstanceLogs(instanceName string) error {
 	// Get the log file path for the instance
-	logPath, exists := GetInstanceLogFile(instanceName)
+	logPath, exists := asaserver.GetInstanceLogFile(instanceName)
 	if !exists {
 		// Try to get the log path if not in mapping
 		var err error
-		logPath, err = GetGameLogFilePath(instanceName)
+		logPath, err = asaserver.GetGameLogFilePath(instanceName)
 		if err != nil {
 			return fmt.Errorf("failed to get log file path: %w", err)
 		}
@@ -746,7 +747,7 @@ func viewInstanceLogs(instanceName string) error {
 	logger.GetLogger().Info("Press Ctrl+C to stop viewing logs...")
 
 	// Start tailing the log file in real-time
-	stopMonitoring := TailLogFile(logPath, func(line string) {
+	stopMonitoring := asaserver.TailLogFile(logPath, func(line string) {
 		fmt.Println(line)
 	})
 
@@ -772,7 +773,7 @@ func viewInstanceLogs(instanceName string) error {
 }
 
 func editInstanceConfigFile(instanceName string) error {
-	configPath := filepath.Join(InstancesDir, instanceName, "instance_config.ini")
+	configPath := filepath.Join(asaserver.InstancesDir, instanceName, "instance_config.ini")
 
 	// Check if config file exists
 	if _, err := os.Stat(configPath); err != nil {
