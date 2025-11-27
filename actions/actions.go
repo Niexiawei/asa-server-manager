@@ -4,6 +4,7 @@ import (
 	"asa-server/asaserver"
 	"asa-server/backup"
 	"asa-server/logger"
+	"asa-server/tui"
 	"bufio"
 	"context"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/urfave/cli/v3"
 )
 
@@ -526,25 +528,15 @@ func ActionSyncGameConfig(ctx context.Context, cmd *cli.Command) error {
 }
 
 func ActionManage(ctx context.Context, cmd *cli.Command) error {
-	args := cmd.Args()
-	instanceName := ""
-	if args.Len() > 0 {
-		instanceName = args.Get(0)
-	}
-
-	if instanceName == "" {
-		for {
-			instanceName = selectInstance()
-			if instanceName == "" {
-				fmt.Println("no instance selected")
-				continue
-			}
-			break
-		}
-	}
-
-	return manageInstanceMenu(instanceName)
+	// 使用 bubbletea TUI 替代旧的交互方式
+	model := tui.NewModel()
+	p := tea.NewProgram(model, tea.WithAltScreen())
+	_, err := p.Run()
+	return err
 }
+
+// 注意: selectInstance, manageInstanceMenu, viewInstanceLogs, editInstanceConfigFile 函数已迁移到 tui/models.go
+// 保留此处作为向后兼容（如果其他地方还在使用）
 
 // Helper functions
 func selectInstance() string {
@@ -578,149 +570,10 @@ func selectInstance() string {
 	return instances[choice-1]
 }
 
+// 此函数已迁移到 tui/models.go
+// 保留向后兼容的实现
 func manageInstanceMenu(instanceName string) error {
-	for {
-		fmt.Printf("Managing Instance: %s \n", instanceName)
-		fmt.Printf("Options: \n")
-		fmt.Printf("  1) Start Server \n")
-		fmt.Printf("  2) Stop Server \n")
-		fmt.Printf("  3) Restart Server \n")
-		fmt.Printf("  4) Check Status \n")
-		fmt.Printf("  5) Send RCON Command \n")
-		fmt.Printf("  6) Backup World \n")
-		fmt.Printf("  7) Restore Backup \n")
-		fmt.Printf("  8) View Live Logs \n")
-		fmt.Printf("  9) Edit Configuration \n")
-		fmt.Printf("  10) Change Instance Name \n")
-		fmt.Printf("  0) Back to Main Menu \n")
-
-		scanner := bufio.NewScanner(os.Stdin)
-		if !scanner.Scan() {
-			break
-		}
-
-		choice := strings.TrimSpace(scanner.Text())
-		switch choice {
-		case "1":
-			if err := asaserver.StartServer(instanceName); err != nil {
-				logger.GetLogger().Errorf("Error starting server: %v", err)
-			}
-		case "2":
-			if err := asaserver.StopServer(instanceName); err != nil {
-				logger.GetLogger().Errorf("Error stopping server: %v", err)
-			}
-		case "3":
-			if err := asaserver.RestartServer(instanceName); err != nil {
-				logger.GetLogger().Errorf("Error restarting server: %v", err)
-			}
-		case "4":
-			running, err := asaserver.IsServerRunning(instanceName)
-			if err != nil {
-				logger.GetLogger().Errorf("Error checking server status: %v", err)
-			} else if running {
-				logger.GetLogger().Infof("Server for instance %s is running.", instanceName)
-			} else {
-				logger.GetLogger().Infof("Server for instance %s is not running.", instanceName)
-			}
-		case "5":
-			fmt.Print("Enter RCON command: ")
-			if scanner.Scan() {
-				command := strings.TrimSpace(scanner.Text())
-				if err := actionRCONImpl(instanceName, command); err != nil {
-					logger.GetLogger().Errorf("Error sending RCON command: %v", err)
-				}
-			}
-		case "6":
-			if err := backup.BackupInstanceWorld(instanceName); err != nil {
-				logger.GetLogger().Errorf("Error backing up world: %v", err)
-			}
-		case "7":
-			// Simulate restore action with local backup selection
-			backups, err := backup.GetAvailableBackups()
-			if err != nil {
-				logger.GetLogger().Errorf("Error retrieving backups: %v", err)
-			} else if len(backups) > 0 {
-				logger.GetLogger().Info("Available backups:")
-				for i, _backup := range backups {
-					logger.GetLogger().Infof("  %d) %s", i+1, filepath.Base(_backup))
-				}
-				fmt.Print("Select a backup (number): ")
-				if scanner.Scan() {
-					choice, err := strconv.Atoi(strings.TrimSpace(scanner.Text()))
-					if err != nil {
-						logger.GetLogger().Errorf("Invalid backup number: %v", err)
-					} else if choice > 0 && choice <= len(backups) {
-						if err := backup.RestoreBackupToInstance(instanceName, backups[choice-1], backup.WithRestoreAll()); err != nil {
-							logger.GetLogger().Errorf("Error restoring backup: %v", err)
-						}
-					} else {
-						logger.GetLogger().Warn("Invalid backup selection.")
-					}
-				}
-			} else {
-				logger.GetLogger().Warn("No backups available.")
-			}
-		case "8":
-			if err := viewInstanceLogs(instanceName); err != nil {
-				logger.GetLogger().Errorf("Error viewing logs: %v", err)
-			}
-		case "9":
-			if err := editInstanceConfigFile(instanceName); err != nil {
-				logger.GetLogger().Errorf("Error editing configuration: %v", err)
-			}
-		case "10":
-			fmt.Print("Enter the new name for the instance: ")
-			if scanner.Scan() {
-				newName := strings.TrimSpace(scanner.Text())
-				switch newName {
-				case "":
-					logger.GetLogger().Warn("Instance name cannot be empty.")
-				case instanceName:
-					logger.GetLogger().Warn("New name is the same as the old name.")
-				default:
-					// Perform rename
-					if running, _ := asaserver.IsServerRunning(instanceName); running {
-						logger.GetLogger().Info("Stopping server before rename...")
-						if err := asaserver.StopServer(instanceName); err != nil {
-							logger.GetLogger().Errorf("Error stopping server: %v", err)
-						}
-					}
-					oldPath := filepath.Join(asaserver.InstancesDir, instanceName)
-					newPath := filepath.Join(asaserver.InstancesDir, newName)
-					if err := os.Rename(oldPath, newPath); err != nil {
-						logger.GetLogger().Errorf("Error renaming instance directory: %v", err)
-					} else {
-						config, err := asaserver.LoadInstanceConfig(newName)
-						if err != nil {
-							logger.GetLogger().Errorf("Error loading instance config: %v", err)
-						} else {
-							config.SaveDir = newName
-							if err := asaserver.SaveInstanceConfig(newName, config); err != nil {
-								logger.GetLogger().Errorf("Error saving instance config: %v", err)
-							} else {
-								logger.GetLogger().Infof("Instance renamed to '%s'.", newName)
-								return nil
-							}
-						}
-					}
-				}
-			}
-		case "0":
-			backMain := func() error {
-				instanceName = selectInstance()
-				if instanceName == "" {
-					return fmt.Errorf("no instance selected")
-				}
-				return manageInstanceMenu(instanceName)
-			}
-			if err := backMain(); err != nil {
-				fmt.Println(err)
-			}
-		default:
-			fmt.Println("Invalid option.")
-		}
-	}
-
+	logger.GetLogger().Warn("manageInstanceMenu 已弃用，请使用 TUI 模式")
 	return nil
 }
 

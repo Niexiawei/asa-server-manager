@@ -114,8 +114,6 @@ func InitializeLogMapping() error {
 					continue
 				}
 
-				fmt.Println(event)
-
 				mappings, err := LoadLogMappingFromFile()
 				if err != nil {
 					logger.GetLogger().Errorf("failed to load log mapping from file: %v", err)
@@ -417,19 +415,33 @@ func setupInstanceConfig(instanceName string, confReset *func()) error {
 	return nil
 }
 
+func removeNotRunningServerLogMapper() error {
+	servers, err := GetAvailableInstances()
+	if err != nil {
+		return err
+	}
+	for _, s := range servers {
+		running, err := IsServerRunning(s)
+		if err != nil {
+			return err
+		}
+		if !running {
+			if err := RemoveInstanceLogMapping(s); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // StartServer starts a server instance
 func StartServer(instanceName string) error {
 	var (
 		confReset func()
 	)
 
-	if running, err := IsServerRunning(instanceName); err == nil && running {
-		logger.GetLogger().Warnf("Server for instance %s is already running.", instanceName)
-		return nil
-	} else {
-		if err := RemoveInstanceLogMapping(instanceName); err != nil {
-			logger.GetLogger().Warnf("Failed to remove log mapping for instance %s: %v", instanceName, err)
-		}
+	if err := removeNotRunningServerLogMapper(); err != nil {
+		return err
 	}
 
 	// Check for duplicate ports
@@ -647,11 +659,10 @@ func StopServer(instanceName string) error {
 	var (
 		pid int
 	)
-
 	running, err := IsServerRunning(instanceName)
 	if err != nil || !running {
 		logger.GetLogger().Warnf("Server for instance %s is not running.", instanceName)
-		return nil
+		return fmt.Errorf("server for instance %s is not running", instanceName)
 	}
 
 	logger.GetLogger().Infof("Stopping server for instance: %s", instanceName)
@@ -756,11 +767,6 @@ func SendRCONCommand(instanceName string, command string) (string, error) {
 
 	if connectErr != nil {
 		logger.GetLogger().Errorf("RCON Connection failed (password: '%s')", config.ServerAdminPassword)
-		logger.GetLogger().Error("Troubleshooting tips:")
-		logger.GetLogger().Error("  1. Verify ServerAdminPassword in instance_config.ini")
-		logger.GetLogger().Error("  2. Check that RCON port is correct: " + rconAddr)
-		logger.GetLogger().Error("  3. Wait 60+ seconds after server start for RCON to be ready")
-		logger.GetLogger().Error("  4. Check server log for 'RCON password' or 'authentication' errors")
 		return "", fmt.Errorf("failed to connect to RCON server at %s: %w", rconAddr, connectErr)
 	}
 

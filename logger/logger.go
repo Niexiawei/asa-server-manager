@@ -35,11 +35,7 @@ func InitLoggerWithBaseDir(baseDir string) {
 }
 
 func GetLogger() *zap.SugaredLogger {
-	if loggerMode == CLIMode {
-		return loggerStdout
-	} else {
-		return logger
-	}
+	return logger
 }
 
 // GetLogFilePath returns the full path to the system log file

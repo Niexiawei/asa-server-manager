@@ -2303,3 +2303,187 @@
 {"level":"WARN","ts":"2025-11-26T14:57:09.374+0800","caller":"asaserver/server.go:307","msg":"Game port :7002 not found"}
 {"level":"INFO","ts":"2025-11-26T14:57:09.374+0800","caller":"asaserver/backup.go:51","msg":"Creating backup for instance: jibian..."}
 {"level":"INFO","ts":"2025-11-26T14:57:09.766+0800","caller":"asaserver/backup.go:96","msg":"Backup successfully created: D:\\golang\\asa-server\\backups\\jibian_2025-11-26_14-57-09.tar.zstd"}
+{"level":"INFO","ts":"2025-11-27T15:37:11.907+0800","caller":"asaserver/server.go:90","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-27T15:37:11.921+0800","caller":"asaserver/server.go:94","msg":"Starting log mapping file change listener..."}
+{"level":"WARN","ts":"2025-11-27T15:37:14.747+0800","caller":"asaserver/server.go:652","msg":"Server for instance jibian is not running."}
+{"level":"INFO","ts":"2025-11-27T15:50:06.517+0800","caller":"asaserver/server.go:90","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-27T15:50:06.527+0800","caller":"asaserver/server.go:94","msg":"Starting log mapping file change listener..."}
+{"level":"INFO","ts":"2025-11-27T15:50:10.278+0800","caller":"asaserver/server.go:130","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-27T15:50:10.278+0800","caller":"asaserver/server.go:446","msg":"Starting server for instance: meijue"}
+{"level":"INFO","ts":"2025-11-27T15:50:10.278+0800","caller":"asaserver/server.go:130","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-27T15:50:10.278+0800","caller":"asaserver/server.go:373","msg":"Backing up original configuration directory..."}
+{"level":"INFO","ts":"2025-11-27T15:50:10.306+0800","caller":"asaserver/server.go:585","msg":"[meijue] Redirecting AsaApiLoader output to logger"}
+{"level":"INFO","ts":"2025-11-27T15:50:10.306+0800","caller":"asaserver/server.go:599","msg":"Server started for instance: meijue. It should be fully operational in approximately 60 seconds."}
+{"level":"INFO","ts":"2025-11-27T15:50:10.306+0800","caller":"asaserver/server.go:600","msg":"Game log file: D:\\golang\\asa-server\\server-files\\ShooterGame\\Saved\\Logs\\ShooterGame_2.log"}
+{"level":"INFO","ts":"2025-11-27T15:50:10.321+0800","caller":"asaserver/server.go:570","msg":"[meijue][AsaApiLoader] [Success]: Detected Server: ArkAscendedServer.exe"}
+{"level":"INFO","ts":"2025-11-27T15:50:10.333+0800","caller":"asaserver/server.go:570","msg":"[meijue][AsaApiLoader] ]0;D:\\golang\\asa-server\\server-files\\ShooterGame\\Binaries\\Win64\\AsaApiLoader.exe[Success]: Detected Api: AsaApi.dll"}
+{"level":"INFO","ts":"2025-11-27T15:50:10.383+0800","caller":"asaserver/server.go:570","msg":"[meijue][AsaApiLoader] 11/27/25 15:50 [API][info] -----------------------------------------------"}
+{"level":"INFO","ts":"2025-11-27T15:50:10.396+0800","caller":"asaserver/server.go:570","msg":"[meijue][AsaApiLoader] 11/27/25 15:50 [API][info] ARK:SA Api V1.19"}
+{"level":"INFO","ts":"2025-11-27T15:50:10.396+0800","caller":"asaserver/server.go:570","msg":"[meijue][AsaApiLoader] 11/27/25 15:50 [API][info] Brought to you by ArkServerApi"}
+{"level":"INFO","ts":"2025-11-27T15:50:10.396+0800","caller":"asaserver/server.go:570","msg":"[meijue][AsaApiLoader] 11/27/25 15:50 [API][info] https://github.com/orgs/ArkServerApi"}
+{"level":"INFO","ts":"2025-11-27T15:50:10.396+0800","caller":"asaserver/server.go:570","msg":"[meijue][AsaApiLoader] 11/27/25 15:50 [API][info] Website: https://ark-server-api.com"}
+{"level":"INFO","ts":"2025-11-27T15:50:13.408+0800","caller":"asaserver/server.go:570","msg":"[meijue][AsaApiLoader] 11/27/25 15:50 [API][info] Loading...11/27/25 15:50 [API][info] Cache is still valid loading existing cache"}
+{"level":"INFO","ts":"2025-11-27T15:50:13.425+0800","caller":"asaserver/server.go:570","msg":"[meijue][AsaApiLoader] 11/27/25 15:50 [API][info] Reading cached offsets"}
+{"level":"INFO","ts":"2025-11-27T15:50:13.673+0800","caller":"asaserver/server.go:570","msg":"[meijue][AsaApiLoader] 11/27/25 15:50 [API][info] Reading cached bitfields"}
+{"level":"INFO","ts":"2025-11-27T15:50:13.718+0800","caller":"asaserver/server.go:570","msg":"[meijue][AsaApiLoader] 11/27/25 15:50 [API][info] Initialized hooks11/27/25 15:50 [API][info] API was successfully loaded"}
+{"level":"INFO","ts":"2025-11-27T15:50:13.718+0800","caller":"asaserver/server.go:570","msg":"[meijue][AsaApiLoader] 11/27/25 15:50 [API][info] -----------------------------------------------[Success]: Loader Completed, Reason: Success"}
+{"level":"INFO","ts":"2025-11-27T15:50:15.605+0800","caller":"asaserver/server.go:570","msg":"[meijue][AsaApiLoader] 11/27/25 15:50 [API][info] UGameEngine::Init was called"}
+{"level":"INFO","ts":"2025-11-27T15:50:15.615+0800","caller":"asaserver/server.go:570","msg":"[meijue][AsaApiLoader] 11/27/25 15:50 [API][info] Loading plugins..11/27/25 15:50 [API][info] Loaded plugin Ark:SA Permissions V1.03 (Manage permissions groups)"}
+{"level":"INFO","ts":"2025-11-27T15:50:15.615+0800","caller":"asaserver/server.go:570","msg":"[meijue][AsaApiLoader] 11/27/25 15:50 [API][info] Loaded all plugins"}
+{"level":"INFO","ts":"2025-11-27T15:50:15.696+0800","caller":"asaserver/server.go:570","msg":"[meijue][AsaApiLoader] Setting breakpad minidump AppID = 2399830"}
+{"level":"INFO","ts":"2025-11-27T15:50:19.008+0800","caller":"asaserver/server.go:570","msg":"[meijue][AsaApiLoader] 11/27/25 15:50 [API][info] AShooterGameMode::InitGame was called"}
+{"level":"INFO","ts":"2025-11-27T15:50:47.728+0800","caller":"asaserver/server.go:570","msg":"[meijue][AsaApiLoader] src\\clientdll\\cminterface.cpp (2253) : !BLoggedOn()"}
+{"level":"INFO","ts":"2025-11-27T15:50:47.738+0800","caller":"asaserver/server.go:570","msg":"[meijue][AsaApiLoader] src\\clientdll\\cminterface.cpp (2253) : !BLoggedOn()"}
+{"level":"INFO","ts":"2025-11-27T15:50:47.754+0800","caller":"asaserver/server.go:570","msg":"[meijue][AsaApiLoader] 11/27/25 15:50 [API][info] SERVER ID: 15833551"}
+{"level":"INFO","ts":"2025-11-27T15:51:10.308+0800","caller":"asaserver/server.go:410","msg":"Original configuration directory restored for instance: meijue"}
+{"level":"INFO","ts":"2025-11-27T15:51:10.309+0800","caller":"asaserver/server.go:130","msg":"Loaded 2 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-27T15:51:10.310+0800","caller":"asaserver/server.go:130","msg":"Loaded 2 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-27T15:53:25.160+0800","caller":"asaserver/server.go:90","msg":"Loaded 2 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-27T15:53:25.177+0800","caller":"asaserver/server.go:94","msg":"Starting log mapping file change listener..."}
+{"level":"INFO","ts":"2025-11-27T16:04:02.856+0800","caller":"asaserver/server.go:90","msg":"Loaded 2 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-27T16:04:02.867+0800","caller":"asaserver/server.go:94","msg":"Starting log mapping file change listener..."}
+{"level":"INFO","ts":"2025-11-27T16:04:06.143+0800","caller":"asaserver/server.go:130","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-27T16:04:06.144+0800","caller":"asaserver/server.go:446","msg":"Starting server for instance: jibian"}
+{"level":"INFO","ts":"2025-11-27T16:04:06.144+0800","caller":"asaserver/server.go:130","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-27T16:04:06.144+0800","caller":"asaserver/server.go:373","msg":"Backing up original configuration directory..."}
+{"level":"INFO","ts":"2025-11-27T16:04:06.166+0800","caller":"asaserver/server.go:585","msg":"[jibian] Redirecting AsaApiLoader output to logger"}
+{"level":"INFO","ts":"2025-11-27T16:04:06.166+0800","caller":"asaserver/server.go:599","msg":"Server started for instance: jibian. It should be fully operational in approximately 60 seconds."}
+{"level":"INFO","ts":"2025-11-27T16:04:06.166+0800","caller":"asaserver/server.go:600","msg":"Game log file: D:\\golang\\asa-server\\server-files\\ShooterGame\\Saved\\Logs\\ShooterGame.log"}
+{"level":"INFO","ts":"2025-11-27T16:04:06.181+0800","caller":"asaserver/server.go:570","msg":"[jibian][AsaApiLoader] [Success]: Detected Server: ArkAscendedServer.exe"}
+{"level":"INFO","ts":"2025-11-27T16:04:06.201+0800","caller":"asaserver/server.go:570","msg":"[jibian][AsaApiLoader] ]0;D:\\golang\\asa-server\\server-files\\ShooterGame\\Binaries\\Win64\\AsaApiLoader.exe[Success]: Detected Api: AsaApi.dll"}
+{"level":"INFO","ts":"2025-11-27T16:04:06.242+0800","caller":"asaserver/server.go:570","msg":"[jibian][AsaApiLoader] 11/27/25 16:04 [API][info] -----------------------------------------------"}
+{"level":"INFO","ts":"2025-11-27T16:04:06.263+0800","caller":"asaserver/server.go:570","msg":"[jibian][AsaApiLoader] 11/27/25 16:04 [API][info] ARK:SA Api V1.19"}
+{"level":"INFO","ts":"2025-11-27T16:04:06.263+0800","caller":"asaserver/server.go:570","msg":"[jibian][AsaApiLoader] 11/27/25 16:04 [API][info] Brought to you by ArkServerApi"}
+{"level":"INFO","ts":"2025-11-27T16:04:06.263+0800","caller":"asaserver/server.go:570","msg":"[jibian][AsaApiLoader] 11/27/25 16:04 [API][info] https://github.com/orgs/ArkServerApi"}
+{"level":"INFO","ts":"2025-11-27T16:04:06.263+0800","caller":"asaserver/server.go:570","msg":"[jibian][AsaApiLoader] 11/27/25 16:04 [API][info] Website: https://ark-server-api.com"}
+{"level":"INFO","ts":"2025-11-27T16:04:09.242+0800","caller":"asaserver/server.go:570","msg":"[jibian][AsaApiLoader] 11/27/25 16:04 [API][info] Loading...11/27/25 16:04 [API][info] Cache is still valid loading existing cache"}
+{"level":"INFO","ts":"2025-11-27T16:04:09.258+0800","caller":"asaserver/server.go:570","msg":"[jibian][AsaApiLoader] 11/27/25 16:04 [API][info] Reading cached offsets"}
+{"level":"INFO","ts":"2025-11-27T16:04:09.501+0800","caller":"asaserver/server.go:570","msg":"[jibian][AsaApiLoader] 11/27/25 16:04 [API][info] Reading cached bitfields"}
+{"level":"INFO","ts":"2025-11-27T16:04:09.538+0800","caller":"asaserver/server.go:570","msg":"[jibian][AsaApiLoader] 11/27/25 16:04 [API][info] Initialized hooks11/27/25 16:04 [API][info] API was successfully loaded"}
+{"level":"INFO","ts":"2025-11-27T16:04:09.538+0800","caller":"asaserver/server.go:570","msg":"[jibian][AsaApiLoader] 11/27/25 16:04 [API][info] -----------------------------------------------[Success]: Loader Completed, Reason: Success"}
+{"level":"INFO","ts":"2025-11-27T16:04:11.005+0800","caller":"asaserver/server.go:570","msg":"[jibian][AsaApiLoader] 11/27/25 16:04 [API][info] UGameEngine::Init was called"}
+{"level":"INFO","ts":"2025-11-27T16:04:11.014+0800","caller":"asaserver/server.go:570","msg":"[jibian][AsaApiLoader] 11/27/25 16:04 [API][info] Loading plugins..11/27/25 16:04 [API][info] Loaded plugin Ark:SA Permissions V1.03 (Manage permissions groups)"}
+{"level":"INFO","ts":"2025-11-27T16:04:11.014+0800","caller":"asaserver/server.go:570","msg":"[jibian][AsaApiLoader] 11/27/25 16:04 [API][info] Loaded all plugins"}
+{"level":"INFO","ts":"2025-11-27T16:04:11.089+0800","caller":"asaserver/server.go:570","msg":"[jibian][AsaApiLoader] Setting breakpad minidump AppID = 2399830"}
+{"level":"INFO","ts":"2025-11-27T16:04:15.342+0800","caller":"asaserver/server.go:570","msg":"[jibian][AsaApiLoader] 11/27/25 16:04 [API][info] AShooterGameMode::InitGame was called"}
+{"level":"INFO","ts":"2025-11-27T16:04:51.804+0800","caller":"asaserver/server.go:570","msg":"[jibian][AsaApiLoader] src\\clientdll\\cminterface.cpp (2253) : !BLoggedOn()"}
+{"level":"INFO","ts":"2025-11-27T16:04:51.825+0800","caller":"asaserver/server.go:570","msg":"[jibian][AsaApiLoader] src\\clientdll\\cminterface.cpp (2253) : !BLoggedOn()"}
+{"level":"INFO","ts":"2025-11-27T16:04:51.872+0800","caller":"asaserver/server.go:570","msg":"[jibian][AsaApiLoader] 11/27/25 16:04 [API][info] SERVER ID: 165832495"}
+{"level":"INFO","ts":"2025-11-27T16:05:06.169+0800","caller":"asaserver/server.go:410","msg":"Original configuration directory restored for instance: jibian"}
+{"level":"INFO","ts":"2025-11-27T16:05:06.172+0800","caller":"asaserver/server.go:130","msg":"Loaded 2 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-27T16:05:06.172+0800","caller":"asaserver/server.go:130","msg":"Loaded 2 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-27T16:06:21.124+0800","caller":"asaserver/server.go:90","msg":"Loaded 2 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-27T16:06:21.134+0800","caller":"asaserver/server.go:94","msg":"Starting log mapping file change listener..."}
+{"level":"WARN","ts":"2025-11-27T16:07:10.965+0800","caller":"asaserver/server.go:652","msg":"Server for instance meijue is not running."}
+{"level":"INFO","ts":"2025-11-27T16:07:13.097+0800","caller":"asaserver/server.go:130","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-27T16:07:13.097+0800","caller":"asaserver/server.go:446","msg":"Starting server for instance: meijue"}
+{"level":"INFO","ts":"2025-11-27T16:07:13.097+0800","caller":"asaserver/server.go:130","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-27T16:07:13.097+0800","caller":"asaserver/server.go:373","msg":"Backing up original configuration directory..."}
+{"level":"INFO","ts":"2025-11-27T16:07:13.123+0800","caller":"asaserver/server.go:585","msg":"[meijue] Redirecting AsaApiLoader output to logger"}
+{"level":"INFO","ts":"2025-11-27T16:07:13.123+0800","caller":"asaserver/server.go:599","msg":"Server started for instance: meijue. It should be fully operational in approximately 60 seconds."}
+{"level":"INFO","ts":"2025-11-27T16:07:13.123+0800","caller":"asaserver/server.go:600","msg":"Game log file: D:\\golang\\asa-server\\server-files\\ShooterGame\\Saved\\Logs\\ShooterGame_2.log"}
+{"level":"INFO","ts":"2025-11-27T16:07:13.137+0800","caller":"asaserver/server.go:570","msg":"[meijue][AsaApiLoader] [Success]: Detected Server: ArkAscendedServer.exe"}
+{"level":"INFO","ts":"2025-11-27T16:07:13.160+0800","caller":"asaserver/server.go:570","msg":"[meijue][AsaApiLoader] ]0;D:\\golang\\asa-server\\server-files\\ShooterGame\\Binaries\\Win64\\AsaApiLoader.exe[Success]: Detected Api: AsaApi.dll"}
+{"level":"INFO","ts":"2025-11-27T16:07:13.199+0800","caller":"asaserver/server.go:570","msg":"[meijue][AsaApiLoader] 11/27/25 16:07 [API][info] -----------------------------------------------"}
+{"level":"INFO","ts":"2025-11-27T16:07:13.221+0800","caller":"asaserver/server.go:570","msg":"[meijue][AsaApiLoader] 11/27/25 16:07 [API][info] ARK:SA Api V1.19"}
+{"level":"INFO","ts":"2025-11-27T16:07:13.221+0800","caller":"asaserver/server.go:570","msg":"[meijue][AsaApiLoader] 11/27/25 16:07 [API][info] Brought to you by ArkServerApi"}
+{"level":"INFO","ts":"2025-11-27T16:07:13.221+0800","caller":"asaserver/server.go:570","msg":"[meijue][AsaApiLoader] 11/27/25 16:07 [API][info] https://github.com/orgs/ArkServerApi"}
+{"level":"INFO","ts":"2025-11-27T16:07:13.221+0800","caller":"asaserver/server.go:570","msg":"[meijue][AsaApiLoader] 11/27/25 16:07 [API][info] Website: https://ark-server-api.com"}
+{"level":"INFO","ts":"2025-11-27T16:07:16.248+0800","caller":"asaserver/server.go:570","msg":"[meijue][AsaApiLoader] 11/27/25 16:07 [API][info] Loading...11/27/25 16:07 [API][info] Cache is still valid loading existing cache"}
+{"level":"INFO","ts":"2025-11-27T16:07:16.263+0800","caller":"asaserver/server.go:570","msg":"[meijue][AsaApiLoader] 11/27/25 16:07 [API][info] Reading cached offsets"}
+{"level":"INFO","ts":"2025-11-27T16:07:16.524+0800","caller":"asaserver/server.go:570","msg":"[meijue][AsaApiLoader] 11/27/25 16:07 [API][info] Reading cached bitfields"}
+{"level":"INFO","ts":"2025-11-27T16:07:16.558+0800","caller":"asaserver/server.go:570","msg":"[meijue][AsaApiLoader] 11/27/25 16:07 [API][info] Initialized hooks11/27/25 16:07 [API][info] API was successfully loaded"}
+{"level":"INFO","ts":"2025-11-27T16:07:16.558+0800","caller":"asaserver/server.go:570","msg":"[meijue][AsaApiLoader] 11/27/25 16:07 [API][info] -----------------------------------------------[Success]: Loader Completed, Reason: Success"}
+{"level":"INFO","ts":"2025-11-27T16:07:17.945+0800","caller":"asaserver/server.go:570","msg":"[meijue][AsaApiLoader] 11/27/25 16:07 [API][info] UGameEngine::Init was called"}
+{"level":"INFO","ts":"2025-11-27T16:07:17.957+0800","caller":"asaserver/server.go:570","msg":"[meijue][AsaApiLoader] 11/27/25 16:07 [API][info] Loading plugins..11/27/25 16:07 [API][info] Loaded plugin Ark:SA Permissions V1.03 (Manage permissions groups)"}
+{"level":"INFO","ts":"2025-11-27T16:07:17.957+0800","caller":"asaserver/server.go:570","msg":"[meijue][AsaApiLoader] 11/27/25 16:07 [API][info] Loaded all plugins"}
+{"level":"INFO","ts":"2025-11-27T16:07:18.048+0800","caller":"asaserver/server.go:570","msg":"[meijue][AsaApiLoader] Setting breakpad minidump AppID = 2399830"}
+{"level":"INFO","ts":"2025-11-27T16:07:21.413+0800","caller":"asaserver/server.go:570","msg":"[meijue][AsaApiLoader] 11/27/25 16:07 [API][info] AShooterGameMode::InitGame was called"}
+{"level":"INFO","ts":"2025-11-27T16:07:52.274+0800","caller":"asaserver/server.go:570","msg":"[meijue][AsaApiLoader] 11/27/25 16:07 [API][info] SERVER ID: 15833551"}
+{"level":"INFO","ts":"2025-11-27T16:08:13.125+0800","caller":"asaserver/server.go:410","msg":"Original configuration directory restored for instance: meijue"}
+{"level":"INFO","ts":"2025-11-27T16:08:13.126+0800","caller":"asaserver/server.go:130","msg":"Loaded 2 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-27T16:08:13.127+0800","caller":"asaserver/server.go:130","msg":"Loaded 2 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-27T16:14:51.091+0800","caller":"asaserver/server.go:90","msg":"Loaded 2 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-27T16:14:51.104+0800","caller":"asaserver/server.go:94","msg":"Starting log mapping file change listener..."}
+{"level":"INFO","ts":"2025-11-27T16:36:37.103+0800","caller":"asaserver/server.go:90","msg":"Loaded 2 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-27T16:36:37.114+0800","caller":"asaserver/server.go:94","msg":"Starting log mapping file change listener..."}
+{"level":"INFO","ts":"2025-11-27T16:36:42.571+0800","caller":"asaserver/server.go:128","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-27T16:36:42.571+0800","caller":"asaserver/server.go:128","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-27T16:36:42.599+0800","caller":"asaserver/server.go:458","msg":"Starting server for instance: meijue"}
+{"level":"INFO","ts":"2025-11-27T16:36:42.599+0800","caller":"asaserver/server.go:371","msg":"Backing up original configuration directory..."}
+{"level":"INFO","ts":"2025-11-27T16:36:42.622+0800","caller":"asaserver/server.go:597","msg":"[meijue] Redirecting AsaApiLoader output to logger"}
+{"level":"INFO","ts":"2025-11-27T16:36:42.622+0800","caller":"asaserver/server.go:611","msg":"Server started for instance: meijue. It should be fully operational in approximately 60 seconds."}
+{"level":"INFO","ts":"2025-11-27T16:36:42.622+0800","caller":"asaserver/server.go:612","msg":"Game log file: D:\\golang\\asa-server\\server-files\\ShooterGame\\Saved\\Logs\\ShooterGame.log"}
+{"level":"INFO","ts":"2025-11-27T16:36:42.640+0800","caller":"asaserver/server.go:582","msg":"[meijue][AsaApiLoader] [Success]: Detected Server: ArkAscendedServer.exe"}
+{"level":"INFO","ts":"2025-11-27T16:36:42.651+0800","caller":"asaserver/server.go:582","msg":"[meijue][AsaApiLoader] ]0;D:\\golang\\asa-server\\server-files\\ShooterGame\\Binaries\\Win64\\AsaApiLoader.exe[Success]: Detected Api: AsaApi.dll"}
+{"level":"INFO","ts":"2025-11-27T16:36:42.705+0800","caller":"asaserver/server.go:582","msg":"[meijue][AsaApiLoader] 11/27/25 16:36 [API][info] -----------------------------------------------"}
+{"level":"INFO","ts":"2025-11-27T16:36:42.713+0800","caller":"asaserver/server.go:582","msg":"[meijue][AsaApiLoader] 11/27/25 16:36 [API][info] ARK:SA Api V1.19"}
+{"level":"INFO","ts":"2025-11-27T16:36:42.713+0800","caller":"asaserver/server.go:582","msg":"[meijue][AsaApiLoader] 11/27/25 16:36 [API][info] Brought to you by ArkServerApi"}
+{"level":"INFO","ts":"2025-11-27T16:36:42.713+0800","caller":"asaserver/server.go:582","msg":"[meijue][AsaApiLoader] 11/27/25 16:36 [API][info] https://github.com/orgs/ArkServerApi"}
+{"level":"INFO","ts":"2025-11-27T16:36:42.713+0800","caller":"asaserver/server.go:582","msg":"[meijue][AsaApiLoader] 11/27/25 16:36 [API][info] Website: https://ark-server-api.com"}
+{"level":"INFO","ts":"2025-11-27T16:36:45.777+0800","caller":"asaserver/server.go:582","msg":"[meijue][AsaApiLoader] 11/27/25 16:36 [API][info] Loading...11/27/25 16:36 [API][info] Cache is still valid loading existing cache"}
+{"level":"INFO","ts":"2025-11-27T16:36:45.792+0800","caller":"asaserver/server.go:582","msg":"[meijue][AsaApiLoader] 11/27/25 16:36 [API][info] Reading cached offsets"}
+{"level":"INFO","ts":"2025-11-27T16:36:46.044+0800","caller":"asaserver/server.go:582","msg":"[meijue][AsaApiLoader] 11/27/25 16:36 [API][info] Reading cached bitfields"}
+{"level":"INFO","ts":"2025-11-27T16:36:46.086+0800","caller":"asaserver/server.go:582","msg":"[meijue][AsaApiLoader] 11/27/25 16:36 [API][info] Initialized hooks11/27/25 16:36 [API][info] API was successfully loaded"}
+{"level":"INFO","ts":"2025-11-27T16:36:46.086+0800","caller":"asaserver/server.go:582","msg":"[meijue][AsaApiLoader] 11/27/25 16:36 [API][info] -----------------------------------------------[Success]: Loader Completed, Reason: Success"}
+{"level":"INFO","ts":"2025-11-27T16:36:48.034+0800","caller":"asaserver/server.go:582","msg":"[meijue][AsaApiLoader] 11/27/25 16:36 [API][info] UGameEngine::Init was called"}
+{"level":"INFO","ts":"2025-11-27T16:36:48.046+0800","caller":"asaserver/server.go:582","msg":"[meijue][AsaApiLoader] 11/27/25 16:36 [API][info] Loading plugins..11/27/25 16:36 [API][info] Loaded plugin Ark:SA Permissions V1.03 (Manage permissions groups)"}
+{"level":"INFO","ts":"2025-11-27T16:36:48.046+0800","caller":"asaserver/server.go:582","msg":"[meijue][AsaApiLoader] 11/27/25 16:36 [API][info] Loaded all plugins"}
+{"level":"INFO","ts":"2025-11-27T16:36:48.123+0800","caller":"asaserver/server.go:582","msg":"[meijue][AsaApiLoader] Setting breakpad minidump AppID = 2399830"}
+{"level":"INFO","ts":"2025-11-27T16:36:52.311+0800","caller":"asaserver/server.go:582","msg":"[meijue][AsaApiLoader] 11/27/25 16:36 [API][info] AShooterGameMode::InitGame was called"}
+{"level":"INFO","ts":"2025-11-27T16:37:22.187+0800","caller":"asaserver/server.go:582","msg":"[meijue][AsaApiLoader] src\\clientdll\\cminterface.cpp (2253) : !BLoggedOn()"}
+{"level":"INFO","ts":"2025-11-27T16:37:22.202+0800","caller":"asaserver/server.go:582","msg":"[meijue][AsaApiLoader] src\\clientdll\\cminterface.cpp (2253) : !BLoggedOn()"}
+{"level":"INFO","ts":"2025-11-27T16:37:22.218+0800","caller":"asaserver/server.go:582","msg":"[meijue][AsaApiLoader] 11/27/25 16:37 [API][info] SERVER ID: 15833551"}
+{"level":"INFO","ts":"2025-11-27T16:37:42.624+0800","caller":"asaserver/server.go:408","msg":"Original configuration directory restored for instance: meijue"}
+{"level":"INFO","ts":"2025-11-27T16:37:42.625+0800","caller":"asaserver/server.go:128","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-27T16:37:42.625+0800","caller":"asaserver/server.go:128","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-27T16:39:56.726+0800","caller":"asaserver/server.go:90","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-27T16:39:56.737+0800","caller":"asaserver/server.go:94","msg":"Starting log mapping file change listener..."}
+{"level":"INFO","ts":"2025-11-27T16:46:40.318+0800","caller":"asaserver/server.go:90","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-27T16:46:40.329+0800","caller":"asaserver/server.go:94","msg":"Starting log mapping file change listener..."}
+{"level":"INFO","ts":"2025-11-27T16:49:31.460+0800","caller":"asaserver/server.go:90","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-27T16:49:31.471+0800","caller":"asaserver/server.go:94","msg":"Starting log mapping file change listener..."}
+{"level":"INFO","ts":"2025-11-27T16:49:41.382+0800","caller":"asaserver/server.go:90","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-27T16:49:41.393+0800","caller":"asaserver/server.go:94","msg":"Starting log mapping file change listener..."}
+{"level":"INFO","ts":"2025-11-27T16:50:06.834+0800","caller":"asaserver/server.go:90","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-27T16:50:06.845+0800","caller":"asaserver/server.go:94","msg":"Starting log mapping file change listener..."}
+{"level":"INFO","ts":"2025-11-27T16:57:09.613+0800","caller":"asaserver/server.go:90","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-27T16:57:09.631+0800","caller":"asaserver/server.go:94","msg":"Starting log mapping file change listener..."}
+{"level":"INFO","ts":"2025-11-27T20:05:16.270+0800","caller":"asaserver/server.go:90","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-27T20:05:16.280+0800","caller":"asaserver/server.go:94","msg":"Starting log mapping file change listener..."}
+{"level":"INFO","ts":"2025-11-27T20:05:23.754+0800","caller":"asaserver/server.go:746","msg":"Connecting to RCON server at localhost:5001..."}
+{"level":"INFO","ts":"2025-11-27T20:05:23.755+0800","caller":"asaserver/server.go:747","msg":"   Instance: meijue"}
+{"level":"INFO","ts":"2025-11-27T20:05:23.755+0800","caller":"asaserver/server.go:748","msg":"   RCON Port: 5001"}
+{"level":"INFO","ts":"2025-11-27T20:05:23.836+0800","caller":"asaserver/server.go:757","msg":"Connected to RCON server"}
+{"level":"INFO","ts":"2025-11-27T20:05:23.836+0800","caller":"asaserver/server.go:775","msg":"Sending RCON command 'saveworld' to localhost:5001"}
+{"level":"INFO","ts":"2025-11-27T20:05:24.071+0800","caller":"asaserver/server.go:781","msg":"RCON response: World Saved \n "}
+{"level":"INFO","ts":"2025-11-27T20:05:29.570+0800","caller":"asaserver/server.go:746","msg":"Connecting to RCON server at localhost:5001..."}
+{"level":"INFO","ts":"2025-11-27T20:05:29.570+0800","caller":"asaserver/server.go:747","msg":"   Instance: meijue"}
+{"level":"INFO","ts":"2025-11-27T20:05:29.570+0800","caller":"asaserver/server.go:748","msg":"   RCON Port: 5001"}
+{"level":"INFO","ts":"2025-11-27T20:05:29.661+0800","caller":"asaserver/server.go:757","msg":"Connected to RCON server"}
+{"level":"INFO","ts":"2025-11-27T20:05:29.661+0800","caller":"asaserver/server.go:775","msg":"Sending RCON command 'listplayers' to localhost:5001"}
+{"level":"INFO","ts":"2025-11-27T20:05:29.708+0800","caller":"asaserver/server.go:781","msg":"RCON response: No Players Connected \n "}
+{"level":"INFO","ts":"2025-11-27T20:07:09.462+0800","caller":"asaserver/server.go:90","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-27T20:07:09.473+0800","caller":"asaserver/server.go:94","msg":"Starting log mapping file change listener..."}
+{"level":"INFO","ts":"2025-11-27T20:09:11.427+0800","caller":"asaserver/server.go:90","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-27T20:09:11.440+0800","caller":"asaserver/server.go:94","msg":"Starting log mapping file change listener..."}
+{"level":"INFO","ts":"2025-11-27T20:09:17.501+0800","caller":"asaserver/server.go:746","msg":"Connecting to RCON server at localhost:5001..."}
+{"level":"INFO","ts":"2025-11-27T20:09:17.501+0800","caller":"asaserver/server.go:747","msg":"   Instance: meijue"}
+{"level":"INFO","ts":"2025-11-27T20:09:17.501+0800","caller":"asaserver/server.go:748","msg":"   RCON Port: 5001"}
+{"level":"INFO","ts":"2025-11-27T20:09:17.571+0800","caller":"asaserver/server.go:757","msg":"Connected to RCON server"}
+{"level":"INFO","ts":"2025-11-27T20:09:17.571+0800","caller":"asaserver/server.go:775","msg":"Sending RCON command 'saveworld' to localhost:5001"}
+{"level":"INFO","ts":"2025-11-27T20:09:17.824+0800","caller":"asaserver/server.go:781","msg":"RCON response: World Saved \n "}
+{"level":"INFO","ts":"2025-11-27T20:10:18.389+0800","caller":"asaserver/server.go:90","msg":"Loaded 1 instance log mappings from persistent storage"}
+{"level":"INFO","ts":"2025-11-27T20:10:18.401+0800","caller":"asaserver/server.go:94","msg":"Starting log mapping file change listener..."}
+{"level":"INFO","ts":"2025-11-27T20:10:24.692+0800","caller":"asaserver/server.go:746","msg":"Connecting to RCON server at localhost:5001..."}
+{"level":"INFO","ts":"2025-11-27T20:10:24.692+0800","caller":"asaserver/server.go:747","msg":"   Instance: meijue"}
+{"level":"INFO","ts":"2025-11-27T20:10:24.692+0800","caller":"asaserver/server.go:748","msg":"   RCON Port: 5001"}
+{"level":"INFO","ts":"2025-11-27T20:10:24.768+0800","caller":"asaserver/server.go:757","msg":"Connected to RCON server"}
+{"level":"INFO","ts":"2025-11-27T20:10:24.768+0800","caller":"asaserver/server.go:775","msg":"Sending RCON command 'saveworld' to localhost:5001"}
+{"level":"INFO","ts":"2025-11-27T20:10:24.990+0800","caller":"asaserver/server.go:781","msg":"RCON response: World Saved \n "}
+{"level":"INFO","ts":"2025-11-27T20:10:30.010+0800","caller":"asaserver/server.go:746","msg":"Connecting to RCON server at localhost:5001..."}
+{"level":"INFO","ts":"2025-11-27T20:10:30.010+0800","caller":"asaserver/server.go:747","msg":"   Instance: meijue"}
+{"level":"INFO","ts":"2025-11-27T20:10:30.010+0800","caller":"asaserver/server.go:748","msg":"   RCON Port: 5001"}
+{"level":"INFO","ts":"2025-11-27T20:10:30.102+0800","caller":"asaserver/server.go:757","msg":"Connected to RCON server"}
+{"level":"INFO","ts":"2025-11-27T20:10:30.102+0800","caller":"asaserver/server.go:775","msg":"Sending RCON command 'saveworld' to localhost:5001"}
+{"level":"INFO","ts":"2025-11-27T20:10:30.324+0800","caller":"asaserver/server.go:781","msg":"RCON response: World Saved \n "}

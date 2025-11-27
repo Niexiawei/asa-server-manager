@@ -20,6 +20,18 @@ func TailLogFile(logPath string, printFunc func(string)) func() {
 
 	go func() {
 		lastPosition := int64(0)
+		// 等待日志文件存在
+		for {
+			select {
+			case <-stopChan:
+				return
+			default:
+			}
+			if _, err := os.Stat(logPath); err == nil {
+				break // 文件存在，开始监听
+			}
+			time.Sleep(100 * time.Millisecond) // 每100ms检查一次
+		}
 
 		// Create a watcher for file system events
 		watcher, err := fsnotify.NewWatcher()
