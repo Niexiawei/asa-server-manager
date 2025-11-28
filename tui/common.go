@@ -45,3 +45,23 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, Item list.Ite
 	}
 	fmt.Fprint(w, fn(str))
 }
+
+// 新增：通过 tea.Msg 把日志行传入 Update
+type LogMsg string
+
+// waitForLogCmd：从 ch 阻塞读一行并返回 LogMsg；Update 处理后需重新返回此 cmd
+func waitForLogCmd(ch <-chan string) tea.Cmd {
+	return func() tea.Msg {
+		line, ok := <-ch
+		if !ok {
+			return nil
+		}
+		return LogMsg(line)
+	}
+}
+
+func trimLines(lines *[]string, max int) {
+	if len(*lines) > max {
+		*lines = (*lines)[len(*lines)-max:]
+	}
+}
