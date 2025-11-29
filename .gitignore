@@ -6,3 +6,4 @@ steamcmd/
 .idea/
 .instance_log_mapping.json
 *.exe~
+logs/
