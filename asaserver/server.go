@@ -546,62 +546,68 @@ func StartServer(instanceName string) error {
 	}
 
 	if arkAsaApiRunning {
-		CleanConsoleOutput := func(r io.Reader, w io.Writer) error {
-			// 匹配 ANSI 转义序列以及上面提到的控制符
-			// 包括 ESC [ ? ... h/l/m 等序列
-			ansiRegexp := regexp.MustCompile(`\x1b\[[0-9;?]*[a-zA-Z]`)
-			// 去除其它 C0 控制字符（保留换行符 \n）
-			ctrlRegexp := regexp.MustCompile(`[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]`)
-
-			scanner := bufio.NewScanner(r)
-			for scanner.Scan() {
-				line := scanner.Bytes()
-
-				// 去掉 ANSI / 控制字符
-				line = ansiRegexp.ReplaceAll(line, []byte{})
-				line = ctrlRegexp.ReplaceAll(line, []byte{})
-
-				// 输出，保证每行以换行符结尾
-				line = bytes.TrimRight(line, " \t")
-				if _, err := w.Write(append(line, '\n')); err != nil {
-					return err
-				}
+		if logger.GetLogMode() == logger.CLIMode {
+			newArgs := []string{"/C", "start", "", arkExe}
+			newArgs = append(newArgs, args...)
+			c := exec.Command("cmd", newArgs...)
+			if err := c.Start(); err != nil {
+				return fmt.Errorf("failed to start server: %w", err)
 			}
-			return scanner.Err()
-		}
+			if err := SaveInstancePID(instanceName, c.Process.Pid); err != nil {
+				logger.GetLogger().Warnf("Failed to save PID for instance %s: %v", instanceName, err)
+			}
+		} else {
+			CleanConsoleOutput := func(r io.Reader, w io.Writer) error {
+				// 匹配 ANSI 转义序列以及上面提到的控制符
+				// 包括 ESC [ ? ... h/l/m 等序列
+				ansiRegexp := regexp.MustCompile(`\x1b\[[0-9;?]*[a-zA-Z]`)
+				// 去除其它 C0 控制字符（保留换行符 \n）
+				ctrlRegexp := regexp.MustCompile(`[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]`)
 
-		pp, err := pty.New()
-		if err != nil {
-			log.Fatalf("failed to open pty: %s", err)
-		}
+				scanner := bufio.NewScanner(r)
+				for scanner.Scan() {
+					line := scanner.Bytes()
 
-		logWriter := &LogWriter{
-			loggerFn: func(msg string) {
-				msg = strings.TrimRight(msg, "\n\r")
-				if msg != "" {
-					logger.GetLogger().Infof("[%s][AsaApiLoader] %s", instanceName, msg)
+					// 去掉 ANSI / 控制字符
+					line = ansiRegexp.ReplaceAll(line, []byte{})
+					line = ctrlRegexp.ReplaceAll(line, []byte{})
+
+					// 输出，保证每行以换行符结尾
+					line = bytes.TrimRight(line, " \t")
+					if _, err := w.Write(append(line, '\n')); err != nil {
+						return err
+					}
 				}
-			},
-		}
+				return scanner.Err()
+			}
+			pp, err := pty.New()
+			if err != nil {
+				log.Fatalf("failed to open pty: %s", err)
+			}
 
-		c := pp.Command(arkExe, args...)
-		if err := c.Start(); err != nil {
-			return fmt.Errorf("failed to start server: %w", err)
+			logWriter := &LogWriter{
+				loggerFn: func(msg string) {
+					msg = strings.TrimRight(msg, "\n\r")
+					if msg != "" {
+						logger.GetLogger().Infof("[%s][AsaApiLoader] %s", instanceName, msg)
+					}
+				},
+			}
+			c := pp.Command(arkExe, args...)
+			if err := c.Start(); err != nil {
+				return fmt.Errorf("failed to start server: %w", err)
+			}
+			if err := SaveInstancePID(instanceName, c.Process.Pid); err != nil {
+				logger.GetLogger().Warnf("Failed to save PID for instance %s: %v", instanceName, err)
+			}
+			go CleanConsoleOutput(pp, logWriter)
+			logger.GetLogger().Infof("[%s] Redirecting AsaApiLoader output to logger", instanceName)
 		}
-
-		if err := SaveInstancePID(instanceName, c.Process.Pid); err != nil {
-			logger.GetLogger().Warnf("Failed to save PID for instance %s: %v", instanceName, err)
-		}
-
-		go CleanConsoleOutput(pp, logWriter)
-		logger.GetLogger().Infof("[%s] Redirecting AsaApiLoader output to logger", instanceName)
 	} else {
 		cmd := exec.Command(arkExe, args...)
-
 		if err := cmd.Start(); err != nil {
 			return fmt.Errorf("failed to start server: %w", err)
 		}
-
 		// Save the PID to the instance directory
 		if err := SaveInstancePID(instanceName, cmd.Process.Pid); err != nil {
 			logger.GetLogger().Warnf("Failed to save PID for instance %s: %v", instanceName, err)
@@ -667,16 +673,14 @@ func StopServer(instanceName string) error {
 
 	logger.GetLogger().Infof("Stopping server for instance: %s", instanceName)
 	// Try graceful shutdown with RCON
-	pid, err = GetInstancePID(instanceName)
+
+	config, configErr := LoadInstanceConfig(instanceName)
+	if configErr != nil {
+		return fmt.Errorf("failed to load instance config: %w", configErr)
+	}
+	pid, err = GetPIDByPort(config.Port)
 	if err != nil {
-		config, configErr := LoadInstanceConfig(instanceName)
-		if configErr != nil {
-			return fmt.Errorf("failed to load instance config: %w", configErr)
-		}
-		pid, err = GetPIDByPort(config.Port)
-		if err != nil {
-			return fmt.Errorf("failed to find process PID: %w", err)
-		}
+		return fmt.Errorf("failed to find process PID: %w", err)
 	}
 
 	savewordres, err := SendRCONCommand(instanceName, "saveworld")
@@ -706,10 +710,18 @@ func StopServer(instanceName string) error {
 
 	logger.GetLogger().Infof("Server for instance %s has exited.", instanceName)
 
+	if err == nil && config.EnableAsaPlugin {
+		pid2, err := GetInstancePID(instanceName)
+		if err == nil {
+			_ = exec.Command("taskkill", "/F", "/T", "/PID", fmt.Sprintf("%d", pid2)).Run()
+		}
+	}
+
 	// Remove the log mapping for this instance (log file will be reused on next start)
 	if err := RemoveInstanceLogMapping(instanceName); err != nil {
 		logger.GetLogger().Warnf("Failed to remove log mapping for instance %s: %v", instanceName, err)
 	}
+
 	return nil
 }
 

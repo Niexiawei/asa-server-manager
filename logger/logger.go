@@ -29,6 +29,10 @@ func SetLogMode(mode LogMode) {
 	loggerMode = mode
 }
 
+func GetLogMode() LogMode {
+	return loggerMode
+}
+
 func InitLoggerWithBaseDir(baseDir string) {
 	BaseDir = baseDir
 	InitLogger()
