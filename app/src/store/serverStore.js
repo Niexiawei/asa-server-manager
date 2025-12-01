@@ -20,6 +20,7 @@ function handleServerEvent(event) {
       if (instance_name && serverStore.instances.has(instance_name)) {
         const instance = serverStore.instances.get(instance_name)
         instance.status = 'starting'
+        instance.message = `${instance_name} 正在启动...`
       }
       break
       
@@ -28,6 +29,7 @@ function handleServerEvent(event) {
         const instance = serverStore.instances.get(instance_name)
         instance.running = true
         instance.status = 'started'
+        instance.message = `${instance_name} 已启动`
       }
       break
       
@@ -35,6 +37,7 @@ function handleServerEvent(event) {
       if (instance_name && serverStore.instances.has(instance_name)) {
         const instance = serverStore.instances.get(instance_name)
         instance.status = 'stopping'
+        instance.message = `${instance_name} 正在停止...`
       }
       break
       
@@ -43,6 +46,7 @@ function handleServerEvent(event) {
         const instance = serverStore.instances.get(instance_name)
         instance.running = false
         instance.status = 'stopped'
+        instance.message = `${instance_name} 已停止`
       }
       break
       
@@ -52,6 +56,7 @@ function handleServerEvent(event) {
         instance.running = false
         instance.status = 'failed'
         instance.error = message || '启动失败'
+        instance.message = `${instance_name} 启动失败: ${instance.error}`
       }
       break
       
@@ -59,6 +64,7 @@ function handleServerEvent(event) {
       if (instance_name && serverStore.instances.has(instance_name)) {
         const instance = serverStore.instances.get(instance_name)
         instance.error = message || '停止失败'
+        instance.message = `${instance_name} 停止失败: ${instance.error}`
       }
       break
       
@@ -66,6 +72,7 @@ function handleServerEvent(event) {
       if (instance_name && serverStore.instances.has(instance_name)) {
         const instance = serverStore.instances.get(instance_name)
         instance.error = message || '重启失败'
+        instance.message = `${instance_name} 重启失败: ${instance.error}`
       }
       break
       

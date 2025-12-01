@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "dayjs": "^1.11.19",
     "less": "^4.4.2",
     "less-loader": "^12.3.0",
     "monaco-editor": "^0.44.0",

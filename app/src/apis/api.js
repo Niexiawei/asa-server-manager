@@ -566,7 +566,7 @@ export async function syncGameConfig(instances) {
   return handleResponse(response)
 }
 
-// 导入 WebSocket 管理器
+// 导入事件 WebSocket 管理器
 import {
   connectWebSocket,
   disconnectWebSocket,
@@ -574,15 +574,21 @@ import {
   onAnyServerEvent,
   isWebSocketConnected,
   sendWebSocketMessage,
+  startReconnect,
+  stopReconnect,
+  getWebSocketStatus
+} from '@/utils/wsManager.js'
+
+// 导入 RCON WebSocket 管理器
+import {
   connectRCONWebSocket,
   disconnectRCONWebSocket,
   sendRCONCommandViaWebSocket,
   onRCONMessage,
   isRCONWebSocketConnected,
-  startReconnect,
-  stopReconnect,
-  getWebSocketStatus
-} from '@/utils/wsManager.js'
+  startRCONReconnect,
+  stopRCONReconnect
+} from '@/store/rconStore.js'
 
 // 重新导出这些函数供其他模块使用
 export {
@@ -592,12 +598,14 @@ export {
   onAnyServerEvent,
   isWebSocketConnected,
   sendWebSocketMessage,
+  startReconnect,
+  stopReconnect,
+  getWebSocketStatus,
   connectRCONWebSocket,
   disconnectRCONWebSocket,
   sendRCONCommandViaWebSocket,
   onRCONMessage,
   isRCONWebSocketConnected,
-  startReconnect,
-  stopReconnect,
-  getWebSocketStatus
+  startRCONReconnect,
+  stopRCONReconnect
 }

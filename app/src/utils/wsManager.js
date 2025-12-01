@@ -12,15 +12,9 @@ let reconnectInterval = null
 let isReconnecting = false
 let clientId = null
 
-// ============ RCON 服务 WebSocket 连接 ============
-let rconWsConnection = null
-const rconMessageCallbacks = new Map()
-let rconHeartbeatInterval = null
-
 // ============ 连接配置 ============
 const WS_CONFIG = {
     events: buildWebSocketUrl("/api/ws/events"),
-    rcon: buildWebSocketUrl("/api/ws/rcon"),
     heartbeatInterval: 5000,      // 心跳间隔 5 秒
     reconnectInterval: 10000,     // 重连间隔 10 秒
     maxReconnectAttempts: null    // 无限重连
@@ -46,15 +40,6 @@ function createEventMessage(type = 'ping', extraData = {}) {
     }
 }
 
-/**
- * 创建 RCON 消息对象
- */
-function createRCONMessage(action, instanceName = null, command = null) {
-    const message = {action}
-    if (instanceName) message.instance_name = instanceName
-    if (command) message.command = command
-    return message
-}
 
 // ============ 事件 WebSocket 管理 ============
 
@@ -284,156 +269,7 @@ export function stopReconnect() {
 }
 
 // ============ RCON WebSocket 管理 ============
-
-/**
- * 建立 RCON WebSocket 连接
- */
-export function connectRCONWebSocket(onOpen, onError, onClose) {
-    const wsUrl = WS_CONFIG.rcon
-
-    try {
-        rconWsConnection = new WebSocket(wsUrl)
-
-        rconWsConnection.onopen = () => {
-            console.log('[RCON WebSocket] Connected')
-            // 启动 RCON 心跳
-            startRCONHeartbeat()
-            if (onOpen) onOpen()
-        }
-
-        rconWsConnection.onmessage = (event) => {
-            try {
-                const message = JSON.parse(event.data)
-                console.log('[RCON WebSocket] Message received:', message)
-
-                // 触发对应的回调函数
-                if (rconMessageCallbacks.has('message')) {
-                    rconMessageCallbacks.get('message').forEach(callback => {
-                        try {
-                            callback(message)
-                        } catch (err) {
-                            console.error('[RCON WebSocket] Error in message callback:', err)
-                        }
-                    })
-                }
-            } catch (err) {
-                console.error('[RCON WebSocket] Failed to parse message:', err)
-            }
-        }
-
-        rconWsConnection.onerror = (error) => {
-            console.error('[RCON WebSocket] Error:', error)
-            stopRCONHeartbeat()
-            if (onError) onError(error)
-        }
-
-        rconWsConnection.onclose = () => {
-            console.log('[RCON WebSocket] Closed')
-            rconWsConnection = null
-            stopRCONHeartbeat()
-            if (onClose) onClose()
-        }
-    } catch (err) {
-        console.error('[RCON WebSocket] Failed to connect:', err)
-        if (onError) onError(err)
-    }
-}
-
-/**
- * 断开 RCON WebSocket 连接
- */
-export function disconnectRCONWebSocket() {
-    stopRCONHeartbeat()
-    if (rconWsConnection) {
-        rconWsConnection.close()
-        rconWsConnection = null
-    }
-    rconMessageCallbacks.clear()
-}
-
-/**
- * 发送 RCON 命令
- */
-export function sendRCONCommandViaWebSocket(action, instanceName = null, command = null) {
-    if (rconWsConnection && rconWsConnection.readyState === WebSocket.OPEN) {
-        const message = createRCONMessage(action, instanceName, command)
-        rconWsConnection.send(JSON.stringify(message))
-        return true
-    }
-    return false
-}
-
-/**
- * 监听 RCON 消息
- */
-export function onRCONMessage(callback) {
-    if (!rconMessageCallbacks.has('message')) {
-        rconMessageCallbacks.set('message', [])
-    }
-    rconMessageCallbacks.get('message').push(callback)
-
-    // 返回取消监听函数
-    return () => {
-        const callbacks = rconMessageCallbacks.get('message')
-        if (callbacks) {
-            const index = callbacks.indexOf(callback)
-            if (index > -1) {
-                callbacks.splice(index, 1)
-            }
-        }
-    }
-}
-
-/**
- * 获取 RCON WebSocket 连接状态
- */
-export function isRCONWebSocketConnected() {
-    return rconWsConnection !== null && rconWsConnection.readyState === WebSocket.OPEN
-}
-
-// ============ RCON 心跳管理 ============
-
-/**
- * 启动 RCON 心跳
- */
-function startRCONHeartbeat() {
-    // 立即发送第一个 ping
-    sendRCONHeartbeat()
-
-    // 清除之前的心跳定时器
-    if (rconHeartbeatInterval) {
-        clearInterval(rconHeartbeatInterval)
-    }
-
-    // 然后每 5 秒发送一次
-    rconHeartbeatInterval = setInterval(() => {
-        if (isRCONWebSocketConnected()) {
-            sendRCONHeartbeat()
-        }
-    }, WS_CONFIG.heartbeatInterval)
-
-    console.log('[RCON Heartbeat] Started (interval: ' + WS_CONFIG.heartbeatInterval + 'ms)')
-}
-
-/**
- * 发送 RCON 心跳
- */
-function sendRCONHeartbeat() {
-    if (sendRCONCommandViaWebSocket('ping')) {
-        console.log('[RCON Heartbeat] Ping sent')
-    }
-}
-
-/**
- * 停止 RCON 心跳
- */
-function stopRCONHeartbeat() {
-    if (rconHeartbeatInterval) {
-        clearInterval(rconHeartbeatInterval)
-        rconHeartbeatInterval = null
-    }
-    console.log('[RCON Heartbeat] Stopped')
-}
+// RCON 相关逻辑已从离取至 store/rconStore.js
 
 // ============ 导出状态检查函数 ============
 
@@ -446,9 +282,6 @@ export function getWebSocketStatus() {
             connected: isWebSocketConnected(),
             clientId: clientId,
             reconnecting: isReconnecting
-        },
-        rcon: {
-            connected: isRCONWebSocketConnected()
         }
     }
 }

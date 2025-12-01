@@ -32,8 +32,10 @@ import {
   connectRCONWebSocket,
   disconnectRCONWebSocket,
   sendRCONCommandViaWebSocket,
-  onRCONMessage
-} from '@/utils/wsManager.js'
+  onRCONMessage,
+  startRCONReconnect,
+  stopRCONReconnect
+} from '@/store/rconStore.js'
 
 const props = defineProps({
   instanceName: {
@@ -57,28 +59,42 @@ const rconTerminalRef = ref(null)
 const rconConnected = ref(false)
 let unlistenRCONMessage = null
 let pendingCommandCallback = null  // 存储待执行的命令回调
+let rconOnOpen = null  // 缓存 onOpen 回调
+let rconOnError = null  // 缓存 onError 回调
+let rconOnClose = null  // 缓存 onClose 回调
 
 // 连接 RCON
 const initRCON = () => {
-  connectRCONWebSocket(
-      () => {
-        rconConnected.value = true
-        Message.success('RCON 已连接')
-        // 监听 RCON 消息
-        unlistenRCONMessage = onRCONMessage((message) => {
-          console.log('RCON message:', message)
-          handleRCONMessage(message)
-        })
-      },
-      (error) => {
-        Message.error('RCON 连接失败')
-        console.error('RCON connection error:', error)
-      },
-      () => {
-        rconConnected.value = false
-        console.log('RCON disconnected')
-      }
-  )
+  // 定义回调函数
+  rconOnOpen = () => {
+    rconConnected.value = true
+    Message.success('RCON 已连接')
+    // 监听 RCON 消息
+    unlistenRCONMessage = onRCONMessage((message) => {
+      console.log('RCON message:', message)
+      handleRCONMessage(message)
+    })
+  }
+
+  rconOnError = (error) => {
+    Message.error('RCON 连接失败')
+    console.error('RCON connection error:', error)
+    // 启动自动重连
+    startRCONReconnect(() => {
+      initRCON()
+    })
+  }
+
+  rconOnClose = () => {
+    rconConnected.value = false
+    console.log('RCON disconnected')
+    // 启动自动重连
+    startRCONReconnect(() => {
+      initRCON()
+    })
+  }
+
+  connectRCONWebSocket(rconOnOpen, rconOnError, rconOnClose)
 }
 
 // 处理 RCON 命令执行
@@ -140,9 +156,9 @@ onUnmounted(() => {
   if (unlistenRCONMessage) {
     unlistenRCONMessage()
   }
-  if (rconConnected.value) {
-    disconnectRCONWebSocket()
-  }
+  // 停止重连和断开连接
+  stopRCONReconnect()
+  disconnectRCONWebSocket()
 })
 </script>
 

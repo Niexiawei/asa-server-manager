@@ -4,17 +4,21 @@
       <a-layout-header>
         <div class="header-content">
           <h1>ARK Server Ascended 管理面板</h1>
-          <a-menu mode="horizontal" :selected-keys="[currentRoute]" @menu-item-click="handleMenuClick">
-            <a-menu-item key="manager">
-              <span>服务器管理</span>
-            </a-menu-item>
-            <a-menu-item key="control">
-              <span to="/control">服务器控制</span>
-            </a-menu-item>
-            <a-menu-item key="system-logs">
-              <span>系统日志</span>
-            </a-menu-item>
-          </a-menu>
+          <div class="header-bottom">
+            <a-menu mode="horizontal" :selected-keys="[currentRoute]" @menu-item-click="handleMenuClick">
+              <a-menu-item key="manager">
+                <span>服务器管理</span>
+              </a-menu-item>
+              <a-menu-item key="control">
+                <span to="/control">服务器控制</span>
+              </a-menu-item>
+              <a-menu-item key="system-logs">
+                <span>系统日志</span>
+              </a-menu-item>
+            </a-menu>
+            <!-- WebSocket 事件通知组件 -->
+            <WSEventNotification/>
+          </div>
         </div>
       </a-layout-header>
       <a-layout-content>
@@ -29,6 +33,7 @@
 <script setup>
 import {ref, watch} from 'vue';
 import {useRouter, useRoute} from "vue-router";
+import WSEventNotification from '@/components/WSEventNotification.vue';
 import "@/app.less"
 
 const router = useRouter()
@@ -76,11 +81,13 @@ const handleMenuClick = (key) => {
   border-radius: 8px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
 
   ._content {
     border-radius: 8px;
     overflow: hidden;
-    height: 100%;
+    flex: 1;
     display: flex;
     flex-direction: column;
 
@@ -94,6 +101,14 @@ const handleMenuClick = (key) => {
   margin: 0 auto;
   display: flex;
   flex-direction: column;
+  width: 100%;
+
+  .header-bottom {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background-color: #fff;
+  }
 }
 
 .header-content h1 {
@@ -114,5 +129,6 @@ const handleMenuClick = (key) => {
 .arco-layout-header {
   background-color: #2c3e50;
   width: 100%;
+  position: relative;
 }
 </style>
