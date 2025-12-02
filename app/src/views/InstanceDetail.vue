@@ -121,23 +121,25 @@
                 <a-card title="Game.ini 配置" class="config-section config-file-card">
                   <a-space style="margin-bottom: 15px">
                     <a-button
-                        @click="loadGameIni"
-                        type="primary"
-                        :loading="loadingGameIni"
-                    >
-                      加载文件
-                    </a-button>
-                    <a-button
                         @click="triggerGameIniUpload"
                         status="success"
+                        :disabled="instanceData?.running"
                     >
                       上传文件
                     </a-button>
                     <a-button
                         @click="gameIniEditModalVisible = true"
                         type="primary"
+                        :disabled="instanceData?.running"
                     >
                       编辑文件
+                    </a-button>
+                    <a-button
+                        @click="compareGameIni"
+                        :loading="loadingDiffContent"
+                        :disabled="instanceData?.running"
+                    >
+                      对比配置
                     </a-button>
                   </a-space>
 
@@ -153,23 +155,25 @@
                 <a-card title="GameUserSettings.ini 配置" class="config-section config-file-card">
                   <a-space style="margin-bottom: 15px">
                     <a-button
-                        @click="loadGameUserSettings"
-                        type="primary"
-                        :loading="loadingGameUserSettings"
-                    >
-                      加载文件
-                    </a-button>
-                    <a-button
                         @click="triggerGameUserSettingsUpload"
                         status="success"
+                        :disabled="instanceData?.running"
                     >
                       上传文件
                     </a-button>
                     <a-button
                         @click="gameUserSettingsEditModalVisible = true"
                         type="primary"
+                        :disabled="instanceData?.running"
                     >
                       编辑文件
+                    </a-button>
+                    <a-button
+                        @click="compareGameUserSettings"
+                        :loading="loadingDiffContent"
+                        :disabled="instanceData?.running"
+                    >
+                      对比配置
                     </a-button>
                   </a-space>
 
@@ -241,6 +245,18 @@
       </div>
     </a-modal>
 
+    <!-- 配置文件对比 Modal 组件 -->
+    <config-diff-modal
+        :visible="diffModalVisible"
+        :diff-type="diffType"
+        :game-ini-content="gameIniContent"
+        :game-user-settings-content="gameUserSettingsContent"
+        :server-game-ini-content="serverGameIniContent"
+        :server-game-user-settings-content="serverGameUserSettingsContent"
+        :loading="loadingDiffContent"
+        @update:visible="diffModalVisible = $event"
+    />
+
     <input
         ref="gameIniFileInput"
         type="file"
@@ -263,20 +279,19 @@ import {ref, onMounted, onUnmounted, nextTick, watch, computed} from 'vue'
 import {useRoute} from 'vue-router'
 import ConfigEditor from '@/components/ConfigEditor.vue'
 import ConfigFileViewer from '@/components/ConfigFileViewer.vue'
+import ConfigDiffModal from '@/components/ConfigDiffModal.vue'
 import ConfigEditModal from '@/components/ConfigEditModal.vue'
 import WSStatusIndicator from '@/components/WSStatusIndicator.vue'
 import LogViewer from '@/components/LogViewer.vue'
 import RconTerminal from '@/components/RconTerminal.vue'
 import {
   getInstanceConfig,
-  streamInstanceLogs,
-  getRecentInstanceLogs,
   startServer,
   stopServer,
-  restartServer,
   restartServerSSE,
   getGameIni,
   getGameUserSettings,
+  getServerConfigs,
   updateGameIni,
   updateGameUserSettings,
   uploadGameIniFile,
@@ -287,7 +302,6 @@ import {serverStore, getInstanceStatus} from '@/store/serverStore.js'
 import {onServerEvent} from '@/apis/api.js'
 import {IconLeft, IconEyeInvisible, IconEye, IconClose, IconMinus, IconPlus} from '@arco-design/web-vue/es/icon'
 import {Modal, Message} from '@arco-design/web-vue'
-import VueWebTerminal from 'vue-web-terminal'
 
 // Monaco Editor 引用 - 已移至 ConfigEditor 组件
 const loading = ref(true)
@@ -341,6 +355,13 @@ const activeCollapseKeys = ref([])
 
 // RCON 浮窗相关
 const rconFloatingVisible = ref(false)
+
+// 配置文件对比相关
+const diffModalVisible = ref(false)
+const diffType = ref('game-ini')
+const serverGameIniContent = ref('')
+const serverGameUserSettingsContent = ref('')
+const loadingDiffContent = ref(false)
 
 // 监听 WebSocket 事件，实时更新实例运行状态
 watch(
@@ -720,6 +741,38 @@ const restartInstance = () => {
       }
     }
   })
+}
+
+// 加载服务器配置
+const loadServerConfigs = async () => {
+  loadingDiffContent.value = true
+  try {
+    const data = await getServerConfigs()
+    if (data.success && data.data) {
+      serverGameIniContent.value = data.data.game_ini?.content || ''
+      serverGameUserSettingsContent.value = data.data.game_user_settings?.content || ''
+    } else {
+      Message.error('加载服务器配置失败')
+    }
+  } catch (err) {
+    Message.error('加载服务器配置失败: ' + err.message)
+  } finally {
+    loadingDiffContent.value = false
+  }
+}
+
+// 打开 Game.ini 对比
+const compareGameIni = async () => {
+  diffType.value = 'game-ini'
+  diffModalVisible.value = true
+  await loadServerConfigs()
+}
+
+// 打开 GameUserSettings.ini 对比
+const compareGameUserSettings = async () => {
+  diffType.value = 'game-user-settings'
+  diffModalVisible.value = true
+  await loadServerConfigs()
 }
 
 onMounted(async () => {

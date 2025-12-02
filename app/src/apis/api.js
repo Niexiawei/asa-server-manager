@@ -488,6 +488,18 @@ export async function getGameUserSettings(instanceName) {
   return handleResponse(response)
 }
 
+// 获取服务器基础配置文件（Game.ini 和 GameUserSettings.ini）
+export async function getServerConfigs() {
+  const response = await fetch(`${API_BASE_URL}/api/config/server/configs`)
+  return handleResponse(response)
+}
+
+// 获取实例配置文件（Game.ini 和 GameUserSettings.ini）
+export async function getInstanceConfigs(instanceName) {
+  const response = await fetch(`${API_BASE_URL}/api/config/${instanceName}/configs`)
+  return handleResponse(response)
+}
+
 
 // 更新 Game.ini 配置文件内容（直接通过文本）
 export async function updateGameIni(instanceName, content) {

@@ -457,6 +457,38 @@ func SaveGameUserSettingsContent(instanceName string, content string) error {
 	return nil
 }
 
+// GetServerGameIniContent reads and returns the content of Game.ini from the base server directory
+func GetServerGameIniContent() (string, error) {
+	gameIniPath := filepath.Join(ServerFilesDir, "ShooterGame/Saved/Config/WindowsServer/Game.ini")
+
+	if _, err := os.Stat(gameIniPath); os.IsNotExist(err) {
+		return "", fmt.Errorf("Game.ini not found in server base directory")
+	}
+
+	content, err := os.ReadFile(gameIniPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read Game.ini: %w", err)
+	}
+
+	return string(content), nil
+}
+
+// GetServerGameUserSettingsContent reads and returns the content of GameUserSettings.ini from the base server directory
+func GetServerGameUserSettingsContent() (string, error) {
+	gameUserSettingsPath := filepath.Join(ServerFilesDir, "ShooterGame/Saved/Config/WindowsServer/GameUserSettings.ini")
+
+	if _, err := os.Stat(gameUserSettingsPath); os.IsNotExist(err) {
+		return "", fmt.Errorf("GameUserSettings.ini not found in server base directory")
+	}
+
+	content, err := os.ReadFile(gameUserSettingsPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read GameUserSettings.ini: %w", err)
+	}
+
+	return string(content), nil
+}
+
 // CheckForDuplicatePorts checks if there are duplicate ports in instance configurations
 func CheckForDuplicatePorts() error {
 	instances, err := GetAvailableInstances()

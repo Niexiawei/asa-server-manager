@@ -856,6 +856,97 @@
         }
       }
     },
+    "/api/config/server/configs": {
+      "get": {
+        "summary": "Get base server configuration files",
+        "description": "Retrieves both Game.ini and GameUserSettings.ini from the base server directory (ShooterGame/Saved/Config/WindowsServer)",
+        "tags": ["Configuration"],
+        "operationId": "getServerConfigs",
+        "responses": {
+          "200": {
+            "description": "Server configuration files retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerConfigsResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Configuration files not found in server base directory",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/config/{name}/configs": {
+      "get": {
+        "summary": "Get instance configuration files",
+        "description": "Retrieves both Game.ini and GameUserSettings.ini for a specific instance",
+        "tags": ["Configuration"],
+        "operationId": "getInstanceConfigs",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Instance name"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Instance configuration files retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstanceConfigsResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Configuration files not found for instance",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/config/{name}/game-ini": {
       "get": {
         "summary": "Get Game.ini configuration file content",
@@ -1822,6 +1913,112 @@
                   "content": {
                     "type": "string",
                     "description": "Configuration file content"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "ServerConfigsResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/StatusResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "object",
+                "properties": {
+                  "game_ini": {
+                    "type": "object",
+                    "description": "Game.ini configuration file from base server directory",
+                    "properties": {
+                      "filename": {
+                        "type": "string",
+                        "example": "Game.ini"
+                      },
+                      "content": {
+                        "type": "string",
+                        "description": "File content"
+                      },
+                      "error": {
+                        "type": "string",
+                        "description": "Error message if file not found"
+                      }
+                    }
+                  },
+                  "game_user_settings": {
+                    "type": "object",
+                    "description": "GameUserSettings.ini configuration file from base server directory",
+                    "properties": {
+                      "filename": {
+                        "type": "string",
+                        "example": "GameUserSettings.ini"
+                      },
+                      "content": {
+                        "type": "string",
+                        "description": "File content"
+                      },
+                      "error": {
+                        "type": "string",
+                        "description": "Error message if file not found"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "InstanceConfigsResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/StatusResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "object",
+                "properties": {
+                  "game_ini": {
+                    "type": "object",
+                    "description": "Game.ini configuration file for the instance",
+                    "properties": {
+                      "filename": {
+                        "type": "string",
+                        "example": "Game.ini"
+                      },
+                      "content": {
+                        "type": "string",
+                        "description": "File content"
+                      },
+                      "error": {
+                        "type": "string",
+                        "description": "Error message if file not found"
+                      }
+                    }
+                  },
+                  "game_user_settings": {
+                    "type": "object",
+                    "description": "GameUserSettings.ini configuration file for the instance",
+                    "properties": {
+                      "filename": {
+                        "type": "string",
+                        "example": "GameUserSettings.ini"
+                      },
+                      "content": {
+                        "type": "string",
+                        "description": "File content"
+                      },
+                      "error": {
+                        "type": "string",
+                        "description": "Error message if file not found"
+                      }
+                    }
                   }
                 }
               }

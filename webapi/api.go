@@ -117,6 +117,8 @@ func (s *APIServer) setupRoutes() {
 	// Config file endpoints
 	config := s.engine.Group("/api/config")
 	{
+		config.GET("/server/configs", s.getServerConfigs)
+		config.GET("/:name/configs", s.getInstanceConfigs)
 		config.GET("/:name/game-ini", s.getGameIni)
 		config.GET("/:name/game-user-settings", s.getGameUserSettings)
 		config.POST("/:name/game-ini", s.uploadGameIni)
@@ -1266,6 +1268,88 @@ func (s *APIServer) streamSystemLogs(c *gin.Context) {
 			return
 		}
 	}
+}
+
+// getServerConfigs returns both Game.ini and GameUserSettings.ini from the base server directory
+func (s *APIServer) getServerConfigs(c *gin.Context) {
+	gameIniContent, gameIniErr := asaserver.GetServerGameIniContent()
+	gameUserSettingsContent, gameUserSettingsErr := asaserver.GetServerGameUserSettingsContent()
+
+	if gameIniErr != nil && gameUserSettingsErr != nil {
+		c.JSON(http.StatusNotFound, StatusResponse{
+			Success: false,
+			Error:   "Both configuration files not found in server base directory",
+		})
+		return
+	}
+
+	// Build response data with error handling
+	gameIniData := gin.H{
+		"filename": "Game.ini",
+		"content":  gameIniContent,
+	}
+	if gameIniErr != nil {
+		gameIniData["error"] = gameIniErr.Error()
+	}
+
+	gameUserSettingsData := gin.H{
+		"filename": "GameUserSettings.ini",
+		"content":  gameUserSettingsContent,
+	}
+	if gameUserSettingsErr != nil {
+		gameUserSettingsData["error"] = gameUserSettingsErr.Error()
+	}
+
+	c.JSON(http.StatusOK, StatusResponse{
+		Success: true,
+		Message: "Configuration files retrieved from server base directory",
+		Data: gin.H{
+			"game_ini":           gameIniData,
+			"game_user_settings": gameUserSettingsData,
+		},
+	})
+}
+
+// getInstanceConfigs returns both Game.ini and GameUserSettings.ini for an instance
+func (s *APIServer) getInstanceConfigs(c *gin.Context) {
+	instanceName := c.Param("name")
+
+	gameIniContent, gameIniErr := asaserver.GetGameIniContent(instanceName)
+	gameUserSettingsContent, gameUserSettingsErr := asaserver.GetGameUserSettingsContent(instanceName)
+
+	if gameIniErr != nil && gameUserSettingsErr != nil {
+		c.JSON(http.StatusNotFound, StatusResponse{
+			Success: false,
+			Error:   "Both configuration files not found",
+		})
+		return
+	}
+
+	// Build response data with error handling
+	gameIniData := gin.H{
+		"filename": "Game.ini",
+		"content":  gameIniContent,
+	}
+	if gameIniErr != nil {
+		gameIniData["error"] = gameIniErr.Error()
+	}
+
+	gameUserSettingsData := gin.H{
+		"filename": "GameUserSettings.ini",
+		"content":  gameUserSettingsContent,
+	}
+	if gameUserSettingsErr != nil {
+		gameUserSettingsData["error"] = gameUserSettingsErr.Error()
+	}
+
+	c.JSON(http.StatusOK, StatusResponse{
+		Success: true,
+		Message: fmt.Sprintf("Configuration files retrieved for instance '%s'", instanceName),
+		Data: gin.H{
+			"game_ini":           gameIniData,
+			"game_user_settings": gameUserSettingsData,
+		},
+	})
 }
 
 // getGameIni returns the content of Game.ini for an instance
