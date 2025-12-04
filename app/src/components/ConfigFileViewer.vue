@@ -30,7 +30,7 @@ const initEditor = () => {
       language: props.language,
       theme: 'vs-light',
       automaticLayout: true,
-      minimap: { enabled: false },
+      minimap: { enabled: true },
       fontSize: 12,
       lineNumbers: 'on',
       scrollBeyondLastLine: false,

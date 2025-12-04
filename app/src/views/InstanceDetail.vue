@@ -247,14 +247,16 @@
 
     <!-- 配置文件对比 Modal 组件 -->
     <config-diff-modal
-        :visible="diffModalVisible"
+        v-model:visible="diffModalVisible"
         :diff-type="diffType"
         :game-ini-content="gameIniContent"
         :game-user-settings-content="gameUserSettingsContent"
         :server-game-ini-content="serverGameIniContent"
         :server-game-user-settings-content="serverGameUserSettingsContent"
-        :loading="loadingDiffContent"
-        @update:visible="diffModalVisible = $event"
+        v-model:dataLoading="loadingDiffContent"
+        :editable="true"
+        v-model:saving-loading="diffSaveLoading"
+        @save="handleDiffSave"
     />
 
     <input
@@ -426,6 +428,7 @@ const saveGameIni = async (content) => {
     }
   } catch (err) {
     Message.error(err.message || '保存 Game.ini 失败')
+    throw err
   } finally {
     savingGameIni.value = false
   }
@@ -495,6 +498,7 @@ const saveGameUserSettings = async (content) => {
     }
   } catch (err) {
     Message.error(err.message || '保存 GameUserSettings.ini 失败')
+    throw err
   } finally {
     savingGameUserSettings.value = false
   }
@@ -773,6 +777,24 @@ const compareGameUserSettings = async () => {
   diffType.value = 'game-user-settings'
   diffModalVisible.value = true
   await loadServerConfigs()
+}
+
+const diffSaveLoading = ref(false)
+
+// 处理 Diff 保存事件
+const handleDiffSave = async ({type, content}) => {
+  diffSaveLoading.value = true
+  try {
+    if (type == "game-ini") {
+      await saveGameIni(content)
+    } else if (type == "game-user-settings") {
+      await saveGameUserSettings(content)
+    } else {
+      Message.error("不支持的文件对比")
+    }
+  } finally {
+    diffSaveLoading.value = false
+  }
 }
 
 onMounted(async () => {
