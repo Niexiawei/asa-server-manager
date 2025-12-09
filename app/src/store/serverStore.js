@@ -6,7 +6,8 @@ export const serverStore = reactive({
   instances: new Map(),
   connected: false,
   connectionError: null,
-  isReconnecting: false
+  isReconnecting: false,
+  resourceInfo: new Map() // 存储每个实例的资源占用信息
 })
 
 // WebSocket 事件处理函数
@@ -21,6 +22,7 @@ function handleServerEvent(event) {
         const instance = serverStore.instances.get(instance_name)
         instance.status = 'starting'
         instance.message = `${instance_name} 正在启动...`
+        instance.isStartingOrRunning = true // 标记为启动中或运行中
       }
       break
       
@@ -30,6 +32,7 @@ function handleServerEvent(event) {
         instance.running = true
         instance.status = 'started'
         instance.message = `${instance_name} 已启动`
+        instance.isStartingOrRunning = true // 标记为启动中或运行中
       }
       break
       
@@ -47,6 +50,7 @@ function handleServerEvent(event) {
         instance.running = false
         instance.status = 'stopped'
         instance.message = `${instance_name} 已停止`
+        instance.isStartingOrRunning = false // 标记为已停止
       }
       break
       
@@ -57,6 +61,7 @@ function handleServerEvent(event) {
         instance.status = 'failed'
         instance.error = message || '启动失败'
         instance.message = `${instance_name} 启动失败: ${instance.error}`
+        instance.isStartingOrRunning = false // 标记为已停止
       }
       break
       
@@ -140,10 +145,26 @@ export function updateInstancesInStore(instances) {
   instances.forEach(instance => {
     newMap.set(instance.name, {
       ...instance,
-      status: instance.running ? 'running' : 'stopped'
+      status: instance.running ? 'running' : 'stopped',
+      isStartingOrRunning: instance.running // 初始化状态标记
     })
   })
   serverStore.instances = newMap
+}
+
+// 更新实例资源信息
+export function updateInstanceResourceInfo(instanceName, resourceData) {
+  serverStore.resourceInfo.set(instanceName, resourceData)
+}
+
+// 获取实例资源信息
+export function getInstanceResourceInfo(instanceName) {
+  return serverStore.resourceInfo.get(instanceName)
+}
+
+// 清除实例资源信息
+export function clearInstanceResourceInfo(instanceName) {
+  serverStore.resourceInfo.delete(instanceName)
 }
 
 // 获取实例状态

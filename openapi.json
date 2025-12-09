@@ -856,6 +856,77 @@
         }
       }
     },
+    "/api/server/info": {
+      "get": {
+        "summary": "Stream server resource information (CPU, Memory)",
+        "description": "Returns Server-Sent Events (SSE) stream with server resource information updated every 200ms. Includes system CPU usage, memory usage, and detailed metrics.",
+        "tags": ["Server Management"],
+        "operationId": "streamServerInfo",
+        "responses": {
+          "200": {
+            "description": "Server info stream - returns SSE stream with resource information every 200ms",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerInfoSSEStream"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/server/{name}/info": {
+      "get": {
+        "summary": "Stream instance resource information (CPU, Memory)",
+        "description": "Returns Server-Sent Events (SSE) stream with game instance resource information updated every 200ms. Gets instance PID by port and monitors process resource usage.",
+        "tags": ["Server Management"],
+        "operationId": "streamInstanceInfo",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Instance name"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Instance info stream - returns SSE stream with process resource information every 200ms",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstanceInfoSSEStream"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error - instance not found or config load failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/config/server/configs": {
       "get": {
         "summary": "Get base server configuration files",
@@ -2126,6 +2197,187 @@
           "error": {
             "summary": "Update error",
             "value": "data: Error: Failed to download SteamCMD: network error\n\n"
+          }
+        }
+      },
+      "ServerInfoSSEStream": {
+        "type": "object",
+        "description": "Server-Sent Events (SSE) stream for real-time server resource information (updated every 200ms)",
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Server resource information in JSON format",
+            "properties": {
+              "timestamp": {
+                "type": "integer",
+                "format": "int64",
+                "description": "Unix timestamp of the measurement",
+                "example": 1702123456
+              },
+              "memory": {
+                "type": "object",
+                "description": "Memory usage information",
+                "properties": {
+                  "total": {
+                    "type": "integer",
+                    "format": "int64",
+                    "description": "Total memory in bytes",
+                    "example": 102744223744
+                  },
+                  "used": {
+                    "type": "integer",
+                    "format": "int64",
+                    "description": "Used memory in bytes",
+                    "example": 41608970240
+                  },
+                  "available": {
+                    "type": "integer",
+                    "format": "int64",
+                    "description": "Available memory in bytes",
+                    "example": 61135253504
+                  },
+                  "used_percent": {
+                    "type": "number",
+                    "format": "float",
+                    "description": "Memory usage percentage (0-100)",
+                    "example": 40.5
+                  },
+                  "total_gb": {
+                    "type": "number",
+                    "format": "float",
+                    "description": "Total memory in GB",
+                    "example": 95.69
+                  },
+                  "used_gb": {
+                    "type": "number",
+                    "format": "float",
+                    "description": "Used memory in GB",
+                    "example": 38.75
+                  },
+                  "available_gb": {
+                    "type": "number",
+                    "format": "float",
+                    "description": "Available memory in GB",
+                    "example": 56.94
+                  }
+                }
+              },
+              "cpu": {
+                "type": "object",
+                "description": "CPU usage information",
+                "properties": {
+                  "core_count": {
+                    "type": "integer",
+                    "description": "Number of CPU cores",
+                    "example": 32
+                  },
+                  "used_percent": {
+                    "type": "number",
+                    "format": "float",
+                    "description": "CPU usage percentage (0-100)",
+                    "example": 15.23
+                  }
+                }
+              }
+            }
+          }
+        },
+        "examples": {
+          "server_info": {
+            "summary": "Server resource information",
+            "value": "data: {\"timestamp\":1702123456,\"memory\":{\"total\":102744223744,\"used\":41608970240,\"available\":61135253504,\"used_percent\":40.5,\"total_gb\":95.69,\"used_gb\":38.75,\"available_gb\":56.94},\"cpu\":{\"core_count\":32,\"used_percent\":15.23}}\n\n"
+          },
+          "error": {
+            "summary": "Error retrieving server info",
+            "value": "data: {\"error\":\"Failed to get memory info: connection error\"}\n\n"
+          }
+        }
+      },
+      "InstanceInfoSSEStream": {
+        "type": "object",
+        "description": "Server-Sent Events (SSE) stream for real-time instance resource information (updated every 200ms)",
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Instance resource information in JSON format",
+            "properties": {
+              "timestamp": {
+                "type": "integer",
+                "format": "int64",
+                "description": "Unix timestamp of the measurement",
+                "example": 1702123456
+              },
+              "instance": {
+                "type": "string",
+                "description": "Instance name",
+                "example": "my-server"
+              },
+              "running": {
+                "type": "boolean",
+                "description": "Whether the instance is currently running",
+                "example": true
+              },
+              "pid": {
+                "type": "integer",
+                "description": "Process ID of the running instance",
+                "example": 12345
+              },
+              "process": {
+                "type": "object",
+                "description": "Process resource usage information",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "description": "Process name",
+                    "example": "ArkAscendedServer.exe"
+                  },
+                  "cpu_percent": {
+                    "type": "number",
+                    "format": "float",
+                    "description": "CPU usage percentage (0-100+, can exceed 100 on multi-core systems)",
+                    "example": 45.8
+                  },
+                  "memory_used": {
+                    "type": "integer",
+                    "format": "int64",
+                    "description": "Memory used by process in bytes (RSS)",
+                    "example": 4294967296
+                  },
+                  "memory_percent": {
+                    "type": "number",
+                    "format": "float",
+                    "description": "Memory usage percentage of total system memory (0-100)",
+                    "example": 4.18
+                  },
+                  "memory_used_mb": {
+                    "type": "number",
+                    "format": "float",
+                    "description": "Memory used in MB",
+                    "example": 4096.0
+                  },
+                  "memory_used_gb": {
+                    "type": "number",
+                    "format": "float",
+                    "description": "Memory used in GB",
+                    "example": 4.0
+                  }
+                }
+              }
+            }
+          }
+        },
+        "examples": {
+          "instance_running": {
+            "summary": "Instance resource information (running)",
+            "value": "data: {\"timestamp\":1702123456,\"instance\":\"my-server\",\"running\":true,\"pid\":12345,\"process\":{\"name\":\"ArkAscendedServer.exe\",\"cpu_percent\":45.8,\"memory_used\":4294967296,\"memory_percent\":4.18,\"memory_used_mb\":4096.0,\"memory_used_gb\":4.0}}\n\n"
+          },
+          "instance_not_running": {
+            "summary": "Instance not running",
+            "value": "data: {\"error\":\"Failed to get PID: no process found on port\",\"instance\":\"my-server\",\"running\":false}\n\n"
+          },
+          "error": {
+            "summary": "Error retrieving process info",
+            "value": "data: {\"error\":\"Failed to get process info: process not found\",\"instance\":\"my-server\",\"pid\":12345,\"running\":false}\n\n"
           }
         }
       },

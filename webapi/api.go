@@ -5,7 +5,9 @@ import (
 	"asa-server/asaserver"
 	"asa-server/backup"
 	"asa-server/logger"
+	"asa-server/serverinfo"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -131,6 +133,10 @@ func (s *APIServer) setupRoutes() {
 
 	// Server update endpoints
 	s.engine.POST("/api/server/update", s.updateServer)
+
+	// Server info endpoints
+	s.engine.GET("/api/server/info", s.streamServerInfo)
+	s.engine.GET("/api/server/:name/info", s.streamInstanceInfo)
 
 	// WebSocket endpoints
 	s.engine.GET("/api/ws/events", s.handleServerEvents)
@@ -1111,6 +1117,173 @@ func (s *APIServer) updateServer(c *gin.Context) {
 		case <-c.Request.Context().Done():
 			// Client disconnected - signal goroutine to stop
 			close(done)
+			return false
+		}
+	})
+}
+
+// streamServerInfo streams server resource information (CPU, Memory) via SSE every 200ms
+func (s *APIServer) streamServerInfo(c *gin.Context) {
+	// Set SSE headers
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("Access-Control-Allow-Origin", "*")
+	c.Header("Access-Control-Allow-Headers", "Content-Type")
+
+	// Create ticker for 200ms interval
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	// Stream server info
+	c.Stream(func(w io.Writer) bool {
+		select {
+		case <-ticker.C:
+			// Get system memory info
+			memInfo, err := serverinfo.GetMemoryInfo()
+			if err != nil {
+				fmt.Fprintf(w, "data: {\"error\":\"Failed to get memory info: %v\"}\n\n", err)
+				return true
+			}
+
+			// Get system CPU info
+			cpuInfo, err := serverinfo.GetCPUInfo()
+			if err != nil {
+				fmt.Fprintf(w, "data: {\"error\":\"Failed to get CPU info: %v\"}\n\n", err)
+				return true
+			}
+
+			// Build response data
+			data := map[string]interface{}{
+				"timestamp": time.Now().Unix(),
+				"memory": map[string]interface{}{
+					"total":        memInfo.Total,
+					"used":         memInfo.Used,
+					"available":    memInfo.Available,
+					"used_percent": memInfo.UsedPercent,
+					"total_gb":     float64(memInfo.Total) / (1024 * 1024 * 1024),
+					"used_gb":      float64(memInfo.Used) / (1024 * 1024 * 1024),
+					"available_gb": float64(memInfo.Available) / (1024 * 1024 * 1024),
+				},
+				"cpu": map[string]interface{}{
+					"core_count":   cpuInfo.CoreCount,
+					"used_percent": cpuInfo.UsedPercent,
+				},
+			}
+
+			// Convert to JSON
+			jsonData, err := json.Marshal(data)
+			if err != nil {
+				fmt.Fprintf(w, "data: {\"error\":\"Failed to marshal JSON: %v\"}\n\n", err)
+				return true
+			}
+
+			// Send SSE formatted data
+			fmt.Fprintf(w, "data: %s\n\n", jsonData)
+			return true
+
+		case <-c.Request.Context().Done():
+			// Client disconnected
+			return false
+		}
+	})
+}
+
+// streamInstanceInfo streams instance resource information (CPU, Memory) via SSE every 200ms
+func (s *APIServer) streamInstanceInfo(c *gin.Context) {
+	instanceName := c.Param("name")
+
+	// Set SSE headers
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("Access-Control-Allow-Origin", "*")
+	c.Header("Access-Control-Allow-Headers", "Content-Type")
+
+	// Load instance configuration to get port
+	config, err := asaserver.LoadInstanceConfig(instanceName)
+	if err != nil {
+		c.JSON(500, gin.H{
+			"success": false,
+			"error":   fmt.Sprintf("Failed to load instance config: %v", err),
+		})
+		return
+	}
+
+	// Create ticker for 200ms interval
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	// Stream instance info
+	c.Stream(func(w io.Writer) bool {
+		select {
+		case <-ticker.C:
+			// Get PID by port
+			pid, err := asaserver.GetPIDByPort(config.Port)
+			if err != nil {
+				fmt.Fprintf(w, "data: {\"error\":\"Failed to get PID: %v\",\"instance\":\"%s\",\"running\":false}\n\n", err, instanceName)
+				return true
+			}
+
+			// Get process info
+			processInfo, err := serverinfo.GetProcessInfo(int32(pid))
+			if err != nil {
+				fmt.Fprintf(w, "data: {\"error\":\"Failed to get process info: %v\",\"instance\":\"%s\",\"pid\":%d,\"running\":false}\n\n", err, instanceName, pid)
+				return true
+			}
+
+			// Get system CPU info to calculate total CPU usage
+			cpuInfo, err := serverinfo.GetCPUInfo()
+			if err != nil {
+				fmt.Fprintf(w, "data: {\"error\":\"Failed to get CPU info: %v\"}\n\n", err)
+				return true
+			}
+
+			// Get system memory info
+			memInfo, err := serverinfo.GetMemoryInfo()
+			if err != nil {
+				fmt.Fprintf(w, "data: {\"error\":\"Failed to get memory info: %v\"}\n\n", err)
+				return true
+			}
+
+			// Calculate total CPU usage: instance CPU% / 100% * core count
+			totalCPUUsage := (processInfo.CPUPercent / 100.0) * float64(cpuInfo.CoreCount)
+
+			// Build response data
+			data := map[string]interface{}{
+				"timestamp": time.Now().Unix(),
+				"instance":  instanceName,
+				"running":   true,
+				"pid":       pid,
+				"cpu_cores": cpuInfo.CoreCount,
+				"memory": map[string]interface{}{
+					"total":    memInfo.Total,
+					"total_gb": float64(memInfo.Total) / (1024 * 1024 * 1024),
+				},
+				"process": map[string]interface{}{
+					"name":              processInfo.Name,
+					"cpu_percent":       processInfo.CPUPercent,
+					"cpu_total_percent": totalCPUUsage,
+					"memory_used":       processInfo.MemoryUsed,
+					"memory_percent":    processInfo.MemoryPercent,
+					"memory_used_mb":    float64(processInfo.MemoryUsed) / (1024 * 1024),
+					"memory_used_gb":    float64(processInfo.MemoryUsed) / (1024 * 1024 * 1024),
+				},
+			}
+
+			// Convert to JSON
+			jsonData, err := json.Marshal(data)
+			if err != nil {
+				fmt.Fprintf(w, "data: {\"error\":\"Failed to marshal JSON: %v\"}\n\n", err)
+				return true
+			}
+
+			// Send SSE formatted data
+			fmt.Fprintf(w, "data: %s\n\n", jsonData)
+			return true
+
+		case <-c.Request.Context().Done():
+			// Client disconnected
 			return false
 		}
 	})

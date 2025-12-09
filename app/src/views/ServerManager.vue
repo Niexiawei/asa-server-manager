@@ -24,42 +24,54 @@
                 </template>
                 <a-card-meta>
                   <template #description>
-                    <div class="instance-info">
-                      <div class="info-item" v-if="instance.config?.ServerName">
-                        <span class="label">服务器名称:</span>
-                        <span class="value">{{ instance.config.ServerName }}</span>
+                    <!-- 左右布局：服务器配置参数 | 资源占用 -->
+                    <div class="instance-content">
+                      <!-- 左侧：服务器配置参数 -->
+                      <div class="instance-info">
+                        <div class="section-title">服务器配置</div>
+                        <div class="info-item" v-if="instance.config?.ServerName">
+                          <span class="label">服务器名称:</span>
+                          <span class="value">{{ instance.config.ServerName }}</span>
+                        </div>
+                        <div class="info-item">
+                          <span class="label">状态:</span>
+                          <a-tag :color="instance.running ? 'green' : 'gray'">{{
+                              instance.running ? '运行中' : '已停止'
+                            }}
+                          </a-tag>
+                        </div>
+                        <div class="info-item" v-if="instance.config?.MapName">
+                          <span class="label">地图:</span>
+                          <span class="value">{{ instance.config.MapName }}</span>
+                        </div>
+                        <div class="info-item" v-if="instance.config?.Port">
+                          <span class="label">端口:</span>
+                          <span class="value">{{ instance.config.Port }}</span>
+                        </div>
+                        <div class="info-item" v-if="instance.config?.RCONPort">
+                          <span class="label">RCON端口:</span>
+                          <span class="value">{{ instance.config.RCONPort }}</span>
+                        </div>
+                        <div class="info-item" v-if="instance.config?.QueryPort">
+                          <span class="label">查询端口:</span>
+                          <span class="value">{{ instance.config.QueryPort }}</span>
+                        </div>
+                        <div class="info-item">
+                          <span class="label">Mod ID:</span>
+                          <span class="value">{{ instance.config?.ModIDs || '-' }}</span>
+                        </div>
+                        <div class="info-item info-item-custom" v-if="instance.config?.CustomStartParameters">
+                          <span class="label">自定义参数:</span>
+                          <span class="value">{{ instance.config.CustomStartParameters }}</span>
+                        </div>
                       </div>
-                      <div class="info-item">
-                        <span class="label">状态:</span>
-                        <a-tag :color="instance.running ? 'green' : 'gray'">{{
-                            instance.running ? '运行中' : '已停止'
-                          }}
-                        </a-tag>
-                      </div>
-                      <div class="info-item" v-if="instance.config?.MapName">
-                        <span class="label">地图:</span>
-                        <span class="value">{{ instance.config.MapName }}</span>
-                      </div>
-                      <div class="info-item" v-if="instance.config?.Port">
-                        <span class="label">端口:</span>
-                        <span class="value">{{ instance.config.Port }}</span>
-                      </div>
-                      <div class="info-item" v-if="instance.config?.RCONPort">
-                        <span class="label">RCON端口:</span>
-                        <span class="value">{{ instance.config.RCONPort }}</span>
-                      </div>
-                      <div class="info-item" v-if="instance.config?.QueryPort">
-                        <span class="label">查询端口:</span>
-                        <span class="value">{{ instance.config.QueryPort }}</span>
-                      </div>
-                      <div class="info-item">
-                        <span class="label">Mod ID:</span>
-                        <span class="value">{{ instance.config?.ModIDs || '-' }}</span>
-                      </div>
-                      <div class="info-item" v-if="instance.config?.CustomStartParameters">
-                        <span class="label">自定义参数:</span>
-                        <span class="value">{{ instance.config.CustomStartParameters }}</span>
-                      </div>
+
+                      <!-- 右侧：资源占用 -->
+                      <resource-monitor
+                          class="resource-info"
+                          :instance-name="instance.name"
+                          :is-running="instance.isStartingOrRunning || false"
+                      />
                     </div>
                   </template>
                 </a-card-meta>
@@ -182,6 +194,7 @@ import {serverStore, updateInstancesInStore} from '@/store/serverStore.js'
 import WSStatusIndicator from '@/components/WSStatusIndicator.vue'
 import LogViewer from '@/components/LogViewer.vue'
 import SyncConfigModal from '@/components/SyncConfigModal.vue'
+import ResourceMonitor from '@/components/ResourceMonitor.vue'
 
 // 状态管理
 const router = useRouter()
@@ -417,7 +430,7 @@ const handleSyncComplete = (result) => {
 
 </script>
 
-<style scoped>
+<style scoped lang="less">
 .instance-item {
   border-radius: 8px;
   box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
@@ -432,6 +445,26 @@ const handleSyncComplete = (result) => {
     font-size: 24px !important;
     font-weight: bold;
   }
+}
+
+.instance-content {
+  display: flex;
+  gap: 24px;
+  justify-content: center;
+
+  .instance-info {
+    width: 60%;
+  }
+
+  .resource-info {
+    width: 40%;
+  }
+}
+
+.instance-info {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .server-manager {
@@ -487,10 +520,41 @@ const handleSyncComplete = (result) => {
   gap: 10px;
 }
 
+.instance-content {
+  display: flex;
+  gap: 24px;
+}
+
 .instance-info {
+  flex: 1;
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.section-title {
+  font-weight: 700;
+  color: #1d39c4;
+  font-size: 16px;
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid #1d39c4;
+}
+
+.info-item-custom {
+  height: auto !important;
+  align-items: start !important;
+
+  .label {
+    padding: 12px 0;
+    box-sizing: border-box;
+  }
+
+  .value {
+    line-height: 20px;
+    padding: 12px 0;
+    box-sizing: border-box;
+  }
 }
 
 .info-item {

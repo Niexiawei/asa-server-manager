@@ -602,6 +602,35 @@ import {
   stopRCONReconnect
 } from '@/store/rconStore.js'
 
+// 获取实例资源占用信息（SSE 流式响应）
+export function streamInstanceResourceInfo(instanceName, onData, onError) {
+  const eventSource = new EventSource(`${API_BASE_URL}/api/server/${instanceName}/info`)
+
+  eventSource.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data)
+      if (onData) {
+        onData(data)
+      }
+    } catch (error) {
+      console.error('Failed to parse resource info:', error)
+    }
+  }
+
+  eventSource.onerror = (error) => {
+    console.error('SSE connection error:', error)
+    if (onError) {
+      onError(error)
+    }
+    eventSource.close()
+  }
+
+  // 返回关闭函数
+  return () => {
+    eventSource.close()
+  }
+}
+
 // 重新导出这些函数供其他模块使用
 export {
   connectWebSocket,

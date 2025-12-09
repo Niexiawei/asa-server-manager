@@ -61,57 +61,73 @@
         <a-alert v-if="error" type="error" :title="`错误: ${error}`" closable/>
 
         <div v-else class="config-container">
-          <a-card title="服务器配置" class="config-section server-config">
-            <template #title>
-              <div class="config-card-title">
-                <span>服务器配置</span>
-                <a-button
-                    type="primary"
-                    size="small"
-                    @click="openConfigEditModal"
-                    style="margin-left: 12px"
-                    :disabled="instanceData?.running"
-                >
-                  编辑
-                </a-button>
-              </div>
-            </template>
-            <div class="config-grid">
-              <div v-for="item in getAllConfigItems()" :key="item.label" class="config-grid-item"
-                   :class="{ 'full-width': item.label === '自定义启动参数' }">
-                <div class="config-item">
-                  <div class="config-item-label">{{ item.label }}</div>
-                  <div class="config-item-content">
-                    <div v-if="!item.type || item.type === 'text'" class="config-item-value">
-                      {{ item.value }}
-                    </div>
-                    <div v-else-if="item.type === 'boolean'" class="config-item-value">
-                      <a-tag :color="item.value === '是' ? 'green' : 'gray'">{{ item.value }}</a-tag>
-                    </div>
-                    <div v-else-if="item.type === 'password'" class="password-wrapper">
+          <!-- 服务器配置与资源监控并排布局 -->
+          <div class="config-resource-row">
+            <a-card title="服务器配置" class="config-section server-config">
+              <template #title>
+                <div class="config-card-title">
+                  <span>服务器配置</span>
+                  <a-button
+                      type="primary"
+                      size="small"
+                      @click="openConfigEditModal"
+                      style="margin-left: 12px"
+                      :disabled="instanceData?.running"
+                  >
+                    编辑
+                  </a-button>
+                </div>
+              </template>
+              <div class="config-grid">
+                <div v-for="item in getAllConfigItems()" :key="item.label" class="config-grid-item"
+                     :class="{ 'full-width': item.label === '自定义启动参数' }">
+                  <div class="config-item">
+                    <div class="config-item-label">{{ item.label }}</div>
+                    <div class="config-item-content">
+                      <div v-if="!item.type || item.type === 'text'" class="config-item-value">
+                        {{ item.value }}
+                      </div>
+                      <div v-else-if="item.type === 'boolean'" class="config-item-value">
+                        <a-tag :color="item.value === '是' ? 'green' : 'gray'">{{ item.value }}</a-tag>
+                      </div>
+                      <div v-else-if="item.type === 'password'" class="password-wrapper">
                       <span class="config-item-value">
                         {{
                           item.label === '服务器密码' && showServerPassword ? item.value : (item.label === '管理员密码' && showAdminPassword ? item.value : (item.hasPassword ? '●●●●●●' : item.value))
                         }}
                       </span>
-                      <a-button
-                          v-if="item.hasPassword"
-                          type="text"
-                          size="small"
-                          :icon="item.label === '服务器密码' ? (showServerPassword ? 'icon-eye-invisible' : 'icon-eye') : (showAdminPassword ? 'icon-eye-invisible' : 'icon-eye')"
-                          @click="item.label === '服务器密码' ? (showServerPassword = !showServerPassword) : (showAdminPassword = !showAdminPassword)"
-                      >
-                        <template #icon>
-                          <component
-                              :is="item.label === '服务器密码' ? (showServerPassword ? IconEyeInvisible : IconEye) : (showAdminPassword ? IconEyeInvisible : IconEye)"/>
-                        </template>
-                      </a-button>
+                        <a-button
+                            v-if="item.hasPassword"
+                            type="text"
+                            size="small"
+                            :icon="item.label === '服务器密码' ? (showServerPassword ? 'icon-eye-invisible' : 'icon-eye') : (showAdminPassword ? 'icon-eye-invisible' : 'icon-eye')"
+                            @click="item.label === '服务器密码' ? (showServerPassword = !showServerPassword) : (showAdminPassword = !showAdminPassword)"
+                        >
+                          <template #icon>
+                            <component
+                                :is="item.label === '服务器密码' ? (showServerPassword ? IconEyeInvisible : IconEye) : (showAdminPassword ? IconEyeInvisible : IconEye)"/>
+                          </template>
+                        </a-button>
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
-            </div>
-          </a-card>
+            </a-card>
+            <!-- 资源监控组件 -->
+            <a-card class="config-section resource-monitor-card">
+              <template #title>
+                <div class="config-card-title">
+                  <span>资源占用</span>
+                </div>
+              </template>
+              <resource-monitor
+                  :show-title-div="false"
+                  :instance-name="instanceName"
+                  :is-running="instanceData?.running || false"
+              />
+            </a-card>
+          </div>
 
           <!-- 配置文件区域 -->
           <a-collapse v-model:active-key="activeCollapseKeys" class="config-files-collapse">
@@ -286,6 +302,7 @@ import ConfigEditModal from '@/components/ConfigEditModal.vue'
 import WSStatusIndicator from '@/components/WSStatusIndicator.vue'
 import LogViewer from '@/components/LogViewer.vue'
 import RconTerminal from '@/components/RconTerminal.vue'
+import ResourceMonitor from '@/components/ResourceMonitor.vue'
 import {
   getInstanceConfig,
   startServer,
@@ -886,12 +903,30 @@ onUnmounted(() => {
   gap: 20px;
 }
 
+/* 服务器配置与资源监控并排布局 */
+.config-resource-row {
+  display: grid;
+  grid-template-columns: 3fr 1fr;
+  gap: 15px;
+  width: 100%;
+}
+
 .server-config {
   height: auto !important;
 
   :deep(.arco-card-body) {
     height: auto !important;
     box-sizing: border-box;
+  }
+}
+
+.resource-monitor-card {
+  height: auto !important;
+
+  :deep(.arco-card-body) {
+    height: auto !important;
+    box-sizing: border-box;
+    padding: 15px !important;
   }
 }
 
