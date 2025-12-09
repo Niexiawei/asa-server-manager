@@ -1,23 +1,34 @@
 <template>
   <div class="ws-notification" style="margin-left: auto; padding-right: 20px;">
-    <a-popover position="br" trigger="click">
+    <a-popover position="br" trigger="click" class="ws-notification-popover">
       <template #content>
-        <div class="event-popover-content">
-          <div class="popover-header">
-            <span class="popover-title">事件 ({{ wsEvents.length }})</span>
-            <a-button type="text" size="small" @click="clearEvents">清空</a-button>
-          </div>
-          <div class="event-list">
-            <div v-if="wsEvents.length === 0" class="empty-state">
-              暂无事件消息
+        <a-card :bordered=false>
+          <template #title>
+            <div class="popover-header">
+              <span class="popover-title">事件 ({{ wsEvents.length }})</span>
+              <a-button type="outline" size="small" @click="clearEvents">清空</a-button>
             </div>
-            <div v-for="(event, index) in wsEvents" :key="index" class="event-item">
-              <span class="event-time">{{ formatTime(event.timestamp) }} -></span>
-              <span class="event-type" :class="getEventClass(event.event_type)">{{ event.event_type }}</span>
-              <span class="event-data">{{ event.instance_name || '' }} - {{ event.message || '' }}</span>
+          </template>
+          <div class="event-popover-content">
+            <div class="event-list">
+              <div v-if="wsEvents.length === 0" class="empty-state">
+                暂无事件消息
+              </div>
+              <a-timeline v-else>
+                <a-timeline-item v-for="(event, index) in [...wsEvents].reverse()" :key="index"
+                                 :dot-color="getEventColor(event.event_type)">
+                  <div class="timeline-content">
+                    <div class="timeline-header">
+                      <span class="event-time">{{ formatTime(event.timestamp) }}</span>
+                      <span class="event-type" :class="getEventClass(event.event_type)">{{ event.event_type }}</span>
+                    </div>
+                    <div class="event-message">{{ event.instance_name || '' }} - {{ event.message || '' }}</div>
+                  </div>
+                </a-timeline-item>
+              </a-timeline>
             </div>
           </div>
-        </div>
+        </a-card>
       </template>
       <a-badge :count="wsEvents.length" :max-count="99" class="bell-icon">
         <a-button type="text" size="large" class="notification-btn">
@@ -34,6 +45,7 @@
 import {ref, onMounted, onUnmounted} from 'vue';
 import {onAnyServerEvent} from '@/apis/api.js';
 import {IconNotification} from '@arco-design/web-vue/es/icon';
+import {Timeline, TimelineItem} from '@arco-design/web-vue';
 import dayjs from "dayjs";
 
 const wsEvents = ref([])
@@ -99,6 +111,15 @@ function getEventClass(eventType) {
   return 'event-default'
 }
 
+// 获取时间轴点的颜色
+function getEventColor(eventType) {
+  if (eventType.includes('started')) return '#52c41a'
+  if (eventType.includes('stopped')) return '#faad14'
+  if (eventType.includes('failed')) return '#f5222d'
+  if (eventType.includes('starting')) return '#1890ff'
+  return '#8c8c8c'
+}
+
 // 清空事件
 function clearEvents() {
   wsEvents.value = []
@@ -148,29 +169,44 @@ onUnmounted(() => {
   }
 }
 
+
+.popover-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+
+  .popover-title {
+    font-weight: 500;
+    color: #262626;
+    font-size: 14px;
+  }
+}
+
 // 气泡卡片内容样式
 .event-popover-content {
-  width: 600px;
+  width: 450px;
   max-height: 600px;
   display: flex;
   flex-direction: column;
-
-  .popover-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-
-    .popover-title {
-      font-weight: 500;
-      color: #262626;
-      font-size: 14px;
-    }
-  }
+  overflow-y: auto;
+  overflow-x: hidden;
 
   .event-list {
     flex: 1;
-    overflow-y: auto;
-    color: #fff;
+    width: 100%;
+    padding: 15px;
+    box-sizing: border-box;
+
+    :deep(.arco-timeline-item-dot-content) {
+      width: 13px;
+
+      .arco-timeline-item-dot {
+        width: 13px;
+        height: 13px;
+        border: 3px solid #fff;
+        box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
+      }
+    }
 
     .empty-state {
       padding: 30px 20px;
@@ -179,72 +215,86 @@ onUnmounted(() => {
       font-size: 14px;
     }
 
-    .event-item {
-      padding: 10px 16px;
-      font-size: 13px;
-      display: flex;
-      gap: 12px;
-      align-items: center;
-      background-color: #fafafa;
-      transition: background-color 0.2s ease;
-      border-radius: 8px;
-      margin-top: 4px;
-
-      &:first-child {
-        margin-top: 0;
-      }
-
-      .event-time {
-        color: #8a8a8a;
-        min-width: 65px;
-        font-family: monospace;
-        font-size: 12px;
-      }
-
-      .event-type {
-        min-width: 75px;
-        padding: 2px 8px;
-        border-radius: 2px;
-        font-weight: 500;
-        text-align: center;
-        font-size: 12px;
-        white-space: nowrap;
-
-        &.event-success {
-          background-color: #d4edda;
-          color: #155724;
-        }
-
-        &.event-error {
-          background-color: #f8d7da;
-          color: #721c24;
-        }
-
-        &.event-warning {
-          background-color: #fff3cd;
-          color: #856404;
-        }
-
-        &.event-info {
-          background-color: #d1ecf1;
-          color: #0c5460;
-        }
-
-        &.event-default {
-          background-color: #e2e3e5;
-          color: #383d41;
-        }
-      }
-
-      .event-data {
-        color: #262626;
-        flex: 1;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        font-size: 13px;
+    :deep(.arco-timeline) {
+      .arco-timeline-item {
+        padding-bottom: 16px;
       }
     }
+
+    .timeline-content {
+
+      .timeline-header {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin-bottom: 6px;
+
+        .event-time {
+          color: #8a8a8a;
+          font-family: monospace;
+          font-size: 12px;
+          min-width: 75px;
+        }
+
+        .event-type {
+          padding: 2px 8px;
+          border-radius: 2px;
+          font-weight: 500;
+          font-size: 12px;
+          white-space: nowrap;
+
+          &.event-success {
+            background-color: #d4edda;
+            color: #155724;
+          }
+
+          &.event-error {
+            background-color: #f8d7da;
+            color: #721c24;
+          }
+
+          &.event-warning {
+            background-color: #fff3cd;
+            color: #856404;
+          }
+
+          &.event-info {
+            background-color: #d1ecf1;
+            color: #0c5460;
+          }
+
+          &.event-default {
+            background-color: #e2e3e5;
+            color: #383d41;
+          }
+        }
+      }
+
+      .event-message {
+        color: #262626;
+        font-size: 13px;
+        margin-left: 0;
+      }
+    }
+  }
+
+}
+</style>
+
+<style lang="less">
+.ws-notification-popover {
+  .arco-popover-popup-content {
+    padding: 0 !important;
+  }
+
+  .arco-popover-content {
+    border-radius: var(--border-radius-large);
+    overflow: hidden;
+    margin-top: 0 !important;
+  }
+
+  .arco-card-body {
+    padding: 0 !important;
   }
 }
 </style>
