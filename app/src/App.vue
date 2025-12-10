@@ -16,8 +16,13 @@
                 <span>系统日志</span>
               </a-menu-item>
             </a-menu>
-            <!-- WebSocket 事件通知组件 -->
-            <WSEventNotification/>
+            <!-- 右侧工具栏 -->
+            <div class="header-tools">
+              <!-- 服务器资源占用气泡 -->
+              <ServerResourceMonitor/>
+              <!-- WebSocket 事件通知组件 -->
+              <WSEventNotification/>
+            </div>
           </div>
         </div>
       </a-layout-header>
@@ -34,6 +39,7 @@
 import {ref, watch} from 'vue';
 import {useRouter, useRoute} from "vue-router";
 import WSEventNotification from '@/components/WSEventNotification.vue';
+import ServerResourceMonitor from '@/components/ServerResourceMonitor.vue';
 import "@/app.less"
 
 const router = useRouter()
@@ -81,6 +87,7 @@ const handleMenuClick = (key) => {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 
   ._content {
     border-radius: 8px;
@@ -106,6 +113,12 @@ const handleMenuClick = (key) => {
     align-items: center;
     justify-content: space-between;
     background-color: #fff;
+  }
+
+  .header-tools {
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
 }
 
