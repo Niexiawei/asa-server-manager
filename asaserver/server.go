@@ -730,9 +730,7 @@ func RestartServer(instanceName string) error {
 	if err := StopServer(instanceName); err != nil {
 		return err
 	}
-
-	time.Sleep(30 * time.Second)
-
+	time.Sleep(10 * time.Second)
 	return StartServer(instanceName)
 }
 

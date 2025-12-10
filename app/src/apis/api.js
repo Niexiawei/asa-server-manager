@@ -113,7 +113,19 @@ export async function restartServerSSE(name, onMessage, onError, onComplete) {
     }
 
     const reader = response.body.getReader()
-    const processor = createSSEStreamProcessor(onMessage)
+    let hasError = false
+    
+    const processor = createSSEStreamProcessor((content) => {
+      // 检测错误消息
+      if (content.startsWith('Error:')) {
+        hasError = true
+        if (onError) {
+          onError(new Error(content))
+        }
+      } else if (onMessage) {
+        onMessage(content)
+      }
+    })
 
     while (true) {
       const { done, value } = await reader.read()
@@ -123,7 +135,8 @@ export async function restartServerSSE(name, onMessage, onError, onComplete) {
     
     processor.flush()
 
-    if (onComplete) {
+    // 如果没有错误，则调用完成回调
+    if (!hasError && onComplete) {
       onComplete()
     }
   } catch (error) {
@@ -243,7 +256,19 @@ export async function startAllServers(onMessage, onError, onComplete) {
     }
 
     const reader = response.body.getReader()
-    const processor = createSSEStreamProcessor(onMessage)
+    let hasError = false
+    
+    const processor = createSSEStreamProcessor((content) => {
+      // 检测错误消息
+      if (content.startsWith('Error:')) {
+        hasError = true
+        if (onError) {
+          onError(new Error(content))
+        }
+      } else if (onMessage) {
+        onMessage(content)
+      }
+    })
 
     while (true) {
       const { done, value } = await reader.read()
@@ -253,7 +278,8 @@ export async function startAllServers(onMessage, onError, onComplete) {
     
     processor.flush()
 
-    if (onComplete) {
+    // 如果没有错误，则调用完成回调
+    if (!hasError && onComplete) {
       onComplete()
     }
   } catch (error) {
@@ -276,7 +302,19 @@ export async function stopAllServers(onMessage, onError, onComplete) {
     }
 
     const reader = response.body.getReader()
-    const processor = createSSEStreamProcessor(onMessage)
+    let hasError = false
+    
+    const processor = createSSEStreamProcessor((content) => {
+      // 检测错误消息
+      if (content.startsWith('Error:')) {
+        hasError = true
+        if (onError) {
+          onError(new Error(content))
+        }
+      } else if (onMessage) {
+        onMessage(content)
+      }
+    })
 
     while (true) {
       const { done, value } = await reader.read()
@@ -286,11 +324,58 @@ export async function stopAllServers(onMessage, onError, onComplete) {
     
     processor.flush()
 
-    if (onComplete) {
+    // 如果没有错误，则调用完成回调
+    if (!hasError && onComplete) {
       onComplete()
     }
   } catch (error) {
     console.error('Stop all servers error:', error)
+    if (onError) {
+      onError(error)
+    }
+  }
+}
+
+// 重启所有服务器实例（SSE 流式响应）
+export async function restartAllServers(onMessage, onError, onComplete) {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/server/restart-all`, {
+      method: 'POST',
+    })
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
+
+    const reader = response.body.getReader()
+    let hasError = false
+    
+    const processor = createSSEStreamProcessor((content) => {
+      // 检测错误消息
+      if (content.startsWith('Error:')) {
+        hasError = true
+        if (onError) {
+          onError(new Error(content))
+        }
+      } else if (onMessage) {
+        onMessage(content)
+      }
+    })
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      processor.process(value)
+    }
+    
+    processor.flush()
+
+    // 如果没有错误，则调用完成回调
+    if (!hasError && onComplete) {
+      onComplete()
+    }
+  } catch (error) {
+    console.error('Restart all servers error:', error)
     if (onError) {
       onError(error)
     }

@@ -562,16 +562,17 @@
     },
     "/api/server/restart-all": {
       "post": {
-        "summary": "Restart all server instances",
+        "summary": "Restart all server instances with real-time progress",
+        "description": "Restarts all server instances with Server-Sent Events (SSE) stream for real-time progress updates. Returns streaming progress messages for each instance restart.",
         "tags": ["Server Control"],
         "operationId": "restartAllServers",
         "responses": {
           "200": {
-            "description": "All servers restarted successfully",
+            "description": "Restart in progress - returns SSE stream with progress messages",
             "content": {
-              "application/json": {
+              "text/event-stream": {
                 "schema": {
-                  "$ref": "#/components/schemas/StatusResponse"
+                  "$ref": "#/components/schemas/ServerRestartAllSSEStream"
                 }
               }
             }
@@ -2439,6 +2440,39 @@
           }
         },
         "required": ["action"]
+      },
+      "ServerRestartAllSSEStream": {
+        "type": "object",
+        "description": "Server-Sent Events (SSE) stream for real-time restart progress of all instances",
+        "properties": {
+          "data": {
+            "type": "string",
+            "description": "Progress message for instance restart operations",
+            "example": "Instance 'server-1' restarted successfully"
+          }
+        },
+        "examples": {
+          "restart_starting": {
+            "summary": "Restart starting phase",
+            "value": "data: Restarting instance 'server-1'...\n\n"
+          },
+          "restart_success": {
+            "summary": "Instance restart successful",
+            "value": "data: Instance 'server-1' restarted successfully\n\n"
+          },
+          "restart_failed": {
+            "summary": "Instance restart failed",
+            "value": "data: Error: Failed to restart instance 'server-1': connection timeout\n\n"
+          },
+          "all_complete": {
+            "summary": "All restarts completed",
+            "value": "data: All 3 servers restarted successfully\n\n"
+          },
+          "error_summary": {
+            "summary": "Restart error summary",
+            "value": "data: Error: 1 of 3 instances failed to restart\n\n"
+          }
+        }
       },
       "RCONResponseData": {
         "type": "object",

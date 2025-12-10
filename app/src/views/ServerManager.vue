@@ -189,7 +189,7 @@ import {
   restartServerSSE,
   deleteInstance
 } from '@/apis/api.js'
-import {Modal, Button} from '@arco-design/web-vue';
+import {Modal, Button, Message} from '@arco-design/web-vue';
 import {serverStore, updateInstancesInStore} from '@/store/serverStore.js'
 import WSStatusIndicator from '@/components/WSStatusIndicator.vue'
 import LogViewer from '@/components/LogViewer.vue'
@@ -275,15 +275,18 @@ const startInstance = async (name) => {
       try {
         const data = await startServer(name)
         if (data.success) {
+          Message.success(data.message || `实例 "${name}" 启动成功`)
           // 更新本地状态
           const instance = instances.value.find(inst => inst.name === name)
           if (instance) {
             instance.running = true
           }
         } else {
+          Message.error(data.error || `实例 "${name}" 启动失败`)
           console.error('启动实例失败:', data.error)
         }
       } catch (error) {
+        Message.error(`启动实例失败: ${error.message}`)
         console.error('启动实例失败:', error)
       }
     }
@@ -301,15 +304,18 @@ const stopInstance = async (name) => {
       try {
         const data = await stopServer(name)
         if (data.success) {
+          Message.success(data.message || `实例 "${name}" 停止成功`)
           // 更新本地状态
           const instance = instances.value.find(inst => inst.name === name)
           if (instance) {
             instance.running = false
           }
         } else {
+          Message.error(data.error || `实例 "${name}" 停止失败`)
           console.error('停止实例失败:', data.error)
         }
       } catch (error) {
+        Message.error(`停止实例失败: ${error.message}`)
         console.error('停止实例失败:', error)
       }
     }
@@ -336,15 +342,17 @@ const restartInstance = async (name) => {
             // onError 回调 - 处理错误
             (error) => {
               console.error('重启实例失败:', error)
+              Message.error('重启实例失败')
             },
             // onComplete 回调 - 重启完成
             () => {
               console.log('Server restart completed')
-              // 重启不改变本地状态，等待后续自动更新
+              Message.success('实例重启成功')
             }
         )
       } catch (error) {
         console.error('重启实例失败:', error)
+        Message.error('重启实例失败')
       }
     }
   })

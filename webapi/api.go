@@ -564,6 +564,15 @@ func (s *APIServer) restartServer(c *gin.Context) {
 		case <-done:
 			return
 		}
+
+		if !serverActionsLock.TryLock() {
+			select {
+			case msgChan <- fmt.Sprintf("Error: there are other services being started or stopped"):
+			case <-done:
+			}
+			return
+		}
+
 		// Broadcast server stopping event
 		s.BroadcastServerStopping(name)
 
@@ -835,57 +844,104 @@ func (s *APIServer) stopAllServers(c *gin.Context) {
 	})
 }
 
-// restartAllServers restarts all server instances
+// restartAllServers restarts all server instances (SSE stream)
 func (s *APIServer) restartAllServers(c *gin.Context) {
+	// Set SSE headers
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("Access-Control-Allow-Origin", "*")
+
+	// Create message channel and done signal
+	msgChan := make(chan string, 10)
+	done := make(chan struct{})
+
 	// Get all available instances
 	instances, err := asaserver.GetAvailableInstances()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, StatusResponse{
-			Success: false,
-			Error:   err.Error(),
-		})
+		select {
+		case msgChan <- fmt.Sprintf("Error: Failed to get instances: %v", err):
+		case <-done:
+		}
+		close(msgChan)
 		return
 	}
 
 	if len(instances) == 0 {
-		c.JSON(http.StatusOK, StatusResponse{
-			Success: true,
-			Message: "No instances to restart",
-		})
+		select {
+		case msgChan <- "No instances to restart":
+		case <-done:
+		}
+		close(msgChan)
 		return
 	}
 
-	// Restart each instance individually
-	var failedInstances []string
-	for _, instanceName := range instances {
-		// Broadcast stopping event
-		s.BroadcastServerStopping(instanceName)
+	// Process in goroutine
+	go func() {
+		defer close(msgChan)
 
-		// Restart the instance
-		if err := asaserver.RestartServer(instanceName); err != nil {
-			failedInstances = append(failedInstances, instanceName)
-			// Broadcast error event
-			s.BroadcastServerRestartFailed(instanceName, err)
-			continue
+		var failedInstances []string
+		for _, instanceName := range instances {
+			select {
+			case msgChan <- fmt.Sprintf("Restarting instance '%s'...", instanceName):
+			case <-done:
+				return
+			}
+
+			// Broadcast stopping event
+			s.BroadcastServerStopping(instanceName)
+
+			// Restart the instance
+			if err := asaserver.RestartServer(instanceName); err != nil {
+				failedInstances = append(failedInstances, instanceName)
+				select {
+				case msgChan <- fmt.Sprintf("Error: Failed to restart instance '%s': %v", instanceName, err):
+				case <-done:
+					return
+				}
+				// Broadcast error event
+				s.BroadcastServerRestartFailed(instanceName, err)
+				continue
+			}
+
+			select {
+			case msgChan <- fmt.Sprintf("Instance '%s' restarted successfully", instanceName):
+			case <-done:
+				return
+			}
+			// Broadcast started event
+			s.BroadcastServerStarted(instanceName)
 		}
 
-		// Broadcast started event
-		s.BroadcastServerStarted(instanceName)
-	}
+		// Final result message
+		if len(failedInstances) > 0 {
+			select {
+			case msgChan <- fmt.Sprintf("Error: %d of %d instances failed to restart", len(failedInstances), len(instances)):
+			case <-done:
+			}
+		} else {
+			select {
+			case msgChan <- fmt.Sprintf("All %d servers restarted successfully", len(instances)):
+			case <-done:
+			}
+		}
+	}()
 
-	// Check if all restarts were successful
-	if len(failedInstances) > 0 {
-		c.JSON(http.StatusInternalServerError, StatusResponse{
-			Success: false,
-			Message: fmt.Sprintf("Failed to restart some instances: %v", failedInstances),
-			Error:   fmt.Sprintf("%d of %d instances failed to restart", len(failedInstances), len(instances)),
-		})
-		return
-	}
-
-	c.JSON(http.StatusOK, StatusResponse{
-		Success: true,
-		Message: fmt.Sprintf("All %d servers restarted successfully", len(instances)),
+	// Stream the progress
+	c.Stream(func(w io.Writer) bool {
+		select {
+		case msg, ok := <-msgChan:
+			if !ok {
+				return false
+			}
+			// Send SSE formatted data
+			fmt.Fprintf(w, "data: %s\n\n", msg)
+			return true
+		case <-c.Request.Context().Done():
+			// Client disconnected - signal goroutine to stop
+			close(done)
+			return false
+		}
 	})
 }
 
@@ -1210,6 +1266,16 @@ func (s *APIServer) streamInstanceInfo(c *gin.Context) {
 		return
 	}
 
+	// Get PID by port
+	pid, err := asaserver.GetPIDByPort(config.Port)
+	if err != nil {
+		c.JSON(500, gin.H{
+			"success": false,
+			"error":   fmt.Sprintf("Failed to get PID: %v instance:%s running :false", err, instanceName),
+		})
+		return
+	}
+
 	// Create ticker for 200ms interval
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
@@ -1218,13 +1284,6 @@ func (s *APIServer) streamInstanceInfo(c *gin.Context) {
 	c.Stream(func(w io.Writer) bool {
 		select {
 		case <-ticker.C:
-			// Get PID by port
-			pid, err := asaserver.GetPIDByPort(config.Port)
-			if err != nil {
-				fmt.Fprintf(w, "data: {\"error\":\"Failed to get PID: %v\",\"instance\":\"%s\",\"running\":false}\n\n", err, instanceName)
-				return true
-			}
-
 			// Get process info
 			processInfo, err := serverinfo.GetProcessInfo(int32(pid))
 			if err != nil {

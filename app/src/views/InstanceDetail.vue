@@ -689,14 +689,17 @@ const startInstance = () => {
       try {
         const data = await startServer(instanceName)
         if (data.success) {
+          Message.success(data.message || `实例 "${instanceName}" 启动成功`)
           // 更新实例运行状态
           if (instanceData.value) {
             instanceData.value.running = true
           }
         } else {
+          Message.error(data.error || `实例 "${instanceName}" 启动失败`)
           console.error('启动实例失败:', data.error)
         }
       } catch (error) {
+        Message.error(`启动实例失败: ${error.message}`)
         console.error('启动实例失败:', error)
       }
     }
@@ -714,14 +717,17 @@ const stopInstance = () => {
       try {
         const data = await stopServer(instanceName)
         if (data.success) {
+          Message.success(data.message || `实例 "${instanceName}" 停止成功`)
           // 更新实例运行状态
           if (instanceData.value) {
             instanceData.value.running = false
           }
         } else {
+          Message.error(data.error || `实例 "${instanceName}" 停止失败`)
           console.error('停止实例失败:', data.error)
         }
       } catch (error) {
+        Message.error(`停止实例失败: ${error.message}`)
         console.error('停止实例失败:', error)
       }
     }
