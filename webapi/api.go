@@ -678,7 +678,7 @@ func (s *APIServer) startAllServers(c *gin.Context) {
 			if err := asaserver.StartServer(instanceName); err != nil {
 				failedInstances = append(failedInstances, instanceName)
 				select {
-				case msgChan <- fmt.Sprintf("Error starting '%s': %v", instanceName, err):
+				case msgChan <- fmt.Sprintf("Error: starting '%s': %v", instanceName, err):
 				case <-done:
 					return
 				}
@@ -794,7 +794,7 @@ func (s *APIServer) stopAllServers(c *gin.Context) {
 			if err := asaserver.StopServer(instanceName); err != nil {
 				failedInstances = append(failedInstances, instanceName)
 				select {
-				case msgChan <- fmt.Sprintf("Error stopping '%s': %v", instanceName, err):
+				case msgChan <- fmt.Sprintf("Error: stopping '%s': %v", instanceName, err):
 				case <-done:
 					return
 				}
