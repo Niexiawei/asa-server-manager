@@ -11,8 +11,13 @@
       <a-spin :loading="loading" style="width: 100%;height: 100%">
         <a-empty v-if="instances.length === 0" description="暂无实例，请创建新实例"/>
         <div v-else class="instance-list">
-          <a-row :gutter="20">
-            <a-col :span="12" v-for="instance in instances" :key="instance.name">
+          <masonry-wall
+            :items="instances"
+            :ssr-columns="2"
+            :column-width="800" 
+            :gap="10"
+          >
+            <template #default="{ item: instance }">
               <a-card
                   class="instance-item"
                   :bordered="true"
@@ -132,8 +137,8 @@
                   </a-button>
                 </template>
               </a-card>
-            </a-col>
-          </a-row>
+            </template>
+          </masonry-wall>
         </div>
       </a-spin>
     </a-card>
@@ -203,6 +208,7 @@ import WSStatusIndicator from '@/components/WSStatusIndicator.vue'
 import LogViewer from '@/components/LogViewer.vue'
 import SyncConfigModal from '@/components/SyncConfigModal.vue'
 import ResourceMonitor from '@/components/ResourceMonitor.vue'
+import MasonryWall from '@yeger/vue-masonry-wall'
 
 // 状态管理
 const router = useRouter()
@@ -506,7 +512,7 @@ const handleSyncComplete = (result) => {
 }
 
 .instance-card {
-  margin-bottom: 20px;
+
 }
 
 .instance-card.running {

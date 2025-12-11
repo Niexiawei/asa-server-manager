@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@yeger/vue-masonry-wall": "^5.1.4",
     "dayjs": "^1.11.19",
     "less": "^4.4.2",
     "less-loader": "^12.3.0",
