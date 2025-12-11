@@ -4,7 +4,18 @@ const API_BASE_URL = import.meta.env.VITE_API_ROOT
 // 处理 API 响应
 async function handleResponse(response) {
   if (!response.ok) {
-    throw new Error(`HTTP error! status: ${response.status}`)
+    // 尝试解析错误响应体，获取 message 或 error 字段
+    try {
+      const errorData = await response.json()
+      const errorMessage = errorData.message || errorData.error || `HTTP error! status: ${response.status}`
+      throw new Error(errorMessage)
+    } catch (parseError) {
+      // 如果无法解析 JSON，使用默认错误信息
+      if (parseError instanceof Error && parseError.message) {
+        throw parseError
+      }
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
   }
   return await response.json()
 }

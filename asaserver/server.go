@@ -691,12 +691,14 @@ func StopServer(instanceName string) error {
 	}
 
 	response, err := SendRCONCommand(instanceName, "DoExit")
+
 	if err == nil && strings.Contains(response, "Exiting") {
 		logger.GetLogger().Infof("Server instance %s reported 'Exiting...'. Awaiting shutdown...", instanceName)
 		// Wait for process to finish using win32api.IsProcessExited
 	} else {
 		if err := exec.Command("taskkill", "/PID", fmt.Sprintf("%d", pid)).Run(); err != nil {
 			logger.GetLogger().Warnf("failed to kill process PID %d: %s", pid, err.Error())
+			_ = exec.Command("taskkill", "/F", "/PID", fmt.Sprintf("%d", pid)).Run()
 		}
 	}
 
@@ -898,6 +900,9 @@ func quotifyIfNeeded(value string) string {
 	if value == "" {
 		return value
 	}
+	// Replace spaces with dashes, converting multiple consecutive spaces to a single dash
+	value = strings.TrimSpace(value)
+	value = regexp.MustCompile(`\s+`).ReplaceAllString(value, "-")
 	// Check if the value contains any special characters that need quoting
 	// ARK server uses ? as parameter separator, so we need to quote values containing special characters
 	return fmt.Sprintf("\"%s\"", value)

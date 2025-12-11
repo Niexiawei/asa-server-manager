@@ -56,10 +56,12 @@
                           <span class="label">查询端口:</span>
                           <span class="value">{{ instance.config.QueryPort }}</span>
                         </div>
-                        <div class="info-item">
-                          <span class="label">Mod ID:</span>
-                          <span class="value">{{ instance.config?.ModIDs || '-' }}</span>
-                        </div>
+                        <a-tooltip :content="instance.config?.ModIDs">
+                          <div class="info-item info-item-modid">
+                            <span class="label">Mod ID:</span>
+                            <span class="value">{{ instance.config?.ModIDs || '-' }}</span>
+                          </div>
+                        </a-tooltip>
                         <div class="info-item info-item-custom" v-if="instance.config?.CustomStartParameters">
                           <span class="label">自定义参数:</span>
                           <span class="value">{{ instance.config.CustomStartParameters }}</span>
@@ -572,6 +574,13 @@ const handleSyncComplete = (result) => {
   padding: 0 8px;
   background-color: #f5f5f5;
   border-radius: 4px;
+}
+
+.info-item-modid {
+  .value {
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
 }
 
 .info-item .label {

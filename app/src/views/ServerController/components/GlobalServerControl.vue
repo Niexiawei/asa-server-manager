@@ -15,10 +15,12 @@
       :title="startingServers ? '启动中...':'启动所有服务器'"
       :width="800"
       :footer="false"
-      @before-close="handleBeforeCloseStart"
+      :mask-closable="!startingServers"
+      :closable="!startingServers"
+      @before-close="() => !startingServers"
   >
     <div class="update-log-container">
-      <div class="update-log">
+      <div id="startLogContainer" class="update-log">
         <div
             v-for="(log, index) in startLogs"
             :key="index"
@@ -36,10 +38,12 @@
       :title="stoppingServers ? '停止中...':'停止所有服务器'"
       :width="800"
       :footer="false"
-      @before-close="handleBeforeCloseStop"
+      :mask-closable="!stoppingServers"
+      :closable="!stoppingServers"
+      @before-close="() => !stoppingServers"
   >
     <div class="update-log-container">
-      <div class="update-log">
+      <div id="stopLogContainer" class="update-log">
         <div
             v-for="(log, index) in stopLogs"
             :key="index"
@@ -57,10 +61,12 @@
       :title="restartingServers ? '重启中...':'重启所有服务器'"
       :width="800"
       :footer="false"
-      @before-close="handleBeforeCloseRestart"
+      :mask-closable="!restartingServers"
+      :closable="!restartingServers"
+      @before-close="() => !restartingServers"
   >
     <div class="update-log-container">
-      <div class="update-log">
+      <div id="restartLogContainer" class="update-log">
         <div
             v-for="(log, index) in restartLogs"
             :key="index"
@@ -78,10 +84,12 @@
       :title="updating ? '服务器更新中...':'服务器更新'"
       :width="800"
       :footer="false"
-      @before-close="handleBeforeCloseUpdate"
+      :mask-closable="!updating"
+      :closable="!updating"
+      @before-close="() => !updating"
   >
     <div class="update-log-container">
-      <div class="update-log">
+      <div id="updateLogContainer" class="update-log">
         <div
             v-for="(log, index) in updateLogs"
             :key="index"
@@ -152,9 +160,9 @@ const startAllServersHandler = async () => {
             startLogs.value.push(message)
             // 自动滚动到下方
             setTimeout(() => {
-              const containers = document.querySelectorAll('.update-log')
-              if (containers.length > 0) {
-                containers[0].scrollTop = containers[0].scrollHeight
+              const container = document.getElementById('startLogContainer')
+              if (container) {
+                container.scrollTop = container.scrollHeight
               }
             }, 0)
           },
@@ -191,9 +199,9 @@ const stopAllServersHandler = async () => {
             stopLogs.value.push(message)
             // 自动滚动到下方
             setTimeout(() => {
-              const containers = document.querySelectorAll('.update-log')
-              if (containers.length > 1) {
-                containers[1].scrollTop = containers[1].scrollHeight
+              const container = document.getElementById('stopLogContainer')
+              if (container) {
+                container.scrollTop = container.scrollHeight
               }
             }, 0)
           },
@@ -230,9 +238,9 @@ const restartAllServersHandler = async () => {
             restartLogs.value.push(message)
             // 自动滚动到下方
             setTimeout(() => {
-              const containers = document.querySelectorAll('.update-log')
-              if (containers.length > 2) {
-                containers[2].scrollTop = containers[2].scrollHeight
+              const container = document.getElementById('restartLogContainer')
+              if (container) {
+                container.scrollTop = container.scrollHeight
               }
             }, 0)
           },
@@ -272,7 +280,7 @@ const updateServerHandler = async () => {
             (message) => {
               updateLogs.value.push(message)
               setTimeout(() => {
-                const logContainer = document.querySelector('.update-log')
+                const logContainer = document.getElementById('updateLogContainer')
                 if (logContainer) {
                   logContainer.scrollTop = logContainer.scrollHeight
                 }
@@ -311,7 +319,7 @@ const updateServerHandler = async () => {
             updateLogs.value.push(message)
             // 自动滚动到下方
             setTimeout(() => {
-              const logContainer = document.querySelector('.update-log')
+              const logContainer = document.getElementById('updateLogContainer')
               if (logContainer) {
                 logContainer.scrollTop = logContainer.scrollHeight
               }
@@ -335,88 +343,7 @@ const updateServerHandler = async () => {
   })
 }
 
-// 取消启动
-const handleBeforeCloseStart = async () => {
-  return await new Promise(resolve => {
-    Modal.confirm({
-      title: '是否中止启动？',
-      content: '正在启动中，中止可能会导致服务器状态不一致。',
-      okText: '是',
-      cancelText: '否',
-      onOk: () => {
-        startingServers.value = false
-        startModalVisible.value = false
-        resolve(true)
-      },
-      onCancel: () => {
-        resolve(false)
-      }
-    })
-  })
-}
 
-// 取消停止
-const handleBeforeCloseStop = async () => {
-  return await new Promise(resolve => {
-    Modal.confirm({
-      title: '是否中止停止？',
-      content: '正在停止中，中止可能会导致服务器状态不一致。',
-      okText: '是',
-      cancelText: '否',
-      onOk: () => {
-        stoppingServers.value = false
-        stopModalVisible.value = false
-        resolve(true)
-      },
-      onCancel: () => {
-        resolve(false)
-      }
-    })
-  })
-}
-
-// 取消重启
-const handleBeforeCloseRestart = async () => {
-  return await new Promise(resolve => {
-    Modal.confirm({
-      title: '是否中止重启？',
-      content: '正在重启中，中止可能会导致服务器状态不一致。',
-      okText: '是',
-      cancelText: '否',
-      onOk: () => {
-        restartingServers.value = false
-        restartModalVisible.value = false
-        resolve(true)
-      },
-      onCancel: () => {
-        resolve(false)
-      }
-    })
-  })
-}
-
-// 取消更新
-const handleBeforeCloseUpdate = async () => {
-  return await new Promise(resolve => {
-    Modal.confirm({
-      title: '是否中止更新？',
-      content: '正在更新中，中止可能会导致服务器状态不一致。',
-      okText: '是',
-      cancelText: '否',
-      onOk: () => {
-        if (updateAbortController) {
-          updateAbortController.abort()
-        }
-        updating.value = false
-        updateModalVisible.value = false
-        resolve(true)
-      },
-      onCancel: () => {
-        resolve(false)
-      }
-    })
-  })
-}
 </script>
 
 <style scoped lang="less">

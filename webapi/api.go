@@ -1188,7 +1188,7 @@ func (s *APIServer) streamServerInfo(c *gin.Context) {
 	c.Header("Access-Control-Allow-Headers", "Content-Type")
 
 	// Create ticker for 200ms interval
-	ticker := time.NewTicker(500 * time.Millisecond)
+	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
 	// Stream server info
@@ -1266,16 +1266,6 @@ func (s *APIServer) streamInstanceInfo(c *gin.Context) {
 		return
 	}
 
-	// Get PID by port
-	pid, err := asaserver.GetPIDByPort(config.Port)
-	if err != nil {
-		c.JSON(500, gin.H{
-			"success": false,
-			"error":   fmt.Sprintf("Failed to get PID: %v instance:%s running :false", err, instanceName),
-		})
-		return
-	}
-
 	// Create ticker for 200ms interval
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
@@ -1284,6 +1274,13 @@ func (s *APIServer) streamInstanceInfo(c *gin.Context) {
 	c.Stream(func(w io.Writer) bool {
 		select {
 		case <-ticker.C:
+			// Get PID by port
+			pid, err := asaserver.GetPIDByPort(config.Port)
+			if err != nil {
+				fmt.Fprintf(w, "data:{\"error\":\"Failed to get PID: %v\",\"instance\":\"%s\",\"running\":false}", err, instanceName)
+				return true
+			}
+
 			// Get process info
 			processInfo, err := serverinfo.GetProcessInfo(int32(pid))
 			if err != nil {

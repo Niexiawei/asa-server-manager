@@ -1,5 +1,5 @@
 <template>
-  <a-popover position="bottom" trigger="click" :content-style="{ padding: '16px', minWidth: '400px' }">
+  <a-popover position="br" trigger="click" :content-style="{ padding: '16px', minWidth: '400px' }">
     <template #content>
       <div class="server-resource-content">
         <div class="section-title">服务器资源占用</div>
@@ -272,7 +272,7 @@ const getIconColor = () => {
   gap: 8px;
   padding: 12px 8px;
   background-color: #f5f5f5;
-  border-radius: 4px;
+  border-radius: 6px;
 }
 
 .progress-item-cpu {
