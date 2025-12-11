@@ -255,7 +255,7 @@
         :footer="false"
         class="rcon-modal"
     >
-      <div class="rcon-modal-content">
+      <div class="rcon-modal-content" v-if="rconFloatingVisible">
         <rcon-terminal :headerDisable="true"
                        :instance-name="instanceName" :instance-running="instanceData?.running || false"/>
       </div>

@@ -14,15 +14,15 @@
           <masonry-wall
             :items="instances"
             :ssr-columns="2"
-            :column-width="800" 
+            :column-width="800"
             :gap="10"
           >
             <template #default="{ item: instance }">
               <a-card
                   class="instance-item"
                   :bordered="true"
-                  :class="['instance-card', { running: instance.running }]"
-                  :title="instance.name"
+                  :class="'instance-card'"
+                  :title="renderInstanceTitle(instance)"
               >
                 <template #extra>
                   <a-link @click="viewInstanceDetail(instance.name)">查看详情</a-link>
@@ -105,36 +105,24 @@
                   >
                     停止
                   </a-button>
-                  <a-button
-                      @click="restartInstance(instance.name)"
-                      :disabled="!instance.running"
-                      status="success"
-                      size="small"
-                  >
-                    重启
-                  </a-button>
-                  <a-button
-                      @click="deleteInstanceHandler(instance.name)"
-                      status="danger"
-                      size="small"
-                      :disabled="instance.running"
-                  >
-                    删除
-                  </a-button>
-                  <a-button
+                  <a-dropdown-button
                       @click="viewInstanceLogs(instance.name)"
                       type="primary"
                       size="small"
                   >
                     查看日志
-                  </a-button>
-                  <a-button
-                      @click="openSyncModal(instance.name)"
-                      type="primary"
-                      size="small"
-                  >
-                    同步配置
-                  </a-button>
+                    <template #content>
+                      <a-doption @click="restartInstance(instance.name)" :disabled="!instance.running">
+                        重启
+                      </a-doption>
+                      <a-doption @click="deleteInstanceHandler(instance.name)" :disabled="instance.running">
+                        删除
+                      </a-doption>
+                      <a-doption @click="openSyncModal(instance.name)">
+                        同步配置
+                      </a-doption>
+                    </template>
+                  </a-dropdown-button>
                 </template>
               </a-card>
             </template>
@@ -191,7 +179,7 @@
 </template>
 
 <script setup>
-import {ref, reactive, onMounted, onUnmounted, watch, computed, nextTick} from 'vue'
+import {ref, reactive, onMounted, onUnmounted, watch, computed, nextTick, h} from 'vue'
 import {useRouter} from 'vue-router'
 import {
   listInstances,
@@ -203,6 +191,7 @@ import {
   deleteInstance
 } from '@/apis/api.js'
 import {Modal, Button, Message} from '@arco-design/web-vue';
+import {IconCheck, IconClose} from '@arco-design/web-vue/es/icon';
 import {serverStore, updateInstancesInStore} from '@/store/serverStore.js'
 import WSStatusIndicator from '@/components/WSStatusIndicator.vue'
 import LogViewer from '@/components/LogViewer.vue'
@@ -224,6 +213,14 @@ const form = reactive({
 const logViewerRef = ref()
 const syncModalVisible = ref(false)
 const selectedSourceInstance = ref('')
+
+// 渲染实例标题，在名称前添加状态图标
+const renderInstanceTitle = (instance) => {
+  return h('div', {style: {display: 'flex', alignItems: 'center', gap: '8px'}}, [
+    h(instance.running ? IconCheck : IconClose, {style: {color: instance.running ? '#00b42a' : '#f53f3f'}}),
+    h('span', instance.name)
+  ])
+}
 
 // 获取实例列表
 const fetchInstances = async () => {
@@ -497,7 +494,7 @@ const handleSyncComplete = (result) => {
 
 :deep(.main-card) {
   .arco-card-body {
-    height: calc(100% - 58px) !important;
+    height: calc(100% - 78px) !important;
   }
 }
 
@@ -515,10 +512,7 @@ const handleSyncComplete = (result) => {
 
 }
 
-.instance-card.running {
-  border-color: #42b883;
-  border-width: 2px;
-}
+// 移除绿色边框样式，改为使用图标标记状态
 
 .ws-status-bar {
   margin-bottom: 16px;

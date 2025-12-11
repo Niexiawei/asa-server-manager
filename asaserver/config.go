@@ -7,8 +7,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 var (
@@ -360,11 +362,35 @@ func GetAvailableInstances() ([]string, error) {
 		return nil, fmt.Errorf("failed to read instances directory: %w", err)
 	}
 
-	var instances []string
+	// 收集实例目录及其创建时间
+	type instanceInfo struct {
+		name       string
+		createTime time.Time
+	}
+	var instanceList []instanceInfo
+
 	for _, entry := range entries {
 		if entry.IsDir() {
-			instances = append(instances, entry.Name())
+			info, err := entry.Info()
+			if err != nil {
+				continue
+			}
+			instanceList = append(instanceList, instanceInfo{
+				name:       entry.Name(),
+				createTime: info.ModTime(), // 使用ModTime作为创建时间的近似值
+			})
 		}
+	}
+
+	// 按创建时间升序排序
+	sort.Slice(instanceList, func(i, j int) bool {
+		return instanceList[i].createTime.Before(instanceList[j].createTime)
+	})
+
+	// 提取实例名称
+	var instances []string
+	for _, inst := range instanceList {
+		instances = append(instances, inst.name)
 	}
 
 	return instances, nil

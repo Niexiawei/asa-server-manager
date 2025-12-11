@@ -291,7 +291,31 @@ func (s *APIServer) createInstance(c *gin.Context) {
 	if _, err := os.Stat(baseConfigDir); err == nil {
 		if err := asaserver.CopyDir(baseConfigDir, instanceDir); err != nil {
 			// Log warning but continue as this is not critical
-			fmt.Printf("Warning: Failed to copy base server configuration: %v\n", err)
+			logger.GetLogger().Warnf("Failed to copy base server configuration: %v", err)
+		}
+	} else {
+		// Create empty Game.ini if it doesn't exist
+		if err := asaserver.SaveGameIniContent(req.Name, ""); err != nil {
+			logger.GetLogger().Warnf("Failed to create Game.ini: %v", err)
+		}
+		// Create empty GameUserSettings.ini if it doesn't exist
+		if err := asaserver.SaveGameUserSettingsContent(req.Name, ""); err != nil {
+			logger.GetLogger().Warnf("Failed to create GameUserSettings.ini: %v", err)
+		}
+	}
+
+	// Check and create missing config files if directory exists but files don't
+	gameIniPath := filepath.Join(instanceDir, "Game.ini")
+	if _, err := os.Stat(gameIniPath); os.IsNotExist(err) {
+		if err := asaserver.SaveGameIniContent(req.Name, ""); err != nil {
+			logger.GetLogger().Warnf("Failed to create Game.ini: %v", err)
+		}
+	}
+
+	gameUserSettingsPath := filepath.Join(instanceDir, "GameUserSettings.ini")
+	if _, err := os.Stat(gameUserSettingsPath); os.IsNotExist(err) {
+		if err := asaserver.SaveGameUserSettingsContent(req.Name, ""); err != nil {
+			logger.GetLogger().Warnf("Failed to create GameUserSettings.ini: %v", err)
 		}
 	}
 
