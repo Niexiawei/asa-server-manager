@@ -56,12 +56,18 @@
                           <span class="label">查询端口:</span>
                           <span class="value">{{ instance.config.QueryPort }}</span>
                         </div>
-                        <a-tooltip :content="instance.config?.ModIDs">
-                          <div class="info-item info-item-modid">
-                            <span class="label">Mod ID:</span>
-                            <span class="value">{{ instance.config?.ModIDs || '-' }}</span>
-                          </div>
-                        </a-tooltip>
+                        <template v-if="instance.config?.ModIDs && instance.config?.ModIDs.length > 0">
+                          <a-tooltip :content="instance.config?.ModIDs">
+                            <div class="info-item info-item-modid">
+                              <span class="label">Mod ID:</span>
+                              <span class="value">{{ instance.config?.ModIDs || '-' }}</span>
+                            </div>
+                          </a-tooltip>
+                        </template>
+                        <div v-else class="info-item info-item-modid">
+                          <span class="label">Mod ID:</span>
+                          <span class="value">{{ instance.config?.ModIDs || '-' }}</span>
+                        </div>
                         <div class="info-item info-item-custom" v-if="instance.config?.CustomStartParameters">
                           <span class="label">自定义参数:</span>
                           <span class="value">{{ instance.config.CustomStartParameters }}</span>
@@ -580,6 +586,7 @@ const handleSyncComplete = (result) => {
   .value {
     white-space: nowrap;
     text-overflow: ellipsis;
+    overflow: hidden;
   }
 }
 

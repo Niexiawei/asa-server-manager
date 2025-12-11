@@ -80,7 +80,7 @@
               </template>
               <div class="config-grid">
                 <div v-for="item in getAllConfigItems()" :key="item.label" class="config-grid-item"
-                     :class="{ 'full-width': item.label === '自定义启动参数' }">
+                     :class="{ 'full-width': item.label === '自定义启动参数', 'modid-item':item.label === 'Mod IDs'}">
                   <div class="config-item">
                     <div class="config-item-label">{{ item.label }}</div>
                     <div class="config-item-content">
@@ -968,13 +968,40 @@ onUnmounted(() => {
 /* Grid 串串源 */
 .config-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
 
 .config-grid-item {
   display: flex;
   flex-direction: column;
+}
+
+
+.config-grid-item.modid-item {
+  width: 100%;
+
+  .config-item {
+    width: calc(100% - 32px);
+  }
+
+  .config-item-label {
+    flex: 0 0 auto; /* 不收缩到 0，不占剩余空间 */
+    white-space: nowrap;
+  }
+
+  .config-item-content {
+    flex: 1 1 0; /* 占剩余空间，可收缩 */
+    min-width: 0; /* 关键：允许收缩，禁止 min-content 阻止收缩 */
+
+    .config-item-value {
+      width: 100%;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      text-align: right;
+    }
+  }
 }
 
 .config-grid-item.full-width {
