@@ -26,14 +26,15 @@ import (
 
 // APIServer represents the HTTP API server for ARK Server Ascended Instance Management
 type APIServer struct {
-	engine             *gin.Engine
-	port               int
-	mu                 sync.RWMutex
-	clients            map[*websocket.Conn]bool
-	updateProgressChan chan string
-	updateSubscribers  map[chan<- string]bool
-	updateSubMu        sync.RWMutex
-	updating           bool
+	engine  *gin.Engine
+	port    int
+	mu      sync.RWMutex
+	clients map[*websocket.Conn]bool
+	// Task broadcasters for independent SSE streams
+	updateBroadcaster  *TaskBroadcaster
+	startBroadcaster   *TaskBroadcaster
+	stopBroadcaster    *TaskBroadcaster
+	restartBroadcaster *TaskBroadcaster
 }
 
 var serverActionsLock sync.Mutex
@@ -51,8 +52,10 @@ func NewAPIServer() *APIServer {
 		engine:             engine,
 		port:               ApiServerPort,
 		clients:            make(map[*websocket.Conn]bool),
-		updateProgressChan: make(chan string, 100),
-		updateSubscribers:  make(map[chan<- string]bool),
+		updateBroadcaster:  NewTaskBroadcaster(),
+		startBroadcaster:   NewTaskBroadcaster(),
+		stopBroadcaster:    NewTaskBroadcaster(),
+		restartBroadcaster: NewTaskBroadcaster(),
 	}
 
 	// Setup routes
@@ -60,9 +63,6 @@ func NewAPIServer() *APIServer {
 
 	// Set global API server instance
 	globalAPIServer = server
-
-	// Start broadcasting update progress
-	go server.broadcastUpdateProgress()
 
 	return server
 }
@@ -654,99 +654,24 @@ func (s *APIServer) startAllServers(c *gin.Context) {
 	c.Header("Access-Control-Allow-Origin", "*")
 	c.Header("Access-Control-Allow-Headers", "Content-Type")
 
-	// Create channel to stream messages
-	msgChan := make(chan string, 100)
-	done := make(chan struct{})
+	// Subscribe to start progress
+	subscriber, unsubscribe := s.startBroadcaster.Subscribe()
+	defer unsubscribe()
 
-	// Run startup in a goroutine
-	go func() {
-		defer close(msgChan)
-		// Get all available instances
-		instances, err := asaserver.GetAvailableInstances()
-		if err != nil {
-			select {
-			case msgChan <- fmt.Sprintf("Error: Failed to get instances: %v", err):
-			case <-done:
-			}
-			return
-		}
-
-		if len(instances) == 0 {
-			select {
-			case msgChan <- "No instances to start":
-			case <-done:
-			}
-			return
-		}
-
-		select {
-		case msgChan <- fmt.Sprintf("Starting %d server instances...", len(instances)):
-		case <-done:
-			return
-		}
-
-		// Start each instance individually
-		var failedInstances []string
-		for _, instanceName := range instances {
-			// Check if already running
-			running, err := asaserver.IsServerRunning(instanceName)
-			if err == nil && running {
-				select {
-				case msgChan <- fmt.Sprintf("Instance '%s' is already running", instanceName):
-				case <-done:
-					return
-				}
-				continue
-			}
-
-			// Broadcast starting event
-			s.BroadcastServerStarting(instanceName)
-			select {
-			case msgChan <- fmt.Sprintf("Starting instance '%s'...", instanceName):
-			case <-done:
-				return
-			}
-
-			// Start the instance
-			if err := asaserver.StartServer(instanceName); err != nil {
-				failedInstances = append(failedInstances, instanceName)
-				select {
-				case msgChan <- fmt.Sprintf("Error: starting '%s': %v", instanceName, err):
-				case <-done:
-					return
-				}
-				// Broadcast error event
-				s.BroadcastServerStartFailed(instanceName, err)
-				continue
-			}
-
-			select {
-			case msgChan <- fmt.Sprintf("Instance '%s' started successfully", instanceName):
-			case <-done:
-				return
-			}
-			// Broadcast started event
-			s.BroadcastServerStarted(instanceName)
-		}
-
-		// Check if all starts were successful
-		if len(failedInstances) > 0 {
-			select {
-			case msgChan <- fmt.Sprintf("Error: %d of %d instances failed to start", len(failedInstances), len(instances)):
-			case <-done:
-			}
+	// Check if task is already running
+	if !s.startBroadcaster.IsRunning() {
+		if !s.startBroadcaster.Start() {
+			logger.GetLogger().Infof("Start all servers task already started by another request")
 		} else {
-			select {
-			case msgChan <- fmt.Sprintf("All %d servers started successfully", len(instances)):
-			case <-done:
-			}
+			// Started successfully, run task in background
+			go s.runStartAllServersTask()
 		}
-	}()
+	}
 
-	// Stream the progress
+	// Stream progress
 	c.Stream(func(w io.Writer) bool {
 		select {
-		case msg, ok := <-msgChan:
+		case msg, ok := <-subscriber:
 			if !ok {
 				return false
 			}
@@ -754,8 +679,7 @@ func (s *APIServer) startAllServers(c *gin.Context) {
 			fmt.Fprintf(w, "data: %s\n\n", msg)
 			return true
 		case <-c.Request.Context().Done():
-			// Client disconnected - signal goroutine to stop
-			close(done)
+			// Client disconnected but task continues
 			return false
 		}
 	})
@@ -770,99 +694,24 @@ func (s *APIServer) stopAllServers(c *gin.Context) {
 	c.Header("Access-Control-Allow-Origin", "*")
 	c.Header("Access-Control-Allow-Headers", "Content-Type")
 
-	// Create channel to stream messages
-	msgChan := make(chan string, 100)
-	done := make(chan struct{})
+	// Subscribe to stop progress
+	subscriber, unsubscribe := s.stopBroadcaster.Subscribe()
+	defer unsubscribe()
 
-	// Run shutdown in a goroutine
-	go func() {
-		defer close(msgChan)
-		// Get all available instances
-		instances, err := asaserver.GetAvailableInstances()
-		if err != nil {
-			select {
-			case msgChan <- fmt.Sprintf("Error: Failed to get instances: %v", err):
-			case <-done:
-			}
-			return
-		}
-
-		if len(instances) == 0 {
-			select {
-			case msgChan <- "No instances to stop":
-			case <-done:
-			}
-			return
-		}
-
-		select {
-		case msgChan <- fmt.Sprintf("Stopping %d server instances...", len(instances)):
-		case <-done:
-			return
-		}
-
-		// Stop each instance individually
-		var failedInstances []string
-		for _, instanceName := range instances {
-			// Check if already running
-			running, err := asaserver.IsServerRunning(instanceName)
-			if err != nil || !running {
-				select {
-				case msgChan <- fmt.Sprintf("Instance '%s' is not running", instanceName):
-				case <-done:
-					return
-				}
-				continue
-			}
-
-			// Broadcast stopping event
-			s.BroadcastServerStopping(instanceName)
-			select {
-			case msgChan <- fmt.Sprintf("Stopping instance '%s'...", instanceName):
-			case <-done:
-				return
-			}
-
-			// Stop the instance
-			if err := asaserver.StopServer(instanceName); err != nil {
-				failedInstances = append(failedInstances, instanceName)
-				select {
-				case msgChan <- fmt.Sprintf("Error: stopping '%s': %v", instanceName, err):
-				case <-done:
-					return
-				}
-				// Broadcast error event
-				s.BroadcastServerStopFailed(instanceName, err)
-				continue
-			}
-
-			select {
-			case msgChan <- fmt.Sprintf("Instance '%s' stopped successfully", instanceName):
-			case <-done:
-				return
-			}
-			// Broadcast stopped event
-			s.BroadcastServerStopped(instanceName)
-		}
-
-		// Check if all stops were successful
-		if len(failedInstances) > 0 {
-			select {
-			case msgChan <- fmt.Sprintf("Error: %d of %d instances failed to stop", len(failedInstances), len(instances)):
-			case <-done:
-			}
+	// Check if task is already running
+	if !s.stopBroadcaster.IsRunning() {
+		if !s.stopBroadcaster.Start() {
+			logger.GetLogger().Infof("Stop all servers task already started by another request")
 		} else {
-			select {
-			case msgChan <- fmt.Sprintf("All %d servers stopped successfully", len(instances)):
-			case <-done:
-			}
+			// Started successfully, run task in background
+			go s.runStopAllServersTask()
 		}
-	}()
+	}
 
-	// Stream the progress
+	// Stream progress
 	c.Stream(func(w io.Writer) bool {
 		select {
-		case msg, ok := <-msgChan:
+		case msg, ok := <-subscriber:
 			if !ok {
 				return false
 			}
@@ -870,100 +719,39 @@ func (s *APIServer) stopAllServers(c *gin.Context) {
 			fmt.Fprintf(w, "data: %s\n\n", msg)
 			return true
 		case <-c.Request.Context().Done():
-			// Client disconnected - signal goroutine to stop
-			close(done)
+			// Client disconnected but task continues
 			return false
 		}
 	})
 }
 
-// restartAllServers restarts all server instances (SSE stream)
+// restartAllServers restarts all server instances with SSE progress streaming
 func (s *APIServer) restartAllServers(c *gin.Context) {
 	// Set SSE headers
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")
 	c.Header("Access-Control-Allow-Origin", "*")
+	c.Header("Access-Control-Allow-Headers", "Content-Type")
 
-	// Create message channel and done signal
-	msgChan := make(chan string, 10)
-	done := make(chan struct{})
+	// Subscribe to restart progress
+	subscriber, unsubscribe := s.restartBroadcaster.Subscribe()
+	defer unsubscribe()
 
-	// Get all available instances
-	instances, err := asaserver.GetAvailableInstances()
-	if err != nil {
-		select {
-		case msgChan <- fmt.Sprintf("Error: Failed to get instances: %v", err):
-		case <-done:
-		}
-		close(msgChan)
-		return
-	}
-
-	if len(instances) == 0 {
-		select {
-		case msgChan <- "No instances to restart":
-		case <-done:
-		}
-		close(msgChan)
-		return
-	}
-
-	// Process in goroutine
-	go func() {
-		defer close(msgChan)
-
-		var failedInstances []string
-		for _, instanceName := range instances {
-			select {
-			case msgChan <- fmt.Sprintf("Restarting instance '%s'...", instanceName):
-			case <-done:
-				return
-			}
-
-			// Broadcast stopping event
-			s.BroadcastServerStopping(instanceName)
-
-			// Restart the instance
-			if err := asaserver.RestartServer(instanceName); err != nil {
-				failedInstances = append(failedInstances, instanceName)
-				select {
-				case msgChan <- fmt.Sprintf("Error: Failed to restart instance '%s': %v", instanceName, err):
-				case <-done:
-					return
-				}
-				// Broadcast error event
-				s.BroadcastServerRestartFailed(instanceName, err)
-				continue
-			}
-
-			select {
-			case msgChan <- fmt.Sprintf("Instance '%s' restarted successfully", instanceName):
-			case <-done:
-				return
-			}
-			// Broadcast started event
-			s.BroadcastServerStarted(instanceName)
-		}
-
-		// Final result message
-		if len(failedInstances) > 0 {
-			select {
-			case msgChan <- fmt.Sprintf("Error: %d of %d instances failed to restart", len(failedInstances), len(instances)):
-			case <-done:
-			}
+	// Check if task is already running
+	if !s.restartBroadcaster.IsRunning() {
+		if !s.restartBroadcaster.Start() {
+			logger.GetLogger().Infof("Restart all servers task already started by another request")
 		} else {
-			select {
-			case msgChan <- fmt.Sprintf("All %d servers restarted successfully", len(instances)):
-			case <-done:
-			}
+			// Started successfully, run task in background
+			go s.runRestartAllServersTask()
 		}
-	}()
+	}
 
-	// Stream the progress
+	// Stream progress
 	c.Stream(func(w io.Writer) bool {
 		select {
-		case msg, ok := <-msgChan:
+		case msg, ok := <-subscriber:
 			if !ok {
 				return false
 			}
@@ -971,8 +759,7 @@ func (s *APIServer) restartAllServers(c *gin.Context) {
 			fmt.Fprintf(w, "data: %s\n\n", msg)
 			return true
 		case <-c.Request.Context().Done():
-			// Client disconnected - signal goroutine to stop
-			close(done)
+			// Client disconnected but task continues
 			return false
 		}
 	})
@@ -1114,6 +901,7 @@ func (s *APIServer) restoreBackup(c *gin.Context) {
 }
 
 // handleServerUpdate handles both starting update and streaming progress via SSE
+// handleServerUpdate handles the server update SSE endpoint
 func (s *APIServer) handleServerUpdate(c *gin.Context) {
 	// Set SSE headers
 	c.Header("Content-Type", "text/event-stream")
@@ -1123,14 +911,12 @@ func (s *APIServer) handleServerUpdate(c *gin.Context) {
 	c.Header("Access-Control-Allow-Headers", "Content-Type")
 
 	// Subscribe to update progress
-	subscriber, unsubscribe := s.subscribeUpdateProgress()
+	subscriber, unsubscribe := s.updateBroadcaster.Subscribe()
 	defer unsubscribe()
 
 	// Check if update task is already running
-	if !s.isUpdating() {
-		// Task not running, start it
-		if !s.startUpdateTask() {
-			// Another goroutine started it in the meantime
+	if !s.updateBroadcaster.IsRunning() {
+		if !s.updateBroadcaster.Start() {
 			logger.GetLogger().Infof("Server update already started by another request")
 		} else {
 			// Started successfully, run update in background
