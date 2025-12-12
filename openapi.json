@@ -1526,6 +1526,260 @@
           }
         }
       }
+    },
+    "/api/frp/config": {
+      "get": {
+        "summary": "Get FRP client configuration",
+        "tags": ["FRP Management"],
+        "operationId": "getFRPConfig",
+        "responses": {
+          "200": {
+            "description": "FRP config retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/StatusResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "type": "string",
+                          "description": "FRP configuration file content"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "FRP config file not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Update FRP client configuration",
+        "tags": ["FRP Management"],
+        "operationId": "updateFRPConfig",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FRPConfigRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "FRP config updated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/frp/status": {
+      "get": {
+        "summary": "Get FRP client status",
+        "tags": ["FRP Management"],
+        "operationId": "getFRPStatus",
+        "responses": {
+          "200": {
+            "description": "FRP status retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/StatusResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "type": "object",
+                          "properties": {
+                            "status": {
+                              "type": "string",
+                              "enum": ["running", "stopped"],
+                              "description": "Current FRP client status"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/frp/start": {
+      "post": {
+        "summary": "Start FRP client",
+        "tags": ["FRP Management"],
+        "operationId": "startFRP",
+        "responses": {
+          "200": {
+            "description": "FRP started successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request (FRP already running)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/frp/stop": {
+      "post": {
+        "summary": "Stop FRP client",
+        "tags": ["FRP Management"],
+        "operationId": "stopFRP",
+        "responses": {
+          "200": {
+            "description": "FRP stopped successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request (FRP not running)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/frp/restart": {
+      "post": {
+        "summary": "Restart FRP client",
+        "tags": ["FRP Management"],
+        "operationId": "restartFRP",
+        "responses": {
+          "200": {
+            "description": "FRP restarted successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -2500,6 +2754,17 @@
           }
         },
         "required": ["success"]
+      },
+      "FRPConfigRequest": {
+        "type": "object",
+        "description": "FRP configuration update request",
+        "properties": {
+          "config": {
+            "type": "string",
+            "description": "FRP configuration file content (TOML format)"
+          }
+        },
+        "required": ["config"]
       }
     }
   },
@@ -2533,8 +2798,8 @@
       "description": "Configuration file management endpoints"
     },
     {
-      "name": "WebSocket",
-      "description": "WebSocket endpoints for real-time server events"
+      "name": "FRP Management",
+      "description": "FRP client management endpoints"
     }
   ]
 }

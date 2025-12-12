@@ -42,6 +42,10 @@ func GetLogger() *zap.SugaredLogger {
 	return logger
 }
 
+func GetStdout() *zap.SugaredLogger {
+	return loggerStdout
+}
+
 // GetLogFilePath returns the full path to the system log file
 func GetLogFilePath() string {
 	if BaseDir == "" {

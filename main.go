@@ -3,6 +3,7 @@ package main
 import (
 	"asa-server/actions"
 	"asa-server/asaserver"
+	"asa-server/frpmanage"
 	"asa-server/logger"
 	"asa-server/webapi"
 	"asa-server/winservice"
@@ -39,6 +40,11 @@ func main() {
 	logger.InitLoggerWithBaseDir(asaserver.BaseDir)
 	// Initialize log mapping from persistent storage
 	if err := asaserver.InitializeLogMapping(); err != nil {
+		log.Fatal(err)
+	}
+
+	// Initialize frpc manager
+	if _, err := frpmanage.Initialize(asaserver.BaseDir); err != nil {
 		log.Fatal(err)
 	}
 
@@ -185,6 +191,7 @@ func main() {
 				Usage:  "Start HTTP API server",
 				Action: webapi.ActionAPI,
 			},
+
 			{
 				Name:  "service",
 				Usage: "Manage Windows service",

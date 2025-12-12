@@ -1,6 +1,7 @@
 package winservice
 
 import (
+	"asa-server/frpmanage"
 	"asa-server/webapi"
 	"context"
 	"errors"
@@ -37,6 +38,12 @@ func (p *program) Start(s service.Service) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	p.cancel = cancel
 
+	if frp := frpmanage.GetGlobalManager(); frp != nil {
+		if err := frp.Start(); err != nil {
+			log.Printf("frp start err :%v \n", err)
+		}
+	}
+
 	go func() {
 		// Wait a bit for the service to be fully initialized
 		time.Sleep(2 * time.Second)
@@ -52,6 +59,12 @@ func (p *program) Start(s service.Service) error {
 // Stop stops the service
 func (p *program) Stop(s service.Service) error {
 	log.Printf("Stopping %s service \n", ServiceName)
+
+	if frp := frpmanage.GetGlobalManager(); frp != nil {
+		if err := frp.Stop(); err != nil {
+			log.Printf("frp start err :%v \n", err)
+		}
+	}
 
 	// Cancel the context to gracefully shutdown API server
 	if p.cancel != nil {
