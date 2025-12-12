@@ -32,9 +32,7 @@ import {
   connectRCONWebSocket,
   disconnectRCONWebSocket,
   sendRCONCommandViaWebSocket,
-  onRCONMessage,
-  startRCONReconnect,
-  stopRCONReconnect
+  onRCONMessage
 } from '@/store/rconStore.js'
 
 const props = defineProps({
@@ -79,19 +77,11 @@ const initRCON = () => {
   rconOnError = (error) => {
     Message.error('RCON 连接失败')
     console.error('RCON connection error:', error)
-    // 启动自动重连
-    startRCONReconnect(() => {
-      initRCON()
-    })
   }
 
   rconOnClose = () => {
     rconConnected.value = false
     console.log('RCON disconnected')
-    // 启动自动重连
-    startRCONReconnect(() => {
-      initRCON()
-    })
   }
 
   connectRCONWebSocket(rconOnOpen, rconOnError, rconOnClose)
@@ -148,16 +138,14 @@ const handleRCONMessage = (message) => {
 
 onMounted(() => {
   // 自动初始化 RCON 连接
+  console.log("init Rcon")
   initRCON()
 })
 
 onUnmounted(() => {
   // 断开 RCON 连接
-  if (unlistenRCONMessage) {
-    unlistenRCONMessage()
-  }
+  console.log("disconnect Rcon")
   // 停止重连和断开连接
-  stopRCONReconnect()
   disconnectRCONWebSocket()
 })
 </script>

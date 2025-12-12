@@ -1,4 +1,4 @@
-import { buildWebSocketUrl } from "@/utils/utils.js"
+import {buildWebSocketUrl} from "@/utils/utils.js"
 
 // ============ RCON WebSocket 连接状态 ============
 let rconWsConnection = null
@@ -6,6 +6,14 @@ const rconMessageCallbacks = new Map()
 let rconHeartbeatInterval = null
 let rconReconnectInterval = null
 let isRCONReconnecting = false
+let isRCONReConnect = false
+
+// ============ RCON 连接回调管理 ============
+let rconConnectionCallbacks = {
+    onOpen: null,
+    onError: null,
+    onClose: null
+}
 
 // ============ 连接配置 ============
 const RCON_CONFIG = {
@@ -21,7 +29,7 @@ const RCON_CONFIG = {
  * 创建 RCON 消息对象
  */
 function createRCONMessage(action, instanceName = null, command = null) {
-    const message = { action }
+    const message = {action}
     if (instanceName) message.instance_name = instanceName
     if (command) message.command = command
     return message
@@ -31,10 +39,16 @@ function createRCONMessage(action, instanceName = null, command = null) {
 
 /**
  * 建立 RCON WebSocket 连接
+ * @param {Function} onOpen - 连接成功的回调
+ * @param {Function} onError - 连接失败的回调
+ * @param {Function} onClose - 连接关闭的回调
  */
 export function connectRCONWebSocket(onOpen, onError, onClose) {
+    // 保存回调函数供重连使用
+    rconConnectionCallbacks = { onOpen, onError, onClose }
+    
     const wsUrl = RCON_CONFIG.url
-
+    isRCONReConnect = true
     try {
         rconWsConnection = new WebSocket(wsUrl)
 
@@ -44,7 +58,7 @@ export function connectRCONWebSocket(onOpen, onError, onClose) {
             startRCONHeartbeat()
             // 停止重连
             stopRCONReconnect()
-            if (onOpen) onOpen()
+            if (rconConnectionCallbacks.onOpen) rconConnectionCallbacks.onOpen()
         }
 
         rconWsConnection.onmessage = (event) => {
@@ -70,18 +84,24 @@ export function connectRCONWebSocket(onOpen, onError, onClose) {
         rconWsConnection.onerror = (error) => {
             console.error('[RCON WebSocket] Error:', error)
             stopRCONHeartbeat()
-            if (onError) onError(error)
+            if (rconConnectionCallbacks.onError) rconConnectionCallbacks.onError(error)
+            // 自动启动重连
+            startRCONReconnect()
         }
 
         rconWsConnection.onclose = () => {
             console.log('[RCON WebSocket] Closed')
             rconWsConnection = null
             stopRCONHeartbeat()
-            if (onClose) onClose()
+            if (rconConnectionCallbacks.onClose) rconConnectionCallbacks.onClose()
+            // 自动启动重连
+            startRCONReconnect()
         }
     } catch (err) {
         console.error('[RCON WebSocket] Failed to connect:', err)
-        if (onError) onError(err)
+        if (rconConnectionCallbacks.onError) rconConnectionCallbacks.onError(err)
+        // 自动启动重连
+        startRCONReconnect()
     }
 }
 
@@ -89,6 +109,7 @@ export function connectRCONWebSocket(onOpen, onError, onClose) {
  * 断开 RCON WebSocket 连接
  */
 export function disconnectRCONWebSocket() {
+    isRCONReConnect = false
     stopRCONHeartbeat()
     stopRCONReconnect()
     if (rconWsConnection) {
@@ -186,11 +207,11 @@ function stopRCONHeartbeat() {
 // ============ RCON 重连管理 ============
 
 /**
- * 启动 RCON 自动重连机制
- * 每 10 秒尝试一次重连
+ * 启动 RCON 自动重连机制 (内部方法)
+ * 每 10 秒尝试一次重连，自动调用 connectRCONWebSocket 重新建立连接
  */
-export function startRCONReconnect(onReconnectAttempt = null) {
-    if (isRCONReconnecting) {
+function startRCONReconnect() {
+    if (isRCONReconnecting || !isRCONReConnect) {
         return
     }
 
@@ -203,35 +224,40 @@ export function startRCONReconnect(onReconnectAttempt = null) {
     }
 
     // 立即尝试一次
-    attemptRCONReconnect(onReconnectAttempt)
+    attemptRCONReconnect()
 
     // 然后每 10 秒尝试一次
     rconReconnectInterval = setInterval(() => {
         if (!isRCONWebSocketConnected() && isRCONReconnecting) {
-            attemptRCONReconnect(onReconnectAttempt)
+            attemptRCONReconnect()
         }
     }, RCON_CONFIG.reconnectInterval)
 }
 
 /**
- * 尝试重新连接 RCON
+ * 尝试重新连接 RCON (内部方法)
  */
-function attemptRCONReconnect(onReconnectAttempt) {
+function attemptRCONReconnect() {
     if (isRCONWebSocketConnected()) {
         return
     }
 
     console.log('[RCON Reconnect] Attempting to reconnect...')
-
-    if (onReconnectAttempt) {
-        onReconnectAttempt()
+    
+    // 使用保存的回调函数重新建立连接
+    if (rconConnectionCallbacks.onOpen || rconConnectionCallbacks.onError || rconConnectionCallbacks.onClose) {
+        connectRCONWebSocket(
+            rconConnectionCallbacks.onOpen,
+            rconConnectionCallbacks.onError,
+            rconConnectionCallbacks.onClose
+        )
     }
 }
 
 /**
- * 停止 RCON 自动重连
+ * 停止 RCON 自动重连 (内部方法)
  */
-export function stopRCONReconnect() {
+function stopRCONReconnect() {
     if (rconReconnectInterval) {
         clearInterval(rconReconnectInterval)
         rconReconnectInterval = null

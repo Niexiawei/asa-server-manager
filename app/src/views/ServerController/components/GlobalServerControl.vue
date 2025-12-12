@@ -17,7 +17,6 @@
       :footer="false"
       :mask-closable="!startingServers"
       :closable="!startingServers"
-      @before-close="() => !startingServers"
   >
     <div class="update-log-container">
       <div id="startLogContainer" class="update-log">
@@ -40,7 +39,6 @@
       :footer="false"
       :mask-closable="!stoppingServers"
       :closable="!stoppingServers"
-      @before-close="() => !stoppingServers"
   >
     <div class="update-log-container">
       <div id="stopLogContainer" class="update-log">
@@ -63,7 +61,6 @@
       :footer="false"
       :mask-closable="!restartingServers"
       :closable="!restartingServers"
-      @before-close="() => !restartingServers"
   >
     <div class="update-log-container">
       <div id="restartLogContainer" class="update-log">
@@ -86,7 +83,6 @@
       :footer="false"
       :mask-closable="!updating"
       :closable="!updating"
-      @before-close="() => !updating"
   >
     <div class="update-log-container">
       <div id="updateLogContainer" class="update-log">

@@ -26,10 +26,14 @@ import (
 
 // APIServer represents the HTTP API server for ARK Server Ascended Instance Management
 type APIServer struct {
-	engine  *gin.Engine
-	port    int
-	mu      sync.RWMutex
-	clients map[*websocket.Conn]bool
+	engine             *gin.Engine
+	port               int
+	mu                 sync.RWMutex
+	clients            map[*websocket.Conn]bool
+	updateProgressChan chan string
+	updateSubscribers  map[chan<- string]bool
+	updateSubMu        sync.RWMutex
+	updating           bool
 }
 
 var serverActionsLock sync.Mutex
@@ -44,9 +48,11 @@ func NewAPIServer() *APIServer {
 	engine := gin.Default()
 	engine.Use(cors.Default())
 	server := &APIServer{
-		engine:  engine,
-		port:    ApiServerPort,
-		clients: make(map[*websocket.Conn]bool),
+		engine:             engine,
+		port:               ApiServerPort,
+		clients:            make(map[*websocket.Conn]bool),
+		updateProgressChan: make(chan string, 100),
+		updateSubscribers:  make(map[chan<- string]bool),
 	}
 
 	// Setup routes
@@ -54,6 +60,9 @@ func NewAPIServer() *APIServer {
 
 	// Set global API server instance
 	globalAPIServer = server
+
+	// Start broadcasting update progress
+	go server.broadcastUpdateProgress()
 
 	return server
 }
@@ -132,7 +141,7 @@ func (s *APIServer) setupRoutes() {
 	}
 
 	// Server update endpoints
-	s.engine.POST("/api/server/update", s.updateServer)
+	s.engine.POST("/api/server/update", s.handleServerUpdate)
 
 	// Server info endpoints
 	s.engine.GET("/api/server/info", s.streamServerInfo)
@@ -1104,23 +1113,8 @@ func (s *APIServer) restoreBackup(c *gin.Context) {
 	})
 }
 
-// updateServer updates the base server
-// SSE Writer for streaming update progress
-type SSEWriter struct {
-	c chan []byte
-}
-
-func (w *SSEWriter) Write(p []byte) (n int, err error) {
-	select {
-	case w.c <- p:
-		return len(p), nil
-	default:
-		// Channel full, skip this message
-		return len(p), nil
-	}
-}
-
-func (s *APIServer) updateServer(c *gin.Context) {
+// handleServerUpdate handles both starting update and streaming progress via SSE
+func (s *APIServer) handleServerUpdate(c *gin.Context) {
 	// Set SSE headers
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
@@ -1128,66 +1122,26 @@ func (s *APIServer) updateServer(c *gin.Context) {
 	c.Header("Access-Control-Allow-Origin", "*")
 	c.Header("Access-Control-Allow-Headers", "Content-Type")
 
-	// Create channel to stream update progress
-	updateChan := make(chan []byte)
-	done := make(chan struct{})
+	// Subscribe to update progress
+	subscriber, unsubscribe := s.subscribeUpdateProgress()
+	defer unsubscribe()
 
-	// Run update in a goroutine
-	go func() {
-		defer close(updateChan)
-		// Send SteamCMD download and extract message
-		select {
-		case updateChan <- []byte("Downloading and extracting SteamCMD..."):
-		case <-done:
-			return
+	// Check if update task is already running
+	if !s.isUpdating() {
+		// Task not running, start it
+		if !s.startUpdateTask() {
+			// Another goroutine started it in the meantime
+			logger.GetLogger().Infof("Server update already started by another request")
+		} else {
+			// Started successfully, run update in background
+			go s.runUpdateTask()
 		}
-		if err := asaserver.DownloadAndExtractSteamCmd(&SSEWriter{c: updateChan}); err != nil {
-			select {
-			case updateChan <- []byte(fmt.Sprintf("Error: Failed to download SteamCMD: %v", err)):
-			case <-done:
-			}
-			return
-		}
+	}
 
-		// Send ARK server update message
-		select {
-		case updateChan <- []byte("Downloading and updating ARK server files..."):
-		case <-done:
-			return
-		}
-		if err := asaserver.DownloadAndUpdateArkServer(&SSEWriter{c: updateChan}); err != nil {
-			select {
-			case updateChan <- []byte(fmt.Sprintf("Error: Failed to update ARK server: %v", err)):
-			case <-done:
-			}
-			return
-		}
-
-		// Server verification
-		select {
-		case updateChan <- []byte("Verifying server installation..."):
-		case <-done:
-			return
-		}
-		if err := asaserver.VerifyServerInstallation(false); err != nil {
-			select {
-			case updateChan <- []byte(fmt.Sprintf("Error: Server verification failed: %v", err)):
-			case <-done:
-			}
-			return
-		}
-
-		// Update completed
-		select {
-		case updateChan <- []byte("Server update completed successfully!"):
-		case <-done:
-		}
-	}()
-
-	// Stream the progress
+	// Stream update progress
 	c.Stream(func(w io.Writer) bool {
 		select {
-		case msg, ok := <-updateChan:
+		case msg, ok := <-subscriber:
 			if !ok {
 				return false
 			}
@@ -1195,8 +1149,7 @@ func (s *APIServer) updateServer(c *gin.Context) {
 			fmt.Fprintf(w, "data: %s\n\n", msg)
 			return true
 		case <-c.Request.Context().Done():
-			// Client disconnected - signal goroutine to stop
-			close(done)
+			// Client disconnected but task continues
 			return false
 		}
 	})
