@@ -133,6 +133,7 @@ func (m *FrpcManager) asyncStart(configPath string) {
 		m.running = false
 		m.cmd = nil
 		m.startErr = fmt.Errorf("frpc process exited immediately: %v", err)
+		logger.GetLogger().Infof("frpc process exited err: %v", err)
 		m.mu.Unlock()
 	case <-time.After(500 * time.Millisecond):
 		// Process is still running
@@ -144,16 +145,18 @@ func (m *FrpcManager) asyncStart(configPath string) {
 
 // Stop stops the frpc process
 func (m *FrpcManager) Stop() error {
+	logger.GetLogger().Infof("frp stoping ...")
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if !m.running || m.cmd == nil {
 		return fmt.Errorf("frpc is not running")
 	}
-	
+
 	m.execDoneCtxCancel()
 	m.running = false
 	m.cmd = nil
+	logger.GetLogger().Infof("frp stoped")
 	return nil
 }
 
@@ -209,8 +212,8 @@ func (m *FrpcManager) Cleanup() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if m.running && m.cmd != nil {
-		m.cmd.Process.Kill()
+	if err := m.Stop(); err != nil {
+		return err
 	}
 
 	if m.runDir != "" {

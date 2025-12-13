@@ -115,11 +115,6 @@ func (s *APIServer) Stop() error {
 			logger.GetLogger().Warnf("Error stopping frpc: %v", err)
 			return err
 		}
-		// Cleanup temp files
-		if err := frpcMgr.Cleanup(); err != nil {
-			logger.GetLogger().Warnf("Error cleaning up frpc temp files: %v", err)
-			return err
-		}
 	}
 
 	return nil

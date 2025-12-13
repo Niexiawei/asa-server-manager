@@ -104,7 +104,8 @@ import {
   startAllServers,
   stopAllServers,
   restartAllServers,
-  updateServer
+  updateServer,
+  listInstances
 } from '@/apis/api.js'
 import {Message, Modal} from '@arco-design/web-vue'
 
@@ -258,43 +259,51 @@ const restartAllServersHandler = async () => {
 
 // 更新服务器
 const updateServerHandler = async () => {
-  // 检查是否有实例正在运行
-  const runningInstances = props?.instances?.filter(i => i.running) || []
-  if (runningInstances.length > 0) {
-    Modal.confirm({
-      title: '无法更新',
-      content: `程序检测到以下实例正在运行：${runningInstances.map(i => i.name).join('、')}。\n\n请先关闭all所有实例后再试`,
-      okText: '关闭',
-      cancelText: '取消',
-      onOk: async () => {
-        // 打开日志面板展示停止过程
-        updateModalVisible.value = true
-        updating.value = true
-        updateLogs.value = []
+  try {
+    // 通过接口获取最新的服务器运行状态
+    const instances = await listInstances()
+    const runningInstances = instances?.filter(i => i.running) || []
+    
+    if (runningInstances.length > 0) {
+      Modal.confirm({
+        title: '无法更新',
+        content: `程序检测到以下实例正在运行：${runningInstances.map(i => i.name).join('、')}。\n\n请先关闭所有实例后再试`,
+        okText: '关闭',
+        cancelText: '取消',
+        onOk: async () => {
+          // 打开日志面板展示停止过程
+          updateModalVisible.value = true
+          updating.value = true
+          updateLogs.value = []
 
-        await stopAllServers(
-            (message) => {
-              updateLogs.value.push(message)
-              setTimeout(() => {
-                const logContainer = document.getElementById('updateLogContainer')
-                if (logContainer) {
-                  logContainer.scrollTop = logContainer.scrollHeight
-                }
-              }, 0)
-            },
-            (error) => {
-              console.error('停止服务器错误:', error)
-              updateLogs.value.push(`错误: ${error.message}`)
-              updating.value = false
-            },
-            () => {
-              updating.value = false
-              updateLogs.value.push('\n所有服务器已停止，现在可以更新')
-              updateModalVisible.value = false
-            }
-        )
-      }
-    })
+          await stopAllServers(
+              (message) => {
+                updateLogs.value.push(message)
+                setTimeout(() => {
+                  const logContainer = document.getElementById('updateLogContainer')
+                  if (logContainer) {
+                    logContainer.scrollTop = logContainer.scrollHeight
+                  }
+                }, 0)
+              },
+              (error) => {
+                console.error('停止服务器错误:', error)
+                updateLogs.value.push(`错误: ${error.message}`)
+                updating.value = false
+              },
+              () => {
+                updating.value = false
+                updateLogs.value.push('\n所有服务器已停止，现在可以更新')
+                updateModalVisible.value = false
+              }
+          )
+        }
+      })
+      return
+    }
+  } catch (error) {
+    console.error('获取服务器状态失败:', error)
+    Message.error('获取服务器状态失败，请重试')
     return
   }
 

@@ -10,10 +10,10 @@
                 <span>服务器管理</span>
               </a-menu-item>
               <a-menu-item key="control">
-                <span to="/control">服务器控制</span>
+                <span>服务器控制</span>
               </a-menu-item>
               <a-menu-item key="frp-manager">
-                <span to="/frp-manager">FRP管理</span>
+                <span>FRP管理</span>
               </a-menu-item>
               <a-menu-item key="system-logs">
                 <span>系统日志</span>
@@ -57,6 +57,8 @@ watch(() => route.path, (newPath) => {
     currentRoute.value = 'control';
   } else if (newPath === '/system-logs') {
     currentRoute.value = 'system-logs';
+  } else if (newPath === '/frp-manager') {
+    currentRoute.value = 'frp-manager';
   }
 }, {immediate: true});
 
