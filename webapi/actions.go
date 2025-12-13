@@ -95,10 +95,9 @@ func (s *APIServer) Start() error {
 	if err := s.Stop(); err != nil {
 		log.Println("frp stop err:", err)
 	}
-
 	log.Println("Shutdown Server ...")
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel2()
+	cancel2()
 	if err := srv.Shutdown(ctx2); err != nil {
 		log.Println("Server Shutdown:", err)
 	}
