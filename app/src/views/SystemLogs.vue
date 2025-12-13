@@ -44,9 +44,12 @@
               v-for="(log, index) in logs"
               :key="index"
               class="log-line"
+              :class="`log-level-${log.level}`"
           >
             <span class="log-number">{{ index + 1 }}</span>
-            <span class="log-text">{{ log }}</span>
+            <span class="log-time">{{ log.time }}</span>
+            <span class="log-level" :class="`level-${log.level}`">{{ log.level }}</span>
+            <span class="log-text">{{ log.msg }}</span>
           </div>
           <div v-if="logs.length === 0" class="log-empty">
             暂无日志。点击"开始监听"按钮开始实时查看系统日志。
@@ -59,6 +62,7 @@
 
 <script setup>
 import {ref, onMounted, onBeforeUnmount, nextTick} from 'vue'
+import dayjs from 'dayjs'
 import {streamSystemLogs} from '@/apis/api'
 import WSStatusIndicator from '@/components/WSStatusIndicator.vue'
 import {IconLeft} from '@arco-design/web-vue/es/icon'
@@ -68,14 +72,42 @@ const isStreaming = ref(false)
 const logContainer = ref(null)
 let stopStreamFn = null
 
+// 格式化时间戳为 yyyy-mm-dd HH:mm:ss
+const formatTimestamp = (ts) => {
+  if (!ts) return ''
+  return dayjs(ts).format('YYYY-MM-DD HH:mm:ss')
+}
+
+// 解析日志字符串为结构化对象
+const parseLogLine = (logStr) => {
+  // 日志格式: JSON 字符串
+  // 例如: {"ts": 1234567890, "level": "INFO", "msg": "Server started successfully"}
+  try {
+    const log = JSON.parse(logStr)
+    return {
+      time: formatTimestamp(log.ts),
+      level: (log.level || 'INFO').toUpperCase(),
+      msg: log.msg || logStr
+    }
+  } catch (e) {
+    // 如果解析失败，返回原始字符串
+    return {
+      time: new Date().toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }).replace(/\//g, '-'),
+      level: 'INFO',
+      msg: logStr
+    }
+  }
+}
+
 // 开始监听日志
 const startLogStream = () => {
   if (isStreaming.value) return
   isStreaming.value = true
   stopStreamFn = streamSystemLogs(
       (log) => {
-        // 每次添加新日志后自动滚动到底部
-        logs.value.push(log)
+        // 解析日志为结构化格式
+        const parsedLog = parseLogLine(log)
+        logs.value.push(parsedLog)
         nextTick(() => {
           if (logContainer.value) {
             logContainer.value.scrollTop = logContainer.value.scrollHeight
@@ -187,9 +219,55 @@ onBeforeUnmount(() => {
   flex-shrink: 0;
 }
 
+.log-time {
+  display: inline-block;
+  min-width: 170px;
+  margin-right: 12px;
+  color: #a0aec0;
+  font-weight: 400;
+  flex-shrink: 0;
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+}
+
+.log-level {
+  display: inline-block;
+  min-width: 70px;
+  margin-right: 12px;
+  font-weight: 600;
+  text-align: center;
+  border-radius: 3px;
+  padding: 0 6px;
+  flex-shrink: 0;
+  height: 20px;
+  line-height: 20px;
+  white-space: nowrap;
+}
+
+.level-INFO {
+  color: #4fc3f7;
+  background-color: rgba(79, 195, 247, 0.15);
+}
+
+.level-WARN {
+  color: #ffb74d;
+  background-color: rgba(255, 183, 77, 0.15);
+}
+
+.level-ERROR {
+  color: #ef5350;
+  background-color: rgba(239, 83, 80, 0.15);
+}
+
+.level-DEBUG {
+  color: #81c784;
+  background-color: rgba(129, 199, 132, 0.15);
+}
+
 .log-text {
   flex: 1;
   color: #e0e0e0;
+  word-break: break-word;
 }
 
 .log-empty {

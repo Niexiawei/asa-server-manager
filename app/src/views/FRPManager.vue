@@ -63,12 +63,15 @@
                 v-for="(log, index) in systemLogs"
                 :key="index"
                 class="log-line"
+                :class="`log-level-${log.level}`"
             >
               <span class="log-number">{{ index + 1 }}</span>
-              <span class="log-text">{{ log }}</span>
+              <span class="log-time">{{ log.time }}</span>
+              <span class="log-level" :class="`level-${log.level}`">{{ log.level }}</span>
+              <span class="log-text">{{ log.msg }}</span>
             </div>
             <div v-if="systemLogs.length === 0" class="log-empty">
-              暂无日志。点击"开始监听"按钮开始实时查看系统日志。
+              暂无日志。{{ isStreaming ? "" : '点击"开始监听"按钮开始实时查看系统日志。'}}
             </div>
           </div>
         </div>
@@ -80,6 +83,7 @@
 <script setup>
 import * as api from '@/apis/api.js'
 import * as monaco from 'monaco-editor'
+import dayjs from 'dayjs'
 import {ref, onMounted, onBeforeUnmount, nextTick, shallowRef} from 'vue'
 import {IconCheck, IconClose} from "@arco-design/web-vue/es/icon";
 
@@ -229,17 +233,54 @@ const restartFRP = async () => {
   }
 }
 
+// 格式化时间戳为 yyyy-mm-dd HH:mm:ss
+const formatTimestamp = (ts) => {
+  if (!ts) return ''
+  return dayjs(ts).format('YYYY-MM-DD HH:mm:ss')
+}
+
+// 解析日志字符串为结构化对象
+const parseLogLine = (logStr) => {
+  // 日志格式: JSON 字符串
+  // 例如: {"ts": "2025-12-13T16:54:27.275+0800", "level": "INFO", "msg": "Server started successfully"}
+  try {
+    const log = JSON.parse(logStr)
+    return {
+      time: formatTimestamp(log.ts),
+      level: (log.level || 'INFO').toUpperCase(),
+      msg: log.msg || logStr
+    }
+  } catch (e) {
+    // 如果解析失败，返回原始字符串
+    return {
+      time: dayjs().format('YYYY-MM-DD HH:mm:ss'),
+      level: 'INFO',
+      msg: logStr
+    }
+  }
+}
+
+// 检查日志是否包含 frpc 相关内容
+const isFRPCLog = (msg) => {
+  return msg.includes('[frpc]')
+}
+
 const startLogStream = () => {
   if (isStreaming.value) return
   isStreaming.value = true
   stopStreamFn.value = api.streamSystemLogs(
       (log) => {
-        systemLogs.value.push(log)
-        nextTick(() => {
-          if (logContainer.value) {
-            logContainer.value.scrollTop = logContainer.value.scrollHeight
-          }
-        })
+        // 解析日志为结构化格式
+        const parsedLog = parseLogLine(log)
+        // 只显示包含 [frpc] 的日志
+        if (isFRPCLog(parsedLog.msg)) {
+          systemLogs.value.push(parsedLog)
+          nextTick(() => {
+            if (logContainer.value) {
+              logContainer.value.scrollTop = logContainer.value.scrollHeight
+            }
+          })
+        }
       },
       (error) => {
         console.error('日志流错误:', error)
@@ -424,9 +465,55 @@ onBeforeUnmount(() => {
   flex-shrink: 0;
 }
 
+.log-time {
+  display: inline-block;
+  min-width: 170px;
+  margin-right: 12px;
+  color: #a0aec0;
+  font-weight: 400;
+  flex-shrink: 0;
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+}
+
+.log-level {
+  display: inline-block;
+  min-width: 70px;
+  margin-right: 12px;
+  font-weight: 600;
+  text-align: center;
+  border-radius: 3px;
+  padding: 0 6px;
+  flex-shrink: 0;
+  height: 20px;
+  line-height: 20px;
+  white-space: nowrap;
+}
+
+.level-INFO {
+  color: #4fc3f7;
+  background-color: rgba(79, 195, 247, 0.15);
+}
+
+.level-WARN {
+  color: #ffb74d;
+  background-color: rgba(255, 183, 77, 0.15);
+}
+
+.level-ERROR {
+  color: #ef5350;
+  background-color: rgba(239, 83, 80, 0.15);
+}
+
+.level-DEBUG {
+  color: #81c784;
+  background-color: rgba(129, 199, 132, 0.15);
+}
+
 .log-text {
   flex: 1;
   color: #e0e0e0;
+  word-break: break-word;
 }
 
 .log-empty {
