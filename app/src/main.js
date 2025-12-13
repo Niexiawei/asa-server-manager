@@ -9,6 +9,7 @@ import ArcoVue from '@arco-design/web-vue';
 import ArcoVueIcon from '@arco-design/web-vue/es/icon';
 import '@arco-design/web-vue/dist/arco.css';
 import {createTerminal} from "vue-web-terminal";
+import '@/assets/scrollbar.css'
 
 const terminal = createTerminal()
 //  default is 'terminal'

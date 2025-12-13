@@ -1,22 +1,24 @@
 <template>
   <div class="server-control">
     <a-card title="服务器控制面板" :bordered="false" class="main-card">
-      <GlobalServerControl
-          :instances="instances"
-          @refresh="fetchInstances"
-      />
-      <BackupManagement
-          :instances="instances"
-      />
-      <RconCommand
-          :instances="instances"
-      />
-      <GameConfigSync
-          :instances="instances"
-      />
-      <SyncConfigManagement
-          :instances="instances"
-      />
+      <div class="server-control-body scrollbar">
+        <GlobalServerControl
+            :instances="instances"
+            @refresh="fetchInstances"
+        />
+        <BackupManagement
+            :instances="instances"
+        />
+        <RconCommand
+            :instances="instances"
+        />
+        <GameConfigSync
+            :instances="instances"
+        />
+        <SyncConfigManagement
+            :instances="instances"
+        />
+      </div>
     </a-card>
   </div>
 </template>
@@ -56,17 +58,33 @@ onMounted(() => {
 })
 </script>
 
-<style scoped>
+<style scoped lang="less">
 .server-control {
   height: 100%;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .main-card {
+  height: 100%;
   flex: 1;
   border-radius: var(--border-radius-large);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  overflow: auto;
+  overflow: hidden;
+
+  :deep(.arco-card-body) {
+    height: calc(100% - 46px);
+    padding: 16px 8px 16px 16px;
+    box-sizing: border-box;
+    //overflow: hidden;
+  }
 }
+
+.server-control-body {
+  height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
 </style>

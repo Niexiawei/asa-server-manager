@@ -10,7 +10,7 @@
       </template>
       <a-spin :loading="loading" style="width: 100%;height: 100%">
         <a-empty v-if="instances.length === 0" description="暂无实例，请创建新实例"/>
-        <div v-else class="instance-list">
+        <div v-else class="instance-list scrollbar">
           <masonry-wall
             :items="instances"
             :ssr-columns="2"
