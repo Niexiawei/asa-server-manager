@@ -1674,6 +1674,43 @@
         }
       }
     },
+    "/api/frp/status/stream": {
+      "get": {
+        "summary": "Stream FRP client status changes via SSE",
+        "tags": ["FRP Management"],
+        "operationId": "streamFRPStatus",
+        "description": "Real-time stream of FRP status changes. Only sends updates when status changes (every 1 second check).",
+        "responses": {
+          "200": {
+            "description": "SSE stream of FRP status events",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": ["running", "stopped"],
+                      "description": "Current FRP client status"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/frp/start": {
       "post": {
         "summary": "Start FRP client",

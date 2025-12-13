@@ -2,6 +2,7 @@ package frpmanage
 
 import (
 	"bufio"
+	"context"
 	"embed"
 	"fmt"
 	"io"
@@ -21,11 +22,14 @@ var frpcAssets embed.FS
 
 // FrpcManager manages the frpc process lifecycle
 type FrpcManager struct {
-	runDir   string
-	frpcPath string
-	cmd      *exec.Cmd
-	mu       sync.Mutex
-	running  bool
+	runDir            string
+	frpcPath          string
+	cmd               *exec.Cmd
+	mu                sync.Mutex
+	running           bool
+	startErr          error // Last start error
+	execDoneCtx       context.Context
+	execDoneCtxCancel func()
 }
 
 const (
@@ -67,7 +71,7 @@ func Initialize(basedir string) (string, error) {
 	return dir, nil
 }
 
-// Start starts the frpc process
+// Start starts the frpc process asynchronously
 func (m *FrpcManager) Start() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -84,20 +88,58 @@ func (m *FrpcManager) Start() error {
 		}
 	}
 
-	// Create new command
-	m.cmd = exec.Command(m.frpcPath, "-c", configPath)
+	// Clear previous error
+	m.startErr = nil
 
+	// Launch process startup in background goroutine
+	go m.asyncStart(configPath)
+
+	return nil
+}
+
+// asyncStart performs the actual process startup in background
+func (m *FrpcManager) asyncStart(configPath string) {
+	m.mu.Lock()
+	ctx, cancel := context.WithCancel(context.Background())
+	// Create new command
+	m.cmd = exec.CommandContext(ctx, m.frpcPath, "-c", configPath)
+	m.execDoneCtx = ctx
+	m.execDoneCtxCancel = cancel
 	// Set up stdout/stderr to redirect to logger
 	m.cmd.Stdout = &LogWriter{tag: "[frpc]", logFunc: logger.GetLogger().Infof}
 	m.cmd.Stderr = &LogWriter{tag: "[frpc]", logFunc: logger.GetLogger().Errorf}
 
 	// Start the process
 	if err := m.cmd.Start(); err != nil {
-		return fmt.Errorf("failed to start frpc: %v", err)
+		m.startErr = err
+		m.cmd = nil
+		m.mu.Unlock()
+		return
 	}
 
-	m.running = true
-	return nil
+	m.mu.Unlock()
+
+	// Monitor process in background to detect if it exits immediately
+	done := make(chan error, 1)
+	go func() {
+		done <- m.cmd.Wait()
+	}()
+
+	// Check if process is still running after startup
+	select {
+	case err := <-done:
+		// Process exited immediately
+		m.mu.Lock()
+		m.running = false
+		m.cmd = nil
+		m.startErr = fmt.Errorf("frpc process exited immediately: %v", err)
+		m.mu.Unlock()
+	case <-time.After(500 * time.Millisecond):
+		// Process is still running
+		m.mu.Lock()
+		m.running = true
+		m.mu.Unlock()
+	}
 }
 
 // Stop stops the frpc process
@@ -108,17 +150,10 @@ func (m *FrpcManager) Stop() error {
 	if !m.running || m.cmd == nil {
 		return fmt.Errorf("frpc is not running")
 	}
-
-	// Terminate the process
-	if err := m.cmd.Process.Kill(); err != nil {
-		return fmt.Errorf("failed to stop frpc: %v", err)
-	}
-
-	// Wait for process to exit
-	m.cmd.Wait()
+	
+	m.execDoneCtxCancel()
 	m.running = false
 	m.cmd = nil
-
 	return nil
 }
 
@@ -141,6 +176,31 @@ func (m *FrpcManager) Restart() error {
 func (m *FrpcManager) IsRunning() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.running
+}
+
+// CheckStatus checks the actual running status of frpc process
+// Updates running flag if process has exited or failed to start
+func (m *FrpcManager) CheckStatus() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if !m.running || m.cmd == nil {
+		return false
+	}
+
+	// If ProcessState is nil, process hasn't exited yet
+	if m.cmd.ProcessState == nil {
+		return m.running
+	}
+
+	// Process has exited or failed
+	if m.cmd.ProcessState.Exited() {
+		m.running = false
+		m.cmd = nil
+		return false
+	}
+
 	return m.running
 }
 

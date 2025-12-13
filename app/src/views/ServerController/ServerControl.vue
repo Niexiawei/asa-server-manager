@@ -1,30 +1,30 @@
 <template>
   <div class="server-control">
     <a-card title="服务器控制面板" :bordered="false" class="main-card">
-      <GlobalServerControl 
-        :instances="instances" 
-        @refresh="fetchInstances"
+      <GlobalServerControl
+          :instances="instances"
+          @refresh="fetchInstances"
       />
-      <BackupManagement 
-        :instances="instances" 
+      <BackupManagement
+          :instances="instances"
       />
-      <RconCommand 
-        :instances="instances" 
+      <RconCommand
+          :instances="instances"
       />
-      <GameConfigSync 
-        :instances="instances" 
+      <GameConfigSync
+          :instances="instances"
       />
-      <SyncConfigManagement 
-        :instances="instances" 
+      <SyncConfigManagement
+          :instances="instances"
       />
     </a-card>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
-import { listInstances } from '@/apis/api.js'
-import { Message } from '@arco-design/web-vue'
+import {ref, onMounted} from 'vue'
+import {listInstances} from '@/apis/api.js'
+import {Message} from '@arco-design/web-vue'
 import GlobalServerControl from '@/views/ServerController/components/GlobalServerControl.vue'
 import BackupManagement from '@/views/ServerController/components/BackupManagement.vue'
 import RconCommand from '@/views/ServerController/components/RconCommand.vue'
@@ -65,7 +65,7 @@ onMounted(() => {
 
 .main-card {
   flex: 1;
-  border-radius: 8px;
+  border-radius: var(--border-radius-large);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   overflow: auto;
 }

@@ -12,6 +12,9 @@
               <a-menu-item key="control">
                 <span to="/control">服务器控制</span>
               </a-menu-item>
+              <a-menu-item key="frp-manager">
+                <span to="/frp-manager">FRP管理</span>
+              </a-menu-item>
               <a-menu-item key="system-logs">
                 <span>系统日志</span>
               </a-menu-item>
@@ -73,6 +76,11 @@ const handleMenuClick = (key) => {
     case "system-logs":
       router.push({
         path: '/system-logs'
+      })
+      break
+    case "frp-manager":
+      router.push({
+        path: '/frp-manager'
       })
       break
   }

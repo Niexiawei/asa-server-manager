@@ -754,6 +754,89 @@ export function streamServerResourceInfo(onData, onError) {
   }
 }
 
+// FRP 管理接口
+// 获取 FRP 配置
+export async function getFRPConfig() {
+  const response = await fetch(`${API_BASE_URL}/api/frp/config`)
+  return handleResponse(response)
+}
+
+// 更新 FRP 配置
+export async function updateFRPConfig(config) {
+  const response = await fetch(`${API_BASE_URL}/api/frp/config`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ config }),
+  })
+  return handleResponse(response)
+}
+
+// 获取 FRP 状态
+export async function getFRPStatus() {
+  const response = await fetch(`${API_BASE_URL}/api/frp/status`)
+  return handleResponse(response)
+}
+
+// 流式获取 FRP 状态变化
+export function streamFRPStatus(onStatus, onError, onClose) {
+  const eventSource = new EventSource(`${API_BASE_URL}/api/frp/status/stream`)
+
+  eventSource.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data)
+      if (data.status) {
+        onStatus(data.status)
+      }
+    } catch (error) {
+      console.error('Failed to parse status event:', error)
+    }
+  }
+
+  eventSource.onerror = () => {
+    eventSource.close()
+    if (onError) {
+      onError(new Error('SSE connection closed'))
+    }
+    if (onClose) {
+      onClose()
+    }
+  }
+
+  // 返回关闭函数
+  return () => {
+    eventSource.close()
+    if (onClose) {
+      onClose()
+    }
+  }
+}
+
+// 启动 FRP
+export async function startFRP() {
+  const response = await fetch(`${API_BASE_URL}/api/frp/start`, {
+    method: 'POST',
+  })
+  return handleResponse(response)
+}
+
+// 停止 FRP
+export async function stopFRP() {
+  const response = await fetch(`${API_BASE_URL}/api/frp/stop`, {
+    method: 'POST',
+  })
+  return handleResponse(response)
+}
+
+// 重启 FRP
+export async function restartFRP() {
+  const response = await fetch(`${API_BASE_URL}/api/frp/restart`, {
+    method: 'POST',
+  })
+  return handleResponse(response)
+}
+
 // 重新导出这些函数供其他模块使用
 export {
   connectWebSocket,

@@ -3,6 +3,7 @@ import ServerManager from '@/views/ServerManager.vue'
 import InstanceDetail from '@/views/InstanceDetail.vue'
 import ServerControl from '@/views/ServerController/ServerControl.vue'
 import SystemLogs from '@/views/SystemLogs.vue'
+import FRPManager from '@/views/FRPManager.vue'
 
 const routes = [
     {
@@ -24,6 +25,11 @@ const routes = [
         path: '/system-logs',
         name: 'SystemLogs',
         component: SystemLogs
+    },
+    {
+        path: '/frp-manager',
+        name: 'FRPManager',
+        component: FRPManager
     }
 ]
 

@@ -117,20 +117,19 @@ onBeforeUnmount(() => {
 
 <style scoped lang="less">
 .system-logs {
-  padding: 20px;
   height: 100%;
-  box-sizing: border-box;
+  width: 100%;
+}
 
-  :deep(.arco-badge-status-text) {
-    line-height: 16px !important;
-    font-size: 16px;
-    color: var(--color-text-2);
-  }
+:deep(.arco-badge-status-text) {
+  line-height: 16px !important;
+  font-size: 16px;
+  color: var(--color-text-2);
 }
 
 .logs-card {
-  border-radius: 4px;
-  height: calc(100% - 54px);
+  border-radius: var(--border-radius-large);
+  height: calc(100% - 64px);
 
   :deep(.arco-card-body) {
     height: calc(100% - 42px);

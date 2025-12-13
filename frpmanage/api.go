@@ -2,9 +2,11 @@ package frpmanage
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -97,7 +99,7 @@ func GetFRPStatus(c *gin.Context) {
 	manager := GetGlobalManager()
 
 	status := "stopped"
-	if manager != nil && manager.IsRunning() {
+	if manager != nil && manager.CheckStatus() {
 		status = "running"
 	}
 
@@ -107,6 +109,77 @@ func GetFRPStatus(c *gin.Context) {
 		Data: gin.H{
 			"status": status,
 		},
+	})
+}
+
+// StreamFRPStatus streams FRP status changes via SSE
+func StreamFRPStatus(c *gin.Context) {
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("Access-Control-Allow-Origin", "*")
+
+	manager := GetGlobalManager()
+	if manager == nil {
+		c.String(http.StatusInternalServerError, "FRP manager not initialized")
+		return
+	}
+
+	// Channel for status updates
+	statusChannel := make(chan string, 1)
+	done := make(chan struct{})
+
+	// Start background goroutine to monitor status changes
+	go func() {
+		defer close(statusChannel)
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+
+		lastStatus := ""
+
+		for {
+			select {
+			case <-ticker.C:
+				currentStatus := "stopped"
+				if manager.CheckStatus() {
+					currentStatus = "running"
+				}
+
+				// Only send if status changed
+				if currentStatus != lastStatus {
+					lastStatus = currentStatus
+					select {
+					case statusChannel <- currentStatus:
+					case <-done:
+						return
+					}
+				}
+			case <-done:
+				return
+			}
+		}
+	}()
+
+	// Send initial status
+	initialStatus := "stopped"
+	if manager.CheckStatus() {
+		initialStatus = "running"
+	}
+	statusChannel <- initialStatus
+
+	// Stream status using c.Stream
+	c.Stream(func(w io.Writer) bool {
+		select {
+		case status, ok := <-statusChannel:
+			if !ok {
+				return false
+			}
+			fmt.Fprintf(w, "data: {\"status\":\"%s\"}\n\n", status)
+			return true
+		case <-c.Request.Context().Done():
+			close(done)
+			return false
+		}
 	})
 }
 
@@ -216,6 +289,7 @@ func RegisterFRPRoutes(router *gin.Engine) {
 		frp.GET("/config", GetFRPConfig)
 		frp.PUT("/config", UpdateFRPConfig)
 		frp.GET("/status", GetFRPStatus)
+		frp.GET("/status/stream", StreamFRPStatus)
 		frp.POST("/start", StartFRP)
 		frp.POST("/stop", StopFRP)
 		frp.POST("/restart", RestartFRP)
