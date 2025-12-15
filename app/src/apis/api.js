@@ -837,6 +837,89 @@ export async function restartFRP() {
   return handleResponse(response)
 }
 
+// Syncthing 管理接口
+// 获取 Syncthing 配置
+export async function getSyncthingConfig() {
+  const response = await fetch(`${API_BASE_URL}/api/syncthing/config`)
+  return handleResponse(response)
+}
+
+// 更新 Syncthing 配置
+export async function updateSyncthingConfig(config) {
+  const response = await fetch(`${API_BASE_URL}/api/syncthing/config`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ config }),
+  })
+  return handleResponse(response)
+}
+
+// 获取 Syncthing 状态
+export async function getSyncthingStatus() {
+  const response = await fetch(`${API_BASE_URL}/api/syncthing/status`)
+  return handleResponse(response)
+}
+
+// 流式获取 Syncthing 状态变化
+export function streamSyncthingStatus(onStatus, onError, onClose) {
+  const eventSource = new EventSource(`${API_BASE_URL}/api/syncthing/status/stream`)
+
+  eventSource.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data)
+      if (data.status) {
+        onStatus(data.status)
+      }
+    } catch (error) {
+      console.error('Failed to parse status event:', error)
+    }
+  }
+
+  eventSource.onerror = () => {
+    eventSource.close()
+    if (onError) {
+      onError(new Error('SSE connection closed'))
+    }
+    if (onClose) {
+      onClose()
+    }
+  }
+
+  // 返回关闭函数
+  return () => {
+    eventSource.close()
+    if (onClose) {
+      onClose()
+    }
+  }
+}
+
+// 启动 Syncthing
+export async function startSyncthing() {
+  const response = await fetch(`${API_BASE_URL}/api/syncthing/start`, {
+    method: 'POST',
+  })
+  return handleResponse(response)
+}
+
+// 停止 Syncthing
+export async function stopSyncthing() {
+  const response = await fetch(`${API_BASE_URL}/api/syncthing/stop`, {
+    method: 'POST',
+  })
+  return handleResponse(response)
+}
+
+// 重启 Syncthing
+export async function restartSyncthing() {
+  const response = await fetch(`${API_BASE_URL}/api/syncthing/restart`, {
+    method: 'POST',
+  })
+  return handleResponse(response)
+}
+
 // 重新导出这些函数供其他模块使用
 export {
   connectWebSocket,

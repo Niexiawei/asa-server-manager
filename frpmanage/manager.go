@@ -182,6 +182,13 @@ func (m *FrpcManager) IsRunning() bool {
 	return m.running
 }
 
+// GetStartErr returns the last start error
+func (m *FrpcManager) GetStartErr() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.startErr
+}
+
 // CheckStatus checks the actual running status of frpc process
 // Updates running flag if process has exited or failed to start
 func (m *FrpcManager) CheckStatus() bool {

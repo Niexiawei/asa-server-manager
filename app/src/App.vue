@@ -15,6 +15,9 @@
               <a-menu-item key="frp-manager">
                 <span>FRP管理</span>
               </a-menu-item>
+              <a-menu-item key="syncthing-manager">
+                <span>Syncthing管理</span>
+              </a-menu-item>
               <a-menu-item key="system-logs">
                 <span>系统日志</span>
               </a-menu-item>
@@ -59,6 +62,8 @@ watch(() => route.path, (newPath) => {
     currentRoute.value = 'system-logs';
   } else if (newPath === '/frp-manager') {
     currentRoute.value = 'frp-manager';
+  } else if (newPath === '/syncthing-manager') {
+    currentRoute.value = 'syncthing-manager';
   }
 }, {immediate: true});
 
@@ -83,6 +88,11 @@ const handleMenuClick = (key) => {
     case "frp-manager":
       router.push({
         path: '/frp-manager'
+      })
+      break
+    case "syncthing-manager":
+      router.push({
+        path: '/syncthing-manager'
       })
       break
   }

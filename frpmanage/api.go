@@ -121,7 +121,7 @@ func StreamFRPStatus(c *gin.Context) {
 
 	manager := GetGlobalManager()
 	if manager == nil {
-		c.String(http.StatusInternalServerError, "FRP manager not initialized")
+		fmt.Fprintf(c.Writer, "data: {\"error\":\"FRP manager not initialized\"}\n\n")
 		return
 	}
 
@@ -141,7 +141,10 @@ func StreamFRPStatus(c *gin.Context) {
 			select {
 			case <-ticker.C:
 				currentStatus := "stopped"
-				if manager.CheckStatus() {
+				// Check if there was a start error
+				if manager.GetStartErr() != nil {
+					currentStatus = "stopped"
+				} else if manager.CheckStatus() {
 					currentStatus = "running"
 				}
 

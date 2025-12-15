@@ -30,6 +30,11 @@ const routes = [
         path: '/frp-manager',
         name: 'FRPManager',
         component: FRPManager
+    },
+    {
+        path: '/syncthing-manager',
+        name: 'SyncthingManager',
+        component: () => import('@/views/SyncthingManager.vue'),
     }
 ]
 

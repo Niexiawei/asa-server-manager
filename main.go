@@ -5,6 +5,7 @@ import (
 	"asa-server/asaserver"
 	"asa-server/frpmanage"
 	"asa-server/logger"
+	"asa-server/syncthingmanage"
 	"asa-server/webapi"
 	"asa-server/winservice"
 	"context"
@@ -45,6 +46,10 @@ func main() {
 
 	// Initialize frpc manager
 	if _, err := frpmanage.Initialize(asaserver.BaseDir); err != nil {
+		log.Fatal(err)
+	}
+
+	if _, err := syncthingmanage.Initialize(asaserver.BaseDir); err != nil {
 		log.Fatal(err)
 	}
 

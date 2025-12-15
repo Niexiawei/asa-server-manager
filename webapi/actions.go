@@ -4,6 +4,7 @@ import (
 	"asa-server/app"
 	"asa-server/frpmanage"
 	"asa-server/logger"
+	"asa-server/syncthingmanage"
 	"context"
 	"errors"
 	"fmt"
@@ -205,6 +206,7 @@ func (s *APIServer) setupRoutes() {
 
 	// FRP endpoints
 	frpmanage.RegisterFRPRoutes(s.engine)
+	syncthingmanage.RegisterSyncthingRoutes(s.engine)
 
 	s.engine.NoRoute(func(c *gin.Context) {
 		f, err := distFs.Open("dist/index.html")
