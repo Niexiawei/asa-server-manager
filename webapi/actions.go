@@ -255,13 +255,3 @@ func ActionAPI(ctx context.Context, cmd *cli.Command) error {
 	apiServer := NewAPIServer()
 	return apiServer.Start()
 }
-
-// getInstanceStartBroadcaster gets or creates a broadcaster for instance startup
-func (s *APIServer) getInstanceStartBroadcaster(instanceName string) *TaskBroadcaster {
-	return s.instanceStartBroadcasters.Get(instanceName)
-}
-
-// cleanupInstanceStartBroadcaster removes the broadcaster for an instance
-func (s *APIServer) cleanupInstanceStartBroadcaster(instanceName string) {
-	s.instanceStartBroadcasters.Cleanup(instanceName)
-}

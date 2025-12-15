@@ -226,8 +226,7 @@ func (s *APIServer) runRestartAllServersTask() {
 
 // runStartServerTask monitors a single server startup process
 func (s *APIServer) runStartServerTask(name string, broadcaster *TaskBroadcaster) {
-	defer s.cleanupInstanceStartBroadcaster(name)
-	defer broadcaster.Stop()
+	defer s.instanceStartBroadcasters.Cleanup(name)
 
 	if err := asaserver.StartServer(name); err != nil {
 		logger.GetLogger().Errorf("failed to start server '%s': %v", name, err)
@@ -267,6 +266,8 @@ func (s *APIServer) runStartServerTask(name string, broadcaster *TaskBroadcaster
 
 	stopMonitoring := asaserver.TailLogFileWithLines(logPath, 100, func(line string) {
 		broadcaster.SendMessage(fmt.Sprintf("[startup] %s", line))
+
+		fmt.Println(line)
 
 		// Check for successful startup message
 		if strings.Contains(line, "Server has completed startup and is now advertising for join") {

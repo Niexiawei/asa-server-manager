@@ -19,7 +19,6 @@ func TailLogFile(logPath string, printFunc func(string)) func() {
 	stopChan := make(chan struct{})
 
 	go func() {
-		lastPosition := int64(0)
 		// 等待日志文件存在
 		for {
 			select {
@@ -32,6 +31,16 @@ func TailLogFile(logPath string, printFunc func(string)) func() {
 			}
 			time.Sleep(100 * time.Millisecond) // 每100ms检查一次
 		}
+
+		// Open file once in read-only mode
+		file, err := os.OpenFile(logPath, os.O_RDONLY, 0)
+		if err != nil {
+			printFunc("Failed to open log file: " + fmt.Sprintf("%v", err))
+			return
+		}
+		defer file.Close()
+
+		lastPosition := int64(0)
 
 		// Create a watcher for file system events
 		watcher, err := fsnotify.NewWatcher()
@@ -57,7 +66,7 @@ func TailLogFile(logPath string, printFunc func(string)) func() {
 			}
 
 			// Read available content from the log file
-			if content, newPos, _, found := readNewLogContent(logPath, lastPosition); found {
+			if content, newPos, _, found := readNewLogContent(file, lastPosition); found {
 				if content != "" {
 					// Call the closure function to print each line
 					for _, line := range strings.Split(strings.TrimSuffix(content, "\n"), "\n") {
@@ -109,43 +118,41 @@ func TailLogFileWithLines(logPath string, lastNLines int, printFunc func(string)
 	stopChan := make(chan struct{})
 
 	go func() {
+		// Open file once in read-only mode
+		file, err := os.OpenFile(logPath, os.O_RDONLY, 0)
+		if err != nil {
+			printFunc("Failed to open log file: " + fmt.Sprintf("%v", err))
+			return
+		}
+		defer file.Close()
+
 		// First, read and send the last N lines from the file
-		if file, err := os.Open(logPath); err == nil {
-			defer file.Close()
-			// Read all lines from the file
-			var allLines []string
-			scanner := bufio.NewScanner(file)
-			for scanner.Scan() {
-				allLines = append(allLines, scanner.Text())
-			}
+		var allLines []string
+		scanner := bufio.NewScanner(file)
+		for scanner.Scan() {
+			allLines = append(allLines, scanner.Text())
+		}
 
-			// Calculate starting index for the last N lines
-			startIdx := 0
-			if len(allLines) > lastNLines {
-				startIdx = len(allLines) - lastNLines
-			}
+		// Calculate starting index for the last N lines
+		startIdx := 0
+		if len(allLines) > lastNLines {
+			startIdx = len(allLines) - lastNLines
+		}
 
-			// Send the last N lines (or all lines if less than N)
-			for i := startIdx; i < len(allLines); i++ {
-				select {
-				case <-stopChan:
-					return
-				default:
-					if allLines[i] != "" {
-						printFunc(allLines[i])
-					}
+		// Send the last N lines (or all lines if less than N)
+		for i := startIdx; i < len(allLines); i++ {
+			select {
+			case <-stopChan:
+				return
+			default:
+				if allLines[i] != "" {
+					printFunc(allLines[i])
 				}
 			}
 		}
 
 		// Get the current file position to start monitoring from
-		lastPosition := int64(0)
-		if file, err := os.Open(logPath); err == nil {
-			if fileInfo, err := file.Stat(); err == nil {
-				lastPosition = fileInfo.Size()
-			}
-			file.Close()
-		}
+		lastPosition, _ := file.Seek(0, 1)
 
 		// Create a watcher for file system events
 		watcher, err := fsnotify.NewWatcher()
@@ -171,7 +178,7 @@ func TailLogFileWithLines(logPath string, lastNLines int, printFunc func(string)
 			}
 
 			// Read available content from the log file
-			if content, newPos, _, found := readNewLogContent(logPath, lastPosition); found {
+			if content, newPos, _, found := readNewLogContent(file, lastPosition); found {
 				if content != "" {
 					// Call the closure function to print each line
 					for _, line := range strings.Split(strings.TrimSuffix(content, "\n"), "\n") {
@@ -221,14 +228,8 @@ func TailLogFileWithLines(logPath string, lastNLines int, printFunc func(string)
 }
 
 // readNewLogContent reads new content from log file starting at lastPosition
-func readNewLogContent(logPath string, lastPosition int64) (string, int64, int, bool) {
-	file, err := os.Open(logPath)
-	if err != nil {
-		return "", lastPosition, 0, false
-	}
-	defer file.Close()
-
-	// Get file size
+func readNewLogContent(file *os.File, lastPosition int64) (string, int64, int, bool) {
+	// Get file info for size checking
 	fileInfo, err := file.Stat()
 	if err != nil || fileInfo.Size() == 0 {
 		return "", lastPosition, 0, false
