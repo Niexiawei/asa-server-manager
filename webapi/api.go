@@ -336,63 +336,114 @@ func (s *APIServer) renameInstance(c *gin.Context) {
 
 // startServer starts a server instance
 func (s *APIServer) startServer(c *gin.Context) {
-	name := c.Param("name")
-	if !serverActionsLock.TryLock() {
-		c.JSON(http.StatusInternalServerError, StatusResponse{
-			Success: false,
-			Error:   fmt.Sprintf("there are other services being started or stopped"),
-		})
-		return
-	}
-	defer serverActionsLock.Unlock()
-	// Check if server is already running first (synchronous validation)
-	running, err := asaserver.IsServerRunning(name)
+	instanceName := c.Param("name")
+
+	// Set SSE headers
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("Access-Control-Allow-Origin", "*")
+	c.Header("Access-Control-Allow-Headers", "Content-Type")
+
+	// Check if server is already running first
+	running, err := asaserver.IsServerRunning(instanceName)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, StatusResponse{
-			Success: false,
-			Error:   fmt.Sprintf("failed to check server status: %v", err),
-		})
+		response := gin.H{
+			"status":    "error",
+			"timestamp": time.Now().Format(time.RFC3339Nano),
+			"message":   fmt.Sprintf("Failed to check server status: %v", err),
+		}
+		jsonData, _ := json.Marshal(response)
+		fmt.Fprintf(c.Writer, "data: %s\n\n", jsonData)
+		c.Writer.Flush()
 		return
 	}
 
 	if running {
-		c.JSON(http.StatusBadRequest, StatusResponse{
-			Success: false,
-			Error:   fmt.Sprintf("Server '%s' is already running", name),
-		})
+		response := gin.H{
+			"status":    "error",
+			"timestamp": time.Now().Format(time.RFC3339Nano),
+			"message":   fmt.Sprintf("Server '%s' is already running", instanceName),
+		}
+		jsonData, _ := json.Marshal(response)
+		fmt.Fprintf(c.Writer, "data: %s\n\n", jsonData)
+		c.Writer.Flush()
 		return
 	}
 
-	// Check for duplicate ports (synchronous validation)
+	// Check for duplicate ports
 	if err := asaserver.CheckForDuplicatePorts(); err != nil {
-		c.JSON(http.StatusBadRequest, StatusResponse{
-			Success: false,
-			Error:   fmt.Sprintf("Port conflicts detected: %v", err),
-		})
+		response := gin.H{
+			"status":    "error",
+			"timestamp": time.Now().Format(time.RFC3339Nano),
+			"message":   fmt.Sprintf("Port conflicts detected: %v", err),
+		}
+		jsonData, _ := json.Marshal(response)
+		fmt.Fprintf(c.Writer, "data: %s\n\n", jsonData)
+		c.Writer.Flush()
 		return
 	}
 
 	// Broadcast server starting event
-	s.BroadcastServerStarting(name)
+	s.BroadcastServerStarting(instanceName)
 
-	// Start server asynchronously to avoid blocking the API request
-	go func() {
-		if err := asaserver.StartServer(name); err != nil {
-			logger.GetLogger().Errorf("failed to start server '%s': %v", name, err)
-			// Broadcast error event
-			s.BroadcastServerStartFailed(name, err)
+	// Create and start broadcaster for this instance startup
+	broadcaster := s.getInstanceStartBroadcaster(instanceName)
+	if !broadcaster.Start() {
+		// Broadcaster already running, another startup is in progress
+		response := gin.H{
+			"status":    "error",
+			"timestamp": time.Now().Format(time.RFC3339Nano),
+			"message":   fmt.Sprintf("Server '%s' is currently starting, please wait", instanceName),
+		}
+		jsonData, _ := json.Marshal(response)
+		fmt.Fprintf(c.Writer, "data: %s\n\n", jsonData)
+		c.Writer.Flush()
+		return
+	}
+
+	// Start server asynchronously
+	go s.runStartServerTask(instanceName, broadcaster)
+
+	// Subscribe to startup broadcaster and stream updates
+	subscriber, unsubscribe := broadcaster.Subscribe()
+	defer unsubscribe()
+
+	for {
+		select {
+		case msg, ok := <-subscriber:
+			if !ok {
+				// Broadcaster stopped
+				return
+			}
+
+			// Format response with status, timestamp, and message
+			response := gin.H{
+				"status":    "starting",
+				"timestamp": time.Now().Format(time.RFC3339Nano),
+				"message":   msg,
+			}
+			jsonData, _ := json.Marshal(response)
+			fmt.Fprintf(c.Writer, "data: %s\n\n", jsonData)
+			c.Writer.Flush()
+
+			// Check if startup completed
+			if strings.Contains(msg, "[COMPLETED]") {
+				// Push started status
+				startedResponse := gin.H{
+					"status":    "started",
+					"timestamp": time.Now().Format(time.RFC3339Nano),
+					"message":   "Server has started successfully",
+				}
+				startedData, _ := json.Marshal(startedResponse)
+				fmt.Fprintf(c.Writer, "data: %s\n\n", startedData)
+				c.Writer.Flush()
+				return
+			}
+		case <-c.Request.Context().Done():
 			return
 		}
-
-		// Broadcast server started event
-		s.BroadcastServerStarted(name)
-	}()
-
-	// Return success immediately without waiting for the 60-second startup
-	c.JSON(http.StatusOK, StatusResponse{
-		Success: true,
-		Message: fmt.Sprintf("Server '%s' is starting in the background. It should be fully operational in approximately 60 seconds.", name),
-	})
+	}
 }
 
 // stopServer stops a server instance
@@ -963,7 +1014,7 @@ func (s *APIServer) streamInstanceInfo(c *gin.Context) {
 	})
 }
 
-// streamInstanceLogs streams server logs via Server-Sent Events (SSE)
+// streamInstanceLogs streams server logs and startup status via Server-Sent Events (SSE)
 func (s *APIServer) streamInstanceLogs(c *gin.Context) {
 	instanceName := c.Param("name")
 
@@ -974,17 +1025,65 @@ func (s *APIServer) streamInstanceLogs(c *gin.Context) {
 	c.Header("Access-Control-Allow-Origin", "*")
 	c.Header("Access-Control-Allow-Headers", "Content-Type")
 
+	// Check if startup is in progress
+	broadcaster := s.getInstanceStartBroadcaster(instanceName)
+	if broadcaster.IsRunning() {
+		// Subscribe to startup broadcaster
+		subscriber, unsubscribe := broadcaster.Subscribe()
+		defer unsubscribe()
+
+		for {
+			select {
+			case msg, ok := <-subscriber:
+				if !ok {
+					// Broadcaster stopped, switch to regular log file monitoring
+					goto streamRegularLogs
+				}
+
+				// Format response with status, timestamp, and message
+				response := gin.H{
+					"status":    "starting",
+					"timestamp": time.Now().Format(time.RFC3339Nano),
+					"message":   msg,
+				}
+				jsonData, _ := json.Marshal(response)
+				fmt.Fprintf(c.Writer, "data: %s\n\n", jsonData)
+				c.Writer.Flush()
+
+				// Check if startup completed
+				if strings.Contains(msg, "[COMPLETED]") {
+					return
+				}
+			case <-c.Request.Context().Done():
+				return
+			}
+		}
+	}
+
+streamRegularLogs:
 	// Get the log file path for the instance
 	logPath, exists := asaserver.GetInstanceLogFile(instanceName)
 	if !exists {
-		fmt.Fprintf(c.Writer, "data: %s\n\n", "failed to get log file path")
+		response := gin.H{
+			"status":    "error",
+			"timestamp": time.Now().Format(time.RFC3339Nano),
+			"message":   "failed to get log file path",
+		}
+		jsonData, _ := json.Marshal(response)
+		fmt.Fprintf(c.Writer, "data: %s\n\n", jsonData)
 		c.Writer.Flush()
 		return
 	}
 
 	// Check if log file exists
 	if _, err := os.Stat(logPath); os.IsNotExist(err) {
-		fmt.Fprintf(c.Writer, "data: %s\n\n", "log file not found")
+		response := gin.H{
+			"status":    "error",
+			"timestamp": time.Now().Format(time.RFC3339Nano),
+			"message":   "log file not found",
+		}
+		jsonData, _ := json.Marshal(response)
+		fmt.Fprintf(c.Writer, "data: %s\n\n", jsonData)
 		c.Writer.Flush()
 		return
 	}
@@ -1014,7 +1113,14 @@ func (s *APIServer) streamInstanceLogs(c *gin.Context) {
 			if !ok {
 				return
 			}
-			fmt.Fprintf(c.Writer, "data: %s\n\n", line)
+			// Format response with status, timestamp, and message
+			response := gin.H{
+				"status":    "running",
+				"timestamp": time.Now().Format(time.RFC3339Nano),
+				"message":   line,
+			}
+			jsonData, _ := json.Marshal(response)
+			fmt.Fprintf(c.Writer, "data: %s\n\n", jsonData)
 			c.Writer.Flush()
 		case <-c.Request.Context().Done():
 			return

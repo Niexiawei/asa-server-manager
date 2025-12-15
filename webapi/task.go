@@ -4,6 +4,9 @@ import (
 	"asa-server/asaserver"
 	"asa-server/logger"
 	"fmt"
+	"os"
+	"strings"
+	"time"
 )
 
 // runUpdateTask executes the server update task
@@ -219,4 +222,74 @@ func (s *APIServer) runRestartAllServersTask() {
 	} else {
 		s.restartBroadcaster.SendMessage(fmt.Sprintf("[COMPLETED] All %d servers restarted successfully", len(instances)))
 	}
+}
+
+// runStartServerTask monitors a single server startup process
+func (s *APIServer) runStartServerTask(name string, broadcaster *TaskBroadcaster) {
+	defer s.cleanupInstanceStartBroadcaster(name)
+	defer broadcaster.Stop()
+
+	if err := asaserver.StartServer(name); err != nil {
+		logger.GetLogger().Errorf("failed to start server '%s': %v", name, err)
+		broadcaster.SendMessage(fmt.Sprintf("Error: Failed to start server: %v", err))
+		// Broadcast error event
+		s.BroadcastServerStartFailed(name, err)
+		return
+	}
+
+	// Monitor startup progress using log file
+	logPath, exists := asaserver.GetInstanceLogFile(name)
+	if !exists {
+		broadcaster.SendMessage("Error: Failed to get log file path")
+		s.BroadcastServerStartFailed(name, fmt.Errorf("failed to get log file path"))
+		return
+	}
+
+	// Check if log file exists with timeout
+	var logFileExists bool
+	for i := 0; i < 30; i++ {
+		if _, err := os.Stat(logPath); err == nil {
+			logFileExists = true
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	if !logFileExists {
+		broadcaster.SendMessage("Error: Log file not found")
+		s.BroadcastServerStartFailed(name, fmt.Errorf("log file not found"))
+		return
+	}
+
+	// Tail log file and monitor for startup completion message
+	done := make(chan struct{})
+	startupSuccess := make(chan bool, 1)
+
+	stopMonitoring := asaserver.TailLogFileWithLines(logPath, 100, func(line string) {
+		broadcaster.SendMessage(fmt.Sprintf("[startup] %s", line))
+
+		// Check for successful startup message
+		if strings.Contains(line, "Server has completed startup and is now advertising for join") {
+			select {
+			case startupSuccess <- true:
+			case <-done:
+			}
+		}
+	})
+
+	defer stopMonitoring()
+
+	// Wait for startup to complete or timeout (120 seconds)
+	select {
+	case <-startupSuccess:
+		broadcaster.SendMessage("[COMPLETED] Server startup completed successfully")
+	case <-time.After(10 * time.Minute):
+		broadcaster.SendMessage("Error: Server startup timeout")
+	case <-done:
+		return
+	}
+
+	close(done)
+	// Broadcast server started event
+	s.BroadcastServerStarted(name)
 }

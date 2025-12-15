@@ -29,10 +29,11 @@ type APIServer struct {
 	mu      sync.RWMutex
 	clients map[*websocket.Conn]bool
 	// Task broadcasters for independent SSE streams
-	updateBroadcaster  *TaskBroadcaster
-	startBroadcaster   *TaskBroadcaster
-	stopBroadcaster    *TaskBroadcaster
-	restartBroadcaster *TaskBroadcaster
+	updateBroadcaster         *TaskBroadcaster
+	startBroadcaster          *TaskBroadcaster
+	stopBroadcaster           *TaskBroadcaster
+	restartBroadcaster        *TaskBroadcaster
+	instanceStartBroadcasters *InstanceStartBroadcasters // Per-instance startup broadcasters
 }
 
 var serverActionsLock sync.Mutex
@@ -47,13 +48,14 @@ func NewAPIServer() *APIServer {
 	engine := gin.Default()
 	engine.Use(cors.Default())
 	server := &APIServer{
-		engine:             engine,
-		port:               ApiServerPort,
-		clients:            make(map[*websocket.Conn]bool),
-		updateBroadcaster:  NewTaskBroadcaster(),
-		startBroadcaster:   NewTaskBroadcaster(),
-		stopBroadcaster:    NewTaskBroadcaster(),
-		restartBroadcaster: NewTaskBroadcaster(),
+		engine:                    engine,
+		port:                      ApiServerPort,
+		clients:                   make(map[*websocket.Conn]bool),
+		updateBroadcaster:         NewTaskBroadcaster(),
+		startBroadcaster:          NewTaskBroadcaster(),
+		stopBroadcaster:           NewTaskBroadcaster(),
+		restartBroadcaster:        NewTaskBroadcaster(),
+		instanceStartBroadcasters: NewInstanceStartBroadcasters(),
 	}
 
 	// Setup routes
@@ -252,4 +254,14 @@ func ActionAPI(ctx context.Context, cmd *cli.Command) error {
 	logger.SetLogMode(logger.HttpApiMode)
 	apiServer := NewAPIServer()
 	return apiServer.Start()
+}
+
+// getInstanceStartBroadcaster gets or creates a broadcaster for instance startup
+func (s *APIServer) getInstanceStartBroadcaster(instanceName string) *TaskBroadcaster {
+	return s.instanceStartBroadcasters.Get(instanceName)
+}
+
+// cleanupInstanceStartBroadcaster removes the broadcaster for an instance
+func (s *APIServer) cleanupInstanceStartBroadcaster(instanceName string) {
+	s.instanceStartBroadcasters.Cleanup(instanceName)
 }

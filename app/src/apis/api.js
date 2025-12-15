@@ -88,12 +88,57 @@ export async function renameInstance(name, newName) {
   return handleResponse(response)
 }
 
-// 启动服务器实例
-export async function startServer(name) {
-  const response = await fetch(`${API_BASE_URL}/api/server/${name}/start`, {
-    method: 'POST',
-  })
-  return handleResponse(response)
+// 启动服务器实例（SSE 流式响应）
+export async function startServer(name, onMessage, onError, onComplete) {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/server/${name}/start`, {
+      method: 'POST',
+    })
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
+
+    const reader = response.body.getReader()
+    let hasError = false
+    
+    const processor = createSSEStreamProcessor((content) => {
+      try {
+        const data = JSON.parse(content)
+        if (data.status === 'error') {
+          hasError = true
+          if (onError) {
+            onError(new Error(data.message))
+          }
+        } else if (onMessage) {
+          onMessage(data)
+        }
+      } catch (e) {
+        console.error('Failed to parse start server response:', e, 'content:', content)
+        if (onError) {
+          onError(new Error('Failed to parse server response'))
+        }
+      }
+    })
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      processor.process(value)
+    }
+    
+    processor.flush()
+
+    // 如果没有错误，则调用完成回调
+    if (!hasError && onComplete) {
+      onComplete()
+    }
+  } catch (error) {
+    console.error('Start server error:', error)
+    if (onError) {
+      onError(error)
+    }
+  }
 }
 
 // 停止服务器实例

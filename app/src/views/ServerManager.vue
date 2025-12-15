@@ -91,7 +91,8 @@
                 <template #actions>
                   <a-button
                       @click="startInstance(instance.name)"
-                      :disabled="instance.running"
+                      :disabled="instance.running || instanceLoadingMap.get(instance.name)"
+                      :loading="instanceLoadingMap.get(instance.name)"
                       type="primary"
                       size="small"
                   >
@@ -210,6 +211,9 @@ const form = reactive({
   instanceName: ''
 })
 
+// 伐力实例的 loading 状态
+const instanceLoadingMap = ref(new Map())
+
 const logViewerRef = ref()
 const syncModalVisible = ref(false)
 const selectedSourceInstance = ref('')
@@ -283,22 +287,38 @@ const startInstance = async (name) => {
     okText: '确定',
     cancelText: '取消',
     onOk: async () => {
+      // 设置 loading 状态
+      instanceLoadingMap.value.set(name, true)
+      
       try {
-        const data = await startServer(name)
-        if (data.success) {
-          Message.success(data.message || `实例 "${name}" 启动成功`)
-          // 更新本地状态
-          const instance = instances.value.find(inst => inst.name === name)
-          if (instance) {
-            instance.running = true
+        // 使用 SSE 方式调用启动
+        await startServer(
+          name,
+          // onMessage 回调 - 接收实时进度消息
+          (message) => {
+            console.log('Start progress:', message)
+          },
+          // onError 回调 - 处理错误
+          (error) => {
+            Message.error(error.message || `实例 "${name}" 启动失败`)
+            console.error('启动实例失败:', error)
+          },
+          // onComplete 回调 - 启动完成
+          () => {
+            Message.success(`实例 "${name}" 启动成功`)
+            // 更新本地状态
+            const instance = instances.value.find(inst => inst.name === name)
+            if (instance) {
+              instance.running = true
+            }
           }
-        } else {
-          Message.error(data.error || `实例 "${name}" 启动失败`)
-          console.error('启动实例失败:', data.error)
-        }
+        )
       } catch (error) {
         Message.error(`启动实例失败: ${error.message}`)
         console.error('启动实例失败:', error)
+      } finally {
+        // 清除 loading 状态
+        instanceLoadingMap.value.set(name, false)
       }
     }
   })

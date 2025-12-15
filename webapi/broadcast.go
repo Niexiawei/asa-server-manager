@@ -115,3 +115,38 @@ func (tb *TaskBroadcaster) IsRunning() bool {
 	defer tb.mu.RUnlock()
 	return tb.running
 }
+
+// InstanceStartBroadcasters manages per-instance startup broadcasters
+type InstanceStartBroadcasters struct {
+	mu           sync.RWMutex
+	broadcasters map[string]*TaskBroadcaster
+}
+
+// NewInstanceStartBroadcasters creates a new instance start broadcasters manager
+func NewInstanceStartBroadcasters() *InstanceStartBroadcasters {
+	return &InstanceStartBroadcasters{
+		broadcasters: make(map[string]*TaskBroadcaster),
+	}
+}
+
+// Get gets or creates a broadcaster for instance startup
+func (isb *InstanceStartBroadcasters) Get(instanceName string) *TaskBroadcaster {
+	isb.mu.Lock()
+	defer isb.mu.Unlock()
+
+	if broadcaster, exists := isb.broadcasters[instanceName]; exists {
+		return broadcaster
+	}
+
+	// Create new broadcaster for this instance
+	broadcaster := NewTaskBroadcaster()
+	isb.broadcasters[instanceName] = broadcaster
+	return broadcaster
+}
+
+// Cleanup removes the broadcaster for an instance
+func (isb *InstanceStartBroadcasters) Cleanup(instanceName string) {
+	isb.mu.Lock()
+	defer isb.mu.Unlock()
+	delete(isb.broadcasters, instanceName)
+}

@@ -22,7 +22,8 @@
           <a-space style="margin-left: 20px">
             <a-button
                 @click="startInstance"
-                :disabled="instanceData?.running"
+                :disabled="instanceData?.running || instanceStartLoading"
+                :loading="instanceStartLoading"
                 type="primary"
                 size="small"
             >
@@ -30,7 +31,8 @@
             </a-button>
             <a-button
                 @click="stopInstance"
-                :disabled="!instanceData?.running"
+                :disabled="!instanceData?.running || instanceStopLoading"
+                :loading="instanceStopLoading"
                 status="warning"
                 size="small"
             >
@@ -38,7 +40,8 @@
             </a-button>
             <a-button
                 @click="restartInstance"
-                :disabled="!instanceData?.running"
+                :disabled="!instanceData?.running || instanceRestartLoading"
+                :loading="instanceRestartLoading"
                 status="success"
                 size="small"
             >
@@ -366,6 +369,11 @@ const gameUserSettingsFileInput = ref(null)
 const configEditModalVisible = ref(false)
 const savingConfig = ref(false)
 
+// 启动、停止、重启 按预的 loading 状态
+const instanceStartLoading = ref(false)
+const instanceStopLoading = ref(false)
+const instanceRestartLoading = ref(false)
+
 // 日志查看器引用
 const logViewerRef = ref(null)
 
@@ -686,21 +694,34 @@ const startInstance = () => {
     okText: '确定',
     cancelText: '取消',
     onOk: async () => {
+      instanceStartLoading.value = true
       try {
-        const data = await startServer(instanceName)
-        if (data.success) {
-          Message.success(data.message || `实例 "${instanceName}" 启动成功`)
-          // 更新实例运行状态
-          if (instanceData.value) {
-            instanceData.value.running = true
+        // 使用 SSE 方式调用启动
+        await startServer(
+          instanceName,
+          // onMessage 回调 - 接收实时进度消息
+          (message) => {
+            console.log('Start progress:', message)
+          },
+          // onError 回调 - 处理错误
+          (error) => {
+            Message.error(error.message || `实例 "${instanceName}" 启动失败`)
+            console.error('启动实例失败:', error)
+          },
+          // onComplete 回调 - 启动完成
+          () => {
+            Message.success(`实例 "${instanceName}" 启动成功`)
+            // 更新实例运行状态
+            if (instanceData.value) {
+              instanceData.value.running = true
+            }
           }
-        } else {
-          Message.error(data.error || `实例 "${instanceName}" 启动失败`)
-          console.error('启动实例失败:', data.error)
-        }
+        )
       } catch (error) {
         Message.error(`启动实例失败: ${error.message}`)
         console.error('启动实例失败:', error)
+      } finally {
+        instanceStartLoading.value = false
       }
     }
   })
@@ -714,6 +735,7 @@ const stopInstance = () => {
     okText: '确定',
     cancelText: '取消',
     onOk: async () => {
+      instanceStopLoading.value = true
       try {
         const data = await stopServer(instanceName)
         if (data.success) {
@@ -729,6 +751,8 @@ const stopInstance = () => {
       } catch (error) {
         Message.error(`停止实例失败: ${error.message}`)
         console.error('停止实例失败:', error)
+      } finally {
+        instanceStopLoading.value = false
       }
     }
   })
@@ -742,6 +766,7 @@ const restartInstance = () => {
     okText: '确定',
     cancelText: '取消',
     onOk: async () => {
+      instanceRestartLoading.value = true
       try {
         // 使用 SSE 方式调用重启
         restartServerSSE(
@@ -765,6 +790,8 @@ const restartInstance = () => {
       } catch (error) {
         console.error('重启实例失败:', error)
         Message.error('重启实例失败')
+      } finally {
+        instanceRestartLoading.value = false
       }
     }
   })
