@@ -459,6 +459,7 @@ func (s *APIServer) restartServer(c *gin.Context) {
 			}
 			return
 		}
+		defer serverActionsLock.Unlock()
 
 		// Broadcast server stopping event
 		s.BroadcastServerStopping(name)

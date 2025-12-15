@@ -52,7 +52,7 @@
             <span class="log-text">{{ log.msg }}</span>
           </div>
           <div v-if="logs.length === 0" class="log-empty">
-            暂无日志。点击"开始监听"按钮开始实时查看系统日志。
+            暂无日志。{{ isStreaming ? "" : '点击"开始监听"按钮开始实时查看系统日志。'}}
           </div>
         </div>
       </div>
