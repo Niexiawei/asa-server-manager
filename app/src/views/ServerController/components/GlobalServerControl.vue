@@ -261,9 +261,10 @@ const restartAllServersHandler = async () => {
 const updateServerHandler = async () => {
   try {
     // 通过接口获取最新的服务器运行状态
-    const instances = await listInstances()
+    const {data: {instances}} = await listInstances()
+    console.log(instances)
     const runningInstances = instances?.filter(i => i.running) || []
-    
+
     if (runningInstances.length > 0) {
       Modal.confirm({
         title: '无法更新',
