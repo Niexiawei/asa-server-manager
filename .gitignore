@@ -8,4 +8,4 @@ steamcmd/
 *.exe~
 logs/
 frp/
-syncthingmanage/
+syncthing/
