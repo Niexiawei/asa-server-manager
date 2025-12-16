@@ -7,3 +7,5 @@ steamcmd/
 .instance_log_mapping.json
 *.exe~
 logs/
+frp/
+syncthingmanage/
