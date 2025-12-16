@@ -4,7 +4,6 @@ import (
 	"asa-server/asaserver"
 	"asa-server/logger"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 )
@@ -227,70 +226,75 @@ func (s *APIServer) runRestartAllServersTask() {
 // runStartServerTask monitors a single server startup process
 func (s *APIServer) runStartServerTask(name string, broadcaster *TaskBroadcaster) {
 	defer s.instanceStartBroadcasters.Cleanup(name)
-
-	if err := asaserver.StartServer(name); err != nil {
-		logger.GetLogger().Errorf("failed to start server '%s': %v", name, err)
-		broadcaster.SendMessage(fmt.Sprintf("Error: Failed to start server: %v", err))
-		// Broadcast error event
-		s.BroadcastServerStartFailed(name, err)
-		return
-	}
-
-	// Monitor startup progress using log file
-	logPath, exists := asaserver.GetInstanceLogFile(name)
-	if !exists {
-		broadcaster.SendMessage("Error: Failed to get log file path")
-		s.BroadcastServerStartFailed(name, fmt.Errorf("failed to get log file path"))
-		return
-	}
-
-	// Check if log file exists with timeout
-	var logFileExists bool
-	for i := 0; i < 30; i++ {
-		if _, err := os.Stat(logPath); err == nil {
-			logFileExists = true
-			break
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-
-	if !logFileExists {
-		broadcaster.SendMessage("Error: Log file not found")
-		s.BroadcastServerStartFailed(name, fmt.Errorf("log file not found"))
-		return
-	}
-
+	startErr := make(chan error, 2)
 	// Tail log file and monitor for startup completion message
 	done := make(chan struct{})
 	startupSuccess := make(chan bool, 1)
+	gameLogPathChan := make(chan string, 1)
 
-	stopMonitoring := asaserver.TailLogFileWithLines(logPath, 100, func(line string) {
-		broadcaster.SendMessage(fmt.Sprintf("[startup] %s", line))
+	var (
+		stopMonitoring func()
+	)
 
-		fmt.Println(line)
-
-		// Check for successful startup message
-		if strings.Contains(line, "Server has completed startup and is now advertising for join") {
-			select {
-			case startupSuccess <- true:
-			case <-done:
-			}
+	defer func() {
+		close(startupSuccess)
+		close(done)
+		close(startErr)
+		if stopMonitoring != nil {
+			stopMonitoring()
 		}
-	})
+	}()
 
-	defer stopMonitoring()
+	go func() {
+		gameLog := func(path string) {
+			gameLogPathChan <- path
+		}
+		broadcaster.SendMessage(fmt.Sprintf("[startup] %s:%s", "starting server", name))
+		err := asaserver.StartServer(name, asaserver.WithSetGameLogPath(gameLog))
 
-	// Wait for startup to complete or timeout (120 seconds)
+		if err != nil {
+			logger.GetLogger().Errorf("failed to start server '%s': %v", name, err)
+			broadcaster.SendMessage(fmt.Sprintf("Error: Failed to start server: %v", err))
+			// Broadcast error event
+			s.BroadcastServerStartFailed(name, err)
+			startErr <- fmt.Errorf("failed to start server '%s': %w", name, err)
+			return
+		}
+	}()
+
+	go func() {
+		var logPath string
+		select {
+		case logPath = <-gameLogPathChan:
+		case <-time.After(5 * time.Minute):
+			startErr <- fmt.Errorf("get game log path timeout")
+			return
+		}
+
+		stopMonitoring = asaserver.TailLogFileWithLines(logPath, 0, func(line string) {
+			broadcaster.SendMessage(fmt.Sprintf("[startup] %s", line))
+			fmt.Println(line)
+			// Check for successful startup message
+			if strings.Contains(line, "Server has completed startup and is now advertising for join") {
+				select {
+				case startupSuccess <- true:
+				case <-done:
+				}
+			}
+		})
+	}()
+
 	select {
+	case err := <-startErr:
+		logger.GetLogger().Errorf("start Server %s fail err: %w", name, err)
+		return
 	case <-startupSuccess:
 		broadcaster.SendMessage("[COMPLETED] Server startup completed successfully")
 	case <-time.After(10 * time.Minute):
+		// Wait for startup to complete or timeout (10 Minute)
 		broadcaster.SendMessage("Error: Server startup timeout")
 	case <-done:
 		return
 	}
-
-	close(done)
-	// Broadcast server started event
 	s.BroadcastServerStarted(name)
 }

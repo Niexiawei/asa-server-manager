@@ -5,6 +5,7 @@ import (
 	"asa-server/win32api"
 	"bufio"
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"log"
@@ -434,11 +435,58 @@ func removeNotRunningServerLogMapper() error {
 	return nil
 }
 
+type StartServerOptions struct {
+	SetGameLogPath               func(path string)
+	GameInitializationSuccessful func(logPath string)
+	WaitServerCompleted          bool
+	ParentCtx                    context.Context
+}
+
+type StartServerOptionsFunc func(options *StartServerOptions)
+
+func WithSetGameLogPath(callback func(path string)) StartServerOptionsFunc {
+	return func(options *StartServerOptions) {
+		options.SetGameLogPath = callback
+	}
+}
+func WithGameInitializationSuccessful(callback func(path string)) StartServerOptionsFunc {
+	return func(options *StartServerOptions) {
+		options.GameInitializationSuccessful = callback
+	}
+}
+
+func WithWaitServerCompleted() StartServerOptionsFunc {
+	return func(options *StartServerOptions) {
+		options.WaitServerCompleted = true
+	}
+}
+func WithCtx(ctx context.Context) StartServerOptionsFunc {
+	return func(options *StartServerOptions) {
+		options.ParentCtx = ctx
+	}
+}
+
 // StartServer starts a server instance
-func StartServer(instanceName string) error {
+func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
+	opts := new(StartServerOptions)
+	opts.WaitServerCompleted = false
+	opts.ParentCtx = context.Background()
+	for _, o := range options {
+		o(opts)
+	}
+
+	ctx, cancel := context.WithCancel(opts.ParentCtx)
+	defer cancel()
+
 	var (
-		confReset func()
+		confReset      func()
+		startupSuccess = make(chan bool, 1)
+		pid            int
 	)
+
+	defer func() {
+		close(startupSuccess)
+	}()
 
 	if err := removeNotRunningServerLogMapper(); err != nil {
 		return err
@@ -536,6 +584,10 @@ func StartServer(instanceName string) error {
 		return fmt.Errorf("failed to get game log file path: %w", err)
 	}
 
+	if opts.SetGameLogPath != nil {
+		opts.SetGameLogPath(gameLogPath)
+	}
+
 	// Create the log file if it doesn't exist
 	if _, err := os.Stat(gameLogPath); os.IsNotExist(err) {
 		// Create the log file with empty content
@@ -556,6 +608,7 @@ func StartServer(instanceName string) error {
 			if err := SaveInstancePID(instanceName, c.Process.Pid); err != nil {
 				logger.GetLogger().Warnf("Failed to save PID for instance %s: %v", instanceName, err)
 			}
+			pid = c.Process.Pid
 		} else {
 			CleanConsoleOutput := func(r io.Reader, w io.Writer) error {
 				// 匹配 ANSI 转义序列以及上面提到的控制符
@@ -600,6 +653,7 @@ func StartServer(instanceName string) error {
 			if err := SaveInstancePID(instanceName, c.Process.Pid); err != nil {
 				logger.GetLogger().Warnf("Failed to save PID for instance %s: %v", instanceName, err)
 			}
+			pid = c.Process.Pid
 			go CleanConsoleOutput(pp, logWriter)
 			logger.GetLogger().Infof("[%s] Redirecting AsaApiLoader output to logger", instanceName)
 		}
@@ -612,15 +666,53 @@ func StartServer(instanceName string) error {
 		if err := SaveInstancePID(instanceName, cmd.Process.Pid); err != nil {
 			logger.GetLogger().Warnf("Failed to save PID for instance %s: %v", instanceName, err)
 		}
+		pid = cmd.Process.Pid
 	}
 
 	logger.GetLogger().Infof("Server started for instance: %s. It should be fully operational in approximately 60 seconds.", instanceName)
 	logger.GetLogger().Infof("Game log file: %s", gameLogPath)
-	time.Sleep(60 * time.Second)
-	confReset()
 	// Persist the log mapping for future restarts
 	if err := PersistLogMapping(); err != nil {
 		logger.GetLogger().Warnf("Failed to persist log mapping: %v", err)
+	}
+
+	if ctx.Err() != nil {
+		killGameServer(pid)
+	}
+
+	if opts.GameInitializationSuccessful != nil {
+		opts.GameInitializationSuccessful(gameLogPath)
+	}
+
+	if opts.WaitServerCompleted {
+		go func() {
+			if exited := waitGamePidExit(ctx, pid); exited {
+				cancel()
+			}
+		}()
+
+		TailLogFileWithLinesContext(ctx, gameLogPath, 0, func(line string) {
+			// Check for successful startup message
+			if strings.Contains(line, "Server has completed startup and is now advertising for join") {
+				startupSuccess <- true
+			}
+			if strings.Contains(line, "has successfully started!") {
+				confReset()
+			}
+		})
+
+	} else {
+		time.Sleep(60 * time.Second)
+		confReset()
+	}
+
+	if opts.WaitServerCompleted {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("start game server exited")
+		case <-startupSuccess:
+			return nil
+		}
 	}
 
 	return nil

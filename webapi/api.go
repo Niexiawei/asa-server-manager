@@ -391,6 +391,10 @@ func (s *APIServer) startServer(c *gin.Context) {
 	// Create and start broadcaster for this instance startup
 	broadcaster := s.instanceStartBroadcasters.Get(instanceName)
 
+	// Subscribe to startup broadcaster and stream updates
+	subscriber, unsubscribe := broadcaster.Subscribe()
+	defer unsubscribe()
+
 	if !broadcaster.IsRunning() {
 		if !broadcaster.Start() {
 			logger.GetLogger().Infof("Server '%s' is currently starting, please wait", instanceName)
@@ -399,10 +403,6 @@ func (s *APIServer) startServer(c *gin.Context) {
 			go s.runStartServerTask(instanceName, broadcaster)
 		}
 	}
-
-	// Subscribe to startup broadcaster and stream updates
-	subscriber, unsubscribe := broadcaster.Subscribe()
-	defer unsubscribe()
 
 	c.Stream(func(w io.Writer) bool {
 		select {

@@ -1,9 +1,13 @@
 package asaserver
 
 import (
+	"asa-server/logger"
+	"asa-server/win32api"
 	"bufio"
+	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -108,6 +112,23 @@ func TailLogFile(logPath string, printFunc func(string)) func() {
 	return func() {
 		close(stopChan)
 	}
+}
+
+func TailLogFileWithLinesContext(ctx context.Context, logPath string, lastNLines int, printFunc func(string)) {
+	if ctx.Err() != nil {
+		return
+	}
+	var (
+		stop func()
+	)
+	stop = TailLogFileWithLines(logPath, lastNLines, printFunc)
+
+	go func() {
+		select {
+		case <-ctx.Done():
+			stop()
+		}
+	}()
 }
 
 // TailLogFileWithLines monitors a log file in real-time asynchronously
@@ -324,4 +345,27 @@ func splitOnNewlineOrCR(data []byte, atEOF bool) (advance int, token []byte, err
 func dropSep(b []byte, sep byte) []byte {
 	// 直接返回 b（不包含 sep），如果想保留 sep 则改这里
 	return b
+}
+
+func waitGamePidExit(ctx context.Context, pid int) bool {
+	for {
+		select {
+		case <-ctx.Done():
+			return false
+			// Startup completed successfully via log detection
+		case <-time.After(2 * time.Second):
+			// Check if process is still running before timing out
+			if exited, _ := win32api.IsProcessExited(uint32(pid)); exited {
+				// Process is still running, consider it a success
+				return true
+			}
+		}
+	}
+}
+
+func killGameServer(pid int) {
+	if err := exec.Command("taskkill", "/PID", fmt.Sprintf("%d", pid)).Run(); err != nil {
+		logger.GetLogger().Warnf("failed to kill process PID %d: %s", pid, err.Error())
+		_ = exec.Command("taskkill", "/F", "/PID", fmt.Sprintf("%d", pid)).Run()
+	}
 }
