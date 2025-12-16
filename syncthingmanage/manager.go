@@ -1,6 +1,7 @@
 package syncthingmanage
 
 import (
+	"asa-server/processjob"
 	"bufio"
 	"context"
 	"embed"
@@ -22,14 +23,15 @@ var syncthingAssets embed.FS
 
 // SyncthingManager manages the syncthing process lifecycle
 type SyncthingManager struct {
-	runDir            string
-	syncthingPath     string
-	cmd               *exec.Cmd
-	mu                sync.Mutex
-	running           bool
-	startErr          error // Last start error
-	execDoneCtx       context.Context
-	execDoneCtxCancel func()
+	runDir        string
+	syncthingPath string
+	cmd           *exec.Cmd
+	mu            sync.RWMutex
+	running       bool
+	startErr      error // Last start error
+	Ctx           context.Context
+	cancel        func()
+	job           *processjob.ProcessJob
 }
 
 const (
@@ -91,47 +93,51 @@ func (m *SyncthingManager) Start() error {
 
 // asyncStart performs the actual process startup in background
 func (m *SyncthingManager) asyncStart() {
-	m.mu.Lock()
 	ctx, cancel := context.WithCancel(context.Background())
 	// Create new command
-	m.cmd = exec.CommandContext(ctx, m.syncthingPath, "serve", "--home", m.runDir, "--no-browser", "--no-restart")
-	m.execDoneCtx = ctx
-	m.execDoneCtxCancel = cancel
+	cmd := exec.Command(m.syncthingPath, "serve", "--home", m.runDir, "--no-browser", "--no-restart")
 	// Set up stdout/stderr to redirect to logger
-	m.cmd.Stdout = &LogWriter{tag: "[syncthing]", logFunc: logger.GetLogger().Infof}
-	m.cmd.Stderr = &LogWriter{tag: "[syncthing]", logFunc: logger.GetLogger().Errorf}
+	cmd.Stdout = &LogWriter{tag: "[syncthing]", logFunc: logger.GetLogger().Infof}
+	cmd.Stderr = &LogWriter{tag: "[syncthing]", logFunc: logger.GetLogger().Errorf}
 
-	// Start the process
-	if err := m.cmd.Start(); err != nil {
+	job, err := processjob.Start(ctx, cmd)
+	if err != nil {
 		m.startErr = err
 		m.cmd = nil
-		m.mu.Unlock()
+		cancel()
 		return
 	}
 
+	m.mu.Lock()
+	m.Ctx = ctx
+	m.job = job
+	m.cancel = cancel
+	m.running = true
+	m.startErr = nil
+	m.cmd = cmd
 	m.mu.Unlock()
 
 	// Monitor process in background to detect if it exits immediately
 	done := make(chan error, 1)
 	go func() {
-		done <- m.cmd.Wait()
+		done <- job.Wait()
 	}()
 
 	// Check if process is still running after startup
-	select {
-	case err := <-done:
-		// Process exited immediately
-		m.mu.Lock()
-		m.running = false
-		m.cmd = nil
-		m.startErr = fmt.Errorf("syncthing process exited immediately: %v", err)
-		logger.GetLogger().Infof("syncthing process exited err: %v", err)
-		m.mu.Unlock()
-	case <-time.After(500 * time.Millisecond):
-		// Process is still running
-		m.mu.Lock()
-		m.running = true
-		m.mu.Unlock()
+	for {
+		select {
+		case err := <-done:
+			m.mu.Lock()
+			m.running = false
+			m.cmd = nil
+			m.startErr = fmt.Errorf("syncthing process exited immediately: %v", err)
+			logger.GetLogger().Infof("syncthing process exited err: %v", err)
+			m.mu.Unlock()
+		case <-time.After(1000 * time.Millisecond):
+			m.mu.Lock()
+			m.running = true
+			m.mu.Unlock()
+		}
 	}
 }
 
@@ -145,7 +151,8 @@ func (m *SyncthingManager) Stop() error {
 		return fmt.Errorf("syncthing is not running")
 	}
 
-	m.execDoneCtxCancel()
+	m.cancel()
+	//m.job.Close()
 	m.running = false
 	m.cmd = nil
 	logger.GetLogger().Infof("syncthing stoped")
@@ -169,37 +176,18 @@ func (m *SyncthingManager) Restart() error {
 
 // IsRunning checks if syncthing is running
 func (m *SyncthingManager) IsRunning() bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
 	return m.running
 }
 
 // GetStartErr returns the last start error
 func (m *SyncthingManager) GetStartErr() error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
 	return m.startErr
 }
 
 // CheckStatus checks the actual running status of syncthing process
 // Updates running flag if process has exited or failed to start
 func (m *SyncthingManager) CheckStatus() bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	if !m.running || m.cmd == nil {
-		return false
-	}
-
-	// If ProcessState is nil, process hasn't exited yet
-	if m.cmd.ProcessState == nil {
-		return m.running
-	}
-
-	// Process has exited or failed
-	if m.cmd.ProcessState.Exited() {
-		m.running = false
-		m.cmd = nil
 		return false
 	}
 
