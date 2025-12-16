@@ -231,6 +231,16 @@ func (s *APIServer) BroadcastServerRestartFailed(instanceName string, err error)
 	})
 }
 
+func (s *APIServer) BroadcastServerGameLogPath(instanceName string, path string) {
+	s.sendEventToAll(ServerEvent{
+		EventType:    "server_game_log_path",
+		InstanceName: instanceName,
+		Timestamp:    time.Now().Unix(),
+		Message:      path,
+		Status:       "success",
+	})
+}
+
 // handleRCONEvents handles WebSocket connections for RCON commands
 func (s *APIServer) handleRCONEvents(c *gin.Context) {
 	conn, err := wsUpgrader.Upgrade(c.Writer, c.Request, nil)

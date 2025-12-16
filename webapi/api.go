@@ -346,6 +346,19 @@ func (s *APIServer) startServer(c *gin.Context) {
 	c.Header("Access-Control-Allow-Headers", "Content-Type")
 	flusher := c.Writer.(http.Flusher)
 
+	if !serverActionsLock.TryLock() {
+		response := gin.H{
+			"status":    "error",
+			"timestamp": time.Now().Format(time.RFC3339Nano),
+			"message":   "there are other services being started or stopped",
+		}
+		jsonData, _ := json.Marshal(response)
+		fmt.Fprintf(c.Writer, "data: %s\n\n", jsonData)
+		flusher.Flush()
+		return
+	}
+	defer serverActionsLock.Unlock()
+
 	// Check if server is already running first
 	running, err := asaserver.IsServerRunning(instanceName)
 	if err != nil {
@@ -505,6 +518,7 @@ func (s *APIServer) restartServer(c *gin.Context) {
 			}
 			return
 		}
+
 		defer serverActionsLock.Unlock()
 
 		// Broadcast server stopping event

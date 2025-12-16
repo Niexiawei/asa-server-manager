@@ -247,6 +247,7 @@ func (s *APIServer) runStartServerTask(name string, broadcaster *TaskBroadcaster
 
 	go func() {
 		gameLog := func(path string) {
+			s.BroadcastServerGameLogPath(name, path)
 			gameLogPathChan <- path
 		}
 		broadcaster.SendMessage(fmt.Sprintf("[startup] %s:%s", "starting server", name))
