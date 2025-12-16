@@ -423,9 +423,6 @@ func (s *APIServer) startServer(c *gin.Context) {
 			if !ok {
 				return false
 			}
-
-			fmt.Println("api:", msg)
-
 			// Format response with status, timestamp, and message
 			response := gin.H{
 				"status":    "starting",

@@ -7,7 +7,8 @@ export const serverStore = reactive({
   connected: false,
   connectionError: null,
   isReconnecting: false,
-  resourceInfo: new Map() // 存储每个实例的资源占用信息
+  resourceInfo: new Map(), // 存储每个实例的资源占用信息
+  gameLogPathEvent: new Map() // 存储游戏日志路径事件，用于自动开启日志监听
 })
 
 // WebSocket 事件处理函数
@@ -78,6 +79,16 @@ function handleServerEvent(event) {
         const instance = serverStore.instances.get(instance_name)
         instance.error = message || '重启失败'
         instance.message = `${instance_name} 重启失败: ${instance.error}`
+      }
+      break
+      
+    case 'server_game_log_path':
+      if (instance_name) {
+        serverStore.gameLogPathEvent.set(instance_name, {
+          path: message,
+          timestamp: Date.now()
+        })
+        console.log(`Game log path updated for ${instance_name}: ${message}`)
       }
       break
       

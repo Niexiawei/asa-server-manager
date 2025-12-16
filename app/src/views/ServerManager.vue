@@ -83,7 +83,7 @@
                       <resource-monitor
                           class="resource-info"
                           :instance-name="instance.name"
-                          :is-running="instance.isStartingOrRunning || false"
+                          :is-running="instance.running || false"
                       />
                     </div>
                   </template>
@@ -194,6 +194,7 @@ import {
 import {Modal, Button, Message} from '@arco-design/web-vue';
 import {IconCheck, IconClose} from '@arco-design/web-vue/es/icon';
 import {serverStore, updateInstancesInStore} from '@/store/serverStore.js'
+import {onServerEvent} from '@/utils/wsManager.js'
 import WSStatusIndicator from '@/components/WSStatusIndicator.vue'
 import LogViewer from '@/components/LogViewer.vue'
 import SyncConfigModal from '@/components/SyncConfigModal.vue'
@@ -436,15 +437,58 @@ watch(
     {deep: true}
 )
 
+// 监听游戏日志路径事件，自动开启日志监听
+watch(
+    () => serverStore.gameLogPathEvent,
+    (gameLogEvents) => {
+      // 检查是否有新的日志路径事件
+      gameLogEvents.forEach((eventData, instanceName) => {
+        // 如果当前选中的实例匹配，且日志窗已打开，则自动开启日志监听
+        if (instanceName === selectedInstanceName.value && logModalVisible.value) {
+          if (logViewerRef.value && !logViewerRef.value.isStreaming) {
+            console.log(`Auto starting log stream for instance: ${instanceName}`)
+            nextTick(() => {
+              logViewerRef.value.startLogStream()
+            })
+          }
+        }
+      })
+    },
+    {deep: true}
+)
+
 // 组件挂载时获取实例列表
 onMounted(() => {
   fetchInstances()
+  
+  // 监听游戏日志路径 WebSocket 事件
+  onServerEvent('server_game_log_path', (event) => {
+    console.log('Received server_game_log_path event:', event)
+    // 事件处理由 serverStore 中的 handleServerEvent 处理，该 watch 会自动触发
+  })
 })
 
 // 组件卸载时清理
 onUnmounted(() => {
   // WebSocket 会保持连接，其他组件可能需要它
 })
+
+// 监听日志窗口打开事件
+watch(
+    () => logModalVisible.value,
+    (visible) => {
+      if (visible && selectedInstanceName.value) {
+        // 窗口打开时，检查是否有未检处理的日志路径事件
+        const gameLogEvent = serverStore.gameLogPathEvent.get(selectedInstanceName.value)
+        if (gameLogEvent && logViewerRef.value && !logViewerRef.value.isStreaming) {
+          nextTick(() => {
+            console.log(`Window opened, auto starting log stream for: ${selectedInstanceName.value}`)
+            logViewerRef.value.startLogStream()
+          })
+        }
+      }
+    }
+)
 
 // 查看实例详情
 const viewInstanceDetail = (name) => {
