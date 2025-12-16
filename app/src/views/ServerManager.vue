@@ -83,7 +83,7 @@
                       <resource-monitor
                           class="resource-info"
                           :instance-name="instance.name"
-                          :is-running="instance.running || false"
+                          :is-running="instance.isStartingOrRunning || false"
                       />
                     </div>
                   </template>
@@ -419,7 +419,7 @@ const viewInstanceLogs = (name) => {
   selectedInstanceName.value = name
   logModalVisible.value = true
   let instance = instances.value.find(item => item.name == name)
-  if (instance?.running) {
+  if (instance?.isStartingOrRunning) {
     nextTick(() => {
       logViewerRef.value.startLogStream()
     })
@@ -430,9 +430,20 @@ const viewInstanceLogs = (name) => {
 watch(
     () => serverStore.instances,
     (newInstances) => {
-      // 当 WebSocket 接收到事件更新状态时，同步更新本地 instances 数组
-      const updatedInstances = Array.from(newInstances.values())
-      instances.value = updatedInstances
+      // 更新现有实例对象，避免数组引用变化导致重绘
+      newInstances.forEach((storeInstance, instanceName) => {
+        const localInstance = instances.value.find(inst => inst.name === instanceName)
+        if (localInstance) {
+          // 只更新状态字段，保持数组引用不变
+          Object.assign(localInstance, {
+            running: storeInstance.running,
+            status: storeInstance.status,
+            isStartingOrRunning: storeInstance.isStartingOrRunning,
+            message: storeInstance.message,
+            error: storeInstance.error
+          })
+        }
+      })
     },
     {deep: true}
 )

@@ -698,24 +698,24 @@ const startInstance = () => {
       try {
         // 使用 SSE 方式调用启动
         await startServer(
-          instanceName,
-          // onMessage 回调 - 接收实时进度消息
-          (message) => {
-            console.log('Start progress:', message)
-          },
-          // onError 回调 - 处理错误
-          (error) => {
-            Message.error(error.message || `实例 "${instanceName}" 启动失败`)
-            console.error('启动实例失败:', error)
-          },
-          // onComplete 回调 - 启动完成
-          () => {
-            Message.success(`实例 "${instanceName}" 启动成功`)
-            // 更新实例运行状态
-            if (instanceData.value) {
-              instanceData.value.running = true
+            instanceName,
+            // onMessage 回调 - 接收实时进度消息
+            (message) => {
+              console.log('Start progress:', message)
+            },
+            // onError 回调 - 处理错误
+            (error) => {
+              Message.error(error.message || `实例 "${instanceName}" 启动失败`)
+              console.error('启动实例失败:', error)
+            },
+            // onComplete 回调 - 启动完成
+            () => {
+              Message.success(`实例 "${instanceName}" 启动成功`)
+              // 更新实例运行状态
+              if (instanceData.value) {
+                instanceData.value.running = true
+              }
             }
-          }
         )
       } catch (error) {
         Message.error(`启动实例失败: ${error.message}`)
@@ -858,7 +858,7 @@ onMounted(async () => {
     instanceData.value = cachedStatus
   }
 
-  if (instanceData.value?.running) {
+  if (instanceData.value?.isStartingOrRunning) {
     setTimeout(() => {
       logViewerRef.value.startLogStream()
     }, 500)

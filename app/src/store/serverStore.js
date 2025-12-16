@@ -42,6 +42,7 @@ function handleServerEvent(event) {
         const instance = serverStore.instances.get(instance_name)
         instance.status = 'stopping'
         instance.message = `${instance_name} 正在停止...`
+        instance.isStartingOrRunning = false // 标记为已停止
       }
       break
       
@@ -71,6 +72,7 @@ function handleServerEvent(event) {
         const instance = serverStore.instances.get(instance_name)
         instance.error = message || '停止失败'
         instance.message = `${instance_name} 停止失败: ${instance.error}`
+        instance.isStartingOrRunning = false
       }
       break
       

@@ -150,7 +150,10 @@ const stopMonitoring = () => {
 // 监听运行状态变化
 watch(
     () => props.isRunning,
-    (newVal) => {
+    (newVal, oldValue) => {
+      if (newVal === oldValue) {
+        return
+      }
       if (newVal && !isMonitoring.value) {
         startMonitoring()
       } else if (!newVal && isMonitoring.value) {
