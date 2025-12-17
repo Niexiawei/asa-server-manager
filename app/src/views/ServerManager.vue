@@ -191,7 +191,7 @@ import {
   restartServerSSE,
   deleteInstance
 } from '@/apis/api.js'
-import {Modal, Button, Message} from '@arco-design/web-vue';
+import {Modal, Button, Message, Notification} from '@arco-design/web-vue';
 import {IconCheck, IconClose} from '@arco-design/web-vue/es/icon';
 import {serverStore, updateInstancesInStore} from '@/store/serverStore.js'
 import {onServerEvent} from '@/utils/wsManager.js'
@@ -298,9 +298,32 @@ const startInstance = async (name) => {
           // onMessage 回调 - 接收实时进度消息
           (message) => {
             console.log('Start progress:', message)
+            
+            // 检查启动失败的条件
+            if (message.status === 'start_failed' || 
+                (message.message && message.message.includes('[ERROR]'))) {
+              // 启动失败：设置实例状态为未启动
+              const instance = instances.value.find(inst => inst.name === name)
+              if (instance) {
+                instance.running = false
+              }
+              
+              // 显示不自动隐藏的通知
+              Notification.error({
+                title: '启动失败',
+                content: message.message || `实例 "${name}" 启动失败`,
+                duration: 0 // 0 表示不自动隐藏
+              })
+            }
           },
           // onError 回调 - 处理错误
           (error) => {
+            // 启动失败：设置实例状态为未启动
+            const instance = instances.value.find(inst => inst.name === name)
+            if (instance) {
+              instance.running = false
+            }
+            
             Message.error(error.message || `实例 "${name}" 启动失败`)
             console.error('启动实例失败:', error)
           },

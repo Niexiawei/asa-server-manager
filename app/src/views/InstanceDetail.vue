@@ -323,7 +323,7 @@ import {
 import {serverStore, getInstanceStatus} from '@/store/serverStore.js'
 import {onServerEvent} from '@/apis/api.js'
 import {IconLeft, IconEyeInvisible, IconEye, IconClose, IconMinus, IconPlus} from '@arco-design/web-vue/es/icon'
-import {Modal, Message} from '@arco-design/web-vue'
+import {Modal, Message, Notification} from '@arco-design/web-vue'
 
 // Monaco Editor 引用 - 已移至 ConfigEditor 组件
 const loading = ref(true)
@@ -702,9 +702,29 @@ const startInstance = () => {
             // onMessage 回调 - 接收实时进度消息
             (message) => {
               console.log('Start progress:', message)
+              // 检查启动失败的条件
+              if (message.status === 'start_failed' ||
+                  (message.message && message.message.includes('[ERROR]'))) {
+                // 启动失败：设置实例状态为未启动
+                if (instanceData.value) {
+                  instanceData.value.running = false
+                }
+
+                // 显示不自动隐藏的通知
+                Notification.error({
+                  title: '启动失败',
+                  content: message.message || `实例 "${instanceName}" 启动失败`,
+                  duration: 0 // 0 表示不自动隐藏
+                })
+              }
             },
             // onError 回调 - 处理错误
             (error) => {
+              // 启动失败：设置实例状态为未启动
+              if (instanceData.value) {
+                instanceData.value.running = false
+              }
+
               Message.error(error.message || `实例 "${instanceName}" 启动失败`)
               console.error('启动实例失败:', error)
             },

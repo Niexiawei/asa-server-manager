@@ -34,6 +34,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Check if running as Windows service and run service
+	isService, err := isWindowsService()
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	if err := asaserver.EnsureDirectories(); err != nil {
 		log.Fatal(err)
 	}
@@ -68,12 +75,6 @@ func main() {
 			},
 		},
 		Commands: []*cli.Command{
-			{
-				Name:      "manage",
-				Usage:     "Manage instance interactively",
-				ArgsUsage: "[instance_name]",
-				Action:    actions.ActionManage,
-			},
 			{
 				Name:  "update",
 				Usage: "Install or update the base server",
@@ -126,42 +127,10 @@ func main() {
 				Action:    actions.ActionRCON,
 			},
 			{
-				Name:      "delete",
-				Usage:     "Delete an instance",
-				ArgsUsage: "<instance_name>",
-				Action:    actions.ActionDelete,
-			},
-			{
-				Name:      "rename",
-				Usage:     "Rename an instance",
-				ArgsUsage: "<instance_name>",
-				Action:    actions.ActionRename,
-			},
-			{
 				Name:      "backup",
 				Usage:     "Create a backup of an instance world",
 				ArgsUsage: "<instance_name> <world_folder>",
 				Action:    actions.ActionBackup,
-			},
-			{
-				Name:      "restore",
-				Usage:     "Restore a backup to an instance",
-				ArgsUsage: "<instance_name> <backup_file>",
-				Flags: []cli.Flag{
-					&cli.BoolFlag{
-						Name:  "worldfile",
-						Usage: "Restore worldfile (SaveDir)",
-					},
-					&cli.BoolFlag{
-						Name:  "instance-config",
-						Usage: "Restore instance_config.ini",
-					},
-					&cli.BoolFlag{
-						Name:  "game-config",
-						Usage: "Restore game config files (Config directory)",
-					},
-				},
-				Action: actions.ActionRestore,
 			},
 			{
 				Name:   "start-all",
@@ -172,24 +141,6 @@ func main() {
 				Name:   "stop-all",
 				Usage:  "Stop all instances",
 				Action: actions.ActionStopAll,
-			},
-			{
-				Name:      "view-game",
-				Usage:     "View Game.ini configuration file for an instance",
-				ArgsUsage: "[instance_name]",
-				Action:    actions.ActionViewGameIni,
-			},
-			{
-				Name:      "view-game-user-settings",
-				Usage:     "View GameUserSettings.ini configuration file for an instance",
-				ArgsUsage: "[instance_name]",
-				Action:    actions.ActionViewGameUserSettings,
-			},
-			{
-				Name:      "sync-config",
-				Usage:     "Synchronize game config files from base server to instances",
-				ArgsUsage: "<instance_name> [instance_name2] [...]",
-				Action:    actions.ActionSyncGameConfig,
 			},
 			{
 				Name:   "api",
@@ -224,13 +175,6 @@ func main() {
 				},
 			},
 		},
-	}
-
-	// Check if running as Windows service and run service
-	isService, err := isWindowsService()
-
-	if err != nil {
-		log.Fatal(err)
 	}
 
 	if isService {

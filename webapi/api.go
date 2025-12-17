@@ -423,15 +423,7 @@ func (s *APIServer) startServer(c *gin.Context) {
 			if !ok {
 				return false
 			}
-			fmt.Println(msg)
 			// Format response with status, timestamp, and message
-			response := gin.H{
-				"status":    "starting",
-				"timestamp": time.Now().Format(time.RFC3339Nano),
-				"message":   msg,
-			}
-			jsonData, _ := json.Marshal(response)
-			fmt.Fprintf(w, "data: %s\n\n", jsonData)
 
 			// Check if startup completed
 			if strings.Contains(msg, "[COMPLETED]") {
@@ -448,7 +440,7 @@ func (s *APIServer) startServer(c *gin.Context) {
 
 			if strings.Contains(msg, "[ERROR]") {
 				startedResponse := gin.H{
-					"status":    "startFail",
+					"status":    "start_fail",
 					"timestamp": time.Now().Format(time.RFC3339Nano),
 					"message":   msg,
 				}
@@ -456,6 +448,14 @@ func (s *APIServer) startServer(c *gin.Context) {
 				fmt.Fprintf(w, "data: %s\n\n", startedData)
 				return false
 			}
+
+			response := gin.H{
+				"status":    "starting",
+				"timestamp": time.Now().Format(time.RFC3339Nano),
+				"message":   msg,
+			}
+			jsonData, _ := json.Marshal(response)
+			fmt.Fprintf(w, "data: %s\n\n", jsonData)
 
 			return true
 		case <-c.Request.Context().Done():

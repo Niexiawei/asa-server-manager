@@ -306,7 +306,7 @@ func (s *APIServer) runStartServerTask(name string, broadcaster *TaskBroadcaster
 		logger.GetLogger().Errorf("start Server %s fail err: %v", name, err)
 		return
 	case <-ctx.Done():
-		broadcaster.SendMessage("[ERROR]Server startup exited")
+		broadcaster.SendMessage("[ERROR] Server startup exited")
 		logger.GetLogger().Errorf("start Server %s exited", name)
 		s.BroadcastServerStartFailed(name, fmt.Errorf("start Server %s exited", name))
 		return
@@ -319,7 +319,7 @@ func (s *APIServer) runStartServerTask(name string, broadcaster *TaskBroadcaster
 		if err := asaserver.KillServer(name); err != nil {
 			logger.GetLogger().Errorf("kill server fail:%v", err)
 		}
-		broadcaster.SendMessage("[ERROR]Server startup timeout")
+		broadcaster.SendMessage("[ERROR] Server startup timeout")
 		logger.GetLogger().Errorf("Server startup timeout name:%s", name)
 		s.BroadcastServerStartFailed(name, fmt.Errorf("start Server %s timeout", name))
 		return
