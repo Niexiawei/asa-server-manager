@@ -347,7 +347,7 @@ func dropSep(b []byte, sep byte) []byte {
 	return b
 }
 
-func waitGamePidExit(ctx context.Context, pid int) bool {
+func WaitGamePidExit(ctx context.Context, pid int) bool {
 	for {
 		select {
 		case <-ctx.Done():

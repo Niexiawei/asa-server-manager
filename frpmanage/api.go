@@ -135,8 +135,6 @@ func StreamFRPStatus(c *gin.Context) {
 		ticker := time.NewTicker(1 * time.Second)
 		defer ticker.Stop()
 
-		lastStatus := ""
-
 		for {
 			select {
 			case <-ticker.C:
@@ -147,15 +145,10 @@ func StreamFRPStatus(c *gin.Context) {
 				} else if manager.CheckStatus() {
 					currentStatus = "running"
 				}
-
-				// Only send if status changed
-				if currentStatus != lastStatus {
-					lastStatus = currentStatus
-					select {
-					case statusChannel <- currentStatus:
-					case <-done:
-						return
-					}
+				select {
+				case statusChannel <- currentStatus:
+				case <-done:
+					return
 				}
 			case <-done:
 				return

@@ -150,6 +150,6 @@ func (isb *InstanceStartBroadcasters) Cleanup(instanceName string) {
 	defer isb.mu.Unlock()
 	if broadcaster, exists := isb.broadcasters[instanceName]; exists {
 		broadcaster.Stop()
-		delete(isb.broadcasters, instanceName)
+		//delete(isb.broadcasters, instanceName)
 	}
 }

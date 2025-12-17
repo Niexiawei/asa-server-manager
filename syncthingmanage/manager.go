@@ -4,6 +4,7 @@ import (
 	"asa-server/processjob"
 	"bufio"
 	"context"
+	"crypto/md5"
 	"embed"
 	"fmt"
 	"io"
@@ -56,6 +57,28 @@ func Initialize(basedir string) (string, error) {
 	data, err := syncthingAssets.ReadFile("syncthing.exe")
 	if err != nil {
 		return "", fmt.Errorf("failed to read embedded syncthing.exe: %v", err)
+	}
+
+	// Calculate MD5 of embedded file
+	embeddedMD5 := md5.Sum(data)
+
+	// Check if file already exists and compare MD5
+	if fileInfo, err := os.Stat(syncthingPath); err == nil && fileInfo.Mode().IsRegular() {
+		existingData, err := os.ReadFile(syncthingPath)
+		if err == nil {
+			existingMD5 := md5.Sum(existingData)
+			if existingMD5 == embeddedMD5 {
+				// MD5 matches, skip writing
+				logger.GetLogger().Infof("syncthing.exe MD5 matches, skipping write")
+				syncthingConfigDir = dir
+				globalManager = &SyncthingManager{
+					runDir:        dir,
+					syncthingPath: syncthingPath,
+					running:       false,
+				}
+				return dir, nil
+			}
+		}
 	}
 
 	// Write to file

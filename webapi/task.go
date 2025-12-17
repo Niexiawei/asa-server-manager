@@ -3,6 +3,7 @@ package webapi
 import (
 	"asa-server/asaserver"
 	"asa-server/logger"
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -231,6 +232,8 @@ func (s *APIServer) runStartServerTask(name string, broadcaster *TaskBroadcaster
 	done := make(chan struct{})
 	startupSuccess := make(chan bool, 1)
 	gameLogPathChan := make(chan string, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	var (
 		stopMonitoring func()
@@ -264,6 +267,20 @@ func (s *APIServer) runStartServerTask(name string, broadcaster *TaskBroadcaster
 	}()
 
 	go func() {
+		var err error
+		<-time.After(10 * time.Second)
+		cfg, err := asaserver.LoadInstanceConfig(name)
+		pid, err := asaserver.GetPIDByPort(cfg.Port)
+		if err != nil {
+			return
+		}
+		if exited := asaserver.WaitGamePidExit(ctx, pid); exited {
+			cancel()
+			logger.GetLogger().Infof("进程退出了,name:%s", name)
+		}
+	}()
+
+	go func() {
 		var logPath string
 		select {
 		case logPath = <-gameLogPathChan:
@@ -274,7 +291,6 @@ func (s *APIServer) runStartServerTask(name string, broadcaster *TaskBroadcaster
 
 		stopMonitoring = asaserver.TailLogFileWithLines(logPath, 0, func(line string) {
 			broadcaster.SendMessage(fmt.Sprintf("[startup] %s", line))
-			fmt.Println(line)
 			// Check for successful startup message
 			if strings.Contains(line, "Server has completed startup and is now advertising for join") {
 				select {
@@ -287,15 +303,29 @@ func (s *APIServer) runStartServerTask(name string, broadcaster *TaskBroadcaster
 
 	select {
 	case err := <-startErr:
-		logger.GetLogger().Errorf("start Server %s fail err: %w", name, err)
+		logger.GetLogger().Errorf("start Server %s fail err: %v", name, err)
+		return
+	case <-ctx.Done():
+		broadcaster.SendMessage("[ERROR]Server startup exited")
+		logger.GetLogger().Errorf("start Server %s exited", name)
+		s.BroadcastServerStartFailed(name, fmt.Errorf("start Server %s exited", name))
 		return
 	case <-startupSuccess:
 		broadcaster.SendMessage("[COMPLETED] Server startup completed successfully")
-	case <-time.After(10 * time.Minute):
-		// Wait for startup to complete or timeout (10 Minute)
-		broadcaster.SendMessage("Error: Server startup timeout")
+	case <-time.After(5 * time.Minute):
+		// Wait for startup to complete or timeout (5 Minute)
+		//TODO
+		//超时强制杀掉进程
+		if err := asaserver.KillServer(name); err != nil {
+			logger.GetLogger().Errorf("kill server fail:%v", err)
+		}
+		broadcaster.SendMessage("[ERROR]Server startup timeout")
+		logger.GetLogger().Errorf("Server startup timeout name:%s", name)
+		s.BroadcastServerStartFailed(name, fmt.Errorf("start Server %s timeout", name))
+		return
 	case <-done:
 		return
 	}
+
 	s.BroadcastServerStarted(name)
 }

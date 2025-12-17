@@ -3,6 +3,7 @@ package frpmanage
 import (
 	"bufio"
 	"context"
+	"crypto/md5"
 	"embed"
 	"fmt"
 	"io"
@@ -54,6 +55,28 @@ func Initialize(basedir string) (string, error) {
 	data, err := frpcAssets.ReadFile("frpc.exe")
 	if err != nil {
 		return "", fmt.Errorf("failed to read embedded frpc.exe: %v", err)
+	}
+
+	// Calculate MD5 of embedded file
+	embeddedMD5 := md5.Sum(data)
+
+	// Check if file already exists and compare MD5
+	if fileInfo, err := os.Stat(frpcPath); err == nil && fileInfo.Mode().IsRegular() {
+		existingData, err := os.ReadFile(frpcPath)
+		if err == nil {
+			existingMD5 := md5.Sum(existingData)
+			if existingMD5 == embeddedMD5 {
+				// MD5 matches, skip writing
+				logger.GetLogger().Infof("frpc.exe MD5 matches, skipping write")
+				frpConfigDir = dir
+				globalManager = &FrpcManager{
+					runDir:   dir,
+					frpcPath: frpcPath,
+					running:  false,
+				}
+				return dir, nil
+			}
+		}
 	}
 
 	// Write to file

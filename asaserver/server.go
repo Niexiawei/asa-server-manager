@@ -686,7 +686,7 @@ func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
 
 	if opts.WaitServerCompleted {
 		go func() {
-			if exited := waitGamePidExit(ctx, pid); exited {
+			if exited := WaitGamePidExit(ctx, pid); exited {
 				cancel()
 			}
 		}()
@@ -817,6 +817,18 @@ func StopServer(instanceName string) error {
 	}
 
 	return nil
+}
+
+func KillServer(instanceName string) error {
+	cfg, err := LoadInstanceConfig(instanceName)
+	if err != nil {
+		return err
+	}
+	pid, err := GetPIDByPort(cfg.Port)
+	if err != nil {
+		return err
+	}
+	return exec.Command("taskkill", "/F", "/PID", fmt.Sprintf("%d", pid)).Run()
 }
 
 // RestartServer restarts a server instance
