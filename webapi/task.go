@@ -268,10 +268,11 @@ func (s *APIServer) runStartServerTask(name string, broadcaster *TaskBroadcaster
 
 	go func() {
 		var err error
-		<-time.After(10 * time.Second)
+		<-time.After(2 * time.Second)
 		cfg, err := asaserver.LoadInstanceConfig(name)
 		pid, err := asaserver.GetPIDByPort(cfg.Port)
 		if err != nil {
+			cancel()
 			return
 		}
 		if exited := asaserver.WaitGamePidExit(ctx, pid); exited {

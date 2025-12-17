@@ -34,10 +34,6 @@ func (p *program) Start(s service.Service) error {
 	// Create API server
 	p.apiServer = webapi.NewAPIServer()
 
-	// Start the API server in a separate goroutine
-	ctx, cancel := context.WithCancel(context.Background())
-	p.cancel = cancel
-
 	if frp := frpmanage.GetGlobalManager(); frp != nil {
 		if err := frp.Start(); err != nil {
 			log.Printf("frp start err :%v \n", err)
@@ -48,7 +44,7 @@ func (p *program) Start(s service.Service) error {
 		// Wait a bit for the service to be fully initialized
 		time.Sleep(2 * time.Second)
 
-		if err := p.apiServer.StartWithContext(ctx); err != nil && !errors.Is(err, context.Canceled) {
+		if err := p.apiServer.Start(); err != nil && !errors.Is(err, context.Canceled) {
 			log.Printf("Failed to start API server: %v\n", err)
 		}
 	}()
@@ -59,18 +55,13 @@ func (p *program) Start(s service.Service) error {
 // Stop stops the service
 func (p *program) Stop(s service.Service) error {
 	log.Printf("Stopping %s service \n", ServiceName)
-
-	if frp := frpmanage.GetGlobalManager(); frp != nil {
-		if err := frp.Stop(); err != nil {
-			log.Printf("frp start err :%v \n", err)
-		}
-	}
-
 	// Cancel the context to gracefully shutdown API server
 	if p.cancel != nil {
 		p.cancel()
 	}
-
+	if err := p.apiServer.Stop(); err != nil {
+		log.Fatal(err)
+	}
 	// Give it a moment to shut down gracefully
 	time.Sleep(1 * time.Second)
 	return nil

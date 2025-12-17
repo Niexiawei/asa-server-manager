@@ -725,7 +725,13 @@ const startInstance = () => {
                 instanceData.value.running = false
               }
 
-              Message.error(error.message || `实例 "${instanceName}" 启动失败`)
+              Notification.error({
+                title: `实例 "${instanceName}" 启动失败`,
+                content: error.message || `实例 "${instanceName}" 启动失败`,
+                duration: 0, // 0 表示不自动隐藏
+                closable: true
+              })
+
               console.error('启动实例失败:', error)
             },
             // onComplete 回调 - 启动完成

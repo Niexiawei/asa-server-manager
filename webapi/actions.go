@@ -2,6 +2,7 @@ package webapi
 
 import (
 	"asa-server/app"
+	"asa-server/asaserver"
 	"asa-server/frpmanage"
 	"asa-server/logger"
 	"asa-server/syncthingmanage"
@@ -13,6 +14,7 @@ import (
 	"net/http"
 	"os/signal"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/gin-contrib/cors"
@@ -34,6 +36,9 @@ type APIServer struct {
 	stopBroadcaster           *TaskBroadcaster
 	restartBroadcaster        *TaskBroadcaster
 	instanceStartBroadcasters *InstanceStartBroadcasters // Per-instance startup broadcasters
+	serverCtx                 context.Context
+	serverCtxStop             func()
+	serverDone                chan struct{}
 }
 
 var serverActionsLock sync.Mutex
@@ -44,9 +49,11 @@ var globalAPIServer *APIServer
 
 // NewAPIServer creates a new API server instance
 func NewAPIServer() *APIServer {
+	InitializationBasicComponents()
 	gin.SetMode(gin.ReleaseMode)
 	engine := gin.Default()
 	engine.Use(cors.Default())
+	ctx, cancel := context.WithCancel(context.Background())
 	server := &APIServer{
 		engine:                    engine,
 		port:                      ApiServerPort,
@@ -56,11 +63,13 @@ func NewAPIServer() *APIServer {
 		stopBroadcaster:           NewTaskBroadcaster(),
 		restartBroadcaster:        NewTaskBroadcaster(),
 		instanceStartBroadcasters: NewInstanceStartBroadcasters(),
+		serverCtx:                 ctx,
+		serverCtxStop:             cancel,
+		serverDone:                make(chan struct{}, 1),
 	}
 
 	// Setup routes
 	server.setupRoutes()
-
 	// Set global API server instance
 	globalAPIServer = server
 
@@ -76,8 +85,6 @@ func (s *APIServer) Start() error {
 			logger.GetLogger().Errorf("Failed to start frpc: %v", err)
 		}
 	}
-	ctx, cancel := signal.NotifyContext(context.Background())
-	defer cancel()
 	// Start listening on port
 	addr := fmt.Sprintf(":%d", s.port)
 	srv := &http.Server{
@@ -88,23 +95,22 @@ func (s *APIServer) Start() error {
 	go func() {
 		// service connections
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			logger.GetLogger().Errorf("Failed to listen and serve: %v", err)
 			log.Fatalf("listen: %s\n", err)
 		}
 	}()
 
 	logger.GetStdout().Infof("Starting API server on %s", addr)
-	<-ctx.Done()
-
-	if err := s.Stop(); err != nil {
-		log.Println("frp stop err:", err)
-	}
+	log.Printf("Starting API server on %s \n", addr)
+	<-s.serverCtx.Done()
 	log.Println("Shutdown Server ...")
-	ctx2, cancel2 := context.WithTimeout(context.Background(), 30*time.Second)
-	cancel2()
-	if err := srv.Shutdown(ctx2); err != nil {
+	shutdownCtx, shutdowncancel := context.WithTimeout(context.Background(), 30*time.Second)
+	shutdowncancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Println("Server Shutdown:", err)
 	}
 	log.Println("Server exiting")
+	s.serverDone <- struct{}{}
 	return nil
 }
 
@@ -118,7 +124,8 @@ func (s *APIServer) Stop() error {
 			return err
 		}
 	}
-
+	s.serverCtxStop()
+	<-s.serverDone
 	return nil
 }
 
@@ -222,36 +229,30 @@ func (s *APIServer) setupRoutes() {
 	})
 }
 
-// StartWithContext starts the API server with context support for graceful shutdown
-func (s *APIServer) StartWithContext(ctx context.Context) error {
-	addr := fmt.Sprintf(":%d", s.port)
-	logger.GetLogger().Infof("API server on http://localhost%s", addr)
-
-	// Create HTTP server
-	server := &http.Server{
-		Addr:    addr,
-		Handler: s.engine,
+func InitializationBasicComponents() {
+	// Initialize frpc manager
+	if _, err := frpmanage.Initialize(asaserver.BaseDir); err != nil {
+		log.Fatal(err)
 	}
-
-	// Start server in background
-	go func() {
-		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			logger.GetLogger().Errorf("API server error: %v", err)
-		}
-	}()
-
-	// Wait for context cancellation
-	<-ctx.Done()
-
-	// Gracefully shutdown the server
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	return server.Shutdown(shutdownCtx)
+	// Initialize syncthing manager
+	if _, err := syncthingmanage.Initialize(asaserver.BaseDir); err != nil {
+		log.Fatal(err)
+	}
 }
 
 // ActionAPI starts the HTTP API server
 func ActionAPI(ctx context.Context, cmd *cli.Command) error {
 	logger.SetLogMode(logger.HttpApiMode)
 	apiServer := NewAPIServer()
-	return apiServer.Start()
+	go func() {
+		if err := apiServer.Start(); err != nil {
+			log.Fatal(err)
+		}
+	}()
+
+	ctx2, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+
+	<-ctx2.Done()
+	return apiServer.Stop()
 }

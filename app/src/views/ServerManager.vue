@@ -12,10 +12,10 @@
         <a-empty v-if="instances.length === 0" description="暂无实例，请创建新实例"/>
         <div v-else class="instance-list scrollbar">
           <masonry-wall
-            :items="instances"
-            :ssr-columns="2"
-            :column-width="800"
-            :gap="10"
+              :items="instances"
+              :ssr-columns="2"
+              :column-width="800"
+              :gap="10"
           >
             <template #default="{ item: instance }">
               <a-card
@@ -290,52 +290,41 @@ const startInstance = async (name) => {
     onOk: async () => {
       // 设置 loading 状态
       instanceLoadingMap.value.set(name, true)
-      
+
       try {
         // 使用 SSE 方式调用启动
         await startServer(
-          name,
-          // onMessage 回调 - 接收实时进度消息
-          (message) => {
-            console.log('Start progress:', message)
-            
-            // 检查启动失败的条件
-            if (message.status === 'start_failed' || 
-                (message.message && message.message.includes('[ERROR]'))) {
+            name,
+            // onMessage 回调 - 接收实时进度消息
+            (message) => {
+              console.log('Start progress:', message)
+            },
+            // onError 回调 - 处理错误
+            (error) => {
               // 启动失败：设置实例状态为未启动
               const instance = instances.value.find(inst => inst.name === name)
               if (instance) {
                 instance.running = false
               }
-              
-              // 显示不自动隐藏的通知
+
               Notification.error({
-                title: '启动失败',
-                content: message.message || `实例 "${name}" 启动失败`,
-                duration: 0 // 0 表示不自动隐藏
+                title: `实例 "${name}" 启动失败`,
+                content: error.message || `实例 "${name}" 启动失败`,
+                duration: 0, // 0 表示不自动隐藏
+                closable: true
               })
+
+              console.error('启动实例失败:', error)
+            },
+            // onComplete 回调 - 启动完成
+            () => {
+              Message.success(`实例 "${name}" 启动成功`)
+              // 更新本地状态
+              const instance = instances.value.find(inst => inst.name === name)
+              if (instance) {
+                instance.running = true
+              }
             }
-          },
-          // onError 回调 - 处理错误
-          (error) => {
-            // 启动失败：设置实例状态为未启动
-            const instance = instances.value.find(inst => inst.name === name)
-            if (instance) {
-              instance.running = false
-            }
-            
-            Message.error(error.message || `实例 "${name}" 启动失败`)
-            console.error('启动实例失败:', error)
-          },
-          // onComplete 回调 - 启动完成
-          () => {
-            Message.success(`实例 "${name}" 启动成功`)
-            // 更新本地状态
-            const instance = instances.value.find(inst => inst.name === name)
-            if (instance) {
-              instance.running = true
-            }
-          }
         )
       } catch (error) {
         Message.error(`启动实例失败: ${error.message}`)
@@ -494,7 +483,7 @@ watch(
 // 组件挂载时获取实例列表
 onMounted(() => {
   fetchInstances()
-  
+
   // 监听游戏日志路径 WebSocket 事件
   onServerEvent('server_game_log_path', (event) => {
     console.log('Received server_game_log_path event:', event)

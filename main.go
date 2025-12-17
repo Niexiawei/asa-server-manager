@@ -3,9 +3,7 @@ package main
 import (
 	"asa-server/actions"
 	"asa-server/asaserver"
-	"asa-server/frpmanage"
 	"asa-server/logger"
-	"asa-server/syncthingmanage"
 	"asa-server/webapi"
 	"asa-server/winservice"
 	"context"
@@ -48,15 +46,6 @@ func main() {
 	logger.InitLoggerWithBaseDir(asaserver.BaseDir)
 	// Initialize log mapping from persistent storage
 	if err := asaserver.InitializeLogMapping(); err != nil {
-		log.Fatal(err)
-	}
-
-	// Initialize frpc manager
-	if _, err := frpmanage.Initialize(asaserver.BaseDir); err != nil {
-		log.Fatal(err)
-	}
-
-	if _, err := syncthingmanage.Initialize(asaserver.BaseDir); err != nil {
 		log.Fatal(err)
 	}
 

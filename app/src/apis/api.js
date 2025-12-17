@@ -105,7 +105,7 @@ export async function startServer(name, onMessage, onError, onComplete) {
     const processor = createSSEStreamProcessor((content) => {
       try {
         const data = JSON.parse(content)
-        if (data.status === 'error') {
+        if (data.status === 'error' || data.status === 'start_failed') {
           hasError = true
           if (onError) {
             onError(new Error(data.message))
