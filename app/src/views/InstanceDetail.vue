@@ -703,20 +703,6 @@ const startInstance = () => {
             (message) => {
               console.log('Start progress:', message)
               // 检查启动失败的条件
-              if (message.status === 'start_failed' ||
-                  (message.message && message.message.includes('[ERROR]'))) {
-                // 启动失败：设置实例状态为未启动
-                if (instanceData.value) {
-                  instanceData.value.running = false
-                }
-
-                // 显示不自动隐藏的通知
-                Notification.error({
-                  title: '启动失败',
-                  content: message.message || `实例 "${instanceName}" 启动失败`,
-                  duration: 0 // 0 表示不自动隐藏
-                })
-              }
             },
             // onError 回调 - 处理错误
             (error) => {

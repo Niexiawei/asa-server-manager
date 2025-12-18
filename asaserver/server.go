@@ -440,6 +440,7 @@ type StartServerOptions struct {
 	GameInitializationSuccessful func(logPath string)
 	WaitServerCompleted          bool
 	ParentCtx                    context.Context
+	SetPid                       func(pid int)
 }
 
 type StartServerOptionsFunc func(options *StartServerOptions)
@@ -463,6 +464,12 @@ func WithWaitServerCompleted() StartServerOptionsFunc {
 func WithCtx(ctx context.Context) StartServerOptionsFunc {
 	return func(options *StartServerOptions) {
 		options.ParentCtx = ctx
+	}
+}
+
+func WithSetPid(callback func(pid int)) StartServerOptionsFunc {
+	return func(options *StartServerOptions) {
+		options.SetPid = callback
 	}
 }
 
@@ -678,6 +685,10 @@ func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
 
 	if ctx.Err() != nil {
 		killGameServer(pid)
+	}
+
+	if opts.SetPid != nil {
+		opts.SetPid(pid)
 	}
 
 	if opts.GameInitializationSuccessful != nil {

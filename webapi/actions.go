@@ -121,7 +121,12 @@ func (s *APIServer) Stop() error {
 	if frpcMgr != nil {
 		if err := frpcMgr.Stop(); err != nil {
 			logger.GetLogger().Warnf("Error stopping frpc: %v", err)
-			return err
+		}
+	}
+	syncthingMgr := syncthingmanage.GetGlobalManager()
+	if syncthingMgr != nil {
+		if err := syncthingMgr.Stop(); err != nil {
+			logger.GetLogger().Warnf("Error stopping syncthing: %v", err)
 		}
 	}
 	s.serverCtxStop()

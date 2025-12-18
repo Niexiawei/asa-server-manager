@@ -1,6 +1,7 @@
 package syncthingmanage
 
 import (
+	"asa-server/common"
 	"asa-server/processjob"
 	"bufio"
 	"context"
@@ -33,6 +34,7 @@ type SyncthingManager struct {
 	Ctx           context.Context
 	cancel        func()
 	job           *processjob.ProcessJob
+	cmdPid        int
 }
 
 const (
@@ -138,17 +140,32 @@ func (m *SyncthingManager) asyncStart() {
 	m.running = true
 	m.startErr = nil
 	m.cmd = cmd
+	m.cmdPid = cmd.Process.Pid
 	m.mu.Unlock()
 
 	// Monitor process in background to detect if it exits immediately
 	done := make(chan error, 1)
+
 	go func() {
 		done <- job.Wait()
+	}()
+
+	go func() {
+		if exited := common.WaitGamePidExit(ctx, m.cmdPid); exited {
+			fmt.Println("syncthing process exited")
+			cancel()
+			job.Close()
+		}
 	}()
 
 	// Check if process is still running after startup
 	for {
 		select {
+		case <-ctx.Done():
+			m.mu.Lock()
+			m.running = false
+			m.mu.Unlock()
+			return
 		case err := <-done:
 			m.mu.Lock()
 			m.running = false
@@ -156,6 +173,7 @@ func (m *SyncthingManager) asyncStart() {
 			m.startErr = fmt.Errorf("syncthing process exited immediately: %v", err)
 			logger.GetLogger().Infof("syncthing process exited err: %v", err)
 			m.mu.Unlock()
+			return
 		case <-time.After(1000 * time.Millisecond):
 			m.mu.Lock()
 			m.running = true
@@ -175,7 +193,7 @@ func (m *SyncthingManager) Stop() error {
 	}
 
 	m.cancel()
-	//m.job.Close()
+	m.job.Close()
 	m.running = false
 	m.cmd = nil
 	logger.GetLogger().Infof("syncthing stoped")

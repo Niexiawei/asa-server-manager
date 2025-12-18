@@ -297,7 +297,7 @@ const startInstance = async (name) => {
             name,
             // onMessage 回调 - 接收实时进度消息
             (message) => {
-              console.log('Start progress:', message)
+              //console.log('Start progress:', message)
             },
             // onError 回调 - 处理错误
             (error) => {

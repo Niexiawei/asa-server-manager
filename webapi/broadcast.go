@@ -1,6 +1,8 @@
 package webapi
 
-import "sync"
+import (
+	"sync"
+)
 
 // UpdateProgressWriter writes progress messages to a broadcaster
 type UpdateProgressWriter struct {
@@ -35,6 +37,26 @@ func (tb *TaskBroadcaster) Start() bool {
 	if tb.running {
 		return false
 	}
+
+	// Always recreate msgChan when starting - this ensures we have a fresh channel
+	// This fixes the "send on closed channel" panic when restarting a task
+	if tb.msgChan != nil {
+		// Close the old channel if it's not nil
+		close(tb.msgChan)
+	}
+	tb.msgChan = make(chan string, 100)
+
+	// Clear subscribers map and ensure it's initialized
+	if tb.subscribers == nil {
+		tb.subscribers = make(map[chan<- string]bool)
+	} else {
+		// Close all remaining subscriber channels and clear the map in one loop
+		for subscriber := range tb.subscribers {
+			close(subscriber)
+			delete(tb.subscribers, subscriber)
+		}
+	}
+
 	tb.running = true
 	// Start the broadcaster goroutine
 	go tb.broadcast()
@@ -44,16 +66,19 @@ func (tb *TaskBroadcaster) Start() bool {
 // SendMessage sends a message to all subscribers
 func (tb *TaskBroadcaster) SendMessage(msg string) {
 	tb.mu.RLock()
-	if !tb.running {
-		tb.mu.RUnlock()
-		return
-	}
+	running := tb.running
 	tb.mu.RUnlock()
 
+	if !running {
+		return
+	}
+
+	// Use non-blocking send to avoid panics on closed channel
 	select {
 	case tb.msgChan <- msg:
+
 	default:
-		// Channel is full, skip
+		// Channel is full or closed, skip
 	}
 }
 
@@ -85,27 +110,48 @@ func (tb *TaskBroadcaster) Subscribe() (chan string, func()) {
 func (tb *TaskBroadcaster) Stop() {
 	tb.mu.Lock()
 	defer tb.mu.Unlock()
+
+	// Only stop if we're actually running
+	if !tb.running {
+		return
+	}
+
 	tb.running = false
-	close(tb.msgChan)
-	// Close all subscriber channels
+
+	// Close the message channel
+	if tb.msgChan != nil {
+		close(tb.msgChan)
+	}
+
+	// Close all subscriber channels and clear the map
 	for subscriber := range tb.subscribers {
 		delete(tb.subscribers, subscriber)
 		close(subscriber)
 	}
+	// Clear the subscribers map to ensure it's empty for the next run
+	// This isn't strictly necessary since we delete each entry, but it's safe
+	tb.subscribers = make(map[chan<- string]bool)
 }
 
 // broadcast distributes messages to all subscribers
 func (tb *TaskBroadcaster) broadcast() {
 	for msg := range tb.msgChan {
 		tb.mu.RLock()
+		// Create a copy of subscribers to avoid issues if map changes during iteration
+		subscribers := make([]chan<- string, 0, len(tb.subscribers))
 		for subscriber := range tb.subscribers {
+			subscribers = append(subscribers, subscriber)
+		}
+		tb.mu.RUnlock()
+
+		// Send message to all subscribers with non-blocking send
+		for _, subscriber := range subscribers {
 			select {
 			case subscriber <- msg:
 			default:
-				// Skip if channel is full
+				// Skip if channel is full or closed
 			}
 		}
-		tb.mu.RUnlock()
 	}
 }
 
@@ -150,6 +196,6 @@ func (isb *InstanceStartBroadcasters) Cleanup(instanceName string) {
 	defer isb.mu.Unlock()
 	if broadcaster, exists := isb.broadcasters[instanceName]; exists {
 		broadcaster.Stop()
-		//delete(isb.broadcasters, instanceName)
+		delete(isb.broadcasters, instanceName) // Actually remove the broadcaster after stopping
 	}
 }

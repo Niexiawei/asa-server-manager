@@ -232,6 +232,7 @@ func (s *APIServer) runStartServerTask(name string, broadcaster *TaskBroadcaster
 	done := make(chan struct{})
 	startupSuccess := make(chan bool, 1)
 	gameLogPathChan := make(chan string, 1)
+	gamePidChan := make(chan int, 1)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -253,8 +254,16 @@ func (s *APIServer) runStartServerTask(name string, broadcaster *TaskBroadcaster
 			s.BroadcastServerGameLogPath(name, path)
 			gameLogPathChan <- path
 		}
+
+		setPid := func(pid int) {
+			gamePidChan <- pid
+			broadcaster.SendMessage(fmt.Sprintf("Starting game server pid: %d", pid))
+		}
+
 		broadcaster.SendMessage(fmt.Sprintf("[startup] %s:%s", "starting server", name))
-		err := asaserver.StartServer(name, asaserver.WithSetGameLogPath(gameLog))
+		err := asaserver.StartServer(name, asaserver.WithSetGameLogPath(gameLog),
+			asaserver.WithSetPid(setPid),
+		)
 
 		if err != nil {
 			logger.GetLogger().Errorf("failed to start server '%s': %v", name, err)
@@ -267,14 +276,19 @@ func (s *APIServer) runStartServerTask(name string, broadcaster *TaskBroadcaster
 	}()
 
 	go func() {
-		var err error
-		<-time.After(2 * time.Second)
-		cfg, err := asaserver.LoadInstanceConfig(name)
-		pid, err := asaserver.GetPIDByPort(cfg.Port)
-		if err != nil {
+		var pid int
+		select {
+		case <-time.After(10 * time.Second):
 			cancel()
 			return
+		case _pid, ok := <-gamePidChan:
+			if !ok {
+				cancel()
+				return
+			}
+			pid = _pid
 		}
+
 		if exited := asaserver.WaitGamePidExit(ctx, pid); exited {
 			cancel()
 			logger.GetLogger().Infof("进程退出了,name:%s", name)
@@ -327,6 +341,5 @@ func (s *APIServer) runStartServerTask(name string, broadcaster *TaskBroadcaster
 	case <-done:
 		return
 	}
-
 	s.BroadcastServerStarted(name)
 }

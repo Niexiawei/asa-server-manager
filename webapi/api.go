@@ -404,10 +404,6 @@ func (s *APIServer) startServer(c *gin.Context) {
 	// Create and start broadcaster for this instance startup
 	broadcaster := s.instanceStartBroadcasters.Get(instanceName)
 
-	// Subscribe to startup broadcaster and stream updates
-	subscriber, unsubscribe := broadcaster.Subscribe()
-	defer unsubscribe()
-
 	if !broadcaster.IsRunning() {
 		if !broadcaster.Start() {
 			logger.GetLogger().Infof("Server '%s' is currently starting, please wait", instanceName)
@@ -416,6 +412,10 @@ func (s *APIServer) startServer(c *gin.Context) {
 			go s.runStartServerTask(instanceName, broadcaster)
 		}
 	}
+
+	// Subscribe to startup broadcaster and stream updates
+	subscriber, unsubscribe := broadcaster.Subscribe()
+	defer unsubscribe()
 
 	c.Stream(func(w io.Writer) bool {
 		select {
@@ -440,7 +440,7 @@ func (s *APIServer) startServer(c *gin.Context) {
 
 			if strings.Contains(msg, "[ERROR]") {
 				startedResponse := gin.H{
-					"status":    "start_fail",
+					"status":    "start_failed",
 					"timestamp": time.Now().Format(time.RFC3339Nano),
 					"message":   msg,
 				}
@@ -579,11 +579,7 @@ func (s *APIServer) startAllServers(c *gin.Context) {
 	c.Header("Access-Control-Allow-Origin", "*")
 	c.Header("Access-Control-Allow-Headers", "Content-Type")
 
-	// Subscribe to start progress
-	subscriber, unsubscribe := s.startBroadcaster.Subscribe()
-	defer unsubscribe()
-
-	// Check if task is already running
+	// Check if task is already running and start if needed
 	if !s.startBroadcaster.IsRunning() {
 		if !s.startBroadcaster.Start() {
 			logger.GetLogger().Infof("Start all servers task already started by another request")
@@ -592,6 +588,10 @@ func (s *APIServer) startAllServers(c *gin.Context) {
 			go s.runStartAllServersTask()
 		}
 	}
+
+	// Subscribe to start progress after ensuring task is properly started
+	subscriber, unsubscribe := s.startBroadcaster.Subscribe()
+	defer unsubscribe()
 
 	// Stream progress
 	c.Stream(func(w io.Writer) bool {
@@ -619,11 +619,7 @@ func (s *APIServer) stopAllServers(c *gin.Context) {
 	c.Header("Access-Control-Allow-Origin", "*")
 	c.Header("Access-Control-Allow-Headers", "Content-Type")
 
-	// Subscribe to stop progress
-	subscriber, unsubscribe := s.stopBroadcaster.Subscribe()
-	defer unsubscribe()
-
-	// Check if task is already running
+	// Check if task is already running and start if needed
 	if !s.stopBroadcaster.IsRunning() {
 		if !s.stopBroadcaster.Start() {
 			logger.GetLogger().Infof("Stop all servers task already started by another request")
@@ -632,6 +628,10 @@ func (s *APIServer) stopAllServers(c *gin.Context) {
 			go s.runStopAllServersTask()
 		}
 	}
+
+	// Subscribe to stop progress after ensuring task is properly started
+	subscriber, unsubscribe := s.stopBroadcaster.Subscribe()
+	defer unsubscribe()
 
 	// Stream progress
 	c.Stream(func(w io.Writer) bool {
@@ -659,11 +659,7 @@ func (s *APIServer) restartAllServers(c *gin.Context) {
 	c.Header("Access-Control-Allow-Origin", "*")
 	c.Header("Access-Control-Allow-Headers", "Content-Type")
 
-	// Subscribe to restart progress
-	subscriber, unsubscribe := s.restartBroadcaster.Subscribe()
-	defer unsubscribe()
-
-	// Check if task is already running
+	// Check if task is already running and start if needed
 	if !s.restartBroadcaster.IsRunning() {
 		if !s.restartBroadcaster.Start() {
 			logger.GetLogger().Infof("Restart all servers task already started by another request")
@@ -672,6 +668,10 @@ func (s *APIServer) restartAllServers(c *gin.Context) {
 			go s.runRestartAllServersTask()
 		}
 	}
+
+	// Subscribe to restart progress after ensuring task is properly started
+	subscriber, unsubscribe := s.restartBroadcaster.Subscribe()
+	defer unsubscribe()
 
 	// Stream progress
 	c.Stream(func(w io.Writer) bool {
