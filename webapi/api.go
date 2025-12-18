@@ -412,7 +412,6 @@ func (s *APIServer) startServer(c *gin.Context) {
 			go s.runStartServerTask(instanceName, broadcaster)
 		}
 	}
-
 	// Subscribe to startup broadcaster and stream updates
 	subscriber, unsubscribe := broadcaster.Subscribe()
 	defer unsubscribe()
@@ -826,7 +825,6 @@ func (s *APIServer) restoreBackup(c *gin.Context) {
 }
 
 // handleServerUpdate handles both starting update and streaming progress via SSE
-// handleServerUpdate handles the server update SSE endpoint
 func (s *APIServer) handleServerUpdate(c *gin.Context) {
 	// Set SSE headers
 	c.Header("Content-Type", "text/event-stream")
@@ -834,10 +832,6 @@ func (s *APIServer) handleServerUpdate(c *gin.Context) {
 	c.Header("Connection", "keep-alive")
 	c.Header("Access-Control-Allow-Origin", "*")
 	c.Header("Access-Control-Allow-Headers", "Content-Type")
-
-	// Subscribe to update progress
-	subscriber, unsubscribe := s.updateBroadcaster.Subscribe()
-	defer unsubscribe()
 
 	// Check if update task is already running
 	if !s.updateBroadcaster.IsRunning() {
@@ -848,6 +842,9 @@ func (s *APIServer) handleServerUpdate(c *gin.Context) {
 			go s.runUpdateTask()
 		}
 	}
+	// Subscribe to update progress
+	subscriber, unsubscribe := s.updateBroadcaster.Subscribe()
+	defer unsubscribe()
 
 	// Stream update progress
 	c.Stream(func(w io.Writer) bool {

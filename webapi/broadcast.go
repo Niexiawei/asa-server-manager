@@ -45,7 +45,6 @@ func (tb *TaskBroadcaster) Start() bool {
 		close(tb.msgChan)
 	}
 	tb.msgChan = make(chan string, 100)
-
 	// Clear subscribers map and ensure it's initialized
 	if tb.subscribers == nil {
 		tb.subscribers = make(map[chan<- string]bool)

@@ -501,11 +501,9 @@ export async function updateServer(onMessage, onError, onComplete) {
         const response = await fetch(`${API_BASE_URL}/api/server/update`, {
             method: 'POST',
         })
-
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`)
         }
-
         const reader = response.body.getReader()
         const processor = createSSEStreamProcessor(onMessage)
 
@@ -516,7 +514,6 @@ export async function updateServer(onMessage, onError, onComplete) {
         }
 
         processor.flush()
-
         if (onComplete) {
             onComplete()
         }
