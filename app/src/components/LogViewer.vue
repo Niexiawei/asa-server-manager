@@ -88,8 +88,14 @@ const scrollToBottom = () => {
     if (listRef.value && listRef.value.$el) {
       const virtualList = listRef.value.$el.querySelector('.arco-virtual-list')
       if (virtualList) {
-        // 直接设置滚动位置到最底部
-        virtualList.scrollTop = virtualList.scrollHeight
+        // 使用 setTimeout 确保 DOM 已完全渲染
+        setTimeout(() => {
+          //virtualList.scrollTop = virtualList.scrollHeight
+          listRef.value.scrollIntoView({
+            index: logs.value.length - 1,
+            align: "bottom"
+          })
+        }, 50)
       }
     }
   })
@@ -119,6 +125,11 @@ const startLogStream = () => {
         isStreaming.value = false
       }
   )
+
+  // 首次加载后滚动到底部
+  setTimeout(() => {
+    scrollToBottom()
+  }, 100)
 }
 
 // 停止监听日志

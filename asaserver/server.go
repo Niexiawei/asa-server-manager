@@ -794,7 +794,7 @@ func StopServer(instanceName string) error {
 	}
 
 	time.Sleep(5 * time.Second)
-	
+
 	response, err := SendRCONCommand(instanceName, "DoExit")
 
 	if err == nil && strings.Contains(response, "Exiting") {
