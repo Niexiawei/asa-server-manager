@@ -36,18 +36,16 @@
           :data="logs"
           :virtualListProps="{
           height: height,
-          itemHeight: 24,
+          itemHeight: 30,
           overscanCount: 5
         }"
           class="log-content"
       >
         <template #item="{ item, index }">
-          <a-list-item class="log-line-item">
-            <div class="log-line">
-              <span class="log-number">{{ index + 1 }}</span>
-              <span class="log-text">{{ item }}</span>
-            </div>
-          </a-list-item>
+          <div class="log-line">
+            <span class="log-number">{{ index + 1 }}</span>
+            <span class="log-text">{{ item }}</span>
+          </div>
         </template>
         <template #empty>
           <div class="empty-logs"
@@ -86,22 +84,14 @@ let resizeObserver = null
 
 // 滚动到底部
 const scrollToBottom = () => {
-  // 使用双重nextTick确保虚拟列表完全渲染
   nextTick(() => {
-    nextTick(() => {
-      if (listRef.value) {
-        // 1. 尝试直接使用Arco Design虚拟列表的方法
-        if (listRef.value.$el) {
-          const virtualList = listRef.value.$el.querySelector('.arco-virtual-list')
-          if (virtualList) {
-            // 使用setTimeout确保滚动操作在渲染队列的最后执行
-            setTimeout(() => {
-              virtualList.scrollTop = virtualList.scrollHeight
-            }, 0)
-          }
-        }
+    if (listRef.value && listRef.value.$el) {
+      const virtualList = listRef.value.$el.querySelector('.arco-virtual-list')
+      if (virtualList) {
+        // 直接设置滚动位置到最底部
+        virtualList.scrollTop = virtualList.scrollHeight
       }
-    })
+    }
   })
 }
 
@@ -116,7 +106,9 @@ const startLogStream = () => {
       (line) => {
         logs.value.push(line)
         // 自动滚动到底部
-        scrollToBottom()
+        nextTick(() => {
+          scrollToBottom()
+        })
       },
       // onError 回调
       (error) => {
@@ -183,9 +175,9 @@ defineExpose({
 }
 
 .log-container {
-  border: 1px solid #d9d9d9;
+  border: 1px solid var(--color-border);
   border-radius: 4px;
-  background-color: #fafafa;
+  background-color: #1a1a1a;
   overflow: hidden;
   flex: 1;
   display: flex;
@@ -197,25 +189,22 @@ defineExpose({
   flex: 1;
   overflow: hidden;
   font-family: 'Courier New', monospace;
-  font-size: 12px;
-  background-color: #1f1f1f;
+  font-size: 14px;
+  background-color: #1a1a1a;
   color: #e0e0e0;
   height: 100%;
-}
-
-.log-line-item {
-  padding: 0;
-  background-color: transparent;
-  border: none;
+  box-sizing: border-box;
 }
 
 .log-line {
   display: flex;
-  padding: 0 10px;
+  padding: 4px 15px;
   white-space: pre-wrap;
   word-break: break-word;
-  line-height: 24px;
-  height: 24px;
+  line-height: 1.5;
+  min-height: 28px;
+  align-items: center;
+  box-sizing: border-box;
 }
 
 .log-number {
@@ -230,6 +219,7 @@ defineExpose({
 .log-text {
   flex: 1;
   color: #e0e0e0;
+  word-break: break-word;
 }
 
 .empty-logs {
@@ -252,7 +242,13 @@ defineExpose({
 
 :deep(.arco-virtual-list) {
   overflow-y: auto;
-  background-color: #1f1f1f;
+  background-color: #1a1a1a;
+  padding: 0 !important;
+}
+
+:deep(.arco-virtual-list-holder-inner) {
+  padding: 15px !important;
+  box-sizing: border-box;
 }
 
 /* 滚动条样式 */

@@ -793,6 +793,8 @@ func StopServer(instanceName string) error {
 		logger.GetLogger().Infof("%s saveworld response:%s", instanceName, savewordres)
 	}
 
+	time.Sleep(5 * time.Second)
+	
 	response, err := SendRCONCommand(instanceName, "DoExit")
 
 	if err == nil && strings.Contains(response, "Exiting") {
