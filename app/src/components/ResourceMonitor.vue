@@ -92,10 +92,10 @@
 </template>
 
 <script setup>
-import {ref, watch, onUnmounted} from 'vue'
-import {streamInstanceResourceInfo} from '@/apis/api.js'
+import {ref, watch, onUnmounted, onMounted} from 'vue'
 import {IconExclamationCircleFill} from '@arco-design/web-vue/es/icon'
 import {serverStore, getInstanceStatus} from '@/store/serverStore.js'
+import {API_BASE_URL} from '@/apis/api.js'
 
 const props = defineProps({
   instanceName: {
@@ -110,7 +110,50 @@ const props = defineProps({
 
 const isMonitoring = ref(false)
 const resourceData = ref(null)
-let closeStream = null
+let worker = null
+
+// 创建 Web Worker
+const createWorker = () => {
+  if (worker) return
+
+  try {
+    worker = new Worker(new URL('@/workers/resourceMonitorWorker.js', import.meta.url))
+    
+    // Initialize worker with API base URL
+    worker.postMessage({
+      type: 'INIT',
+      payload: { apiBaseUrl: API_BASE_URL }
+    })
+    
+    // Handle messages from worker
+    worker.onmessage = (event) => {
+      const { type, payload } = event.data
+      
+      switch (type) {
+        case 'RESOURCE_UPDATE':
+          if (payload.instanceName === props.instanceName) {
+            resourceData.value = payload.data
+          }
+          break
+        case 'ERROR':
+          if (payload.instanceName === props.instanceName) {
+            console.error(`Resource monitoring error for ${props.instanceName}:`, payload.error)
+            resourceData.value = { error: '获取资源信息失败' }
+          }
+          break
+      }
+    }
+    
+    worker.onerror = (error) => {
+      console.error('Resource monitor worker error:', error)
+      resourceData.value = { error: '获取资源信息失败' }
+    }
+    
+  } catch (error) {
+    console.error('Failed to create resource monitor worker:', error)
+    resourceData.value = { error: '创建资源监控失败' }
+  }
+}
 
 // 开始资源监控
 const startMonitoring = () => {
@@ -120,26 +163,29 @@ const startMonitoring = () => {
   isMonitoring.value = true
   resourceData.value = null
 
-  closeStream = streamInstanceResourceInfo(
-      props.instanceName,
-      (data) => {
-        // 更新资源信息
-        resourceData.value = data
-      },
-      (error) => {
-        console.error(`Resource monitoring error for ${props.instanceName}:`, error)
-        resourceData.value = {error: '获取资源信息失败'}
-      }
-  )
+  // Ensure worker is created
+  createWorker()
+  
+  // Start monitoring via worker
+  if (worker) {
+    worker.postMessage({
+      type: 'START_MONITORING',
+      payload: { instanceName: props.instanceName }
+    })
+  }
 }
 
 // 停止资源监控
 const stopMonitoring = () => {
   console.log(`Stopping resource monitoring for ${props.instanceName}`)
-  if (closeStream) {
-    closeStream()
-    closeStream = null
+  
+  if (worker) {
+    worker.postMessage({
+      type: 'STOP_MONITORING',
+      payload: { instanceName: props.instanceName }
+    })
   }
+  
   isMonitoring.value = false
   resourceData.value = null
 }
@@ -173,6 +219,11 @@ watch(
 // 组件卸载时清理
 onUnmounted(() => {
   stopMonitoring()
+  // Clean up worker if it exists
+  if (worker) {
+    worker.terminate()
+    worker = null
+  }
 })
 
 // 格式化内存大小

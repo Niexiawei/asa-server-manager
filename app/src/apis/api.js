@@ -1,5 +1,5 @@
 // API 服务封装
-const API_BASE_URL = import.meta.env.VITE_API_ROOT
+export const API_BASE_URL = import.meta.env.VITE_API_ROOT
 
 // 处理 API 响应
 async function handleResponse(response) {

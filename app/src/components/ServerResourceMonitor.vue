@@ -86,11 +86,46 @@
 <script setup>
 import {ref, onMounted, onUnmounted} from 'vue'
 import {IconDashboard, IconExclamationCircleFill} from '@arco-design/web-vue/es/icon'
-import {streamServerResourceInfo} from '@/apis/api.js'
+import {API_BASE_URL} from '@/apis/api.js'
 
 const isMonitoring = ref(false)
 const resourceData = ref(null)
-let closeStream = null
+let worker = null
+
+// 创建 Web Worker
+const createWorker = () => {
+  if (worker) return
+
+  try {
+    worker = new Worker(new URL('@/workers/resourceMonitorWorker.js', import.meta.url))
+
+    // Initialize worker with API base URL
+    worker.postMessage({ type: 'INIT', payload: { apiBaseUrl: API_BASE_URL } })
+
+    // Handle messages from worker
+    worker.onmessage = (event) => {
+      const { type, payload } = event.data
+
+      switch (type) {
+        case 'SERVER_RESOURCE_UPDATE':
+          resourceData.value = payload.data
+          break
+        case 'SERVER_ERROR':
+          resourceData.value = { error: payload.error }
+          break
+      }
+    }
+
+    // Handle worker errors
+    worker.onerror = (error) => {
+      console.error('Server resource worker error:', error)
+      resourceData.value = { error: 'Worker 错误' }
+    }
+  } catch (error) {
+    console.error('Failed to create server resource worker:', error)
+    resourceData.value = { error: '创建 Worker 失败' }
+  }
+}
 
 // 开始监控
 const startMonitoring = () => {
@@ -100,27 +135,18 @@ const startMonitoring = () => {
   isMonitoring.value = true
   resourceData.value = null
 
-  closeStream = streamServerResourceInfo(
-      (data) => {
-        if (data.error) {
-          resourceData.value = {error: data.error}
-        } else {
-          resourceData.value = data
-        }
-      },
-      (error) => {
-        console.error('Server resource monitoring error:', error)
-        resourceData.value = {error: '连接失败'}
-      }
-  )
+  // Create worker if not already created
+  createWorker()
+
+  // Start server resource monitoring
+  worker.postMessage({ type: 'START_SERVER_MONITORING' })
 }
 
 // 停止监控
 const stopMonitoring = () => {
   console.log('Stopping server resource monitoring')
-  if (closeStream) {
-    closeStream()
-    closeStream = null
+  if (worker) {
+    worker.postMessage({ type: 'STOP_SERVER_MONITORING' })
   }
   isMonitoring.value = false
   resourceData.value = null
@@ -138,9 +164,14 @@ onMounted(() => {
   startMonitoring()
 })
 
-// 组件卸载时停止监控
+// 组件卸载时清理资源
 onUnmounted(() => {
   stopMonitoring()
+  if (worker) {
+    worker.postMessage({ type: 'CLOSE_ALL' })
+    worker.terminate()
+    worker = null
+  }
 })
 
 // 格式化内存大小
