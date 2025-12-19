@@ -30,28 +30,43 @@
       <span style="font-size: 16px">日志行数: {{ logs.length }}</span>
     </a-space>
 
-    <div class="log-container">
-      <div class="log-content" ref="logContentRef">
-        <div
-            v-for="(log, index) in logs"
-            :key="index"
-            class="log-line"
-        >
-          <span class="log-number">{{ index + 1 }}</span>
-          <span class="log-text">{{ log }}</span>
-        </div>
-        <div v-if="logs.length === 0" class="empty-logs">
-          <a-empty description="暂无日志"/>
-        </div>
-      </div>
-      <div ref="logEndRef"></div>
+    <div class="log-container" ref="logContainerRef">
+      <a-list
+          ref="listRef"
+          :data="logs"
+          :virtualListProps="{
+          height: height,
+          itemHeight: 24,
+          overscanCount: 5
+        }"
+          class="log-content"
+      >
+        <template #item="{ item, index }">
+          <a-list-item class="log-line-item">
+            <div class="log-line">
+              <span class="log-number">{{ index + 1 }}</span>
+              <span class="log-text">{{ item }}</span>
+            </div>
+          </a-list-item>
+        </template>
+        <template #empty>
+          <div class="empty-logs"
+               :style="{
+            marginTop: (height / 2 ) - 100 + 'px'
+            }"
+          >
+            <a-empty description="暂无日志"/>
+          </div>
+        </template>
+      </a-list>
     </div>
   </div>
 </template>
 
 <script setup>
-import {ref, onMounted, onUnmounted, nextTick, watch} from 'vue'
+import {ref, onMounted, onUnmounted, nextTick, watch, computed, useTemplateRef} from 'vue'
 import {streamInstanceLogs} from '@/apis/api.js'
+import {useElementSize} from "@vueuse/core";
 
 const props = defineProps({
   instanceName: {
@@ -60,11 +75,32 @@ const props = defineProps({
   }
 })
 
+const el = useTemplateRef('logContainerRef')
+const {width, height} = useElementSize(el)
+
 const logs = ref([])
 const isStreaming = ref(false)
-const logContentRef = ref(null)
-const logEndRef = ref(null)
+const listRef = ref(null)
 let stopLogStream_func = null
+let resizeObserver = null
+
+// 滚动到底部
+const scrollToBottom = () => {
+  nextTick(() => {
+    if (listRef.value) {
+      // 尝试直接获取虚拟列表实例（如果Arco Design提供了相关方法）
+      if (listRef.value.virtualListRef) {
+        listRef.value.virtualListRef.scrollToBottom()
+      } else {
+        // 回退到原生DOM操作
+        const virtualList = listRef.value.$el.querySelector('.arco-virtual-list')
+        if (virtualList) {
+          virtualList.scrollTop = virtualList.scrollHeight
+        }
+      }
+    }
+  })
+}
 
 // 开始监听日志
 const startLogStream = () => {
@@ -77,11 +113,7 @@ const startLogStream = () => {
       (line) => {
         logs.value.push(line)
         // 自动滚动到底部
-        nextTick(() => {
-          if (logContentRef.value) {
-            logContentRef.value.scrollTop = logContentRef.value.scrollHeight
-          }
-        })
+        scrollToBottom()
       },
       // onError 回调
       (error) => {
@@ -108,7 +140,12 @@ const clearLogs = () => {
   logs.value = []
 }
 
-// 组件卸载时停止监听
+// 监听窗口大小变化
+onMounted(() => {
+
+})
+
+// 组件卸载时清理资源
 onUnmounted(() => {
   if (isStreaming.value) {
     stopLogStream()
@@ -136,7 +173,7 @@ defineExpose({
   flex-direction: column;
   height: 100%;
 
-  :deep(.arco-badge-status-text){
+  :deep(.arco-badge-status-text) {
     font-size: 16px;
     color: var(--color-text-2);
   }
@@ -155,20 +192,27 @@ defineExpose({
 
 .log-content {
   flex: 1;
-  overflow-y: auto;
-  padding: 10px;
+  overflow: hidden;
   font-family: 'Courier New', monospace;
   font-size: 12px;
   background-color: #1f1f1f;
   color: #e0e0e0;
+  height: 100%;
+}
+
+.log-line-item {
+  padding: 0;
+  background-color: transparent;
+  border: none;
 }
 
 .log-line {
   display: flex;
-  margin-bottom: 2px;
+  padding: 0 10px;
   white-space: pre-wrap;
   word-break: break-word;
-  line-height: 1.5;
+  line-height: 24px;
+  height: 24px;
 }
 
 .log-number {
@@ -193,21 +237,36 @@ defineExpose({
   color: #999;
 }
 
+/* 虚拟列表样式 */
+:deep(.arco-list) {
+  background-color: transparent;
+  border: none;
+}
+
+:deep(.arco-list-empty-text) {
+  color: #999;
+}
+
+:deep(.arco-virtual-list) {
+  overflow-y: auto;
+  background-color: #1f1f1f;
+}
+
 /* 滚动条样式 */
-.log-content::-webkit-scrollbar {
+:deep(.arco-virtual-list::-webkit-scrollbar) {
   width: 8px;
 }
 
-.log-content::-webkit-scrollbar-track {
+:deep(.arco-virtual-list::-webkit-scrollbar-track) {
   background: #2a2a2a;
 }
 
-.log-content::-webkit-scrollbar-thumb {
+:deep(.arco-virtual-list::-webkit-scrollbar-thumb) {
   background: #555;
   border-radius: 4px;
 }
 
-.log-content::-webkit-scrollbar-thumb:hover {
+:deep(.arco-virtual-list::-webkit-scrollbar-thumb:hover) {
   background: #777;
 }
 </style>
