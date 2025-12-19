@@ -86,19 +86,22 @@ let resizeObserver = null
 
 // 滚动到底部
 const scrollToBottom = () => {
+  // 使用双重nextTick确保虚拟列表完全渲染
   nextTick(() => {
-    if (listRef.value) {
-      // 尝试直接获取虚拟列表实例（如果Arco Design提供了相关方法）
-      if (listRef.value.virtualListRef) {
-        listRef.value.virtualListRef.scrollToBottom()
-      } else {
-        // 回退到原生DOM操作
-        const virtualList = listRef.value.$el.querySelector('.arco-virtual-list')
-        if (virtualList) {
-          virtualList.scrollTop = virtualList.scrollHeight
+    nextTick(() => {
+      if (listRef.value) {
+        // 1. 尝试直接使用Arco Design虚拟列表的方法
+        if (listRef.value.$el) {
+          const virtualList = listRef.value.$el.querySelector('.arco-virtual-list')
+          if (virtualList) {
+            // 使用setTimeout确保滚动操作在渲染队列的最后执行
+            setTimeout(() => {
+              virtualList.scrollTop = virtualList.scrollHeight
+            }, 0)
+          }
         }
       }
-    }
+    })
   })
 }
 
