@@ -873,7 +873,7 @@ func (s *APIServer) streamServerInfo(c *gin.Context) {
 	c.Header("Access-Control-Allow-Headers", "Content-Type")
 
 	// Create ticker for 200ms interval
-	ticker := time.NewTicker(2 * time.Second)
+	ticker := time.NewTicker(2000 * time.Millisecond)
 	defer ticker.Stop()
 
 	// Stream server info
@@ -941,28 +941,28 @@ func (s *APIServer) streamInstanceInfo(c *gin.Context) {
 	c.Header("Access-Control-Allow-Origin", "*")
 	c.Header("Access-Control-Allow-Headers", "Content-Type")
 
-	// Load instance configuration to get port
-	config, err := asaserver.LoadInstanceConfig(instanceName)
-	if err != nil {
-		c.JSON(500, gin.H{
-			"success": false,
-			"error":   fmt.Sprintf("Failed to load instance config: %v", err),
-		})
-		return
-	}
-
 	// Create ticker for 200ms interval
-	ticker := time.NewTicker(500 * time.Millisecond)
+	ticker := time.NewTicker(2000 * time.Millisecond)
 	defer ticker.Stop()
 
 	// Stream instance info
 	c.Stream(func(w io.Writer) bool {
 		select {
 		case <-ticker.C:
-			// Get PID by port
-			pid, err := asaserver.GetPIDByPort(config.Port)
+			//// Get PID by port
+			//pid, err := asaserver.GetPIDByPort(config.Port)
+			//if err != nil {
+			//	fmt.Fprintf(w, "data:{\"error\":\"Failed to get PID: %v\",\"instance\":\"%s\",\"running\":false}", err, instanceName)
+			//	return true
+			//}
+
+			// Load instance configuration to get port
+			pid, err := asaserver.GetInstancePID(instanceName)
 			if err != nil {
-				fmt.Fprintf(w, "data:{\"error\":\"Failed to get PID: %v\",\"instance\":\"%s\",\"running\":false}", err, instanceName)
+				c.JSON(500, gin.H{
+					"success": false,
+					"error":   fmt.Sprintf("Failed to load instance config: %v", err),
+				})
 				return true
 			}
 

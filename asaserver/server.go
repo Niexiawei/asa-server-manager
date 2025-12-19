@@ -612,9 +612,6 @@ func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
 			if err := c.Start(); err != nil {
 				return fmt.Errorf("failed to start server: %w", err)
 			}
-			if err := SaveInstancePID(instanceName, c.Process.Pid); err != nil {
-				logger.GetLogger().Warnf("Failed to save PID for instance %s: %v", instanceName, err)
-			}
 			pid = c.Process.Pid
 		} else {
 			CleanConsoleOutput := func(r io.Reader, w io.Writer) error {
@@ -657,23 +654,26 @@ func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
 			if err := c.Start(); err != nil {
 				return fmt.Errorf("failed to start server: %w", err)
 			}
-			if err := SaveInstancePID(instanceName, c.Process.Pid); err != nil {
-				logger.GetLogger().Warnf("Failed to save PID for instance %s: %v", instanceName, err)
-			}
 			pid = c.Process.Pid
 			go CleanConsoleOutput(pp, logWriter)
 			logger.GetLogger().Infof("[%s] Redirecting AsaApiLoader output to logger", instanceName)
 		}
+		_pid, err := WaitArkApiRunServer(ctx, config.QueryPort)
+		if err != nil {
+			return fmt.Errorf("failed to start server: %w", err)
+		}
+		pid = int(_pid)
 	} else {
 		cmd := exec.Command(arkExe, args...)
 		if err := cmd.Start(); err != nil {
 			return fmt.Errorf("failed to start server: %w", err)
 		}
 		// Save the PID to the instance directory
-		if err := SaveInstancePID(instanceName, cmd.Process.Pid); err != nil {
-			logger.GetLogger().Warnf("Failed to save PID for instance %s: %v", instanceName, err)
-		}
 		pid = cmd.Process.Pid
+	}
+
+	if err := SaveInstancePID(instanceName, pid); err != nil {
+		logger.GetLogger().Warnf("Failed to save PID for instance %s: %v", instanceName, err)
 	}
 
 	logger.GetLogger().Infof("Server started for instance: %s. It should be fully operational in approximately 60 seconds.", instanceName)

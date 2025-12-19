@@ -127,7 +127,6 @@
               <resource-monitor
                   :show-title-div="false"
                   :instance-name="instanceName"
-                  :is-running="instanceData?.running || false"
               />
             </a-card>
           </div>

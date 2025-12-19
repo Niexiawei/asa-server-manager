@@ -1,6 +1,7 @@
 package asaserver
 
 import (
+	"asa-server/common"
 	"asa-server/logger"
 	"asa-server/win32api"
 	"bufio"
@@ -367,5 +368,42 @@ func killGameServer(pid int) {
 	if err := exec.Command("taskkill", "/PID", fmt.Sprintf("%d", pid)).Run(); err != nil {
 		logger.GetLogger().Warnf("failed to kill process PID %d: %s", pid, err.Error())
 		_ = exec.Command("taskkill", "/F", "/PID", fmt.Sprintf("%d", pid)).Run()
+	}
+}
+func WaitArkApiRunServer(ctx context.Context, port int) (uint32, error) {
+	var (
+		processErr = make(chan error, 1)
+		processPid = make(chan uint32, 1)
+	)
+
+	defer close(processPid)
+	defer close(processErr)
+
+	go func() {
+		for {
+			if ctx.Err() != nil {
+				return
+			}
+			process, err := common.QueryProcess("ArkAscendedServer.exe", fmt.Sprintf("Port=%d", port))
+			if err != nil {
+				processErr <- err
+				return
+			}
+			if len(process) > 0 {
+				processPid <- process[0].ProcessId
+				return
+			}
+			<-time.After(200 * time.Millisecond)
+		}
+	}()
+	select {
+	case err := <-processErr:
+		return 0, err
+	case pid := <-processPid:
+		return pid, nil
+	case <-ctx.Done():
+		return 0, ctx.Err()
+	case <-time.After(10 * time.Second):
+		return 0, fmt.Errorf("ARK API loading server error")
 	}
 }

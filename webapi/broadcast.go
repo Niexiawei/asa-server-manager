@@ -120,6 +120,7 @@ func (tb *TaskBroadcaster) Stop() {
 	// Close the message channel
 	if tb.msgChan != nil {
 		close(tb.msgChan)
+		tb.msgChan = nil
 	}
 
 	// Close all subscriber channels and clear the map

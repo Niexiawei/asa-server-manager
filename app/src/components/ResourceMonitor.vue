@@ -95,15 +95,12 @@
 import {ref, watch, onUnmounted} from 'vue'
 import {streamInstanceResourceInfo} from '@/apis/api.js'
 import {IconExclamationCircleFill} from '@arco-design/web-vue/es/icon'
+import {serverStore, getInstanceStatus} from '@/store/serverStore.js'
 
 const props = defineProps({
   instanceName: {
     type: String,
     required: true
-  },
-  isRunning: {
-    type: Boolean,
-    default: false
   },
   showTitleDiv: {
     type: Boolean,
@@ -147,20 +144,30 @@ const stopMonitoring = () => {
   resourceData.value = null
 }
 
-// 监听运行状态变化
+// 监听实例状态变化，从 serverStore 获取实例信息
 watch(
-    () => props.isRunning,
-    (newVal, oldValue) => {
-      if (newVal === oldValue) {
-        return
+    () => {
+      const instance = getInstanceStatus(props.instanceName)
+      return {
+        isStartingOrRunning: instance?.isStartingOrRunning,
+        status: instance?.status
       }
-      if (newVal && !isMonitoring.value) {
+    },
+    (newVal, oldValue) => {
+      console.log(newVal)
+      // 判断是否应该监听资源占用
+      const shouldMonitor = newVal.isStartingOrRunning === true ||
+          ['starting', 'started', 'stopping'].includes(newVal.status)
+      const wasMonitoring = oldValue?.isStartingOrRunning === true ||
+          ['starting', 'started', 'stopping'].includes(oldValue?.status)
+
+      if (shouldMonitor && !isMonitoring.value) {
         startMonitoring()
-      } else if (!newVal && isMonitoring.value) {
+      } else if (!shouldMonitor && isMonitoring.value) {
         stopMonitoring()
       }
     },
-    {immediate: true}
+    {immediate: true, deep: true}
 )
 
 // 组件卸载时清理

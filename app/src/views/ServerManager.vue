@@ -83,7 +83,6 @@
                       <resource-monitor
                           class="resource-info"
                           :instance-name="instance.name"
-                          :is-running="instance.isStartingOrRunning || false"
                       />
                     </div>
                   </template>
@@ -140,11 +139,11 @@
         :body-style="{height: '600px'}"
         @cancel="logViewerClose"
         :footer="false"
+        :unmountOnClose="true"
     >
       <div style="height: 100%; display: flex; flex-direction: column;">
         <log-viewer
             ref="logViewerRef"
-            v-if="selectedInstanceName"
             :instance-name="selectedInstanceName"
             style="flex: 1;"
         />
