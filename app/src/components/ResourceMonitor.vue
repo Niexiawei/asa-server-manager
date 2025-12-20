@@ -17,14 +17,14 @@
         <div class="progress-container">
           <a-progress
               type="circle"
-              :percent="(resourceData.process.cpu_percent / 100)"
+              :percent="resourceData.render.cpu_percent_normalized"
               :width="80"
               :stroke-width="5"
-              :color="getProgressColor(resourceData.process.cpu_percent)"
+              :color="resourceData.render.cpu_percent_color"
           >
             <template #text="{ percent }">
               <div class="progress-text">
-                <div class="percent-value">{{ (percent * 100).toFixed(1) }}%</div>
+                <div class="percent-value">{{ resourceData.render.cpu_percent_value }}%</div>
               </div>
             </template>
           </a-progress>
@@ -32,41 +32,41 @@
         <div class="progress-container" v-if="resourceData.process?.cpu_total_percent">
           <a-progress
               type="circle"
-              :percent="(resourceData.process.cpu_total_percent / 100)"
+              :percent="resourceData.render.cpu_total_percent_normalized"
               :width="80"
               :stroke-width="5"
-              :color="getProgressColor(resourceData.process.cpu_total_percent)"
+              :color="resourceData.render.cpu_total_percent_color"
           >
             <template #text="{ percent }">
               <div class="progress-text">
-                <div class="percent-value">{{ (percent * 100).toFixed(1) }}%</div>
+                <div class="percent-value">{{ resourceData.render.cpu_total_percent_value }}%</div>
                 <div class="core-info" v-if="resourceData.cpu_cores">{{ resourceData.cpu_cores }}核</div>
               </div>
             </template>
           </a-progress>
         </div>
       </div>
-
+      
       <!-- 内存使用 -->
       <div class="info-item" v-if="resourceData.process?.memory_used">
         <span class="label">内存使用:</span>
-        <span class="value resource-value">{{ formatMemory(resourceData.process.memory_used) }}</span>
+        <span class="value resource-value">{{ resourceData.render.memory_used_formatted }}</span>
         <span class="label">内存总量:</span>
-        <span class="value resource-value">{{ formatMemory(resourceData.memory.total) }}</span>
+        <span class="value resource-value">{{ resourceData.render.memory_total_formatted }}</span>
       </div>
-
+      
       <!-- 内存使用率 - 直线进度条 -->
       <div class="progress-item" v-if="resourceData.process?.memory_percent">
         <div class="progress-label">内存使用率</div>
         <div class="linear-progress-container">
           <a-progress
-              :percent="(resourceData.process.memory_percent / 100)"
+              :percent="resourceData.render.memory_percent_normalized"
               :stroke-width="5"
               :show-text="false"
-              :color="getProgressColor(resourceData.process.memory_percent)"
+              :color="resourceData.render.memory_percent_color"
           />
           <div class="linear-progress-text">
-            <span class="percent-value">{{ formatCPU(resourceData.process.memory_percent) }}</span>
+            <span class="percent-value">{{ resourceData.render.memory_percent_value }}%</span>
           </div>
         </div>
       </div>
@@ -110,77 +110,145 @@ const props = defineProps({
 
 const isMonitoring = ref(false)
 const resourceData = ref(null)
-let worker = null
 
-// 创建 Web Worker
-const createWorker = () => {
-  if (worker) return
+// 全局共享 Worker 实例
+let globalWorker = null
+// Worker 初始化标志
+let workerInitialized = false
+// 等待 Worker 初始化的 Promise 列表
+const workerInitPromises = []
 
-  try {
-    worker = new Worker(new URL('@/workers/resourceMonitorWorker.js', import.meta.url))
-    
-    // Initialize worker with API base URL
-    worker.postMessage({
-      type: 'INIT',
-      payload: { apiBaseUrl: API_BASE_URL }
-    })
-    
-    // Handle messages from worker
-    worker.onmessage = (event) => {
-      const { type, payload } = event.data
+// 获取或创建全局 Worker
+const getSharedWorker = () => {
+  if (!globalWorker) {
+    try {
+      globalWorker = new Worker(new URL('@/workers/resourceMonitorWorker.js', import.meta.url))
       
-      switch (type) {
-        case 'RESOURCE_UPDATE':
-          if (payload.instanceName === props.instanceName) {
-            resourceData.value = payload.data
-          }
-          break
-        case 'ERROR':
-          if (payload.instanceName === props.instanceName) {
-            console.error(`Resource monitoring error for ${props.instanceName}:`, payload.error)
-            resourceData.value = { error: '获取资源信息失败' }
-          }
-          break
-      }
+      // Worker 初始化
+      globalWorker.postMessage({
+        type: 'INIT',
+        payload: { apiBaseUrl: API_BASE_URL }
+      })
+      
+      workerInitialized = true
+      // 解决所有等待的 Promise
+      workerInitPromises.forEach(resolve => resolve())
+      workerInitPromises.length = 0
+    } catch (error) {
+      console.error('Failed to create shared worker:', error)
+      globalWorker = null
+      workerInitialized = false
     }
+  }
+  return globalWorker
+}
+
+// 等待 Worker 初始化
+const ensureWorkerReady = async () => {
+  const worker = getSharedWorker()
+  if (!worker) {
+    throw new Error('Failed to initialize worker')
+  }
+  if (!workerInitialized) {
+    await new Promise(resolve => workerInitPromises.push(resolve))
+  }
+}
+
+// 处理 Worker 消息
+const setupWorkerMessageHandler = () => {
+  const worker = globalWorker
+  if (!worker || worker.messageHandlerSetup) return
+  
+  worker.messageHandlerSetup = true
+  
+  worker.onmessage = (event) => {
+    const { type, payload } = event.data
     
-    worker.onerror = (error) => {
-      console.error('Resource monitor worker error:', error)
+    switch (type) {
+      case 'RESOURCE_UPDATE':
+        // 广播给所有监听该实例的组件
+        window.dispatchEvent(new CustomEvent('resource-update', {
+          detail: { instanceName: payload.instanceName, data: payload.data }
+        }))
+        break
+      case 'ERROR':
+        window.dispatchEvent(new CustomEvent('resource-error', {
+          detail: { instanceName: payload.instanceName, error: payload.error }
+        }))
+        break
+    }
+  }
+  
+  worker.onerror = (error) => {
+    console.error('Resource monitor worker error:', error)
+    window.dispatchEvent(new CustomEvent('resource-error', {
+      detail: { instanceName: 'all', error: '资源监控异常' }
+    }))
+  }
+}
+
+// 订阅资源更新
+const subscribeToResourceUpdates = () => {
+  const handleResourceUpdate = (event) => {
+    if (event.detail.instanceName === props.instanceName) {
+      resourceData.value = event.detail.data
+    }
+  }
+  
+  const handleResourceError = (event) => {
+    if (event.detail.instanceName === props.instanceName) {
+      console.error(`Resource monitoring error for ${props.instanceName}:`, event.detail.error)
       resourceData.value = { error: '获取资源信息失败' }
     }
-    
-  } catch (error) {
-    console.error('Failed to create resource monitor worker:', error)
-    resourceData.value = { error: '创建资源监控失败' }
+  }
+  
+  window.addEventListener('resource-update', handleResourceUpdate)
+  window.addEventListener('resource-error', handleResourceError)
+  
+  // 返回取消监听的函数
+  return () => {
+    window.removeEventListener('resource-update', handleResourceUpdate)
+    window.removeEventListener('resource-error', handleResourceError)
   }
 }
 
 // 开始资源监控
-const startMonitoring = () => {
+const startMonitoring = async () => {
   if (!props.instanceName || isMonitoring.value) return
 
-  console.log(`Starting resource monitoring for ${props.instanceName}`)
-  isMonitoring.value = true
-  resourceData.value = null
+  try {
+    console.log(`Starting resource monitoring for ${props.instanceName}`)
+    isMonitoring.value = true
+    resourceData.value = null
 
-  // Ensure worker is created
-  createWorker()
-  
-  // Start monitoring via worker
-  if (worker) {
-    worker.postMessage({
-      type: 'START_MONITORING',
-      payload: { instanceName: props.instanceName }
-    })
+    // 确保 Worker 就绪
+    await ensureWorkerReady()
+    setupWorkerMessageHandler()
+    
+    // 订阅更新
+    subscribeToResourceUpdates()
+    
+    // 告诉 Worker 开始监控此实例
+    if (globalWorker) {
+      globalWorker.postMessage({
+        type: 'START_MONITORING',
+        payload: { instanceName: props.instanceName }
+      })
+    }
+  } catch (error) {
+    console.error('Failed to start monitoring:', error)
+    isMonitoring.value = false
+    resourceData.value = { error: '启动资源监控失败' }
   }
 }
+
 
 // 停止资源监控
 const stopMonitoring = () => {
   console.log(`Stopping resource monitoring for ${props.instanceName}`)
   
-  if (worker) {
-    worker.postMessage({
+  if (globalWorker) {
+    globalWorker.postMessage({
       type: 'STOP_MONITORING',
       payload: { instanceName: props.instanceName }
     })
@@ -219,14 +287,10 @@ watch(
 // 组件卸载时清理
 onUnmounted(() => {
   stopMonitoring()
-  // Clean up worker if it exists
-  if (worker) {
-    worker.terminate()
-    worker = null
-  }
+  // 注意：不要终止 Worker，哠它是全局共享的
 })
 
-// 格式化内存大小
+// 格式化内存大小（从 Worker 获取，保持为本地函数以支持直接调用）
 const formatMemory = (bytes) => {
   if (!bytes) return '-'
   const mb = bytes / (1024 * 1024)
@@ -236,13 +300,13 @@ const formatMemory = (bytes) => {
   return `${(mb / 1024).toFixed(2)} GB`
 }
 
-// 格式化 CPU 百分比
+// 格式化 CPU 百分比（从 Worker 获取，保持为本地函数以支持直接调用）
 const formatCPU = (percent) => {
   if (percent === undefined || percent === null) return '-'
   return `${percent.toFixed(2)}%`
 }
 
-// 根据占用率获取进度条颜色
+// 根据占用率获取进度条颜色（从 Worker 获取，保持为本地函数以支持直接调用）
 const getProgressColor = (percent) => {
   if (percent < 50) {
     return '#00b42a' // 绿色

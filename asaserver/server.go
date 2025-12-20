@@ -307,6 +307,29 @@ func IsServerRunning(instanceName string) (bool, error) {
 	return false, nil
 }
 
+// IsServerRunningByPID checks if a server instance is running by verifying if the saved PID process exists
+// This method retrieves the PID from the instance directory and checks if the process is still active
+func IsServerRunningByPID(instanceName string) (bool, error) {
+	// Retrieve the saved PID for the instance
+	pid, err := GetInstancePID(instanceName)
+	if err != nil {
+		return false, fmt.Errorf("failed to get instance PID: %w", err)
+	}
+
+	// Check if the process with this PID exists and is running
+	exited, err := win32api.IsProcessExited(uint32(pid))
+	if err != nil {
+		return false, fmt.Errorf("failed to check process status: %w", err)
+	}
+
+	// If process has exited, it's not running
+	if exited {
+		return false, nil
+	}
+
+	return true, nil
+}
+
 // CopyDir copies a directory recursively
 func CopyDir(src, dst string) error {
 	entries, err := os.ReadDir(src)
@@ -793,6 +816,7 @@ func StopServer(instanceName string) error {
 		logger.GetLogger().Infof("%s saveworld response:%s", instanceName, savewordres)
 	}
 
+	logger.GetLogger().Infof("Stopping server for instance: %s sleep 5s", instanceName)
 	time.Sleep(5 * time.Second)
 
 	response, err := SendRCONCommand(instanceName, "DoExit")

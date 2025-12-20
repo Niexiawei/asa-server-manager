@@ -5,6 +5,7 @@ import (
 	"asa-server/backup"
 	"asa-server/logger"
 	"asa-server/serverinfo"
+	"asa-server/win32api"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -1023,6 +1024,133 @@ func (s *APIServer) streamInstanceInfo(c *gin.Context) {
 			fmt.Fprintf(w, "data: %s\n\n", jsonData)
 			return true
 
+		case <-c.Request.Context().Done():
+			// Client disconnected
+			return false
+		}
+	})
+}
+
+// streamAllInstancesInfo streams resource information for all running servers via SSE every 200ms
+func (s *APIServer) streamAllInstancesInfo(c *gin.Context) {
+	// Set SSE headers
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("Access-Control-Allow-Origin", "*")
+	c.Header("Access-Control-Allow-Headers", "Content-Type")
+
+	// Create ticker for 200ms interval
+	ticker := time.NewTicker(2000 * time.Millisecond)
+	defer ticker.Stop()
+	immediate := make(chan struct{}, 1)
+	immediate <- struct{}{}
+	defer close(immediate)
+
+	// Stream all instances info
+	c.Stream(func(w io.Writer) bool {
+		sendMsg := func(w io.Writer) bool {
+			// Get all available instances
+			instances, err := asaserver.GetAvailableInstances()
+			if err != nil {
+				fmt.Fprintf(w, "data: {\"error\":\"Failed to get instances: %v\"}\n\n", err)
+				return true
+			}
+
+			// Get CPU and memory info once for all instances
+			cpuInfo, err := serverinfo.GetCPUInfo()
+			if err != nil {
+				fmt.Fprintf(w, "data: {\"error\":\"Failed to get CPU info: %v\"}\n\n", err)
+				return true
+			}
+
+			memInfo, err := serverinfo.GetMemoryInfo()
+			if err != nil {
+				fmt.Fprintf(w, "data: {\"error\":\"Failed to get memory info: %v\"}\n\n", err)
+				return true
+			}
+
+			// Collect data for all running instances
+			instancesData := make([]interface{}, 0)
+
+			for _, instanceName := range instances {
+				// Check if instance is running
+				//running, err := asaserver.IsServerRunning(instanceName)
+				//if err != nil || !running {
+				//	// Skip non-running instances
+				//	continue
+				//}
+
+				// Get PID for the instance
+				pid, err := asaserver.GetInstancePID(instanceName)
+				if err != nil {
+					continue
+				}
+
+				exited, err := win32api.IsProcessExited(uint32(pid))
+				if err != nil {
+					continue
+				}
+
+				// If process has exited, it's not running
+				if exited {
+					continue
+				}
+
+				// Get process info
+				processInfo, err := serverinfo.GetProcessInfo(int32(pid))
+				if err != nil {
+					continue
+				}
+
+				// Calculate total CPU usage: instance CPU% / 100% * core count
+				totalCPUUsage := (processInfo.CPUPercent / 100.0) * float64(cpuInfo.CoreCount)
+
+				// Build instance data
+				instanceData := map[string]interface{}{
+					"instance":          instanceName,
+					"running":           true,
+					"pid":               pid,
+					"cpu_percent":       processInfo.CPUPercent,
+					"cpu_total_percent": totalCPUUsage,
+					"memory_used":       processInfo.MemoryUsed,
+					"memory_percent":    processInfo.MemoryPercent,
+					"memory_used_mb":    float64(processInfo.MemoryUsed) / (1024 * 1024),
+					"memory_used_gb":    float64(processInfo.MemoryUsed) / (1024 * 1024 * 1024),
+				}
+
+				instancesData = append(instancesData, instanceData)
+			}
+
+			// Build response data
+			data := map[string]interface{}{
+				"timestamp":     time.Now().Unix(),
+				"cpu_cores":     cpuInfo.CoreCount,
+				"running_count": len(instancesData),
+				"memory": map[string]interface{}{
+					"total":    memInfo.Total,
+					"total_gb": float64(memInfo.Total) / (1024 * 1024 * 1024),
+				},
+				"instances": instancesData,
+			}
+
+			// Convert to JSON
+			jsonData, err := json.Marshal(data)
+			if err != nil {
+				fmt.Fprintf(w, "data: {\"error\":\"Failed to marshal JSON: %v\"}\n\n", err)
+				return true
+			}
+
+			// Send SSE formatted data
+			fmt.Fprintf(w, "data: %s\n\n", jsonData)
+			return true
+		}
+
+		select {
+		case <-immediate:
+			return sendMsg(w)
+		case <-ticker.C:
+			return sendMsg(w)
 		case <-c.Request.Context().Done():
 			// Client disconnected
 			return false
