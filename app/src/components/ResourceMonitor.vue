@@ -111,134 +111,84 @@ const props = defineProps({
 const isMonitoring = ref(false)
 const resourceData = ref(null)
 
-// 全局共享 Worker 实例（实例资源监控）
-let globalWorker = null
-// Worker 初始化标志
+// SharedWorker 实例和端口
+let sharedWorker = null
+let workerPort = null
 let workerInitialized = false
-// 等待 Worker 初始化的 Promise 列表
-const workerInitPromises = []
-// 资源更新和错误的事件监听器
-let unsubscribeResourceUpdates = null
 
-// 获取或创建全局 Worker
+// 获取或创建 SharedWorker
 const getSharedWorker = () => {
-  if (!globalWorker) {
+  if (!sharedWorker) {
     try {
-      globalWorker = new Worker(new URL('@/workers/instanceResourceWorker.js', import.meta.url))
-      
-      // Worker 初始化
-      globalWorker.postMessage({
+      console.log('[ResourceMonitor] Creating SharedWorker')
+      sharedWorker = new SharedWorker(new URL('@/workers/sharedResourceWorker.js', import.meta.url))
+      workerPort = sharedWorker.port
+
+      // 设置消息处理
+      workerPort.onmessage = (event) => {
+        const { type, instanceId, data, error } = event.data
+
+        switch (type) {
+          case 'RESOURCE_UPDATE':
+            if (instanceId === props.instanceName) {
+              resourceData.value = data
+            }
+            break
+          case 'ERROR':
+            console.error(`[ResourceMonitor] Error for ${props.instanceName}:`, error)
+            resourceData.value = { error: '获取资源信息失败' }
+            break
+          case 'SSE_CONNECTED':
+            console.log('[ResourceMonitor] SharedWorker SSE connected')
+            break
+        }
+      }
+
+      workerPort.onmessageerror = (error) => {
+        console.error('[ResourceMonitor] Worker port error:', error)
+        resourceData.value = { error: 'Worker 通信错误' }
+      }
+
+      // 初始化 SharedWorker
+      workerPort.postMessage({
         type: 'INIT',
         payload: { apiBaseUrl: API_BASE_URL }
       })
-      
-      setupWorkerMessageHandler()
+
       workerInitialized = true
-      // 解决所有等待的 Promise
-      workerInitPromises.forEach(resolve => resolve())
-      workerInitPromises.length = 0
     } catch (error) {
-      console.error('Failed to create shared worker:', error)
-      globalWorker = null
+      console.error('[ResourceMonitor] Failed to create SharedWorker:', error)
+      sharedWorker = null
+      workerPort = null
       workerInitialized = false
     }
   }
-  return globalWorker
-}
-
-// 等待 Worker 初始化
-const ensureWorkerReady = async () => {
-  const worker = getSharedWorker()
-  if (!worker) {
-    throw new Error('Failed to initialize worker')
-  }
-  if (!workerInitialized) {
-    await new Promise(resolve => workerInitPromises.push(resolve))
-  }
-}
-
-// 处理 Worker 消息
-const setupWorkerMessageHandler = () => {
-  const worker = globalWorker
-  if (!worker || worker.messageHandlerSetup) return
-  
-  worker.messageHandlerSetup = true
-  
-  worker.onmessage = (event) => {
-    const { type, payload } = event.data
-    
-    switch (type) {
-      case 'RESOURCE_UPDATE':
-        // 广播给所有监听该实例的组件
-        window.dispatchEvent(new CustomEvent('resource-update', {
-          detail: { instanceName: payload.instanceName, data: payload.data }
-        }))
-        break
-      case 'ERROR':
-        window.dispatchEvent(new CustomEvent('resource-error', {
-          detail: { instanceName: payload.instanceName, error: payload.error }
-        }))
-        break
-    }
-  }
-  
-  worker.onerror = (error) => {
-    console.error('Resource monitor worker error:', error)
-    window.dispatchEvent(new CustomEvent('resource-error', {
-      detail: { instanceName: 'all', error: '资源监控异常' }
-    }))
-  }
-}
-
-// 订阅资源更新
-const subscribeToResourceUpdates = () => {
-  const handleResourceUpdate = (event) => {
-    if (event.detail.instanceName === props.instanceName) {
-      resourceData.value = event.detail.data
-    }
-  }
-  
-  const handleResourceError = (event) => {
-    if (event.detail.instanceName === props.instanceName) {
-      console.error(`Resource monitoring error for ${props.instanceName}:`, event.detail.error)
-      resourceData.value = { error: '获取资源信息失败' }
-    }
-  }
-  
-  window.addEventListener('resource-update', handleResourceUpdate)
-  window.addEventListener('resource-error', handleResourceError)
-  
-  // 返回取消监听的函数
-  return () => {
-    window.removeEventListener('resource-update', handleResourceUpdate)
-    window.removeEventListener('resource-error', handleResourceError)
-  }
+  return sharedWorker
 }
 
 // 开始资源监控
-const startMonitoring = async () => {
+const startMonitoring = () => {
   if (!props.instanceName || isMonitoring.value) return
 
   try {
-    console.log(`Starting resource monitoring for ${props.instanceName}`)
+    console.log(`[ResourceMonitor] Starting resource monitoring for ${props.instanceName}`)
     isMonitoring.value = true
     resourceData.value = null
 
-    // 确保 Worker 就绪
-    await ensureWorkerReady()
-    
-    // 订阅更新
-    unsubscribeResourceUpdates = subscribeToResourceUpdates()
-    
-    // 告诉 Worker 开始监控此实例
-    if (globalWorker) {
-      globalWorker.postMessage({
-        type: 'START_MONITORING',
-        payload: { instanceName: props.instanceName }
-      })
+    // 确保 SharedWorker 就绪
+    getSharedWorker()
+
+    if (!workerPort) {
+      throw new Error('Worker port not available')
     }
+
+    // 订阅该实例的数据
+    workerPort.postMessage({
+      type: 'SUBSCRIBE',
+      instanceId: props.instanceName
+    })
   } catch (error) {
-    console.error('Failed to start monitoring:', error)
+    console.error('[ResourceMonitor] Failed to start monitoring:', error)
     isMonitoring.value = false
     resourceData.value = { error: '启动资源监控失败' }
   }
@@ -246,21 +196,15 @@ const startMonitoring = async () => {
 
 // 停止资源监控
 const stopMonitoring = () => {
-  console.log(`Stopping resource monitoring for ${props.instanceName}`)
-  
-  if (globalWorker) {
-    globalWorker.postMessage({
-      type: 'STOP_MONITORING',
-      payload: { instanceName: props.instanceName }
+  console.log(`[ResourceMonitor] Stopping resource monitoring for ${props.instanceName}`)
+
+  if (workerPort) {
+    workerPort.postMessage({
+      type: 'UNSUBSCRIBE',
+      instanceId: props.instanceName
     })
   }
-  
-  // 取消事件监听
-  if (unsubscribeResourceUpdates) {
-    unsubscribeResourceUpdates()
-    unsubscribeResourceUpdates = null
-  }
-  
+
   isMonitoring.value = false
   resourceData.value = null
 }
