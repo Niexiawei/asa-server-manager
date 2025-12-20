@@ -97,7 +97,7 @@ const createWorker = () => {
   if (worker) return
 
   try {
-    worker = new Worker(new URL('@/workers/resourceMonitorWorker.js', import.meta.url))
+    worker = new Worker(new URL('@/workers/serverResourceWorker.js', import.meta.url))
 
     // Initialize worker with API base URL
     worker.postMessage({ type: 'INIT', payload: { apiBaseUrl: API_BASE_URL } })
@@ -107,10 +107,10 @@ const createWorker = () => {
       const { type, payload } = event.data
 
       switch (type) {
-        case 'SERVER_RESOURCE_UPDATE':
+        case 'RESOURCE_UPDATE':
           resourceData.value = payload.data
           break
-        case 'SERVER_ERROR':
+        case 'ERROR':
           resourceData.value = { error: payload.error }
           break
       }
@@ -139,14 +139,14 @@ const startMonitoring = () => {
   createWorker()
 
   // Start server resource monitoring
-  worker.postMessage({ type: 'START_SERVER_MONITORING' })
+  worker.postMessage({ type: 'START_MONITORING' })
 }
 
 // 停止监控
 const stopMonitoring = () => {
   console.log('Stopping server resource monitoring')
   if (worker) {
-    worker.postMessage({ type: 'STOP_SERVER_MONITORING' })
+    worker.postMessage({ type: 'STOP_MONITORING' })
   }
   isMonitoring.value = false
   resourceData.value = null

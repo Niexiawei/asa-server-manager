@@ -111,18 +111,20 @@ const props = defineProps({
 const isMonitoring = ref(false)
 const resourceData = ref(null)
 
-// 全局共享 Worker 实例
+// 全局共享 Worker 实例（实例资源监控）
 let globalWorker = null
 // Worker 初始化标志
 let workerInitialized = false
 // 等待 Worker 初始化的 Promise 列表
 const workerInitPromises = []
+// 资源更新和错误的事件监听器
+let unsubscribeResourceUpdates = null
 
 // 获取或创建全局 Worker
 const getSharedWorker = () => {
   if (!globalWorker) {
     try {
-      globalWorker = new Worker(new URL('@/workers/resourceMonitorWorker.js', import.meta.url))
+      globalWorker = new Worker(new URL('@/workers/instanceResourceWorker.js', import.meta.url))
       
       // Worker 初始化
       globalWorker.postMessage({
@@ -130,6 +132,7 @@ const getSharedWorker = () => {
         payload: { apiBaseUrl: API_BASE_URL }
       })
       
+      setupWorkerMessageHandler()
       workerInitialized = true
       // 解决所有等待的 Promise
       workerInitPromises.forEach(resolve => resolve())
@@ -223,10 +226,9 @@ const startMonitoring = async () => {
 
     // 确保 Worker 就绪
     await ensureWorkerReady()
-    setupWorkerMessageHandler()
     
     // 订阅更新
-    subscribeToResourceUpdates()
+    unsubscribeResourceUpdates = subscribeToResourceUpdates()
     
     // 告诉 Worker 开始监控此实例
     if (globalWorker) {
@@ -242,7 +244,6 @@ const startMonitoring = async () => {
   }
 }
 
-
 // 停止资源监控
 const stopMonitoring = () => {
   console.log(`Stopping resource monitoring for ${props.instanceName}`)
@@ -252,6 +253,12 @@ const stopMonitoring = () => {
       type: 'STOP_MONITORING',
       payload: { instanceName: props.instanceName }
     })
+  }
+  
+  // 取消事件监听
+  if (unsubscribeResourceUpdates) {
+    unsubscribeResourceUpdates()
+    unsubscribeResourceUpdates = null
   }
   
   isMonitoring.value = false
