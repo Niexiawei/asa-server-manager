@@ -207,6 +207,7 @@ const stopMonitoring = () => {
 
   isMonitoring.value = false
   resourceData.value = null
+  // 停止订阅后，将状态置为"服务器未运行"
 }
 
 // 监听实例状态变化，从 serverStore 获取实例信息
@@ -219,12 +220,15 @@ watch(
       }
     },
     (newVal, oldValue) => {
-      console.log(newVal)
       // 判断是否应该监听资源占用
       const shouldMonitor = newVal.isStartingOrRunning === true ||
           ['starting', 'started', 'stopping'].includes(newVal.status)
       const wasMonitoring = oldValue?.isStartingOrRunning === true ||
           ['starting', 'started', 'stopping'].includes(oldValue?.status)
+
+      console.log(shouldMonitor && !isMonitoring.value)
+      console.log(!shouldMonitor && isMonitoring.value)
+
 
       if (shouldMonitor && !isMonitoring.value) {
         startMonitoring()
