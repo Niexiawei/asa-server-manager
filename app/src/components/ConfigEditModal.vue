@@ -4,17 +4,17 @@
       title="编辑服务器配置"
       width="900px"
       :ok-loading="saving"
-      :ok-button-props="{ disabled: !isConfigFormValid() }"
       ok-text="保存"
       cancel-text="取消"
-      @ok="handleSave"
+      @before-ok="handleBeforeOk"
       @cancel="handleCancel"
   >
-    <a-form :model="editingConfig" layout="vertical">
+    <a-form ref="formRef" :model="editingConfig" layout="vertical">
       <!-- 第一行 -->
       <a-row :gutter="16">
         <a-col :span="6">
-          <a-form-item label="服务器名称" :rules="[{ required: true, message: '服务器名称为必填项' }]">
+          <a-form-item field="ServerName" label="服务器名称"
+                       :rules="[{ required: true, message: '服务器名称为必填项' }]">
             <a-input
                 v-model="editingConfig.ServerName"
                 placeholder="输入服务器名称"
@@ -22,7 +22,8 @@
           </a-form-item>
         </a-col>
         <a-col :span="6">
-          <a-form-item label="最大玩家数" :rules="[{ required: true, message: '最大玩家数为必填项' }]">
+          <a-form-item field="MaxPlayers" label="最大玩家数"
+                       :rules="[{ required: true, message: '最大玩家数为必填项' }]">
             <a-input-number
                 v-model="editingConfig.MaxPlayers"
                 :min="1"
@@ -31,7 +32,7 @@
           </a-form-item>
         </a-col>
         <a-col :span="6">
-          <a-form-item label="游戏端口" :rules="[{ required: true, message: '游戏端口为必填项' }]">
+          <a-form-item field="Port" label="游戏端口" :rules="[{ required: true, message: '游戏端口为必填项' }]">
             <a-input-number
                 v-model="editingConfig.Port"
                 :min="1"
@@ -41,7 +42,7 @@
           </a-form-item>
         </a-col>
         <a-col :span="6">
-          <a-form-item label="RCON端口" :rules="[{ required: true, message: 'RCON端口为必填项' }]">
+          <a-form-item field="RCONPort" label="RCON端口" :rules="[{ required: true, message: 'RCON端口为必填项' }]">
             <a-input-number
                 v-model="editingConfig.RCONPort"
                 :min="1"
@@ -55,7 +56,7 @@
       <!-- 第二行 -->
       <a-row :gutter="16">
         <a-col :span="6">
-          <a-form-item label="查询端口" :rules="[{ required: true, message: '查询端口为必填项' }]">
+          <a-form-item field="QueryPort" label="查询端口" :rules="[{ required: true, message: '查询端口为必填项' }]">
             <a-input-number
                 v-model="editingConfig.QueryPort"
                 :min="1"
@@ -65,7 +66,7 @@
           </a-form-item>
         </a-col>
         <a-col :span="6">
-          <a-form-item label="绑定域名">
+          <a-form-item field="BindDomain" label="绑定域名">
             <a-input
                 v-model="editingConfig.BindDomain"
                 placeholder="请输入绑定域名"
@@ -73,7 +74,7 @@
           </a-form-item>
         </a-col>
         <a-col :span="6">
-          <a-form-item label="地图名称" :rules="[{ required: true, message: '地图名称为必填项' }]">
+          <a-form-item field="MapName" label="地图名称" :rules="[{ required: true, message: '地图名称为必填项' }]">
             <a-input
                 v-model="editingConfig.MapName"
                 placeholder="输入地图名称"
@@ -81,7 +82,7 @@
           </a-form-item>
         </a-col>
         <a-col :span="6">
-          <a-form-item label="集群ID" :rules="[{ required: true, message: '集群ID为必填项' }]">
+          <a-form-item field="ClusterID" label="集群ID" :rules="[{ required: true, message: '集群ID为必填项' }]">
             <a-input
                 v-model="editingConfig.ClusterID"
                 placeholder="输入集群ID"
@@ -93,7 +94,7 @@
       <!-- 第三行 -->
       <a-row :gutter="16">
         <a-col :span="6">
-          <a-form-item label="存档目录" :rules="[{ required: true, message: '存档目录为必填项' }]">
+          <a-form-item field="SaveDir" label="存档目录" :rules="[{ required: true, message: '存档目录为必填项' }]">
             <a-input
                 v-model="editingConfig.SaveDir"
                 placeholder="输入存档目录"
@@ -101,7 +102,7 @@
           </a-form-item>
         </a-col>
         <a-col :span="6">
-          <a-form-item label="服务器密码">
+          <a-form-item field="ServerPassword" label="服务器密码">
             <a-input-password
                 v-model="editingConfig.ServerPassword"
                 placeholder="输入服务器密码"
@@ -109,7 +110,8 @@
           </a-form-item>
         </a-col>
         <a-col :span="6">
-          <a-form-item label="管理员密码" :rules="[{ required: true, message: '管理员密码为必填项' }]">
+          <a-form-item field="ServerAdminPassword" label="管理员密码"
+                       :rules="[{ required: true, message: '管理员密码为必填项' }]">
             <a-input-password
                 v-model="editingConfig.ServerAdminPassword"
                 placeholder="输入管理员密码"
@@ -117,7 +119,7 @@
           </a-form-item>
         </a-col>
         <a-col :span="6">
-          <a-form-item label="启用ASA插件">
+          <a-form-item field="EnableAsaPlugin" label="启用ASA插件">
             <a-switch
                 v-model="editingConfig.EnableAsaPlugin"
                 size="large"
@@ -129,7 +131,7 @@
       <!-- 第四行 -->
       <a-row :gutter="16">
         <a-col :span="24">
-          <a-form-item label="Mod IDs">
+          <a-form-item field="ModIDs" label="Mod IDs">
             <a-textarea
                 v-model="editingConfig.ModIDs"
                 placeholder="输入Mod IDs（逗号分隔）"
@@ -142,7 +144,7 @@
       <!-- 第五行 -->
       <a-row :gutter="16">
         <a-col :span="24">
-          <a-form-item label="自定义启动参数">
+          <a-form-item field="CustomStartParameters" label="自定义启动参数">
             <a-textarea
                 v-model="editingConfig.CustomStartParameters"
                 placeholder="输入自定义启动参数"
@@ -176,6 +178,7 @@ const props = defineProps({
 const emit = defineEmits(['update:visible', 'save'])
 
 const localVisible = ref(props.visible)
+const formRef = ref()
 const editingConfig = ref({
   ServerName: '',
   ServerPassword: '',
@@ -230,27 +233,29 @@ const initializeConfig = () => {
 }
 
 // 验证配置表单是否有效
-const isConfigFormValid = () => {
-  return (
-      editingConfig.value.ServerName &&
-      editingConfig.value.MaxPlayers &&
-      editingConfig.value.Port &&
-      editingConfig.value.RCONPort &&
-      editingConfig.value.QueryPort &&
-      editingConfig.value.MapName &&
-      editingConfig.value.ClusterID &&
-      editingConfig.value.SaveDir &&
-      editingConfig.value.ServerAdminPassword
-  )
-}
+// const isConfigFormValid = () => {
+//   return (
+//       editingConfig.value.ServerName &&
+//       editingConfig.value.MaxPlayers &&
+//       editingConfig.value.Port &&
+//       editingConfig.value.RCONPort &&
+//       editingConfig.value.QueryPort &&
+//       editingConfig.value.MapName &&
+//       editingConfig.value.ClusterID &&
+//       editingConfig.value.SaveDir &&
+//       editingConfig.value.ServerAdminPassword
+//   )
+// }
 
-// 处理保存
-const handleSave = () => {
-  if (!isConfigFormValid()) {
-    return
+// 处理模态框确定前的逻辑
+const handleBeforeOk = async () => {
+  const valid = await formRef.value?.validate()
+  if (valid !== undefined) {
+    return false
   }
 
   emit('save', editingConfig.value)
+  return true
 }
 
 // 处理取消
