@@ -1,6 +1,7 @@
 package asaserver
 
 import (
+	"asa-server/common"
 	"asa-server/logger"
 	"asa-server/win32api"
 	"bufio"
@@ -577,6 +578,50 @@ func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
 		"-server",
 		"-log",
 	)
+
+	// Handle BindDomain resolution and IP parameter injection
+	if config.BindDomain != "" {
+		// Resolve domain to IPv4 addresses
+		if ipv4Addrs, err := common.ResolveDomainToIPv4(config.BindDomain); err == nil && len(ipv4Addrs) > 0 {
+			// Use the first resolved IPv4 address
+			ipv4Addr := ipv4Addrs[0]
+
+			// Check if -ip or -serverip are already in CustomStartParameters
+			customParams := strings.Fields(config.CustomStartParameters)
+			ipFound := false
+			serverIpFound := false
+
+			// Look for existing -ip and -serverip parameters to replace them
+			for i, param := range customParams {
+				if strings.HasPrefix(param, "-ip=") {
+					customParams[i] = fmt.Sprintf("-ip=%s", ipv4Addr)
+					ipFound = true
+				} else if param == "-ip" && i+1 < len(customParams) {
+					customParams[i+1] = ipv4Addr
+					ipFound = true
+				} else if strings.HasPrefix(param, "-serverip=") {
+					customParams[i] = fmt.Sprintf("-serverip=%s", ipv4Addr)
+					serverIpFound = true
+				} else if param == "-serverip" && i+1 < len(customParams) {
+					customParams[i+1] = ipv4Addr
+					serverIpFound = true
+				}
+			}
+
+			// If we found and replaced parameters in CustomStartParameters, rebuild args
+			if ipFound || serverIpFound {
+				// Rebuild args with mapParam and modified custom parameters
+				args = []string{mapParam}
+				args = append(args, customParams...)
+			} else {
+				// Add the parameters if they weren't found in CustomStartParameters
+				args = append(args, fmt.Sprintf("-ip=%s", ipv4Addr))
+				args = append(args, fmt.Sprintf("-serverip=%s", ipv4Addr))
+			}
+		} else {
+			logger.GetLogger().Warnf("Failed to resolve domain %s to IPv4 address, ignoring BindDomain parameter", config.BindDomain)
+		}
+	}
 
 	if config.ModIDs != "" {
 		args = append(args, fmt.Sprintf("-mods=%s", config.ModIDs))
