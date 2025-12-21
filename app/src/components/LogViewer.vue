@@ -64,7 +64,8 @@
 <script setup>
 import {ref, onMounted, onUnmounted, nextTick, watch, computed, useTemplateRef} from 'vue'
 import {streamInstanceLogs} from '@/apis/api.js'
-import {useElementSize} from "@vueuse/core";
+import {useElementSize} from "@vueuse/core"
+import {serverStore, getInstanceStatus} from '@/store/serverStore.js';
 
 const props = defineProps({
   instanceName: {
@@ -132,7 +133,7 @@ const startLogStream = () => {
   }, 100)
 }
 
-// 停止监听日志
+// 停止日志流监听
 const stopLogStream = () => {
   if (stopLogStream_func) {
     stopLogStream_func()
@@ -141,15 +142,33 @@ const stopLogStream = () => {
   isStreaming.value = false
 }
 
+// 监听实例状态变化，自动开始/停止日志监听
+watch(
+    () => {
+      const instance = getInstanceStatus(props.instanceName)
+      return {
+        isStartingOrRunning: instance?.isStartingOrRunning,
+        status: instance?.status
+      }
+    },
+    (newVal) => {
+      // 判断是否应该监听日志
+      const shouldMonitor = newVal.isStartingOrRunning === true ||
+          ['starting', 'started', 'stopping'].includes(newVal.status)
+
+      if (shouldMonitor && !isStreaming.value) {
+        startLogStream()
+      } else if (!shouldMonitor && isStreaming.value) {
+        stopLogStream()
+      }
+    },
+    {immediate: true, deep: true}
+)
+
 // 清空日志
 const clearLogs = () => {
   logs.value = []
 }
-
-// 监听窗口大小变化
-onMounted(() => {
-
-})
 
 // 组件卸载时清理资源
 onUnmounted(() => {

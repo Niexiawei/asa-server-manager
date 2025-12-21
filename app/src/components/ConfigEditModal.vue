@@ -10,171 +10,148 @@
       @ok="handleSave"
       @cancel="handleCancel"
   >
-    <div class="config-edit-grid">
+    <a-form :model="editingConfig" layout="vertical">
       <!-- 第一行 -->
-      <div class="config-edit-row">
-        <div class="config-edit-col">
-          <label>
-            服务器名称
-            <span class="required-mark">*</span>
-          </label>
-          <a-input
-              v-model="editingConfig.ServerName"
-              placeholder="输入服务器名称"
-              :error="!editingConfig.ServerName && formSubmitted"
-          />
-          <span v-if="!editingConfig.ServerName && formSubmitted" class="error-text">服务器名称为必填项</span>
-        </div>
-        <div class="config-edit-col">
-          <label>
-            最大玩家数
-            <span class="required-mark">*</span>
-          </label>
-          <a-input-number
-              v-model="editingConfig.MaxPlayers"
-              :min="1"
-              placeholder="输入最大玩家数"
-              :error="!editingConfig.MaxPlayers && formSubmitted"
-          />
-          <span v-if="!editingConfig.MaxPlayers && formSubmitted" class="error-text">最大玩家数为必填项</span>
-        </div>
-        <div class="config-edit-col">
-          <label>
-            游戏端口
-            <span class="required-mark">*</span>
-          </label>
-          <a-input-number
-              v-model="editingConfig.Port"
-              :min="1"
-              :max="65535"
-              placeholder="输入游戏端口"
-              :error="!editingConfig.Port && formSubmitted"
-          />
-          <span v-if="!editingConfig.Port && formSubmitted" class="error-text">游戏端口为必填项</span>
-        </div>
-        <div class="config-edit-col">
-          <label>
-            RCON端口
-            <span class="required-mark">*</span>
-          </label>
-          <a-input-number
-              v-model="editingConfig.RCONPort"
-              :min="1"
-              :max="65535"
-              placeholder="输入RCON端口"
-              :error="!editingConfig.RCONPort && formSubmitted"
-          />
-          <span v-if="!editingConfig.RCONPort && formSubmitted" class="error-text">RCON端口为必填项</span>
-        </div>
-      </div>
+      <a-row :gutter="16">
+        <a-col :span="6">
+          <a-form-item label="服务器名称" :rules="[{ required: true, message: '服务器名称为必填项' }]">
+            <a-input
+                v-model="editingConfig.ServerName"
+                placeholder="输入服务器名称"
+            />
+          </a-form-item>
+        </a-col>
+        <a-col :span="6">
+          <a-form-item label="最大玩家数" :rules="[{ required: true, message: '最大玩家数为必填项' }]">
+            <a-input-number
+                v-model="editingConfig.MaxPlayers"
+                :min="1"
+                placeholder="输入最大玩家数"
+            />
+          </a-form-item>
+        </a-col>
+        <a-col :span="6">
+          <a-form-item label="游戏端口" :rules="[{ required: true, message: '游戏端口为必填项' }]">
+            <a-input-number
+                v-model="editingConfig.Port"
+                :min="1"
+                :max="65535"
+                placeholder="输入游戏端口"
+            />
+          </a-form-item>
+        </a-col>
+        <a-col :span="6">
+          <a-form-item label="RCON端口" :rules="[{ required: true, message: 'RCON端口为必填项' }]">
+            <a-input-number
+                v-model="editingConfig.RCONPort"
+                :min="1"
+                :max="65535"
+                placeholder="输入RCON端口"
+            />
+          </a-form-item>
+        </a-col>
+      </a-row>
 
       <!-- 第二行 -->
-      <div class="config-edit-row">
-        <div class="config-edit-col">
-          <label>
-            查询端口
-            <span class="required-mark">*</span>
-          </label>
-          <a-input-number
-              v-model="editingConfig.QueryPort"
-              :min="1"
-              :max="65535"
-              placeholder="输入查询端口"
-              :error="!editingConfig.QueryPort && formSubmitted"
-          />
-          <span v-if="!editingConfig.QueryPort && formSubmitted" class="error-text">查询端口为必填项</span>
-        </div>
-        <div class="config-edit-col">
-          <label>
-            地图名称
-            <span class="required-mark">*</span>
-          </label>
-          <a-input
-              v-model="editingConfig.MapName"
-              placeholder="输入地图名称"
-              :error="!editingConfig.MapName && formSubmitted"
-          />
-          <span v-if="!editingConfig.MapName && formSubmitted" class="error-text">地图名称为必填项</span>
-        </div>
-        <div class="config-edit-col">
-          <label>
-            集群ID
-            <span class="required-mark">*</span>
-          </label>
-          <a-input
-              v-model="editingConfig.ClusterID"
-              placeholder="输入集群ID"
-              :error="!editingConfig.ClusterID && formSubmitted"
-          />
-          <span v-if="!editingConfig.ClusterID && formSubmitted" class="error-text">集群ID为必填项</span>
-        </div>
-        <div class="config-edit-col">
-          <label>
-            存档目录
-            <span class="required-mark">*</span>
-          </label>
-          <a-input
-              v-model="editingConfig.SaveDir"
-              placeholder="输入存档目录"
-              :error="!editingConfig.SaveDir && formSubmitted"
-          />
-          <span v-if="!editingConfig.SaveDir && formSubmitted" class="error-text">存档目录为必填项</span>
-        </div>
-      </div>
+      <a-row :gutter="16">
+        <a-col :span="6">
+          <a-form-item label="查询端口" :rules="[{ required: true, message: '查询端口为必填项' }]">
+            <a-input-number
+                v-model="editingConfig.QueryPort"
+                :min="1"
+                :max="65535"
+                placeholder="输入查询端口"
+            />
+          </a-form-item>
+        </a-col>
+        <a-col :span="6">
+          <a-form-item label="绑定域名">
+            <a-input
+                v-model="editingConfig.BindDomain"
+                placeholder="请输入绑定域名"
+            />
+          </a-form-item>
+        </a-col>
+        <a-col :span="6">
+          <a-form-item label="地图名称" :rules="[{ required: true, message: '地图名称为必填项' }]">
+            <a-input
+                v-model="editingConfig.MapName"
+                placeholder="输入地图名称"
+            />
+          </a-form-item>
+        </a-col>
+        <a-col :span="6">
+          <a-form-item label="集群ID" :rules="[{ required: true, message: '集群ID为必填项' }]">
+            <a-input
+                v-model="editingConfig.ClusterID"
+                placeholder="输入集群ID"
+            />
+          </a-form-item>
+        </a-col>
+      </a-row>
 
       <!-- 第三行 -->
-      <div class="config-edit-row">
-        <div class="config-edit-col">
-          <label>服务器密码</label>
-          <a-input-password
-              v-model="editingConfig.ServerPassword"
-              placeholder="输入服务器密码"
-          />
-        </div>
-        <div class="config-edit-col">
-          <label>
-            管理员密码
-            <span class="required-mark">*</span>
-          </label>
-          <a-input-password
-              v-model="editingConfig.ServerAdminPassword"
-              placeholder="输入管理员密码"
-              :error="!editingConfig.ServerAdminPassword && formSubmitted"
-          />
-          <span v-if="!editingConfig.ServerAdminPassword && formSubmitted"
-                class="error-text">管理员密码为必填项</span>
-        </div>
-        <div class="config-edit-col">
-          <label>启用ASA插件</label>
-          <div class="plugin-div">
+      <a-row :gutter="16">
+        <a-col :span="6">
+          <a-form-item label="存档目录" :rules="[{ required: true, message: '存档目录为必填项' }]">
+            <a-input
+                v-model="editingConfig.SaveDir"
+                placeholder="输入存档目录"
+            />
+          </a-form-item>
+        </a-col>
+        <a-col :span="6">
+          <a-form-item label="服务器密码">
+            <a-input-password
+                v-model="editingConfig.ServerPassword"
+                placeholder="输入服务器密码"
+            />
+          </a-form-item>
+        </a-col>
+        <a-col :span="6">
+          <a-form-item label="管理员密码" :rules="[{ required: true, message: '管理员密码为必填项' }]">
+            <a-input-password
+                v-model="editingConfig.ServerAdminPassword"
+                placeholder="输入管理员密码"
+            />
+          </a-form-item>
+        </a-col>
+        <a-col :span="6">
+          <a-form-item label="启用ASA插件">
             <a-switch
                 v-model="editingConfig.EnableAsaPlugin"
                 size="large"
             />
-          </div>
-        </div>
-      </div>
+          </a-form-item>
+        </a-col>
+      </a-row>
 
       <!-- 第四行 -->
-      <div class="config-edit-full-row">
-        <label>Mod IDs</label>
-        <a-textarea
-            v-model="editingConfig.ModIDs"
-            placeholder="输入Mod IDs（逗号分隔）"
-            :rows="2"
-        />
-      </div>
+      <a-row :gutter="16">
+        <a-col :span="24">
+          <a-form-item label="Mod IDs">
+            <a-textarea
+                v-model="editingConfig.ModIDs"
+                placeholder="输入Mod IDs（逗号分隔）"
+                :rows="2"
+            />
+          </a-form-item>
+        </a-col>
+      </a-row>
 
       <!-- 第五行 -->
-      <div class="config-edit-full-row">
-        <label>自定义启动参数</label>
-        <a-textarea
-            v-model="editingConfig.CustomStartParameters"
-            placeholder="输入自定义启动参数"
-            :rows="2"
-        />
-      </div>
-    </div>
+      <a-row :gutter="16">
+        <a-col :span="24">
+          <a-form-item label="自定义启动参数">
+            <a-textarea
+                v-model="editingConfig.CustomStartParameters"
+                placeholder="输入自定义启动参数"
+                :rows="2"
+            />
+          </a-form-item>
+        </a-col>
+      </a-row>
+    </a-form>
   </a-modal>
 </template>
 
@@ -199,7 +176,6 @@ const props = defineProps({
 const emit = defineEmits(['update:visible', 'save'])
 
 const localVisible = ref(props.visible)
-const formSubmitted = ref(false)
 const editingConfig = ref({
   ServerName: '',
   ServerPassword: '',
@@ -213,7 +189,8 @@ const editingConfig = ref({
   SaveDir: '',
   ClusterID: '',
   CustomStartParameters: '',
-  EnableAsaPlugin: false
+  EnableAsaPlugin: false,
+  BindDomain: ''
 })
 
 // 监听外部 visible 属性变化
@@ -247,9 +224,9 @@ const initializeConfig = () => {
     SaveDir: props.config?.SaveDir || '',
     ClusterID: props.config?.ClusterID || '',
     CustomStartParameters: props.config?.CustomStartParameters || '',
-    EnableAsaPlugin: props.config?.EnableAsaPlugin || false
+    EnableAsaPlugin: props.config?.EnableAsaPlugin || false,
+    BindDomain: props.config?.BindDomain || ''
   }
-  formSubmitted.value = false
 }
 
 // 验证配置表单是否有效
@@ -269,8 +246,6 @@ const isConfigFormValid = () => {
 
 // 处理保存
 const handleSave = () => {
-  formSubmitted.value = true
-
   if (!isConfigFormValid()) {
     return
   }
@@ -285,61 +260,5 @@ const handleCancel = () => {
 </script>
 
 <style scoped lang="less">
-.config-edit-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.config-edit-row {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
-}
-
-.config-edit-full-row {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.config-edit-col {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-
-  .plugin-div{
-    height: 30px;
-    line-height: 30px;
-  }
-
-  :deep(.arco-switch) {
-    width: 60px !important;
-    flex-grow: 0;
-
-  }
-}
-
-.config-edit-col label,
-.config-edit-full-row label {
-  font-weight: 500;
-  font-size: 14px;
-  color: #333;
-}
-
-/* 必填标记 */
-.required-mark {
-  color: #f5222d;
-  margin-left: 4px;
-}
-
-/* 错误文本 */
-.error-text {
-  color: #f5222d;
-  font-size: 12px;
-  margin-top: 2px;
-  display: block;
-  height: 18px;
-  line-height: 18px;
-}
+/* 使用 arco design 的内置样式，无需额外定义 */
 </style>

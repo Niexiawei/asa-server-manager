@@ -600,6 +600,10 @@ const fetchInstanceConfig = async () => {
         {
           label: '查询端口',
           value: config.QueryPort || '-'
+        },
+        {
+          label: '绑定域名',
+          value: config.BindDomain || '-'
         }
       ]
 
@@ -869,49 +873,12 @@ onMounted(async () => {
     instanceData.value = cachedStatus
   }
 
-  if (instanceData.value?.isStartingOrRunning) {
-    setTimeout(() => {
-      logViewerRef.value.startLogStream()
-    }, 500)
-  }
-
-  // 监听 server_starting 事件，自动开启日志获取
-  unlistenServerStarting = onServerEvent('server_starting', (event) => {
-    if (event.instance_name === instanceName) {
-      // 提前启动日志监听，无需等待完全启动
-      if (logViewerRef.value && !logViewerRef.value.isStreaming) {
-        nextTick(() => {
-          setTimeout(() => {
-            logViewerRef.value.startLogStream()
-          }, 500)
-        })
-      }
-    }
-  })
-
-  // 监听 server_stopped 事件，自动关闭日志获取
-  unlistenServerStopped = onServerEvent('server_stopped', (event) => {
-    if (event.instance_name === instanceName) {
-      // 停止日志监听
-      if (logViewerRef.value && logViewerRef.value.isStreaming) {
-        logViewerRef.value.stopLogStream()
-      }
-    }
-  })
+  // 日志监听已通过 LogViewer 组件内部的 watch 自动管理，无需外部调用
 })
 
 onUnmounted(() => {
-  // 移除事件监听
-  if (unlistenServerStarting) {
-    unlistenServerStarting()
-  }
-  if (unlistenServerStopped) {
-    unlistenServerStopped()
-  }
-  // 停止日志监听
-  if (logViewerRef.value && logViewerRef.value.isStreaming) {
-    logViewerRef.value.stopLogStream()
-  }
+  // 日志监听已通过 LogViewer 组件内部的 watch 自动管理
+  // 组件卸载时，LogViewer 会自动停止监听
 })
 </script>
 

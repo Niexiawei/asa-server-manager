@@ -1642,6 +1642,7 @@ type UpdateInstanceConfigRequest struct {
 	ClusterID             string `json:"ClusterID,omitempty"`
 	CustomStartParameters string `json:"CustomStartParameters,omitempty"`
 	EnableAsaPlugin       *bool  `json:"EnableAsaPlugin,omitempty"`
+	BindDomain            string `json:"BindDomain,omitempty"`
 }
 
 // updateInstanceConfig updates the configuration for an instance
@@ -1693,6 +1694,9 @@ func (s *APIServer) updateInstanceConfig(c *gin.Context) {
 	}
 	if req.EnableAsaPlugin != nil {
 		updates["EnableAsaPlugin"] = *req.EnableAsaPlugin
+	}
+	if req.BindDomain != "" {
+		updates["BindDomain"] = req.BindDomain
 	}
 
 	if len(updates) == 0 {

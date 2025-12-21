@@ -4,6 +4,7 @@ import (
 	"asa-server/win32api"
 	"context"
 	"fmt"
+	"net"
 	"time"
 
 	"github.com/microsoft/wmi/pkg/base/instance"
@@ -25,12 +26,64 @@ func WaitGamePidExit(ctx context.Context, pid int) bool {
 	}
 }
 
+// ResolveDomainToIP resolves a domain name to its IP addresses
+func ResolveDomainToIP(domain string) ([]string, error) {
+	ips, err := net.LookupIP(domain)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve domain %s: %w", domain, err)
+	}
+
+	var ipStrings []string
+	for _, ip := range ips {
+		ipStrings = append(ipStrings, ip.String())
+	}
+
+	return ipStrings, nil
+}
+
+// ResolveDomainToIPv4 resolves a domain name to its IPv4 addresses only
+func ResolveDomainToIPv4(domain string) ([]string, error) {
+	ips, err := net.LookupIP(domain)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve domain %s: %w", domain, err)
+	}
+
+	var ipStrings []string
+	for _, ip := range ips {
+		// Check if it's an IPv4 address
+		if ip.To4() != nil {
+			ipStrings = append(ipStrings, ip.String())
+		}
+	}
+
+	return ipStrings, nil
+}
+
+// ResolveDomainToIPv6 resolves a domain name to its IPv6 addresses only
+func ResolveDomainToIPv6(domain string) ([]string, error) {
+	ips, err := net.LookupIP(domain)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve domain %s: %w", domain, err)
+	}
+
+	var ipStrings []string
+	for _, ip := range ips {
+		// Check if it's an IPv6 address (and not IPv4)
+		if ip.To4() == nil && ip.To16() != nil {
+			ipStrings = append(ipStrings, ip.String())
+		}
+	}
+
+	return ipStrings, nil
+}
+
 type Win32Process struct {
 	Name        string
 	ProcessId   uint32
 	CommandLine string // 可能为 nil
 }
 
+// QueryProcess queries Windows processes by name and optional command line
 func QueryProcess(name, commandLine string) ([]Win32Process, error) {
 	im, err := instance.GetWmiInstanceManager("", `root\cimv2`, "", "", "")
 	if err != nil {

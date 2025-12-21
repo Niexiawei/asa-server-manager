@@ -100,6 +100,7 @@
                   <a-button
                       @click="stopInstance(instance.name)"
                       :disabled="!instance.running"
+                      :loading="operationLoadingMap.get(`${instance.name}-stop`)"
                       status="warning"
                       size="small"
                   >
@@ -112,8 +113,11 @@
                   >
                     查看日志
                     <template #content>
-                      <a-doption @click="restartInstance(instance.name)" :disabled="!instance.running">
-                        重启
+                      <a-doption @click="restartInstance(instance.name)" :disabled="!instance.running || operationLoadingMap.get(`${instance.name}-restart`)">
+                        <span v-if="operationLoadingMap.get(`${instance.name}-restart`)">
+                          <icon-loading spin/> 重启中...
+                        </span>
+                        <span v-else>重启</span>
                       </a-doption>
                       <a-doption @click="deleteInstanceHandler(instance.name)" :disabled="instance.running">
                         删除
@@ -191,7 +195,7 @@ import {
   deleteInstance
 } from '@/apis/api.js'
 import {Modal, Button, Message, Notification} from '@arco-design/web-vue';
-import {IconCheck, IconClose} from '@arco-design/web-vue/es/icon';
+import {IconCheck, IconClose, IconLoading} from '@arco-design/web-vue/es/icon';
 import {serverStore, updateInstancesInStore} from '@/store/serverStore.js'
 import {onServerEvent} from '@/utils/wsManager.js'
 import WSStatusIndicator from '@/components/WSStatusIndicator.vue'
@@ -211,8 +215,10 @@ const form = reactive({
   instanceName: ''
 })
 
-// 伐力实例的 loading 状态
+// 实例的 loading 状态
 const instanceLoadingMap = ref(new Map())
+// 单独的操作 loading 状态
+const operationLoadingMap = ref(new Map())
 
 const logViewerRef = ref()
 const syncModalVisible = ref(false)
@@ -247,16 +253,12 @@ const fetchInstances = async () => {
 
 function logViewerClose() {
   selectedInstanceName.value = ''
-  if (logViewerRef && logViewerRef.value && logViewerRef.value.isStreaming) {
-    logViewerRef.value.stopLogStream()
-  }
+  // 日志监听已通过 LogViewer 组件内部 watch 自动管理
+  // 关闭日志窗布84LogViewer会自动取消订阅
 }
 
 onUnmounted(() => {
-  // 停止日志监听
-  if (logViewerRef.value && logViewerRef.value.isStreaming) {
-    logViewerRef.value.stopLogStream()
-  }
+  // 日志监听已通过 LogViewer 组件内部的 watch 自动管理
 })
 
 // 创建实例
@@ -344,6 +346,9 @@ const stopInstance = async (name) => {
     okText: '确定',
     cancelText: '取消',
     onOk: async () => {
+      // 设置停止操作 loading 状态
+      operationLoadingMap.value.set(`${name}-stop`, true)
+
       try {
         const data = await stopServer(name)
         if (data.success) {
@@ -360,6 +365,9 @@ const stopInstance = async (name) => {
       } catch (error) {
         Message.error(`停止实例失败: ${error.message}`)
         console.error('停止实例失败:', error)
+      } finally {
+        // 清除停止操作 loading 状态
+        operationLoadingMap.value.set(`${name}-stop`, false)
       }
     }
   })
@@ -373,6 +381,9 @@ const restartInstance = async (name) => {
     okText: '确定',
     cancelText: '取消',
     onOk: async () => {
+      // 设置重启操作 loading 状态
+      operationLoadingMap.value.set(`${name}-restart`, true)
+
       try {
         // 使用 SSE 方式调用重启
         restartServerSSE(
@@ -386,16 +397,22 @@ const restartInstance = async (name) => {
             (error) => {
               console.error('重启实例失败:', error)
               Message.error('重启实例失败')
+              // 清除重启操作 loading 状态
+              operationLoadingMap.value.set(`${name}-restart`, false)
             },
             // onComplete 回调 - 重启完成
             () => {
               console.log('Server restart completed')
               Message.success('实例重启成功')
+              // 清除重启操作 loading 状态
+              operationLoadingMap.value.set(`${name}-restart`, false)
             }
         )
       } catch (error) {
         console.error('重启实例失败:', error)
         Message.error('重启实例失败')
+        // 清除重启操作 loading 状态
+        operationLoadingMap.value.set(`${name}-restart`, false)
       }
     }
   })
@@ -429,12 +446,7 @@ const deleteInstanceHandler = async (name) => {
 const viewInstanceLogs = (name) => {
   selectedInstanceName.value = name
   logModalVisible.value = true
-  let instance = instances.value.find(item => item.name == name)
-  if (instance?.isStartingOrRunning) {
-    nextTick(() => {
-      logViewerRef.value.startLogStream()
-    })
-  }
+  // 日志监听已通过 LogViewer 组件内部 watch 自动管理
 }
 
 // 监听全局服务器状态变化
@@ -459,25 +471,8 @@ watch(
     {deep: true}
 )
 
-// 监听游戏日志路径事件，自动开启日志监听
-watch(
-    () => serverStore.gameLogPathEvent,
-    (gameLogEvents) => {
-      // 检查是否有新的日志路径事件
-      gameLogEvents.forEach((eventData, instanceName) => {
-        // 如果当前选中的实例匹配，且日志窗已打开，则自动开启日志监听
-        if (instanceName === selectedInstanceName.value && logModalVisible.value) {
-          if (logViewerRef.value && !logViewerRef.value.isStreaming) {
-            console.log(`Auto starting log stream for instance: ${instanceName}`)
-            nextTick(() => {
-              logViewerRef.value.startLogStream()
-            })
-          }
-        }
-      })
-    },
-    {deep: true}
-)
+// 监听游戏日志路径事件已移转到 LogViewer 组件内部管理
+// LogViewer 会辅地根据实例是否运行来自动开启/停止监听
 
 // 组件挂载时获取实例列表
 onMounted(() => {
@@ -495,20 +490,11 @@ onUnmounted(() => {
   // WebSocket 会保持连接，其他组件可能需要它
 })
 
-// 监听日志窗口打开事件
+// 窗口打开时， LogViewer 组件会自动根据实例状态开启/停止监听
 watch(
     () => logModalVisible.value,
     (visible) => {
-      if (visible && selectedInstanceName.value) {
-        // 窗口打开时，检查是否有未检处理的日志路径事件
-        const gameLogEvent = serverStore.gameLogPathEvent.get(selectedInstanceName.value)
-        if (gameLogEvent && logViewerRef.value && !logViewerRef.value.isStreaming) {
-          nextTick(() => {
-            console.log(`Window opened, auto starting log stream for: ${selectedInstanceName.value}`)
-            logViewerRef.value.startLogStream()
-          })
-        }
-      }
+      // LogViewer 组件会自动处理
     }
 )
 

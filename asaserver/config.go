@@ -42,6 +42,7 @@ type InstanceConfig struct {
 	ClusterID             string
 	CustomStartParameters string
 	EnableAsaPlugin       bool
+	BindDomain            string
 }
 
 // EnsureDirectories Initialize directories based on executable location
@@ -85,6 +86,7 @@ func LoadInstanceConfig(instanceName string) (*InstanceConfig, error) {
 		QueryPort:       27015,
 		Port:            7777,
 		EnableAsaPlugin: false,
+		BindDomain:      "",
 	}
 
 	scanner := bufio.NewScanner(file)
@@ -139,6 +141,8 @@ func LoadInstanceConfig(instanceName string) (*InstanceConfig, error) {
 			config.EnableAsaPlugin = strings.ToLower(value) == "true"
 		case "EnableAsaPlugin":
 			config.EnableAsaPlugin = strings.ToLower(value) == "true"
+		case "BindDomain":
+			config.BindDomain = value
 		}
 	}
 
@@ -172,6 +176,7 @@ CustomStartParameters=%s
 SaveDir=%s
 ClusterID=%s
 EnableAsaPlugin=%v
+BindDomain=%s
 `,
 		config.ServerName,
 		config.ServerPassword,
@@ -186,6 +191,7 @@ EnableAsaPlugin=%v
 		config.SaveDir,
 		config.ClusterID,
 		config.EnableAsaPlugin,
+		config.BindDomain,
 	)
 
 	if err := os.WriteFile(configFile, []byte(content), 0600); err != nil {
@@ -290,6 +296,13 @@ func UpdateInstanceConfig(instanceName string, updates map[string]interface{}) e
 			currentConfig.EnableAsaPlugin = v
 		case float64:
 			currentConfig.EnableAsaPlugin = v != 0
+		}
+	}
+
+	// Add BindDomain update
+	if val, ok := updates["BindDomain"]; ok {
+		if str, ok := val.(string); ok {
+			currentConfig.BindDomain = str
 		}
 	}
 
@@ -412,6 +425,7 @@ func CreateDefaultInstanceConfig(instanceName string) *InstanceConfig {
 		ClusterID:             "",
 		CustomStartParameters: "-NoBattlEye -crossplay -NoHangDetection",
 		EnableAsaPlugin:       true,
+		BindDomain:            "",
 	}
 }
 
@@ -560,7 +574,7 @@ func CheckForDuplicatePorts() error {
 // SyncInstanceConfigFromSource syncs instance configuration and Config folder from a source instance
 // It copies:
 // 1. The entire Config folder (all files)
-// 2. Specific fields from instance_config.ini: ModIDs, ServerPassword, ServerAdminPassword
+// 2. Specific fields from instance_config.ini: ModIDs, ServerPassword, ServerAdminPassword, BindDomain
 // 3. CustomStartParameters (if syncCustomStartParameters is true)
 // 4. EnableAsaPlugin (if syncEnableAsaPlugin is true)
 // The target instance keeps its other configuration fields (ServerName, Port, RCONPort, QueryPort, MaxPlayers, MapName, SaveDir, ClusterID)
@@ -582,6 +596,7 @@ func SyncInstanceConfigFromSource(sourceInstanceName, targetInstanceName string,
 	targetConfig.ModIDs = sourceConfig.ModIDs
 	targetConfig.ServerPassword = sourceConfig.ServerPassword
 	targetConfig.ServerAdminPassword = sourceConfig.ServerAdminPassword
+	targetConfig.BindDomain = sourceConfig.BindDomain
 
 	// Conditionally sync CustomStartParameters
 	if syncCustomStartParameters {
@@ -658,7 +673,7 @@ func SyncInstanceConfigFromSource(sourceInstanceName, targetInstanceName string,
 // with optional flags to control which fields are synced
 // It syncs:
 // 1. The entire Config folder (all files)
-// 2. Specific fields from instance_config.ini: ModIDs, ServerPassword, ServerAdminPassword
+// 2. Specific fields from instance_config.ini: ModIDs, ServerPassword, ServerAdminPassword, BindDomain
 // 3. CustomStartParameters (if syncCustomStartParameters is true)
 // 4. EnableAsaPlugin (if syncEnableAsaPlugin is true)
 // The target instances keep their other configuration fields (ServerName, Port, RCONPort, QueryPort, MaxPlayers, MapName, SaveDir, ClusterID)
