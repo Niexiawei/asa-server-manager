@@ -854,15 +854,17 @@ func StopServer(instanceName string) error {
 		return fmt.Errorf("failed to find process PID: %w", err)
 	}
 
-	savewordres, err := SendRCONCommand(instanceName, "saveworld")
-	if err != nil {
-		logger.GetLogger().Errorf("%s saveworld faild err:%s", instanceName, err)
-	} else {
-		logger.GetLogger().Infof("%s saveworld response:%s", instanceName, savewordres)
+	for i := 0; i < 5; i++ {
+		savewordres, err := SendRCONCommand(instanceName, "saveworld")
+		if err != nil {
+			logger.GetLogger().Errorf("%s saveworld faild err:%s", instanceName, err)
+		} else {
+			logger.GetLogger().Infof("%s saveworld response:%s", instanceName, savewordres)
+		}
+		time.Sleep(800 * time.Millisecond)
 	}
-
 	logger.GetLogger().Infof("Stopping server for instance: %s sleep 5s", instanceName)
-	time.Sleep(5 * time.Second)
+	time.Sleep(10 * time.Second)
 
 	response, err := SendRCONCommand(instanceName, "DoExit")
 
@@ -941,9 +943,7 @@ func SendRCONCommand(instanceName string, command string) (string, error) {
 
 	// Connect to RCON server with retry logic
 	rconAddr := fmt.Sprintf("localhost:%d", config.RCONPort)
-	logger.GetLogger().Infof("Connecting to RCON server at %s...", rconAddr)
-	logger.GetLogger().Infof("   Instance: %s", instanceName)
-	logger.GetLogger().Infof("   RCON Port: %d", config.RCONPort)
+	logger.GetLogger().Infof("Instance: %s Connecting to RCON server at %s...", instanceName, rconAddr)
 
 	var client *rcon.Conn
 	var connectErr error

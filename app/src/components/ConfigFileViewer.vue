@@ -34,7 +34,9 @@ const initEditor = () => {
       fontSize: 12,
       lineNumbers: 'on',
       scrollBeyondLastLine: false,
-      wordWrap: 'on',
+      wordWrap: 'off',
+      wrappingIndent: 'none',
+      horizontalScrollbarSize: 12,
       readOnly: true, // 只读模式
       contextMenu: false, // 禁用右键菜单
       domReadOnly: true // DOM 只读

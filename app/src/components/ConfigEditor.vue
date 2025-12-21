@@ -68,7 +68,9 @@ const initEditor = () => {
       fontSize: 13,
       lineNumbers: 'on',
       scrollBeyondLastLine: false,
-      wordWrap: 'on'
+      wordWrap: 'off',
+      wrappingIndent: 'none',
+      horizontalScrollbarSize: 12
     })
   } else if (editor) {
     editor.setValue(props.content)
