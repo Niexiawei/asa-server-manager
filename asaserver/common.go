@@ -6,6 +6,7 @@ import (
 	"asa-server/win32api"
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -406,4 +407,171 @@ func WaitArkApiRunServer(ctx context.Context, port int) (uint32, error) {
 	case <-time.After(10 * time.Second):
 		return 0, fmt.Errorf("ARK API loading server error")
 	}
+}
+
+// ModInfo represents a mod with its ID and name
+type ModInfo struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// MonitorAndExtractModInfo monitors log file for mod information and saves it to a JSON file
+func MonitorAndExtractModInfo(pctx context.Context, logPath string, baseDir string, instanceName string) {
+	// Regular expression to match mod info lines
+	modRegex := regexp.MustCompile(`^\[.+\]LogCFCore: Mod valid: (.+) \((\d+)\)$`)
+	completionMarker := "Initialize Primal Game Data Override."
+	ctx, cancel := context.WithCancel(pctx)
+	defer cancel()
+	// Map to store mod ID -> name mappings
+	mods := make(map[string]string)
+
+	// Start monitoring the log file
+	TailLogFileWithLinesContext(ctx, logPath, 10, func(line string) {
+		// Check if we've reached the completion marker
+		if strings.Contains(line, completionMarker) {
+			// Load existing mod info if file exists
+			modInfoPath := filepath.Join(baseDir, "mod_info.json")
+			existingMods := make(map[string]string)
+
+			if _, err := os.Stat(modInfoPath); err == nil {
+				// File exists, load it
+				file, err := os.Open(modInfoPath)
+				if err == nil {
+					defer file.Close()
+					decoder := json.NewDecoder(file)
+					var existingModList []ModInfo
+					if err := decoder.Decode(&existingModList); err == nil {
+						for _, mod := range existingModList {
+							existingMods[mod.ID] = mod.Name
+						}
+					}
+				}
+			}
+
+			// Merge new mods with existing ones
+			for id, name := range mods {
+				existingMods[id] = name
+			}
+
+			// Convert merged map to slice of ModInfo structs
+			modList := make([]ModInfo, 0, len(existingMods))
+			for id, name := range existingMods {
+				modList = append(modList, ModInfo{ID: id, Name: name})
+			}
+
+			// Create output directory if it doesn't exist
+			outputDir := filepath.Dir(modInfoPath)
+			if err := os.MkdirAll(outputDir, 0755); err != nil {
+				logger.GetLogger().Warnf("Failed to create output directory for mod info: %v", err)
+				cancel()
+				return
+			}
+
+			// Write to JSON file
+			jsonFile, err := os.Create(modInfoPath)
+			if err != nil {
+				logger.GetLogger().Warnf("Failed to create mod info JSON file: %v", err)
+				cancel()
+				return
+			}
+			defer jsonFile.Close()
+			// Convert mods to JSON
+			encoder := json.NewEncoder(jsonFile)
+			encoder.SetIndent("", "  ")
+			if err := encoder.Encode(modList); err != nil {
+				logger.GetLogger().Warnf("Failed to encode mod info JSON: %v", err)
+				cancel()
+				return
+			}
+
+			logger.GetLogger().Infof("Successfully extracted and saved %d mod(s) from instance %s to %s", len(modList), instanceName, modInfoPath)
+			cancel()
+			return // Stop monitoring after saving
+		}
+
+		// Try to match mod info line
+		matches := modRegex.FindStringSubmatch(line)
+		if len(matches) == 3 {
+			modName := strings.TrimSpace(matches[1])
+			modID := matches[2]
+			if _, exists := mods[modID]; !exists { // Avoid duplicates
+				mods[modID] = modName
+				logger.GetLogger().Debugf("Found mod in instance %s: %s (%s)", instanceName, modName, modID)
+			}
+		}
+	})
+
+	select {
+	case <-ctx.Done():
+		return
+	}
+}
+
+// ExtractAndSaveModInfo extracts mod information from log file and saves it to a JSON file
+func ExtractAndSaveModInfo(logPath string, outputPath string) ([]ModInfo, error) {
+	// Regular expression to match mod info lines
+	modRegex := regexp.MustCompile(`^\[.+\]LogCFCore: Mod valid: (.+) \((\d+)\)$`)
+	completionMarker := "Initialize Primal Game Data Override."
+
+	// Map to store mod ID -> name mappings
+	mods := make(map[string]string)
+
+	// Open the log file
+	file, err := os.Open(logPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open log file: %w", err)
+	}
+	defer file.Close()
+
+	// Read the file line by line
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+
+		// Check if we've reached the completion marker
+		if strings.Contains(line, completionMarker) {
+			break
+		}
+
+		// Try to match mod info line
+		matches := modRegex.FindStringSubmatch(line)
+		if len(matches) == 3 {
+			modName := strings.TrimSpace(matches[1])
+			modID := matches[2]
+			mods[modID] = modName
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("error reading log file: %w", err)
+	}
+
+	// Convert map to slice of ModInfo structs
+	var modList []ModInfo
+	for id, name := range mods {
+		modList = append(modList, ModInfo{ID: id, Name: name})
+	}
+
+	// Create output directory if it doesn't exist
+	outputDir := filepath.Dir(outputPath)
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create output directory: %w", err)
+	}
+
+	// Write to JSON file
+	jsonFile, err := os.Create(outputPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create JSON file: %w", err)
+	}
+	defer jsonFile.Close()
+
+	// Convert mods map to JSON
+	encoder := json.NewEncoder(jsonFile)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(modList); err != nil {
+		return nil, fmt.Errorf("failed to encode JSON: %w", err)
+	}
+
+	// Also return the mod list
+	return modList, nil
 }

@@ -763,6 +763,9 @@ func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
 		opts.GameInitializationSuccessful(gameLogPath)
 	}
 
+	// Monitor for mod information in a separate goroutine
+	go MonitorAndExtractModInfo(ctx, gameLogPath, BaseDir, instanceName)
+
 	if opts.WaitServerCompleted {
 		go func() {
 			if exited := WaitGamePidExit(ctx, pid); exited {
