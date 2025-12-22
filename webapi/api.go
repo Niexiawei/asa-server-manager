@@ -1774,7 +1774,6 @@ func (s *APIServer) syncGameConfig(c *gin.Context) {
 	})
 }
 
-// syncInstanceConfig syncs instance configuration and Config folder from a source instance to multiple target instances
 func (s *APIServer) syncInstanceConfig(c *gin.Context) {
 	var req SyncInstanceConfigRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -1836,5 +1835,48 @@ func (s *APIServer) syncInstanceConfig(c *gin.Context) {
 			"synced_instances": successInstances,
 			"count":            len(successInstances),
 		},
+	})
+}
+
+// getModInfo returns the content of mod_info.json
+func (s *APIServer) getModInfo(c *gin.Context) {
+	// Construct the path to mod_info.json
+	modInfoPath := filepath.Join(asaserver.BaseDir, "mod_info.json")
+
+	// Check if the file exists
+	if _, err := os.Stat(modInfoPath); os.IsNotExist(err) {
+		c.JSON(http.StatusNotFound, StatusResponse{
+			Success: false,
+			Error:   "mod_info.json file not found",
+		})
+		return
+	}
+
+	// Read the file
+	file, err := os.Open(modInfoPath)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, StatusResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to open mod_info.json: %v", err),
+		})
+		return
+	}
+	defer file.Close()
+
+	// Decode JSON content
+	var modInfo []asaserver.ModInfo
+	decoder := json.NewDecoder(file)
+	if err := decoder.Decode(&modInfo); err != nil {
+		c.JSON(http.StatusInternalServerError, StatusResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to decode mod_info.json: %v", err),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, StatusResponse{
+		Success: true,
+		Message: "Mod info retrieved successfully",
+		Data:    modInfo,
 	})
 }

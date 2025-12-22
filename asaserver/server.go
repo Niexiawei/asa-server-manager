@@ -764,7 +764,7 @@ func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
 	}
 
 	// Monitor for mod information in a separate goroutine
-	go MonitorAndExtractModInfo(ctx, gameLogPath, BaseDir, instanceName)
+	go MonitorAndExtractModInfo(ctx, gameLogPath, instanceName)
 
 	if opts.WaitServerCompleted {
 		go func() {

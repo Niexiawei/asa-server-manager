@@ -215,6 +215,8 @@ func (s *APIServer) setupRoutes() {
 	s.engine.GET("/api/server/:name/info", s.streamInstanceInfo)
 	s.engine.GET("/api/server/all-info", s.streamAllInstancesInfo)
 
+	// Mod info endpoint
+	s.engine.GET("/api/mod-info", s.getModInfo)
 	// WebSocket endpoints
 	s.engine.GET("/api/ws/events", s.handleServerEvents)
 	s.engine.GET("/api/ws/rcon", s.handleRCONEvents)

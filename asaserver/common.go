@@ -416,7 +416,7 @@ type ModInfo struct {
 }
 
 // MonitorAndExtractModInfo monitors log file for mod information and saves it to a JSON file
-func MonitorAndExtractModInfo(pctx context.Context, logPath string, baseDir string, instanceName string) {
+func MonitorAndExtractModInfo(pctx context.Context, logPath string, instanceName string) {
 	// Regular expression to match mod info lines
 	modRegex := regexp.MustCompile(`^\[.+\]LogCFCore: Mod valid: (.+) \((\d+)\)$`)
 	completionMarker := "Initialize Primal Game Data Override."
@@ -430,7 +430,7 @@ func MonitorAndExtractModInfo(pctx context.Context, logPath string, baseDir stri
 		// Check if we've reached the completion marker
 		if strings.Contains(line, completionMarker) {
 			// Load existing mod info if file exists
-			modInfoPath := filepath.Join(baseDir, "mod_info.json")
+			modInfoPath := filepath.Join(BaseDir, "mod_info.json")
 			existingMods := make(map[string]string)
 
 			if _, err := os.Stat(modInfoPath); err == nil {
