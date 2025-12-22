@@ -131,7 +131,49 @@
       <!-- 第四行 -->
       <a-row :gutter="16">
         <a-col :span="24">
-          <a-form-item field="ModIDs" label="Mod IDs">
+          <a-form-item field="ModIDs" content-class="mod-edit-item" label="Mod IDs">
+            <!-- 动态标签编辑模式 -->
+            <div style="margin-bottom: 8px">
+              <a-space wrap>
+                <a-tag
+                    v-for="(tag, index) in modTags"
+                    :key="tag"
+                    closable
+                    color="arcoblue"
+                    @close="handleRemove(tag)"
+                >
+                  {{ getModNameById(tag) || tag }}
+                </a-tag>
+
+                <a-input
+                    v-if="showInput"
+                    ref="inputRef"
+                    :style="{ width: '120px'}"
+                    size="mini"
+                    v-model.trim="inputVal"
+                    placeholder="Mod ID"
+                    @keyup.enter="handleAdd"
+                    @blur="handleAdd"
+                />
+                <a-tag
+                    v-else
+                    :style="{
+                      width: '120px',
+                      backgroundColor: 'var(--color-fill-2)',
+                      border: '1px dashed var(--color-fill-3)',
+                      cursor: 'pointer',
+                    }"
+                    @click="handleEdit"
+                >
+                  <template #icon>
+                    <icon-plus />
+                  </template>
+                  添加 Mod ID
+                </a-tag>
+              </a-space>
+            </div>
+            
+            <!-- 原有的文本输入框 -->
             <a-textarea
                 v-model="editingConfig.ModIDs"
                 placeholder="输入Mod IDs（逗号分隔）"
@@ -158,7 +200,9 @@
 </template>
 
 <script setup>
-import {ref, watch} from 'vue'
+import {ref, watch, nextTick, onMounted, computed} from 'vue'
+import {IconPlus} from '@arco-design/web-vue/es/icon'
+import {getModInfo} from '@/apis/api.js'
 
 const props = defineProps({
   visible: {
@@ -196,6 +240,83 @@ const editingConfig = ref({
   BindDomain: ''
 })
 
+// Mod 信息相关
+const modInfo = ref([])
+const modTags = ref([])
+const showInput = ref(false)
+const inputVal = ref('')
+const inputRef = ref(null)
+
+// 获取Mod信息
+const fetchModInfo = async () => {
+  try {
+    const data = await getModInfo()
+    if (data.success) {
+      modInfo.value = data.data || []
+    } else {
+      console.error('获取Mod信息失败:', data.error)
+      modInfo.value = []
+    }
+  } catch (error) {
+    console.error('获取Mod信息失败:', error)
+    modInfo.value = []
+  }
+}
+
+// 根据Mod ID获取Mod名称
+const getModNameById = (modId) => {
+  if (!modId) return null
+  const mod = modInfo.value.find(m => m.id === modId.toString())
+  return mod ? mod.name : null
+}
+
+// 处理标签编辑
+const handleEdit = () => {
+  showInput.value = true
+  nextTick(() => {
+    if (inputRef.value) {
+      inputRef.value.focus()
+    }
+  })
+}
+
+// 添加标签
+const handleAdd = () => {
+  if (inputVal.value && !modTags.value.includes(inputVal.value)) {
+    modTags.value.push(inputVal.value)
+    syncModTagsToInput()
+    inputVal.value = ''
+  }
+  showInput.value = false
+}
+
+// 删除标签
+const handleRemove = (tag) => {
+  modTags.value = modTags.value.filter(t => t !== tag)
+  syncModTagsToInput()
+}
+
+// 将标签同步到输入框
+const syncModTagsToInput = () => {
+  editingConfig.value.ModIDs = modTags.value.join(',')
+}
+
+// 将输入框同步到标签
+const syncInputToModTags = () => {
+  if (editingConfig.value.ModIDs) {
+    modTags.value = editingConfig.value.ModIDs.split(',').filter(id => id.trim()).map(id => id.trim())
+  } else {
+    modTags.value = []
+  }
+}
+
+// 监听 ModIDs 输入框变化，同步到标签
+watch(() => editingConfig.value.ModIDs, (newVal) => {
+  if (newVal !== modTags.value.join(',')) {
+    syncInputToModTags()
+  }
+})
+
 // 监听外部 visible 属性变化
 watch(() => props.visible, (newVal) => {
   localVisible.value = newVal
@@ -230,7 +351,14 @@ const initializeConfig = () => {
     EnableAsaPlugin: props.config?.EnableAsaPlugin || false,
     BindDomain: props.config?.BindDomain || ''
   }
+  // 同步 ModIDs 到标签
+  syncInputToModTags()
 }
+
+// 组件挂载时获取 Mod 信息
+onMounted(() => {
+  fetchModInfo()
+})
 
 // 验证配置表单是否有效
 // const isConfigFormValid = () => {
@@ -266,4 +394,8 @@ const handleCancel = () => {
 
 <style scoped lang="less">
 /* 使用 arco design 的内置样式，无需额外定义 */
+
+:deep(.mod-edit-item){
+  flex-direction: column;
+}
 </style>
