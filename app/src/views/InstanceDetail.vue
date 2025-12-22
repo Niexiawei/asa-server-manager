@@ -83,12 +83,26 @@
               </template>
               <div class="config-grid">
                 <div v-for="item in getAllConfigItems()" :key="item.label" class="config-grid-item"
-                     :class="{ 'full-width': item.label === '自定义启动参数', 'modid-item':item.label === 'Mod IDs'}">
+                     :class="{ 'full-width': item.label === '自定义启动参数', 'modid-item':item.label === 'Mod'}">
                   <div class="config-item">
                     <div class="config-item-label">{{ item.label }}</div>
                     <div class="config-item-content">
                       <div v-if="!item.type || item.type === 'text'" class="config-item-value">
-                        {{ item.value }}
+                        <template v-if="item.label === 'Mod'">
+                          <template v-if="item.value && item.value !== '-'">
+                            <template v-for="(modId, index) in item.value.split(',')" :key="modId">
+                              <a-tag class="mod-tag" v-if="modId.trim()" color="arcoblue">
+                                {{ getModNameById(modId.trim()) || modId.trim() }}
+                              </a-tag>
+                            </template>
+                          </template>
+                          <template v-else>
+                            {{ item.value }}
+                          </template>
+                        </template>
+                        <template v-else>
+                          {{ item.value }}
+                        </template>
                       </div>
                       <div v-else-if="item.type === 'boolean'" class="config-item-value">
                         <a-tag :color="item.value === '是' ? 'green' : 'gray'">{{ item.value }}</a-tag>
@@ -317,7 +331,8 @@ import {
   updateGameUserSettings,
   uploadGameIniFile,
   uploadGameUserSettingsFile,
-  updateInstanceConfig
+  updateInstanceConfig,
+  getModInfo
 } from '@/apis/api.js'
 import {serverStore, getInstanceStatus} from '@/store/serverStore.js'
 import {onServerEvent} from '@/apis/api.js'
@@ -328,6 +343,10 @@ import {Modal, Message, Notification} from '@arco-design/web-vue'
 const loading = ref(true)
 const error = ref(null)
 const instanceData = ref([])
+
+// Mod信息
+const modInfo = ref([])
+const modInfoLoading = ref(false)
 
 const route = useRoute()
 const instanceName = route.params.name
@@ -614,7 +633,7 @@ const fetchInstanceConfig = async () => {
           value: config.MapName || '-'
         },
         {
-          label: 'Mod IDs',
+          label: 'Mod',
           value: config.ModIDs || '-'
         },
         {
@@ -830,6 +849,33 @@ const loadServerConfigs = async () => {
   }
 }
 
+// 获取Mod信息
+const fetchModInfo = async () => {
+  modInfoLoading.value = true
+  try {
+    const data = await getModInfo()
+    if (data.success) {
+      modInfo.value = data.data || []
+    } else {
+      console.error('获取Mod信息失败:', data.error)
+      modInfo.value = []
+    }
+  } catch (error) {
+    console.error('获取Mod信息失败:', error)
+    modInfo.value = []
+  } finally {
+    modInfoLoading.value = false
+  }
+}
+
+// 根据Mod ID获取Mod名称
+const getModNameById = (modId) => {
+  if (!modId) return null
+
+  const mod = modInfo.value.find(m => m.id === modId)
+  return mod ? mod.name : null
+}
+
 // 打开 Game.ini 对比
 const compareGameIni = async () => {
   diffType.value = 'game-ini'
@@ -866,6 +912,7 @@ onMounted(async () => {
   await fetchInstanceConfig()
   loadGameIni()
   loadGameUserSettings()
+  fetchModInfo()
 
   // 如果已有缓存的实例状态，使用它
   const cachedStatus = getInstanceStatus(instanceName)
@@ -985,26 +1032,35 @@ onUnmounted(() => {
 
 .config-grid-item.modid-item {
   width: 100%;
+  grid-column: 1 / -1;
 
   .config-item {
     width: calc(100% - 32px);
+    height: auto !important;
+    min-height: 32px;
+    align-items: flex-start !important;
   }
 
   .config-item-label {
     flex: 0 0 auto; /* 不收缩到 0，不占剩余空间 */
     white-space: nowrap;
+    padding: 12px 0 !important;
+    box-sizing: border-box;
+    height: auto !important;
+    line-height: 20px;
   }
 
   .config-item-content {
     flex: 1 1 0; /* 占剩余空间，可收缩 */
     min-width: 0; /* 关键：允许收缩，禁止 min-content 阻止收缩 */
+    height: auto !important;
+    padding: 0 0 !important;
+    box-sizing: border-box;
 
     .config-item-value {
       width: 100%;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      text-align: right;
+      display: flex;
+      flex-wrap: wrap;
     }
   }
 }
@@ -1046,6 +1102,11 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.mod-tag {
+  margin: 2px;
+  padding: 0 3px;
 }
 
 /* 配置文件行布局 */
