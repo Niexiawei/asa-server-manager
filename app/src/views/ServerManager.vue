@@ -61,17 +61,20 @@
                           <span class="label">查询端口:</span>
                           <span class="value">{{ instance.config.QueryPort }}</span>
                         </div>
-                        <template v-if="instance.config?.ModIDs && instance.config?.ModIDs.length > 0">
-                          <a-tooltip :content="instance.config?.ModIDs">
-                            <div class="info-item info-item-modid">
-                              <span class="label">Mod ID:</span>
-                              <span class="value">{{ instance.config?.ModIDs || '-' }}</span>
-                            </div>
-                          </a-tooltip>
-                        </template>
-                        <div v-else class="info-item info-item-modid">
-                          <span class="label">Mod ID:</span>
-                          <span class="value">{{ instance.config?.ModIDs || '-' }}</span>
+                        <div class="info-item info-item-custom info-item-modid">
+                          <span class="label">Mod:</span>
+                          <span class="value">
+                            <template v-if="instance.config?.ModIDs">
+                              <template v-for="(modId, index) in instance.config.ModIDs.split(',')" :key="modId">
+                                <a-tag class="mod-tag" v-if="modId.trim()" color="arcoblue">
+                                  {{ getModNameById(modId.trim()) || modId.trim() }}
+                                </a-tag>
+                              </template>
+                            </template>
+                            <template v-else>
+                              -
+                            </template>
+                          </span>
                         </div>
                         <div class="info-item info-item-custom" v-if="instance.config?.CustomStartParameters">
                           <span class="label">自定义参数:</span>
@@ -113,7 +116,8 @@
                   >
                     查看日志
                     <template #content>
-                      <a-doption @click="restartInstance(instance.name)" :disabled="!instance.running || operationLoadingMap.get(`${instance.name}-restart`)">
+                      <a-doption @click="restartInstance(instance.name)"
+                                 :disabled="!instance.running || operationLoadingMap.get(`${instance.name}-restart`)">
                         <span v-if="operationLoadingMap.get(`${instance.name}-restart`)">
                           <icon-loading spin/> 重启中...
                         </span>
@@ -192,7 +196,8 @@ import {
   stopServer,
   restartServer,
   restartServerSSE,
-  deleteInstance
+  deleteInstance,
+  getModInfo
 } from '@/apis/api.js'
 import {Modal, Button, Message, Notification} from '@arco-design/web-vue';
 import {IconCheck, IconClose, IconLoading} from '@arco-design/web-vue/es/icon';
@@ -214,6 +219,10 @@ const selectedInstanceName = ref('')
 const form = reactive({
   instanceName: ''
 })
+
+// Mod信息
+const modInfo = ref([])
+const modInfoLoading = ref(false)
 
 // 实例的 loading 状态
 const instanceLoadingMap = ref(new Map())
@@ -249,6 +258,33 @@ const fetchInstances = async () => {
   } finally {
     loading.value = false
   }
+}
+
+// 获取Mod信息
+const fetchModInfo = async () => {
+  modInfoLoading.value = true
+  try {
+    const data = await getModInfo()
+    if (data.success) {
+      modInfo.value = data.data || []
+    } else {
+      console.error('获取Mod信息失败:', data.error)
+      modInfo.value = []
+    }
+  } catch (error) {
+    console.error('获取Mod信息失败:', error)
+    modInfo.value = []
+  } finally {
+    modInfoLoading.value = false
+  }
+}
+
+// 根据Mod ID获取Mod名称
+const getModNameById = (modId) => {
+  if (!modId) return null
+
+  const mod = modInfo.value.find(m => m.id === modId)
+  return mod ? mod.name : null
 }
 
 function logViewerClose() {
@@ -477,6 +513,7 @@ watch(
 // 组件挂载时获取实例列表
 onMounted(() => {
   fetchInstances()
+  fetchModInfo()
 
   // 监听游戏日志路径 WebSocket 事件
   onServerEvent('server_game_log_path', (event) => {
@@ -656,10 +693,27 @@ const handleSyncComplete = (result) => {
 }
 
 .info-item-modid {
+  min-height: 32px;
+
+  .label {
+    height: 32px;
+    padding: 0 !important;
+    line-height: 32px;
+  }
+
   .value {
-    white-space: nowrap;
-    text-overflow: ellipsis;
-    overflow: hidden;
+    display: flex;
+    flex-wrap: wrap;
+    padding: 6px 0 !important;
+    box-sizing: border-box;
+
+    :deep(.arco-tag) {
+      padding: 0 3px;
+    }
+
+    .mod-tag {
+      margin: 2px;
+    }
   }
 }
 

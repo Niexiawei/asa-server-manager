@@ -962,6 +962,12 @@ export async function restartSyncthing() {
     return handleResponse(response)
 }
 
+// 获取 Mod 信息
+export async function getModInfo() {
+    const response = await fetch(`${API_BASE_URL}/api/mod-info`)
+    return handleResponse(response)
+}
+
 // 重新导出这些函数供其他模块使用
 export {
     connectWebSocket,
