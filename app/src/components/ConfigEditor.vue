@@ -62,7 +62,7 @@ const initEditor = () => {
     editor = monaco.editor.create(editorContainer.value, {
       value: props.content,
       language: props.language,
-      theme: 'vs-light',
+      theme: 'vs-dark',
       automaticLayout: true,
       minimap: { enabled: true },
       fontSize: 13,
@@ -70,7 +70,9 @@ const initEditor = () => {
       scrollBeyondLastLine: false,
       wordWrap: 'off',
       wrappingIndent: 'none',
-      horizontalScrollbarSize: 12
+      horizontalScrollbarSize: 12,
+      cursorBlinking: 'blink',
+      cursorSmoothCaretAnimation: 'on'
     })
   } else if (editor) {
     editor.setValue(props.content)

@@ -98,7 +98,7 @@ const initDiffEditor = () => {
     )
 
     diffEditor = monaco.editor.createDiffEditor(diffEditorContainer.value, {
-      theme: 'vs-light',
+      theme: 'vs-dark',
       automaticLayout: true,
       fontSize: 12,
       lineNumbers: 'on',
@@ -110,7 +110,9 @@ const initDiffEditor = () => {
       originalEditable: false,
       minimap: {enabled: true},
       renderSideBySide: true,
-      renderWhitespace: 'all'
+      renderWhitespace: 'all',
+      cursorBlinking: 'blink',
+      cursorSmoothCaretAnimation: 'on'
     })
 
     const minimapOpts = {
