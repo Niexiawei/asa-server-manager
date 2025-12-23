@@ -3,7 +3,11 @@
     <div class="_content">
       <a-layout-header>
         <div class="header-content">
-          <h1>ARK Server Ascended 管理面板</h1>
+          <!--          <h1>ARK Server Ascended 管理面板</h1>-->
+          <div class="icon">
+            <img class="img" src="/ASA_Logo_transparent.webp">
+            <div class="title-text">Ascended Server</div>
+          </div>
           <div class="header-bottom">
             <a-menu mode="horizontal" :selected-keys="[currentRoute]" @menu-item-click="handleMenuClick">
               <a-menu-item key="manager">
@@ -125,27 +129,40 @@ const handleMenuClick = (key) => {
 .header-content {
   margin: 0 auto;
   display: flex;
-  flex-direction: column;
+  height: 58px;
   width: 100%;
+
+  .icon {
+    padding: 8px;
+    box-sizing: border-box;
+    line-height: 58px;
+    display: flex;
+    align-items: center;
+
+    .title-text {
+      font-size: 25px;
+      text-indent: 15px;
+      color: #1d2129;
+    }
+
+    > img {
+      width: 42px;
+    }
+  }
 
   .header-bottom {
     display: flex;
     align-items: center;
     justify-content: space-between;
     background-color: #fff;
-  }
+    flex: 1;
 
-  .header-tools {
-    display: flex;
-    align-items: center;
-    gap: 8px;
+    .header-tools {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
   }
-}
-
-.header-content h1 {
-  color: #ffffff;
-  text-align: left;
-  text-indent: 15px;
 }
 
 .content-wrapper {
@@ -158,7 +175,6 @@ const handleMenuClick = (key) => {
 }
 
 .arco-layout-header {
-  background-color: #2c3e50;
   width: 100%;
   position: relative;
 }

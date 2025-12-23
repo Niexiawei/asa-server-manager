@@ -120,7 +120,9 @@ func (m *SyncthingManager) Start() error {
 func (m *SyncthingManager) asyncStart() {
 	ctx, cancel := context.WithCancel(context.Background())
 	// Create new command
-	cmd := exec.Command(m.syncthingPath, "serve", "--home", m.runDir, "--no-browser", "--no-restart")
+	cmd := exec.Command(m.syncthingPath, "serve", "--home", m.runDir,
+		"--no-browser", "--no-restart",
+		"--no-upgrade")
 	// Set up stdout/stderr to redirect to logger
 	cmd.Stdout = &LogWriter{tag: "[syncthing]", logFunc: logger.GetLogger().Infof}
 	cmd.Stderr = &LogWriter{tag: "[syncthing]", logFunc: logger.GetLogger().Errorf}

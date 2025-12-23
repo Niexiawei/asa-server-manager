@@ -85,6 +85,13 @@ func (s *APIServer) Start() error {
 			logger.GetLogger().Errorf("Failed to start frpc: %v", err)
 		}
 	}
+	//start syncthing manage
+	syncthingMgr := syncthingmanage.GetGlobalManager()
+	if syncthingMgr != nil {
+		if err := syncthingMgr.Start(); err != nil {
+			logger.GetLogger().Errorf("Failed to start syncthing: %v", err)
+		}
+	}
 	// Start listening on port
 	addr := fmt.Sprintf(":%d", s.port)
 	srv := &http.Server{
