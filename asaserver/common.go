@@ -575,3 +575,66 @@ func ExtractAndSaveModInfo(logPath string, outputPath string) ([]ModInfo, error)
 	// Also return the mod list
 	return modList, nil
 }
+
+// SaveWorldSafely safely saves the world for an instance
+// It sends the "DoExit" command (which triggers world save),
+// then checks if the save file has been updated to ensure data persistence
+func SaveWorldSafely(instanceName string) error {
+	// Get instance configuration to determine save directory and map name
+	config, err := LoadInstanceConfig(instanceName)
+	if err != nil {
+		return fmt.Errorf("failed to load instance config: %w", err)
+	}
+
+	// Get the current time to compare against the file's modification time
+	startTime := time.Now()
+	// Send the DoExit command (this triggers world save)
+	response, err := SendRCONCommand(instanceName, "saveworld")
+	if err != nil {
+		return fmt.Errorf("failed to send command: %w", err)
+	}
+
+	// Check if response contains "World Saved" to confirm server is saving
+	if err == nil && strings.Contains(response, "World Saved") {
+		logger.GetLogger().Infof("Server instance %s is saving world...", instanceName)
+	} else {
+		logger.GetLogger().Errorf("server instance %s is saving world error: %v", instanceName, err)
+		return fmt.Errorf("server instance %s is saving world error: %w", instanceName, err)
+	}
+
+	// Construct the save file path: baseDir + 'server-files\ShooterGame\Saved' + {SaveDir} + {MapName} + {MapName}.ark
+	// The actual path should be: BaseDir/server-files/ShooterGame/Saved/SavedArks/{SaveDir}/{MapName}.ark
+	// Based on the code in server.go, saveDir is used as: filepath.Join(ServerFilesDir, "ShooterGame/Saved/SavedArks", config.SaveDir)
+	saveDirPath := filepath.Join(ServerFilesDir, "ShooterGame/Saved", config.SaveDir, config.MapName)
+	saveFilePath := filepath.Join(saveDirPath, config.MapName+".ark")
+
+	// Wait for the save file to be updated (check every 2 seconds for up to 60 seconds)
+	maxWait := 300 * time.Second
+	checkInterval := 1 * time.Second
+	ticker := time.NewTicker(checkInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			// Check if the save file exists and has been updated since we sent the command
+			fileInfo, err := os.Stat(saveFilePath)
+			if err == nil {
+				// Check if the file's modification time is greater than or equal to the start time
+				// Add a small buffer (1 second) to account for timing precision
+				fileModTime := fileInfo.ModTime()
+				if fileModTime.After(startTime) || fileModTime.Equal(startTime) {
+					diffMilli := fileModTime.UnixMilli() - startTime.UnixMilli()
+					logger.GetLogger().Infof("World saved successfully for instance %s. Save file: %s. saved Milliseconds %d",
+						instanceName, saveFilePath, diffMilli)
+					return nil
+				}
+			} else {
+				logger.GetLogger().Warnf("Save file not found or error checking: %v", err)
+			}
+
+		case <-time.After(maxWait):
+			logger.GetLogger().Errorf("timeout waiting for world save to complete for instance %s. Save file: %s", instanceName, saveFilePath)
+			return fmt.Errorf("timeout waiting for world save to complete for instance %s. Save file: %s", instanceName, saveFilePath)
+		}
+	}
+}

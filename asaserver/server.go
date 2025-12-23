@@ -857,18 +857,10 @@ func StopServer(instanceName string) error {
 		return fmt.Errorf("failed to find process PID: %w", err)
 	}
 
-	for i := 0; i < 5; i++ {
-		savewordres, err := SendRCONCommand(instanceName, "saveworld")
-		if err != nil {
-			logger.GetLogger().Errorf("%s saveworld faild err:%s", instanceName, err)
-		} else {
-			logger.GetLogger().Infof("%s saveworld response:%s", instanceName, savewordres)
-		}
-		time.Sleep(800 * time.Millisecond)
+	if err := SaveWorldSafely(instanceName); err != nil {
+		return fmt.Errorf("failed to save world safely: %w", err)
 	}
-	logger.GetLogger().Infof("Stopping server for instance: %s sleep 5s", instanceName)
-	time.Sleep(10 * time.Second)
-
+	
 	response, err := SendRCONCommand(instanceName, "DoExit")
 
 	if err == nil && strings.Contains(response, "Exiting") {

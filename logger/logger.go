@@ -103,7 +103,7 @@ func fileWriter() zapcore.WriteSyncer {
 	filePath, _ := filepath.Abs(loggerPath)
 	ws := zapcore.AddSync(&lumberjack.Logger{
 		Filename:   filePath, // file name
-		MaxSize:    200,      // maximum file size (MB)
+		MaxSize:    15,       // maximum file size (MB)
 		MaxBackups: 10,       // maximum number of old files
 		MaxAge:     7,        // maximum number of days for old documents
 		Compress:   true,     // whether to compress and archive old files

@@ -1125,7 +1125,7 @@ onUnmounted(() => {
   width: 100%;
   box-sizing: border-box;
   min-width: 0;
-  height: 450px !important;
+  height: 650px !important;
 }
 
 .config-viewer-wrapper {

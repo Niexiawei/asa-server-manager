@@ -47,12 +47,18 @@ type InstanceConfig struct {
 
 // EnsureDirectories Initialize directories based on executable location
 func EnsureDirectories() error {
-	// Get the directory where the executable is located
-	exe, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("failed to get executable path: %w", err)
+	// Check if ASA_BASEDIR environment variable is set
+	baseDirEnv := os.Getenv("ASA_BASEDIR")
+	if baseDirEnv != "" {
+		BaseDir = baseDirEnv
+	} else {
+		// Get the directory where the executable is located
+		exe, err := os.Executable()
+		if err != nil {
+			return fmt.Errorf("failed to get executable path: %w", err)
+		}
+		BaseDir = filepath.Dir(exe)
 	}
-	BaseDir = filepath.Dir(exe)
 	InstancesDir = filepath.Join(BaseDir, "instances")
 	ServerFilesDir = filepath.Join(BaseDir, "server-files")
 	SteamCmdDir = filepath.Join(BaseDir, "steamcmd")
