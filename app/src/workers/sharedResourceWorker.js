@@ -161,7 +161,7 @@ function formatInstanceData(instanceData, fullData) {
     },
     pid: instanceData.pid,
     process: {
-      name: instanceData.instance,
+      name: instanceData.process_name,
       cpu_percent: instanceData.cpu_percent,
       cpu_total_percent: instanceData.cpu_total_percent,
       memory_used: instanceData.memory_used,

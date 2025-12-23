@@ -1115,6 +1115,7 @@ func (s *APIServer) streamAllInstancesInfo(c *gin.Context) {
 					"cpu_total_percent": totalCPUUsage,
 					"memory_used":       processInfo.MemoryUsed,
 					"memory_percent":    processInfo.MemoryPercent,
+					"process_name":      processInfo.Name,
 					"memory_used_mb":    float64(processInfo.MemoryUsed) / (1024 * 1024),
 					"memory_used_gb":    float64(processInfo.MemoryUsed) / (1024 * 1024 * 1024),
 				}

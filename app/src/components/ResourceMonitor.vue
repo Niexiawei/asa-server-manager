@@ -226,10 +226,6 @@ watch(
       const wasMonitoring = oldValue?.isStartingOrRunning === true ||
           ['starting', 'started', 'stopping'].includes(oldValue?.status)
 
-      console.log(shouldMonitor && !isMonitoring.value)
-      console.log(!shouldMonitor && isMonitoring.value)
-
-
       if (shouldMonitor && !isMonitoring.value) {
         startMonitoring()
       } else if (!shouldMonitor && isMonitoring.value) {
@@ -244,35 +240,6 @@ onUnmounted(() => {
   stopMonitoring()
   // 注意：不要终止 Worker，哠它是全局共享的
 })
-
-// 格式化内存大小（从 Worker 获取，保持为本地函数以支持直接调用）
-const formatMemory = (bytes) => {
-  if (!bytes) return '-'
-  const mb = bytes / (1024 * 1024)
-  if (mb < 1024) {
-    return `${mb.toFixed(2)} MB`
-  }
-  return `${(mb / 1024).toFixed(2)} GB`
-}
-
-// 格式化 CPU 百分比（从 Worker 获取，保持为本地函数以支持直接调用）
-const formatCPU = (percent) => {
-  if (percent === undefined || percent === null) return '-'
-  return `${percent.toFixed(2)}%`
-}
-
-// 根据占用率获取进度条颜色（从 Worker 获取，保持为本地函数以支持直接调用）
-const getProgressColor = (percent) => {
-  if (percent < 50) {
-    return '#00b42a' // 绿色
-  } else if (percent < 70) {
-    return '#165dff' // 蓝色（默认）
-  } else if (percent < 90) {
-    return '#ff7d00' // 黄色
-  } else {
-    return '#f53f3f' // 红色
-  }
-}
 
 // 暴露方法供外部调用
 defineExpose({

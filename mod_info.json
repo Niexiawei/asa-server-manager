@@ -1,13 +1,5 @@
 [
   {
-    "id": "950914",
-    "name": "Awesome Teleporters!"
-  },
-  {
-    "id": "994715",
-    "name": "Easy Transferable Element"
-  },
-  {
     "id": "933158",
     "name": "Alpha Everything"
   },
@@ -30,5 +22,13 @@
   {
     "id": "947033",
     "name": "Awesome  Spyglass!"
+  },
+  {
+    "id": "950914",
+    "name": "Awesome Teleporters!"
+  },
+  {
+    "id": "994715",
+    "name": "Easy Transferable Element"
   }
 ]
