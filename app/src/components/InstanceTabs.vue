@@ -1,6 +1,29 @@
 <template>
   <div class="instance-tabs-wrapper">
-    <div class="instance-tags">
+    <div class="tabs-gradient"></div>
+    <div ref="wrap" class="instance-tags scroll-x">
+      <div
+          v-for="tab in tabs"
+          :key="tab.key"
+          :class="['instance-tag', { 'active': tab.key === activeKey }]"
+          @click="handleTagClick(tab)"
+      >
+        <span class="tag-text">{{ `Server: ${tab.title}` }}</span>
+        <span class="tag-close" @click.stop="handleDelete(tab.key)">
+          <icon-close-circle/>
+        </span>
+      </div>
+      <div
+          v-for="tab in tabs"
+          :key="tab.key"
+          :class="['instance-tag', { 'active': tab.key === activeKey }]"
+          @click="handleTagClick(tab)"
+      >
+        <span class="tag-text">{{ `Server: ${tab.title}` }}</span>
+        <span class="tag-close" @click.stop="handleDelete(tab.key)">
+          <icon-close-circle/>
+        </span>
+      </div>
       <div
           v-for="tab in tabs"
           :key="tab.key"
@@ -68,11 +91,12 @@
         </span>
       </div>
     </div>
+    <div class="tabs-gradient-end"></div>
   </div>
 </template>
 
 <script setup>
-import {ref, watch} from 'vue'
+import {onBeforeUnmount, onMounted, ref, watch} from 'vue'
 import {useRoute, useRouter} from 'vue-router'
 
 // const tabs = defineModel('tabs', {
@@ -81,6 +105,24 @@ import {useRoute, useRouter} from 'vue-router'
 //     return cache ? JSON.parse(cache) : []
 //   }
 // })
+
+
+const wrap = ref()
+
+const onWheel = (e) => {
+  if (wrap.value.scrollWidth > wrap.value.clientWidth) {
+    e.preventDefault()
+    wrap.value.scrollLeft += e.deltaY
+  }
+}
+
+onMounted(() => {
+  wrap.value.addEventListener('wheel', onWheel, {passive: false})
+})
+
+onBeforeUnmount(() => {
+  wrap.value.removeEventListener('wheel', onWheel)
+})
 
 const tabs = ref(getCacheTabs())
 const emit = defineEmits(['close', 'change'])
@@ -169,16 +211,16 @@ defineExpose({
   width: 100%;
   background-color: #fff;
   height: 100%;
+  position: relative;
 
   .instance-tags {
     width: 100%;
-    padding: 6px;
+    padding: 6px 12px;
     display: flex;
     flex-wrap: nowrap;
     column-gap: 6px;
     row-gap: 3px;
     align-items: center;
-    overflow: hidden;
     height: 100%;
     box-sizing: border-box;
 
@@ -247,6 +289,37 @@ defineExpose({
         }
       }
     }
+  }
+
+  .tabs-gradient {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 10px;
+    height: 100%;
+    background: linear-gradient(to right, white, transparent);
+    z-index: 1;
+  }
+
+  .tabs-gradient-end {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 10px;
+    height: 100%;
+    background: linear-gradient(to right, transparent, white);
+    z-index: 1;
+  }
+}
+
+.scroll-x {
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+
+  &::-webkit-scrollbar {
+    width: 0 !important;
+    height: 0 !important;
   }
 }
 </style>

@@ -5,27 +5,29 @@
         <div class="header-content">
           <div class="icon">
             <img class="img" src="/ASA_Logo_transparent.webp">
-            <div class="title-text">Ascended Server</div>
+            <!--            <div class="title-text">Ascended Server</div>-->
           </div>
           <div class="header-bottom">
-            <a-menu mode="horizontal" class="menu-content" :selected-keys="[currentRoute]"
-                    @menu-item-click="handleMenuClick">
-              <a-menu-item key="manager">
-                <span>服务器管理</span>
-              </a-menu-item>
-              <a-menu-item key="control">
-                <span>服务器控制</span>
-              </a-menu-item>
-              <a-menu-item key="frp-manager">
-                <span>FRP管理</span>
-              </a-menu-item>
-              <a-menu-item key="syncthing-manager">
-                <span>Syncthing管理</span>
-              </a-menu-item>
-              <a-menu-item key="system-logs">
-                <span>系统日志</span>
-              </a-menu-item>
-            </a-menu>
+            <div class="menu-content">
+              <a-menu mode="horizontal" :selected-keys="[currentRoute]"
+                      @menu-item-click="handleMenuClick">
+                <a-menu-item key="manager">
+                  <span>服务器管理</span>
+                </a-menu-item>
+                <a-menu-item key="control">
+                  <span>服务器控制</span>
+                </a-menu-item>
+                <a-menu-item key="frp-manager">
+                  <span>FRP管理</span>
+                </a-menu-item>
+                <a-menu-item key="syncthing-manager">
+                  <span>Syncthing管理</span>
+                </a-menu-item>
+                <a-menu-item key="system-logs">
+                  <span>系统日志</span>
+                </a-menu-item>
+              </a-menu>
+            </div>
             <div class="header-middle">
               <instance-tabs
                   ref="InstanceTabRef"
@@ -122,7 +124,7 @@ const handleTabChange = (tab) => {
 
 </script>
 
-<style lang="less">
+<style lang="less" scoped>
 .main-body {
   width: 100%;
   height: 100vh;
@@ -153,7 +155,7 @@ const handleTabChange = (tab) => {
   flex: 0 0 auto;
 
   .icon {
-    padding: 8px;
+    padding: 4px;
     box-sizing: border-box;
     line-height: 58px;
     display: flex;
@@ -166,7 +168,7 @@ const handleTabChange = (tab) => {
     }
 
     > img {
-      width: 42px;
+      width: 52px;
     }
   }
 
@@ -177,6 +179,10 @@ const handleTabChange = (tab) => {
     flex: 1 1 0; /* 占剩余空间，可收缩 */
     min-width: 0; /* 关键：允许收缩，禁止 min-content 阻止收缩 */
     gap: 16px;
+
+    :deep(.arco-menu-inner) {
+      padding: 14px 6px;
+    }
 
     .menu-content {
       flex: 0 0 auto;
