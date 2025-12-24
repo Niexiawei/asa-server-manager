@@ -9,7 +9,7 @@
           <a-button
               type="text"
               size="large"
-              @click="$router.back()"
+              @click="backMainPage"
           >
             <template #icon>
               <icon-left/>
@@ -310,7 +310,7 @@
 
 <script setup>
 import {ref, onMounted, onUnmounted, nextTick, watch, computed} from 'vue'
-import {useRoute} from 'vue-router'
+import {useRoute, useRouter} from 'vue-router'
 import ConfigEditor from '@/components/ConfigEditor.vue'
 import ConfigFileViewer from '@/components/ConfigFileViewer.vue'
 import ConfigDiffModal from '@/components/ConfigDiffModal.vue'
@@ -349,6 +349,7 @@ const modInfo = ref([])
 const modInfoLoading = ref(false)
 
 const route = useRoute()
+const router = useRouter()
 const instanceName = route.params.name
 
 // 基本信息
@@ -455,6 +456,12 @@ const loadGameIni = async () => {
   } finally {
     loadingGameIni.value = false
   }
+}
+
+function backMainPage() {
+  router.replace({
+    path: '/'
+  })
 }
 
 // 保存 Game.ini

@@ -3,13 +3,13 @@
     <div class="_content">
       <a-layout-header>
         <div class="header-content">
-          <!--          <h1>ARK Server Ascended 管理面板</h1>-->
           <div class="icon">
             <img class="img" src="/ASA_Logo_transparent.webp">
             <div class="title-text">Ascended Server</div>
           </div>
           <div class="header-bottom">
-            <a-menu mode="horizontal" :selected-keys="[currentRoute]" @menu-item-click="handleMenuClick">
+            <a-menu mode="horizontal" class="menu-content" :selected-keys="[currentRoute]"
+                    @menu-item-click="handleMenuClick">
               <a-menu-item key="manager">
                 <span>服务器管理</span>
               </a-menu-item>
@@ -26,11 +26,15 @@
                 <span>系统日志</span>
               </a-menu-item>
             </a-menu>
-            <!-- 右侧工具栏 -->
+            <div class="header-middle">
+              <instance-tabs
+                  ref="InstanceTabRef"
+                  @close="handleTabClose"
+                  @change="handleTabChange"
+              />
+            </div>
             <div class="header-tools">
-              <!-- 服务器资源占用气泡 -->
               <ServerResourceMonitor/>
-              <!-- WebSocket 事件通知组件 -->
               <WSEventNotification/>
             </div>
           </div>
@@ -38,7 +42,7 @@
       </a-layout-header>
       <a-layout-content>
         <div class="content-wrapper">
-          <router-view/>
+          <router-view :key="$route.fullPath"/>
         </div>
       </a-layout-content>
     </div>
@@ -46,16 +50,23 @@
 </template>
 
 <script setup>
-import {ref, watch} from 'vue';
+import {ref, watch, computed, provide} from 'vue';
 import {useRouter, useRoute} from "vue-router";
 import WSEventNotification from '@/components/WSEventNotification.vue';
 import ServerResourceMonitor from '@/components/ServerResourceMonitor.vue';
+import InstanceTabs from '@/components/InstanceTabs.vue';
 import "@/app.less"
 
 const router = useRouter()
 const route = useRoute()
-
+const InstanceTabRef = ref()
 const currentRoute = ref('manager');
+
+const addTab = (title, path, name, params) => {
+  InstanceTabRef.value.addTab(title, path, name, params);
+}
+
+provide('addTab', addTab)
 
 watch(() => route.path, (newPath) => {
   if (newPath === '/') {
@@ -101,6 +112,14 @@ const handleMenuClick = (key) => {
       break
   }
 };
+
+const handleTabClose = (key) => {
+
+}
+const handleTabChange = (tab) => {
+
+}
+
 </script>
 
 <style lang="less">
@@ -156,11 +175,24 @@ const handleMenuClick = (key) => {
     justify-content: space-between;
     background-color: #fff;
     flex: 1;
+    gap: 16px;
+
+    .menu-content {
+      width: 40%;
+    }
+
+    .header-middle {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      overflow: hidden;
+    }
 
     .header-tools {
       display: flex;
       align-items: center;
       gap: 8px;
+      flex-shrink: 0;
     }
   }
 }

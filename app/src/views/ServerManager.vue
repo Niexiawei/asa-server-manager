@@ -187,7 +187,7 @@
 </template>
 
 <script setup>
-import {ref, reactive, onMounted, onUnmounted, watch, computed, nextTick, h} from 'vue'
+import {ref, reactive, onMounted, onUnmounted, watch, computed, nextTick, h, inject} from 'vue'
 import {useRouter} from 'vue-router'
 import {
   listInstances,
@@ -208,6 +208,8 @@ import LogViewer from '@/components/LogViewer.vue'
 import SyncConfigModal from '@/components/SyncConfigModal.vue'
 import ResourceMonitor from '@/components/ResourceMonitor.vue'
 import MasonryWall from '@yeger/vue-masonry-wall'
+
+const addTab = inject('addTab')
 
 // 状态管理
 const router = useRouter()
@@ -537,10 +539,19 @@ watch(
 
 // 查看实例详情
 const viewInstanceDetail = (name) => {
-  router.push({
-    name: 'InstanceDetail',
-    params: {name}
-  })
+  const title = `实例详情: ${name}`
+  const path = `/instance/${name}`
+  let params = {
+    name
+  }
+  if (addTab) {
+    addTab(title, path, "InstanceDetail", params)
+  } else {
+    router.push({
+      name: 'InstanceDetail',
+      params: params
+    })
+  }
 }
 
 // 打开配置同步弹窗
