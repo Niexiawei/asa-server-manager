@@ -185,7 +185,7 @@ const handleTabChange = (tab) => {
     }
 
     .menu-content {
-      flex: 0 0 auto;
+      width: 610px;
     }
 
     .header-middle {
