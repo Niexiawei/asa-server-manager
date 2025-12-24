@@ -860,7 +860,7 @@ func StopServer(instanceName string) error {
 	if err := SaveWorldSafely(instanceName); err != nil {
 		return fmt.Errorf("failed to save world safely: %w", err)
 	}
-	
+
 	response, err := SendRCONCommand(instanceName, "DoExit")
 
 	if err == nil && strings.Contains(response, "Exiting") {
@@ -886,7 +886,7 @@ func StopServer(instanceName string) error {
 	if err == nil && config.EnableAsaPlugin {
 		pid2, err := GetInstancePID(instanceName)
 		if err == nil {
-			_ = exec.Command("taskkill", "/F", "/T", "/PID", fmt.Sprintf("%d", pid2)).Run()
+			_ = exec.Command("taskkill", "/F", "/PID", fmt.Sprintf("%d", pid2)).Run()
 		}
 	}
 
