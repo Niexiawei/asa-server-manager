@@ -7,8 +7,65 @@
           :class="['instance-tag', { 'active': tab.key === activeKey }]"
           @click="handleTagClick(tab)"
       >
-        <span class="tag-text">{{ tab.title }}</span>
-        <span class="tag-close" @click.stop="handleDelete(tab.key)">×</span>
+        <span class="tag-text">{{ `Server: ${tab.title}` }}</span>
+        <span class="tag-close" @click.stop="handleDelete(tab.key)">
+          <icon-close-circle/>
+        </span>
+      </div>
+      <div
+          v-for="tab in tabs"
+          :key="tab.key"
+          :class="['instance-tag', { 'active': tab.key === activeKey }]"
+          @click="handleTagClick(tab)"
+      >
+        <span class="tag-text">{{ `Server: ${tab.title}` }}</span>
+        <span class="tag-close" @click.stop="handleDelete(tab.key)">
+          <icon-close-circle/>
+        </span>
+      </div>
+      <div
+          v-for="tab in tabs"
+          :key="tab.key"
+          :class="['instance-tag', { 'active': tab.key === activeKey }]"
+          @click="handleTagClick(tab)"
+      >
+        <span class="tag-text">{{ `Server: ${tab.title}` }}</span>
+        <span class="tag-close" @click.stop="handleDelete(tab.key)">
+          <icon-close-circle/>
+        </span>
+      </div>
+      <div
+          v-for="tab in tabs"
+          :key="tab.key"
+          :class="['instance-tag', { 'active': tab.key === activeKey }]"
+          @click="handleTagClick(tab)"
+      >
+        <span class="tag-text">{{ `Server: ${tab.title}` }}</span>
+        <span class="tag-close" @click.stop="handleDelete(tab.key)">
+          <icon-close-circle/>
+        </span>
+      </div>
+      <div
+          v-for="tab in tabs"
+          :key="tab.key"
+          :class="['instance-tag', { 'active': tab.key === activeKey }]"
+          @click="handleTagClick(tab)"
+      >
+        <span class="tag-text">{{ `Server: ${tab.title}` }}</span>
+        <span class="tag-close" @click.stop="handleDelete(tab.key)">
+          <icon-close-circle/>
+        </span>
+      </div>
+      <div
+          v-for="tab in tabs"
+          :key="tab.key"
+          :class="['instance-tag', { 'active': tab.key === activeKey }]"
+          @click="handleTagClick(tab)"
+      >
+        <span class="tag-text">{{ `Server: ${tab.title}` }}</span>
+        <span class="tag-close" @click.stop="handleDelete(tab.key)">
+          <icon-close-circle/>
+        </span>
       </div>
     </div>
   </div>
@@ -18,22 +75,23 @@
 import {ref, watch} from 'vue'
 import {useRoute, useRouter} from 'vue-router'
 
-const tabs = defineModel('tabs', {
-  default: () => {
-    const cache = localStorage.getItem('instanceTabs')
-    return cache ? JSON.parse(cache) : []
-  }
-})
+// const tabs = defineModel('tabs', {
+//   default: () => {
+//     const cache = localStorage.getItem('instanceTabs')
+//     return cache ? JSON.parse(cache) : []
+//   }
+// })
 
+const tabs = ref(getCacheTabs())
 const emit = defineEmits(['close', 'change'])
 
 const route = useRoute()
 const router = useRouter()
 const activeKey = ref('')
 
-watch(() => tabs.value, (newTabs) => {
-  //console.log(JSON.stringify(newTabs.value))
-  localStorage.setItem("instanceTabs", JSON.stringify(newTabs))
+watch(() => tabs, (newTabs) => {
+  console.log(JSON.stringify(newTabs.value))
+  localStorage.setItem("instanceTabs", JSON.stringify(newTabs.value))
 }, {deep: true})
 
 watch(() => route.path, (newPath) => {
@@ -46,7 +104,7 @@ watch(() => route.path, (newPath) => {
 }, {immediate: true})
 
 function getCacheTabs() {
-  const cache = localStorage.getItem('tabs')
+  const cache = localStorage.getItem('instanceTabs')
   return cache ? JSON.parse(cache) : []
 }
 
@@ -76,6 +134,7 @@ const addTab = (title, path, name, params) => {
       name: name,
       params: params
     })
+    console.log(tabs.value)
   }
   router.push({
     name: name,
@@ -109,16 +168,19 @@ defineExpose({
 .instance-tabs-wrapper {
   width: 100%;
   background-color: #fff;
+  height: 100%;
 
   .instance-tags {
     width: 100%;
-    padding: 8px 12px;
+    padding: 6px;
     display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
+    flex-wrap: nowrap;
+    column-gap: 6px;
+    row-gap: 3px;
     align-items: center;
-    overflow-y: auto;
-    max-height: 80px;
+    overflow: hidden;
+    height: 100%;
+    box-sizing: border-box;
 
     &::-webkit-scrollbar {
       width: 6px;
@@ -139,13 +201,17 @@ defineExpose({
       align-items: center;
       cursor: pointer;
       font-size: 13px;
-      padding: 4px 8px 4px 12px;
+      padding: 0 8px;
+      box-sizing: border-box;
       border-radius: 4px;
       background-color: #f2f3f5;
       color: #1d2129;
       border: 1px solid #e5e6eb;
       transition: all 0.2s;
       user-select: none;
+      flex-shrink: 0;
+      height: 80%;
+      box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
 
       &:hover {
         background-color: #e8f3ff;

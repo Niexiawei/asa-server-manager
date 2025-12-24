@@ -539,7 +539,7 @@ watch(
 
 // 查看实例详情
 const viewInstanceDetail = (name) => {
-  const title = `实例详情: ${name}`
+  const title = name
   const path = `/instance/${name}`
   let params = {
     name

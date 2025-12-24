@@ -150,6 +150,7 @@ const handleTabChange = (tab) => {
   display: flex;
   height: 58px;
   width: 100%;
+  flex: 0 0 auto;
 
   .icon {
     padding: 8px;
@@ -172,23 +173,26 @@ const handleTabChange = (tab) => {
   .header-bottom {
     display: flex;
     align-items: center;
-    justify-content: space-between;
     background-color: #fff;
-    flex: 1;
+    flex: 1 1 0; /* 占剩余空间，可收缩 */
+    min-width: 0; /* 关键：允许收缩，禁止 min-content 阻止收缩 */
     gap: 16px;
 
     .menu-content {
-      width: 40%;
+      flex: 0 0 auto;
     }
 
     .header-middle {
-      flex: 1;
       display: flex;
       align-items: center;
       overflow: hidden;
+      height: 100%;
+      flex: 1 1 0; /* 占剩余空间，可收缩 */
+      min-width: 0; /* 关键：允许收缩，禁止 min-content 阻止收缩 */
     }
 
     .header-tools {
+      flex: 0 0 auto;
       display: flex;
       align-items: center;
       gap: 8px;
