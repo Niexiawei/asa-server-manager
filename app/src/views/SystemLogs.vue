@@ -1,8 +1,5 @@
 <template>
   <div class="system-logs">
-    <!-- WebSocket 连接状态指示器 -->
-    <WSStatusIndicator/>
-
     <a-card class="logs-card" :bordered="false">
       <template #title>
         <div class="logs-header">
@@ -52,7 +49,7 @@
             <span class="log-text">{{ log.msg }}</span>
           </div>
           <div v-if="logs.length === 0" class="log-empty">
-            暂无日志。{{ isStreaming ? "" : '点击"开始监听"按钮开始实时查看系统日志。'}}
+            暂无日志。{{ isStreaming ? "" : '点击"开始监听"按钮开始实时查看系统日志。' }}
           </div>
         </div>
       </div>
@@ -61,10 +58,12 @@
 </template>
 
 <script setup>
-import {ref, onMounted, onBeforeUnmount, nextTick} from 'vue'
+defineOptions({
+  name: 'SystemLogs'
+})
+import {ref, onMounted, onBeforeUnmount, nextTick, onDeactivated, onActivated} from 'vue'
 import dayjs from 'dayjs'
 import {streamSystemLogs} from '@/apis/api'
-import WSStatusIndicator from '@/components/WSStatusIndicator.vue'
 import {IconLeft} from '@arco-design/web-vue/es/icon'
 
 const logs = ref([])
@@ -92,7 +91,14 @@ const parseLogLine = (logStr) => {
   } catch (e) {
     // 如果解析失败，返回原始字符串
     return {
-      time: new Date().toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }).replace(/\//g, '-'),
+      time: new Date().toLocaleString('zh-CN', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      }).replace(/\//g, '-'),
       level: 'INFO',
       msg: logStr
     }
@@ -134,11 +140,18 @@ const stopLogStream = () => {
   isStreaming.value = false
 }
 
+onActivated(() => {
+  nextTick(() => {
+    if (logContainer.value) {
+      logContainer.value.scrollTop = logContainer.value.scrollHeight
+    }
+  })
+})
+
 // 清空日志
 const clearLogs = () => {
   logs.value = []
 }
-
 // 组件卸载时停止监听
 onBeforeUnmount(() => {
   if (stopStreamFn) {
@@ -161,10 +174,10 @@ onBeforeUnmount(() => {
 
 .logs-card {
   border-radius: var(--border-radius-large);
-  height: calc(100% - 64px);
+  height: 100%;
 
   :deep(.arco-card-body) {
-    height: calc(100% - 42px);
+    height: calc(100% - 45.2px);
     box-sizing: border-box;
   }
 }
@@ -186,7 +199,7 @@ onBeforeUnmount(() => {
   border: 1px solid var(--color-border);
   border-radius: 4px;
   background-color: #1a1a1a;
-  height: calc(100% - 54px);
+  height: calc(100% - 47px);
 }
 
 .log-container {

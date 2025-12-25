@@ -36,6 +36,7 @@
               />
             </div>
             <div class="header-tools">
+              <WSStatusIndicator/>
               <ServerResourceMonitor/>
               <WSEventNotification/>
             </div>
@@ -44,7 +45,17 @@
       </a-layout-header>
       <a-layout-content>
         <div class="content-wrapper">
-          <router-view :key="route.fullPath"/>
+          <router-view v-slot="{Component,route}">
+            <KeepAlive :include="[
+                'SystemLogs',
+                'ServerManager'
+            ]">
+              <component :is="Component"
+                         :key="route.name === 'InstanceDetail' ? route.fullPath : route.name">
+
+              </component>
+            </KeepAlive>
+          </router-view>
         </div>
       </a-layout-content>
     </div>
@@ -56,6 +67,7 @@ import {ref, watch, computed, provide} from 'vue';
 import {useRouter, useRoute} from "vue-router";
 import WSEventNotification from '@/components/WSEventNotification.vue';
 import ServerResourceMonitor from '@/components/ServerResourceMonitor.vue';
+import WSStatusIndicator from '@/components/WSStatusIndicator.vue';
 import InstanceTabs from '@/components/InstanceTabs.vue';
 import "@/app.less"
 

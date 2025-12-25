@@ -9,3 +9,5 @@ steamcmd/
 logs/
 frp/
 syncthing/
+mod_info.json
+bin/

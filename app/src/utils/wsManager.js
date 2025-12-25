@@ -3,6 +3,7 @@
  * 统一管理所有 WebSocket 连接、心跳、重连等逻辑
  */
 import {buildWebSocketUrl} from "@/utils/utils.js";
+import { ref, computed } from 'vue';
 
 // ============ 事件服务 WebSocket 连接 ============
 let wsConnection = null
@@ -11,6 +12,9 @@ let heartbeatInterval = null
 let reconnectInterval = null
 let isReconnecting = false
 let clientId = null
+
+// 响应式的连接状态
+const wsConnectedRef = ref(false)
 
 // ============ 连接配置 ============
 const WS_CONFIG = {
@@ -61,6 +65,9 @@ export function connectWebSocket(onOpen, onError, onClose) {
 
             // 启动心跳
             startHeartbeat()
+            
+            // 更新连接状态
+            updateWsConnected()
 
             if (onOpen) onOpen(clientId)
         }
@@ -97,6 +104,10 @@ export function connectWebSocket(onOpen, onError, onClose) {
             console.log('[WebSocket] Closed')
             wsConnection = null
             stopHeartbeat()
+            
+            // 更新连接状态
+            updateWsConnected()
+            
             if (onClose) onClose()
         }
     } catch (err) {
@@ -117,6 +128,9 @@ export function disconnectWebSocket() {
     }
     eventListeners.clear()
     clientId = null
+    
+    // 更新连接状态
+    updateWsConnected()
 }
 
 /**
@@ -153,6 +167,15 @@ export function onAnyServerEvent(callback) {
 export function isWebSocketConnected() {
     return wsConnection !== null && wsConnection.readyState === WebSocket.OPEN
 }
+
+// 更新响应式连接状态
+function updateWsConnected() {
+    wsConnectedRef.value = isWebSocketConnected();
+    return wsConnectedRef.value;
+}
+
+// 导出响应式连接状态
+export const wsConnected = computed(() => wsConnectedRef.value);
 
 /**
  * 发送事件 WebSocket 消息
@@ -284,4 +307,47 @@ export function getWebSocketStatus() {
             reconnecting: isReconnecting
         }
     }
+}
+
+/**
+ * 重新连接 WebSocket
+ */
+export async function reconnectWS() {
+    if (isWebSocketConnected()) {
+        // 如果已连接，先断开
+        disconnectWebSocket();
+    }
+    
+    return new Promise((resolve, reject) => {
+        // 尝试连接
+        connectWebSocket(
+            () => {
+                // 连接成功
+                console.log('[WebSocket] Reconnect successful');
+                
+                // 更新连接状态
+                updateWsConnected();
+                
+                resolve();
+            },
+            (error) => {
+                // 连接失败
+                console.error('[WebSocket] Reconnect failed:', error);
+                
+                // 更新连接状态
+                updateWsConnected();
+                
+                reject(error);
+            },
+            () => {
+                // 连接关闭
+                console.log('[WebSocket] Reconnect closed');
+                
+                // 更新连接状态
+                updateWsConnected();
+                
+                reject(new Error('Connection closed'));
+            }
+        );
+    });
 }

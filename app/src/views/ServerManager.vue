@@ -1,8 +1,5 @@
 <template>
   <div class="server-manager">
-    <!-- WebSocket 连接状态指示器 -->
-    <WSStatusIndicator/>
-
     <!-- 实例列表 -->
     <a-card :bordered="false" class="main-card">
       <template #extra>
@@ -187,7 +184,22 @@
 </template>
 
 <script setup>
-import {ref, reactive, onMounted, onUnmounted, watch, computed, nextTick, h, inject} from 'vue'
+defineOptions({
+  name: 'ServerManager'
+})
+import {
+  ref,
+  reactive,
+  onMounted,
+  onUnmounted,
+  watch,
+  computed,
+  nextTick,
+  h,
+  inject,
+  onDeactivated,
+  onActivated
+} from 'vue'
 import {useRouter} from 'vue-router'
 import {
   listInstances,
@@ -203,14 +215,12 @@ import {Modal, Button, Message, Notification} from '@arco-design/web-vue';
 import {IconCheck, IconClose, IconLoading} from '@arco-design/web-vue/es/icon';
 import {serverStore, updateInstancesInStore} from '@/store/serverStore.js'
 import {onServerEvent} from '@/utils/wsManager.js'
-import WSStatusIndicator from '@/components/WSStatusIndicator.vue'
 import LogViewer from '@/components/LogViewer.vue'
 import SyncConfigModal from '@/components/SyncConfigModal.vue'
 import ResourceMonitor from '@/components/ResourceMonitor.vue'
 import MasonryWall from '@yeger/vue-masonry-wall'
 
 const addTab = inject('addTab')
-
 // 状态管理
 const router = useRouter()
 const instances = ref([])
@@ -294,10 +304,6 @@ function logViewerClose() {
   // 日志监听已通过 LogViewer 组件内部 watch 自动管理
   // 关闭日志窗布84LogViewer会自动取消订阅
 }
-
-onUnmounted(() => {
-  // 日志监听已通过 LogViewer 组件内部的 watch 自动管理
-})
 
 // 创建实例
 const createInstanceHandler = async ({values, errors}) => {
@@ -513,19 +519,13 @@ watch(
 // LogViewer 会辅地根据实例是否运行来自动开启/停止监听
 
 // 组件挂载时获取实例列表
-onMounted(() => {
+onActivated(() => {
   fetchInstances()
   fetchModInfo()
-
-  // 监听游戏日志路径 WebSocket 事件
-  onServerEvent('server_game_log_path', (event) => {
-    console.log('Received server_game_log_path event:', event)
-    // 事件处理由 serverStore 中的 handleServerEvent 处理，该 watch 会自动触发
-  })
 })
 
 // 组件卸载时清理
-onUnmounted(() => {
+onDeactivated(() => {
   // WebSocket 会保持连接，其他组件可能需要它
 })
 
