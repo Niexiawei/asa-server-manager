@@ -133,7 +133,7 @@
         <a-col :span="24">
           <a-form-item field="ModIDs" content-class="mod-edit-item" label="Mod IDs">
             <!-- 动态标签编辑模式 -->
-            <div style="margin-bottom: 8px">
+            <div style="margin-bottom: 8px;width: 100%">
               <a-space wrap>
                 <a-tag
                     v-for="(tag, index) in modTags"
@@ -166,13 +166,13 @@
                     @click="handleEdit"
                 >
                   <template #icon>
-                    <icon-plus />
+                    <icon-plus/>
                   </template>
                   添加 Mod ID
                 </a-tag>
               </a-space>
             </div>
-            
+
             <!-- 原有的文本输入框 -->
             <a-textarea
                 v-model="editingConfig.ModIDs"
@@ -395,7 +395,7 @@ const handleCancel = () => {
 <style scoped lang="less">
 /* 使用 arco design 的内置样式，无需额外定义 */
 
-:deep(.mod-edit-item){
+:deep(.mod-edit-item) {
   flex-direction: column;
 }
 </style>
