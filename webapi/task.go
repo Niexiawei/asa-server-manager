@@ -255,12 +255,6 @@ func (s *APIServer) runStartServerTask(name string, broadcaster *TaskBroadcaster
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	if !serverActionsLock.TryLock() {
-		broadcaster.SendMessage(fmt.Sprintf("Error: There are other services being started or stopped"))
-		return
-	}
-	defer serverActionsLock.Unlock()
-
 	var (
 		stopMonitoring func()
 	)
