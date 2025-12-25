@@ -1,20 +1,19 @@
 /**
  * WebSocket 连接管理器
  * 统一管理所有 WebSocket 连接、心跳、重连等逻辑
+ * 现在使用 Web Worker 运行以避免页面休眠时连接断开
  */
 import {buildWebSocketUrl} from "@/utils/utils.js";
 import { ref, computed } from 'vue';
 
-// ============ 事件服务 WebSocket 连接 ============
-let wsConnection = null
-const eventListeners = new Map()
-let heartbeatInterval = null
-let reconnectInterval = null
-let isReconnecting = false
-let clientId = null
+// ============ Web Worker 管理 ============
+let wsWorker = null;
+const eventListeners = new Map(); // 存储事件监听器
+let isReconnecting = false;
+let clientId = null;
 
 // 响应式的连接状态
-const wsConnectedRef = ref(false)
+const wsConnectedRef = ref(false);
 
 // ============ 连接配置 ============
 const WS_CONFIG = {
@@ -22,6 +21,60 @@ const WS_CONFIG = {
     heartbeatInterval: 5000,      // 心跳间隔 5 秒
     reconnectInterval: 10000,     // 重连间隔 10 秒
     maxReconnectAttempts: null    // 无限重连
+}
+
+// 初始化 Web Worker
+function initWorker() {
+    if (!wsWorker) {
+        wsWorker = new Worker(new URL('@/workers/wsWorker.js', import.meta.url));
+        
+        // 监听 Worker 发送的消息
+        wsWorker.onmessage = (event) => {
+            const { type, message, clientId: workerClientId, error, connected, reconnecting } = event.data;
+            
+            switch (type) {
+                case 'WS_OPEN':
+                    clientId = workerClientId;
+                    wsConnectedRef.value = true;
+                    break;
+                case 'WS_MESSAGE':
+                    // 触发所有注册的监听器
+                    eventListeners.forEach((callbacks, eventType) => {
+                        if (!eventType || message.event_type === eventType) {
+                            callbacks.forEach(callback => {
+                                try {
+                                    callback(message);
+                                } catch (err) {
+                                    console.error('[WebSocket] Error in event listener:', err);
+                                }
+                            });
+                        }
+                    });
+                    break;
+                case 'WS_ERROR':
+                    console.error('[WebSocket Worker] Error:', error);
+                    wsConnectedRef.value = false;
+                    break;
+                case 'WS_CLOSE':
+                    wsConnectedRef.value = false;
+                    break;
+                case 'WS_DISCONNECTED':
+                    wsConnectedRef.value = false;
+                    clientId = null;
+                    break;
+                case 'WS_RECONNECT_ATTEMPT':
+                    // 重连尝试中
+                    break;
+                case 'WS_CONNECTION_STATUS':
+                    wsConnectedRef.value = connected;
+                    clientId = workerClientId;
+                    isReconnecting = reconnecting;
+                    break;
+            }
+        };
+    }
+    
+    return wsWorker;
 }
 
 // ============ 工具函数 ============
@@ -52,85 +105,52 @@ function createEventMessage(type = 'ping', extraData = {}) {
  */
 export function connectWebSocket(onOpen, onError, onClose) {
     const wsUrl = WS_CONFIG.events
-    clientId = generateClientId()
-
-    try {
-        wsConnection = new WebSocket(wsUrl)
-
-        wsConnection.onopen = () => {
-            console.log('[WebSocket] Connected with client ID:', clientId)
-            // 发送初始化消息，包含客户端 ID
-            const initMessage = createEventMessage('heartbeat')
-            wsConnection.send(JSON.stringify(initMessage))
-
-            // 启动心跳
-            startHeartbeat()
-            
-            // 更新连接状态
-            updateWsConnected()
-
-            if (onOpen) onOpen(clientId)
+    
+    // 初始化并获取 Worker
+    const worker = initWorker();
+    
+    // 监听连接状态变化
+    const connectionHandler = (event) => {
+        const { type, clientId: workerClientId, error } = event.data;
+        
+        if (type === 'WS_OPEN' && onOpen) {
+            onOpen(workerClientId);
+        } else if (type === 'WS_ERROR' && onError) {
+            onError(error);
+        } else if (type === 'WS_CLOSE' && onClose) {
+            onClose();
         }
-
-        wsConnection.onmessage = (event) => {
-            try {
-                const message = JSON.parse(event.data)
-                console.log('[WebSocket] Message received:', message)
-
-                // 触发所有注册的监听器
-                eventListeners.forEach((callbacks, eventType) => {
-                    if (!eventType || message.event_type === eventType) {
-                        callbacks.forEach(callback => {
-                            try {
-                                callback(message)
-                            } catch (err) {
-                                console.error('[WebSocket] Error in event listener:', err)
-                            }
-                        })
-                    }
-                })
-            } catch (err) {
-                console.error('[WebSocket] Failed to parse message:', err)
-            }
+    };
+    
+    // 添加临时监听器
+    worker.addEventListener('message', connectionHandler);
+    
+    // 发送初始化消息到 Worker
+    worker.postMessage({
+        type: 'INIT_WS',
+        data: {
+            wsUrl: wsUrl
         }
-
-        wsConnection.onerror = (error) => {
-            console.error('[WebSocket] Error:', error)
-            stopHeartbeat()
-            if (onError) onError(error)
-        }
-
-        wsConnection.onclose = () => {
-            console.log('[WebSocket] Closed')
-            wsConnection = null
-            stopHeartbeat()
-            
-            // 更新连接状态
-            updateWsConnected()
-            
-            if (onClose) onClose()
-        }
-    } catch (err) {
-        console.error('[WebSocket] Failed to connect:', err)
-        if (onError) onError(err)
-    }
+    });
+    
+    // 一定时间后移除临时监听器
+    setTimeout(() => {
+        worker.removeEventListener('message', connectionHandler);
+    }, 5000); // 5秒后移除，避免内存泄漏
 }
 
 /**
  * 断开事件 WebSocket 连接
  */
 export function disconnectWebSocket() {
-    stopHeartbeat()
-    stopReconnect()
-    if (wsConnection) {
-        wsConnection.close()
-        wsConnection = null
+    if (wsWorker) {
+        wsWorker.postMessage({
+            type: 'DISCONNECT'
+        });
     }
-    eventListeners.clear()
-    clientId = null
     
-    // 更新连接状态
-    updateWsConnected()
+    eventListeners.clear();
+    clientId = null;
 }
 
 /**
@@ -165,14 +185,10 @@ export function onAnyServerEvent(callback) {
  * 获取事件 WebSocket 连接状态
  */
 export function isWebSocketConnected() {
-    return wsConnection !== null && wsConnection.readyState === WebSocket.OPEN
-}
-
-// 更新响应式连接状态
-function updateWsConnected() {
-    wsConnectedRef.value = isWebSocketConnected();
     return wsConnectedRef.value;
 }
+
+
 
 // 导出响应式连接状态
 export const wsConnected = computed(() => wsConnectedRef.value);
@@ -181,57 +197,16 @@ export const wsConnected = computed(() => wsConnectedRef.value);
  * 发送事件 WebSocket 消息
  */
 export function sendWebSocketMessage(message) {
-    if (wsConnection && wsConnection.readyState === WebSocket.OPEN) {
-        wsConnection.send(JSON.stringify(message))
-        return true
+    if (wsWorker && wsConnectedRef.value) {
+        wsWorker.postMessage({
+            type: 'SEND_MESSAGE',
+            data: {
+                message: message
+            }
+        });
+        return true;
     }
-    return false
-}
-
-// ============ 心跳管理 ============
-
-/**
- * 启动心跳机制
- * 每 5 秒发送一次 ping 消息
- */
-function startHeartbeat() {
-    // 立即发送第一个 ping
-    sendHeartbeat()
-
-    // 清除之前的心跳定时器
-    if (heartbeatInterval) {
-        clearInterval(heartbeatInterval)
-    }
-
-    // 然后每 5 秒发送一次
-    heartbeatInterval = setInterval(() => {
-        if (isWebSocketConnected()) {
-            sendHeartbeat()
-        }
-    }, WS_CONFIG.heartbeatInterval)
-
-    console.log('[Heartbeat] Started (interval: ' + WS_CONFIG.heartbeatInterval + 'ms)')
-}
-
-/**
- * 发送心跳
- */
-function sendHeartbeat() {
-    const message = createEventMessage('ping')
-    if (sendWebSocketMessage(message)) {
-        console.log('[Heartbeat] Ping sent')
-    }
-}
-
-/**
- * 停止心跳机制
- */
-function stopHeartbeat() {
-    if (heartbeatInterval) {
-        clearInterval(heartbeatInterval)
-        heartbeatInterval = null
-    }
-    console.log('[Heartbeat] Stopped')
+    return false;
 }
 
 // ============ 重连管理 ============
@@ -241,41 +216,14 @@ function stopHeartbeat() {
  * 每 10 秒尝试一次重连
  */
 export function startReconnect(onReconnectAttempt = null) {
-    if (isReconnecting) {
-        return
+    if (wsWorker) {
+        wsWorker.postMessage({
+            type: 'START_RECONNECT'
+        });
     }
-
-    isReconnecting = true
-    console.log('[Reconnect] Starting auto-reconnect mechanism (interval: ' + WS_CONFIG.reconnectInterval + 'ms)')
-
-    // 清除之前的重连定时器
-    if (reconnectInterval) {
-        clearInterval(reconnectInterval)
-    }
-
-    // 立即尝试一次
-    attemptReconnect(onReconnectAttempt)
-
-    // 然后每 10 秒尝试一次
-    reconnectInterval = setInterval(() => {
-        if (!isWebSocketConnected() && isReconnecting) {
-            attemptReconnect(onReconnectAttempt)
-        }
-    }, WS_CONFIG.reconnectInterval)
-}
-
-/**
- * 尝试重新连接
- */
-function attemptReconnect(onReconnectAttempt) {
-    if (isWebSocketConnected()) {
-        return
-    }
-
-    console.log('[Reconnect] Attempting to reconnect...')
-
+    
     if (onReconnectAttempt) {
-        onReconnectAttempt()
+        onReconnectAttempt();
     }
 }
 
@@ -283,12 +231,11 @@ function attemptReconnect(onReconnectAttempt) {
  * 停止自动重连
  */
 export function stopReconnect() {
-    if (reconnectInterval) {
-        clearInterval(reconnectInterval)
-        reconnectInterval = null
+    if (wsWorker) {
+        wsWorker.postMessage({
+            type: 'STOP_RECONNECT'
+        });
     }
-    isReconnecting = false
-    console.log('[Reconnect] Stopped')
 }
 
 // ============ RCON WebSocket 管理 ============
@@ -300,54 +247,74 @@ export function stopReconnect() {
  * 获取 WebSocket 连接状态对象
  */
 export function getWebSocketStatus() {
+    if (wsWorker) {
+        // 请求 Worker 发送当前连接状态
+        wsWorker.postMessage({
+            type: 'IS_CONNECTED'
+        });
+    }
+    
     return {
         events: {
             connected: isWebSocketConnected(),
             clientId: clientId,
             reconnecting: isReconnecting
         }
-    }
+    };
 }
 
 /**
  * 重新连接 WebSocket
  */
 export async function reconnectWS() {
-    if (isWebSocketConnected()) {
-        // 如果已连接，先断开
+    if (wsWorker) {
+        // 先断开当前连接
         disconnectWebSocket();
+        
+        return new Promise((resolve, reject) => {
+            // 监听连接状态变化
+            const messageHandler = (event) => {
+                const { type, error } = event.data;
+                
+                if (type === 'WS_OPEN') {
+                    console.log('[WebSocket] Reconnect successful');
+                    resolve();
+                } else if (type === 'WS_ERROR') {
+                    console.error('[WebSocket] Reconnect failed:', error);
+                    reject(error);
+                } else if (type === 'WS_CLOSE') {
+                    reject(new Error('Connection closed'));
+                }
+            };
+            
+            wsWorker.addEventListener('message', messageHandler);
+            
+            // 重新连接
+            connectWebSocket(
+                () => {
+                    // 连接成功
+                    wsWorker.removeEventListener('message', messageHandler);
+                },
+                (error) => {
+                    // 连接失败
+                    wsWorker.removeEventListener('message', messageHandler);
+                    reject(error);
+                },
+                () => {
+                    // 连接关闭
+                    wsWorker.removeEventListener('message', messageHandler);
+                    reject(new Error('Connection closed'));
+                }
+            );
+        });
+    } else {
+        // 如果没有 Worker，创建一个
+        return new Promise((resolve, reject) => {
+            connectWebSocket(
+                () => resolve(),
+                (error) => reject(error),
+                () => reject(new Error('Connection closed'))
+            );
+        });
     }
-    
-    return new Promise((resolve, reject) => {
-        // 尝试连接
-        connectWebSocket(
-            () => {
-                // 连接成功
-                console.log('[WebSocket] Reconnect successful');
-                
-                // 更新连接状态
-                updateWsConnected();
-                
-                resolve();
-            },
-            (error) => {
-                // 连接失败
-                console.error('[WebSocket] Reconnect failed:', error);
-                
-                // 更新连接状态
-                updateWsConnected();
-                
-                reject(error);
-            },
-            () => {
-                // 连接关闭
-                console.log('[WebSocket] Reconnect closed');
-                
-                // 更新连接状态
-                updateWsConnected();
-                
-                reject(new Error('Connection closed'));
-            }
-        );
-    });
 }
