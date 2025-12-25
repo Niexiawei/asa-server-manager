@@ -17,9 +17,7 @@ let API_BASE_URL = '';
 self.onconnect = (event) => {
   const port = event.ports[0];
   ports.add(port);
-
   console.log(`[SharedWorker] New port connected. Total ports: ${ports.size}`);
-
   port.onmessage = ({ data }) => {
     const { type, instanceId, payload } = data;
 
@@ -161,7 +159,7 @@ function formatInstanceData(instanceData, fullData) {
     },
     pid: instanceData.pid,
     process: {
-      name: instanceData.process_name,
+      name: instanceData.instance,
       cpu_percent: instanceData.cpu_percent,
       cpu_total_percent: instanceData.cpu_total_percent,
       memory_used: instanceData.memory_used,
@@ -191,11 +189,49 @@ function formatInstanceData(instanceData, fullData) {
 // Format memory bytes to readable format
 function formatMemory(bytes) {
   if (!bytes) return '-';
+  
+  // Helper function to format number to max 4 digits
+  function formatToMax4Digits(value) {
+    // First try the value as is (if integer)
+    const intValue = Math.floor(value);
+    if (intValue === value && intValue.toString().length <= 4) {
+      return value.toString();
+    }
+    
+    // Try with 2 decimal places
+    let formatted = value.toFixed(2);
+    // Check if the numeric part (without decimal point) has at most 4 digits
+    if (formatted.replace('.', '').length <= 4) {
+      return formatted;
+    }
+    
+    // Try with 1 decimal place
+    formatted = value.toFixed(1);
+    if (formatted.replace('.', '').length <= 4) {
+      return formatted;
+    }
+    
+    // Use integer value if it has 4 or fewer digits
+    if (intValue.toString().length <= 4) {
+      return intValue.toString();
+    }
+    
+    // If integer part has more than 4 digits, truncate to 4 digits
+    if (intValue.toString().length > 4) {
+      return intValue.toString().substring(0, 4);
+    }
+    
+    // Fallback
+    return value.toFixed(0);
+  }
+  
   const mb = bytes / (1024 * 1024);
   if (mb < 1024) {
-    return `${mb.toFixed(2)} MB`;
+    return `${formatToMax4Digits(mb)} MB`;
   }
-  return `${(mb / 1024).toFixed(2)} GB`;
+  
+  const gb = mb / 1024;
+  return `${formatToMax4Digits(gb)} GB`;
 }
 
 // Get progress color based on percentage

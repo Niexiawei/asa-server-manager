@@ -59,6 +59,12 @@ func (s *APIServer) runStartAllServersTask() {
 		}
 	}()
 
+	if !serverActionsLock.TryLock() {
+		s.startBroadcaster.SendMessage(fmt.Sprintf("Error: There are other services being started or stopped"))
+		return
+	}
+	defer serverActionsLock.Unlock()
+
 	// Get all available instances
 	instances, err := asaserver.GetAvailableInstances()
 	if err != nil {
@@ -119,6 +125,13 @@ func (s *APIServer) runStopAllServersTask() {
 			s.stopBroadcaster.SendMessage(fmt.Sprintf("Error: Stop all servers panic: %v", r))
 		}
 	}()
+
+	if !serverActionsLock.TryLock() {
+		s.stopBroadcaster.SendMessage(fmt.Sprintf("Error: There are other services being started or stopped"))
+		return
+	}
+
+	defer serverActionsLock.Unlock()
 
 	// Get all available instances
 	instances, err := asaserver.GetAvailableInstances()
@@ -181,6 +194,12 @@ func (s *APIServer) runRestartAllServersTask() {
 		}
 	}()
 
+	if !serverActionsLock.TryLock() {
+		s.restartBroadcaster.SendMessage(fmt.Sprintf("Error: There are other services being started or stopped"))
+		return
+	}
+	defer serverActionsLock.Unlock()
+
 	// Get all available instances
 	instances, err := asaserver.GetAvailableInstances()
 	if err != nil {
@@ -235,6 +254,12 @@ func (s *APIServer) runStartServerTask(name string, broadcaster *TaskBroadcaster
 	gamePidChan := make(chan int, 1)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	if !serverActionsLock.TryLock() {
+		broadcaster.SendMessage(fmt.Sprintf("Error: There are other services being started or stopped"))
+		return
+	}
+	defer serverActionsLock.Unlock()
 
 	var (
 		stopMonitoring func()

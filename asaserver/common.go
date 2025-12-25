@@ -576,6 +576,12 @@ func ExtractAndSaveModInfo(logPath string, outputPath string) ([]ModInfo, error)
 	return modList, nil
 }
 
+var (
+	savePathReplacement = map[string]string{
+		"BobsMissions_WP": "BobsMissions",
+	}
+)
+
 // SaveWorldSafely safely saves the world for an instance
 // It sends the "DoExit" command (which triggers world save),
 // then checks if the save file has been updated to ensure data persistence
@@ -602,10 +608,22 @@ func SaveWorldSafely(instanceName string) error {
 		return fmt.Errorf("server instance %s is saving world error: %w", instanceName, err)
 	}
 
+	if config.MapName == "BobsMissions_WP" {
+		time.Sleep(2 * time.Second)
+		return nil
+	}
+
 	// Construct the save file path: baseDir + 'server-files\ShooterGame\Saved' + {SaveDir} + {MapName} + {MapName}.ark
 	// The actual path should be: BaseDir/server-files/ShooterGame/Saved/SavedArks/{SaveDir}/{MapName}.ark
 	// Based on the code in server.go, saveDir is used as: filepath.Join(ServerFilesDir, "ShooterGame/Saved/SavedArks", config.SaveDir)
 	saveDirPath := filepath.Join(ServerFilesDir, "ShooterGame/Saved", config.SaveDir, config.MapName)
+
+	args := make([]string, 0, len(savePathReplacement)*2)
+	for k, v := range savePathReplacement {
+		args = append(args, k, v)
+	}
+	r := strings.NewReplacer(args...)
+	saveDirPath = r.Replace(saveDirPath)
 	saveFilePath := filepath.Join(saveDirPath, config.MapName+".ark")
 
 	// Wait for the save file to be updated (check every 2 seconds for up to 60 seconds)
@@ -631,7 +649,7 @@ func SaveWorldSafely(instanceName string) error {
 			} else {
 				logger.GetLogger().Warnf("Save file not found or error checking: %v", err)
 			}
-
+			logger.GetLogger().Infof("The world archive has not been uploaded yet: %s", instanceName)
 		case <-time.After(maxWait):
 			logger.GetLogger().Errorf("timeout waiting for world save to complete for instance %s. Save file: %s", instanceName, saveFilePath)
 			return fmt.Errorf("timeout waiting for world save to complete for instance %s. Save file: %s", instanceName, saveFilePath)
