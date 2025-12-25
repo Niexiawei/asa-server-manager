@@ -626,11 +626,15 @@ func SaveWorldSafely(instanceName string) error {
 	saveDirPath = r.Replace(saveDirPath)
 	saveFilePath := filepath.Join(saveDirPath, config.MapName+".ark")
 
-	// Wait for the save file to be updated (check every 2 seconds for up to 60 seconds)
+	// Wait for the save file to be updated (check every 1 seconds for up to 300 seconds)
 	maxWait := 300 * time.Second
 	checkInterval := 1 * time.Second
 	ticker := time.NewTicker(checkInterval)
 	defer ticker.Stop()
+
+	ctx, cancel := context.WithTimeout(context.Background(), maxWait)
+	defer cancel()
+
 	for {
 		select {
 		case <-ticker.C:
@@ -650,7 +654,7 @@ func SaveWorldSafely(instanceName string) error {
 				logger.GetLogger().Warnf("Save file not found or error checking: %v", err)
 			}
 			logger.GetLogger().Infof("The world archive has not been uploaded yet: %s", instanceName)
-		case <-time.After(maxWait):
+		case <-ctx.Done():
 			logger.GetLogger().Errorf("timeout waiting for world save to complete for instance %s. Save file: %s", instanceName, saveFilePath)
 			return fmt.Errorf("timeout waiting for world save to complete for instance %s. Save file: %s", instanceName, saveFilePath)
 		}
