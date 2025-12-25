@@ -44,7 +44,7 @@
       </a-layout-header>
       <a-layout-content>
         <div class="content-wrapper">
-          <router-view :key="$route.fullPath"/>
+          <router-view :key="route.fullPath"/>
         </div>
       </a-layout-content>
     </div>
@@ -81,6 +81,8 @@ watch(() => route.path, (newPath) => {
     currentRoute.value = 'frp-manager';
   } else if (newPath === '/syncthing-manager') {
     currentRoute.value = 'syncthing-manager';
+  } else {
+    currentRoute.value = "";
   }
 }, {immediate: true});
 
@@ -123,8 +125,26 @@ const handleTabChange = (tab) => {
 }
 
 </script>
+<style lang="less">
+
+</style>
 
 <style lang="less" scoped>
+
+.slide-fade-enter-active {
+  transition: all 0.3s ease-out;
+}
+
+.slide-fade-leave-active {
+  transition: all 0.8s cubic-bezier(1, 0.5, 0.8, 1);
+}
+
+.slide-fade-enter-from,
+.slide-fade-leave-to {
+  transform: translateX(20px);
+  opacity: 0;
+}
+
 .main-body {
   width: 100%;
   height: 100vh;
