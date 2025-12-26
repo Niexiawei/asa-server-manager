@@ -1,8 +1,5 @@
 <template>
   <div class="instance-detail">
-    <!-- WebSocket 连接状态指示器 -->
-    <WSStatusIndicator/>
-
     <a-card class="detail-card" :bordered="false">
       <template #title>
         <div class="detail-header">

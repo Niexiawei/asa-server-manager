@@ -238,7 +238,7 @@ watch(
 // 组件卸载时清理
 onUnmounted(() => {
   stopMonitoring()
-  // 注意：不要终止 Worker，哠它是全局共享的
+  // 注意：不要终止 Worker，它是全局共享的
 })
 
 // 暴露方法供外部调用
