@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -52,33 +53,33 @@ func TailLogFileWithLines(logPath string, lastNLines int, printFunc func(string)
 		defer file.Close()
 
 		// First, read and send the last N lines from the file
-		var allLines []string
-		scanner := bufio.NewScanner(file)
-		for scanner.Scan() {
-			allLines = append(allLines, scanner.Text())
+		lastLines, err := readLastNLines(logPath, lastNLines)
+		if err != nil {
+			printFunc("Failed to read last " + fmt.Sprintf("%d", lastNLines) + " lines: " + fmt.Sprintf("%v", err))
+			return
 		}
 
-		// Calculate starting index for the last N lines
-		startIdx := 0
-		if len(allLines) > lastNLines {
-			startIdx = len(allLines) - lastNLines
-		}
-
-		// Send the last N lines (or all lines if less than N)
-		for i := startIdx; i < len(allLines); i++ {
+		// Send the last N lines
+		for _, line := range lastLines {
 			select {
 			case <-stopChan:
 				return
 			default:
-				if allLines[i] != "" {
-					printFunc(allLines[i])
+				if line != "" {
+					printFunc(line)
 				}
 			}
 		}
 
-		// Get the current file position to start monitoring from
-		lastPosition, _ := file.Seek(0, 1)
+		// Get the current file info and position to start monitoring from
+		// We need to get the file size after reading to ensure we start monitoring from the end of the content we just read
+		fileInfo, err := file.Stat()
+		if err != nil {
+			printFunc("Failed to get file info: " + fmt.Sprintf("%v", err))
+			return
+		}
 
+		lastPosition := fileInfo.Size()
 		// Create a watcher for file system events
 		watcher, err := fsnotify.NewWatcher()
 		if err != nil {
@@ -88,8 +89,8 @@ func TailLogFileWithLines(logPath string, lastNLines int, printFunc func(string)
 		defer watcher.Close()
 
 		// Watch the logs directory for changes
-		logsDir := filepath.Dir(logPath)
-		if err := watcher.Add(logsDir); err != nil {
+		//logsDir := filepath.Dir(logPath)
+		if err := watcher.Add(logPath); err != nil {
 			printFunc("Failed to watch logs directory: " + fmt.Sprintf("%v", err))
 			return
 		}
@@ -178,7 +179,7 @@ func readNewLogContent(file *os.File, lastPosition int64) (string, int64, int, b
 	}
 
 	// Get new position
-	newPosition, _ := file.Seek(0, 1)
+	newPosition, _ := file.Seek(0, io.SeekCurrent)
 
 	// Join all lines with newlines
 	content := strings.Join(newLines, "\n")
@@ -228,6 +229,84 @@ func FileExists(path string) bool {
 }
 
 var ansiRegexp = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
+
+// readLastNLines efficiently reads the last N lines from a file by reading from the end
+func readLastNLines(filePath string, n int) ([]string, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	// Get file info to determine size
+	fileInfo, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	fileSize := fileInfo.Size()
+
+	if fileSize == 0 {
+		return []string{}, nil
+	}
+
+	// If file is smaller than a reasonable chunk size, just read it normally
+	const chunkSize = 4096
+	lines := []string{}
+	offset := fileSize
+	for len(lines) < n && offset > 0 {
+		// Calculate how much to read
+		readSize := int64(chunkSize)
+		if offset < readSize {
+			readSize = offset
+		}
+		offset -= readSize
+
+		// Seek to the position
+		_, err := file.Seek(offset, 0)
+		if err != nil {
+			return nil, err
+		}
+
+		// Read the chunk
+		chunk := make([]byte, readSize)
+		_, err = file.Read(chunk)
+		if err != nil && err != io.EOF {
+			return nil, err
+		}
+
+		// Count newlines in this chunk and process lines
+		chunkStr := string(chunk)
+		newLines := strings.Split(chunkStr, "\n")
+
+		// If this isn't the last chunk we're reading, the first element
+		// is a continuation of a line from the next chunk
+		if len(lines) > 0 && len(newLines) > 0 {
+			newLines[0] = newLines[0] + lines[0]
+			lines = lines[1:]
+		}
+
+		// Add the new lines to our result
+		for i := len(newLines) - 1; i >= 0; i-- {
+			if i == len(newLines)-1 && len(lines) == 0 && offset+readSize < fileSize {
+				// Skip the last line if this isn't the end of the file (it's incomplete)
+				continue
+			}
+			if strings.TrimSpace(newLines[i]) != "" || len(newLines[i]) > 0 {
+				lines = append([]string{newLines[i]}, lines...)
+				if len(lines) >= n {
+					break
+				}
+			}
+		}
+	}
+
+	// Return the last N lines (or all lines if less than N)
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+
+	return lines, nil
+}
 
 func splitOnNewlineOrCR(data []byte, atEOF bool) (advance int, token []byte, err error) {
 	// 查找 \n 或 \r 的最早位置
@@ -385,7 +464,6 @@ func MonitorAndExtractModInfo(pctx context.Context, logPath string, instanceName
 				cancel()
 				return
 			}
-
 			logger.GetLogger().Infof("Successfully extracted and saved %d mod(s) from instance %s to %s", len(modList), instanceName, modInfoPath)
 			cancel()
 			return // Stop monitoring after saving

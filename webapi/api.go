@@ -1184,7 +1184,7 @@ func (s *APIServer) streamInstanceLogs(c *gin.Context) {
 	done := make(chan struct{})
 
 	// Start tailing the log file, reading the last 500 lines first
-	stopMonitoring := asaserver.TailLogFileWithLines(logPath, 500, func(line string) {
+	stopMonitoring := asaserver.TailLogFileWithLines(logPath, 200, func(line string) {
 		select {
 		case logChan <- line:
 		case <-done:

@@ -46,7 +46,7 @@
           </a-progress>
         </div>
       </div>
-      
+
       <!-- 内存使用 -->
       <div class="info-item" v-if="resourceData.process?.memory_used">
         <span class="label">内存使用:</span>
@@ -54,7 +54,7 @@
         <span class="label">内存总量:</span>
         <span class="value resource-value">{{ resourceData.render.memory_total_formatted }}</span>
       </div>
-      
+
       <!-- 内存使用率 - 直线进度条 -->
       <div class="progress-item" v-if="resourceData.process?.memory_percent">
         <div class="progress-label">内存使用率</div>
@@ -126,7 +126,7 @@ const getSharedWorker = () => {
 
       // 设置消息处理
       workerPort.onmessage = (event) => {
-        const { type, instanceId, data, error } = event.data
+        const {type, instanceId, data, error} = event.data
 
         switch (type) {
           case 'RESOURCE_UPDATE':
@@ -136,7 +136,7 @@ const getSharedWorker = () => {
             break
           case 'ERROR':
             console.error(`[ResourceMonitor] Error for ${props.instanceName}:`, error)
-            resourceData.value = { error: '获取资源信息失败' }
+            resourceData.value = {error: '获取资源信息失败'}
             break
           case 'SSE_CONNECTED':
             console.log('[ResourceMonitor] SharedWorker SSE connected')
@@ -146,13 +146,13 @@ const getSharedWorker = () => {
 
       workerPort.onmessageerror = (error) => {
         console.error('[ResourceMonitor] Worker port error:', error)
-        resourceData.value = { error: 'Worker 通信错误' }
+        resourceData.value = {error: 'Worker 通信错误'}
       }
 
       // 初始化 SharedWorker
       workerPort.postMessage({
         type: 'INIT',
-        payload: { apiBaseUrl: API_BASE_URL }
+        payload: {apiBaseUrl: API_BASE_URL}
       })
 
       workerInitialized = true
@@ -190,7 +190,7 @@ const startMonitoring = () => {
   } catch (error) {
     console.error('[ResourceMonitor] Failed to start monitoring:', error)
     isMonitoring.value = false
-    resourceData.value = { error: '启动资源监控失败' }
+    resourceData.value = {error: '启动资源监控失败'}
   }
 }
 
@@ -222,9 +222,13 @@ watch(
     (newVal, oldValue) => {
       // 判断是否应该监听资源占用
       const shouldMonitor = newVal.isStartingOrRunning === true ||
-          ['starting', 'started', 'stopping'].includes(newVal.status)
-      const wasMonitoring = oldValue?.isStartingOrRunning === true ||
-          ['starting', 'started', 'stopping'].includes(oldValue?.status)
+          ['starting', 'started', 'stopping', 'started'].includes(newVal.status)
+
+      console.log(props.instanceName)
+      console.log(newVal.status)
+      console.log("isStartingOrRunning", newVal.isStartingOrRunning)
+      console.log("shouldMonitor:", shouldMonitor)
+      console.log("isMonitoring", isMonitoring.value)
 
       if (shouldMonitor && !isMonitoring.value) {
         startMonitoring()

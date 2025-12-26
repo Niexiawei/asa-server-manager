@@ -719,6 +719,9 @@ func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
 				loggerFn: func(msg string) {
 					msg = strings.TrimRight(msg, "\n\r")
 					if msg != "" {
+						if strings.Contains(msg, "Info/GameAnalytics") {
+							return
+						}
 						logger.GetLogger().Infof("[%s][AsaApiLoader] %s", instanceName, msg)
 					}
 				},
