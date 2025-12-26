@@ -393,27 +393,17 @@ func VerifyServerInstallation(force bool) error {
 	logger.GetLogger().Infof("Server process started (PID: %d). Monitoring log file...", pid)
 
 	logFilePath, err := FindLatestLogFile(logsDir)
-	var stopMonitoring func()
 	if err != nil {
 		logger.GetLogger().Warnf("Warning: could not find log file initially - %v", err)
 		// Continue anyway, will wait for manual log generation
 	} else {
 		logger.GetLogger().Infof("Monitoring log file: %s", filepath.Base(logFilePath))
-		// Start tailing the log file asynchronously
-		stopMonitoring = TailLogFile(logFilePath, func(line string) {
-			fmt.Println(line)
-		})
 	}
 
 	// Wait for server to generate config files
 	time.Sleep(60 * time.Second)
-
-	// Stop monitoring the log file
-	if stopMonitoring != nil {
-		stopMonitoring()
-	}
-
 	// Kill the server process
+
 	logger.GetLogger().Info("Stopping server for verification...")
 	exec.Command("taskkill", "/PID", fmt.Sprintf("%d", pid), "/F").Run()
 

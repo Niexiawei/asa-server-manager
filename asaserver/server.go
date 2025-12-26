@@ -78,6 +78,7 @@ func InitializeLogMapping() error {
 	var (
 		backSyncStart = make(chan struct{}, 1)
 	)
+	defer close(backSyncStart)
 
 	mappings, err := LoadLogMappingFromFile()
 	if err != nil {
@@ -113,6 +114,10 @@ func InitializeLogMapping() error {
 					return
 				}
 				if event.Name != LogMappingFile {
+					continue
+				}
+
+				if event.Op&fsnotify.Write != fsnotify.Write {
 					continue
 				}
 
