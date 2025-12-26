@@ -1074,12 +1074,6 @@ func (s *APIServer) streamAllInstancesInfo(c *gin.Context) {
 			instancesData := make([]interface{}, 0)
 
 			for _, instanceName := range instances {
-				// Check if instance is running
-				//running, err := asaserver.IsServerRunning(instanceName)
-				//if err != nil || !running {
-				//	// Skip non-running instances
-				//	continue
-				//}
 
 				// Get PID for the instance
 				pid, err := asaserver.GetInstancePID(instanceName)
