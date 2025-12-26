@@ -92,6 +92,11 @@ func (s *APIServer) Start() error {
 			logger.GetLogger().Errorf("Failed to start syncthing: %v", err)
 		}
 	}
+
+	if err := asaserver.InitStateManager(asaserver.BaseDir); err != nil {
+		panic(err)
+	}
+
 	// Start listening on port
 	addr := fmt.Sprintf(":%d", s.port)
 	srv := &http.Server{
@@ -136,6 +141,11 @@ func (s *APIServer) Stop() error {
 			logger.GetLogger().Warnf("Error stopping syncthing: %v", err)
 		}
 	}
+
+	if err := asaserver.CloseStateManager(); err != nil {
+		logger.GetLogger().Warnf("Error closing state manager: %v", err)
+	}
+
 	s.serverCtxStop()
 	<-s.serverDone
 	return nil

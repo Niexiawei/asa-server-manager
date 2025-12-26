@@ -45,7 +45,7 @@ const DefaultMaxHistoryRecords = 500 // 每个实例的最大历史记录数
 
 // NewStateManager 创建新的状态管理器
 func NewStateManager(baseDir string) (*StateManager, error) {
-	dbPath := filepath.Join(baseDir, "state_db")
+	dbPath := filepath.Join(baseDir, "database_file", "state_db")
 	if err := os.MkdirAll(dbPath, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create state db directory: %w", err)
 	}

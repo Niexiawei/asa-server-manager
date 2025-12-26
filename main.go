@@ -76,62 +76,6 @@ func main() {
 				Action: actions.ActionUpdate,
 			},
 			{
-				Name:   "list",
-				Usage:  "List all available instances",
-				Action: actions.ActionList,
-			},
-			{
-				Name:   "create",
-				Usage:  "Create a new instance",
-				Action: actions.ActionCreate,
-			},
-			{
-				Name:      "start",
-				Usage:     "Start a server instance",
-				ArgsUsage: "<instance_name>",
-				Action:    actions.ActionStart,
-			},
-			{
-				Name:      "stop",
-				Usage:     "Stop a server instance",
-				ArgsUsage: "<instance_name>",
-				Action:    actions.ActionStop,
-			},
-			{
-				Name:      "restart",
-				Usage:     "Restart a server instance",
-				ArgsUsage: "<instance_name>",
-				Action:    actions.ActionRestart,
-			},
-			{
-				Name:      "status",
-				Usage:     "Check server status",
-				ArgsUsage: "[instance_name]",
-				Action:    actions.ActionStatus,
-			},
-			{
-				Name:      "rcon",
-				Usage:     "Send RCON command to server",
-				ArgsUsage: "<instance_name> <command>",
-				Action:    actions.ActionRCON,
-			},
-			{
-				Name:      "backup",
-				Usage:     "Create a backup of an instance world",
-				ArgsUsage: "<instance_name> <world_folder>",
-				Action:    actions.ActionBackup,
-			},
-			{
-				Name:   "start-all",
-				Usage:  "Start all instances",
-				Action: actions.ActionStartAll,
-			},
-			{
-				Name:   "stop-all",
-				Usage:  "Stop all instances",
-				Action: actions.ActionStopAll,
-			},
-			{
 				Name:   "api",
 				Usage:  "Start HTTP API server",
 				Action: webapi.ActionAPI,
