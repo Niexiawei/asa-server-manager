@@ -143,7 +143,19 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/StatusResponse"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/StatusResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/InstanceInfo"
+                        }
+                      }
+                    }
+                  ]
                 }
               }
             }
@@ -1852,6 +1864,29 @@
         },
         "required": ["success", "error"]
       },
+      "InstanceState": {
+        "type": "object",
+        "properties": {
+          "instance_name": {
+            "type": "string",
+            "description": "Name of the instance"
+          },
+          "operation_time": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Time when the operation occurred"
+          },
+          "error_message": {
+            "type": "string",
+            "description": "Error message if any"
+          },
+          "status": {
+            "type": "string",
+            "description": "Status of the instance"
+          }
+        },
+        "required": ["instance_name", "operation_time", "status"]
+      },
       "InstanceInfo": {
         "type": "object",
         "properties": {
@@ -1865,6 +1900,17 @@
           },
           "config": {
             "$ref": "#/components/schemas/InstanceConfig"
+          },
+          "status": {
+            "type": "string",
+            "description": "Current status of the instance"
+          },
+          "status_history": {
+            "type": "array",
+            "description": "History of instance status changes",
+            "items": {
+              "$ref": "#/components/schemas/InstanceState"
+            }
           },
           "error": {
             "type": "string",

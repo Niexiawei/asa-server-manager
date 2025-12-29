@@ -140,6 +140,17 @@
                   :instance-name="instanceName"
               />
             </a-card>
+            <!-- 实例历史状态组件 -->
+            <a-card class="config-section status-history-card">
+              <template #title>
+                <div class="config-card-title">
+                  <span>实例历史状态</span>
+                </div>
+              </template>
+              <instance-status-history
+                  :instance-name="instanceName"
+              />
+            </a-card>
           </div>
 
           <!-- 配置文件区域 -->
@@ -312,10 +323,10 @@ import ConfigEditor from '@/components/ConfigEditor.vue'
 import ConfigFileViewer from '@/components/ConfigFileViewer.vue'
 import ConfigDiffModal from '@/components/ConfigDiffModal.vue'
 import ConfigEditModal from '@/components/ConfigEditModal.vue'
-import WSStatusIndicator from '@/components/WSStatusIndicator.vue'
 import LogViewer from '@/components/LogViewer.vue'
 import RconTerminal from '@/components/RconTerminal.vue'
 import ResourceMonitor from '@/components/ResourceMonitor.vue'
+import InstanceStatusHistory from '@/components/InstanceStatusHistory.vue'
 import {
   getInstanceConfig,
   startServer,
@@ -954,6 +965,12 @@ onUnmounted(() => {
   overflow-y: auto;
 }
 
+.status-history-card {
+  :deep(.arco-card-body) {
+    height: calc(100% - 46px) !important;
+  }
+}
+
 .detail-card {
   background-color: white;
   border-radius: 8px;
@@ -978,10 +995,10 @@ onUnmounted(() => {
   gap: 20px;
 }
 
-/* 服务器配置与资源监控并排布局 */
+/* 服务器配置与资源监控、实例历史状态并排布局 */
 .config-resource-row {
   display: grid;
-  grid-template-columns: 3fr 1fr;
+  grid-template-columns: 3fr 1fr 1fr;
   gap: 15px;
   width: 100%;
 }
@@ -1008,7 +1025,6 @@ onUnmounted(() => {
 .config-section {
   border-radius: 6px;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
-  height: 700px;
 
   :deep(.arco-card-body) {
     height: calc(100% - 45.5px);
