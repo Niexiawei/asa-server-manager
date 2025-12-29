@@ -8,6 +8,7 @@ import {
     stopReconnect,
     isWebSocketConnected
 } from '@/utils/wsManager.js'
+import {listInstances} from "@/apis/api.js";
 
 // 全局服务器状态存储
 export const serverStore = reactive({
@@ -159,6 +160,19 @@ export function closeWebSocket() {
     serverStore.connected = false
     serverStore.instances.clear()
 }
+
+
+export async function initServer() {
+    const data = await listInstances()
+    if (data.success) {
+        // 同时更新全局状态存储
+        updateInstancesInStore(data.data.instances)
+        return data.data.instances
+    } else {
+        throw new Error(data.error)
+    }
+}
+
 // 更新实例列表
 export function updateInstancesInStore(instances) {
     const newMap = new Map()

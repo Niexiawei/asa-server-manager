@@ -21,11 +21,12 @@ import (
 // ========== Response types ==========
 
 type InstanceInfo struct {
-	Name    string      `json:"name"`
-	Running bool        `json:"running"`
-	Config  interface{} `json:"config,omitempty"`
-	Status  string      `json:"status"`
-	Error   string      `json:"error,omitempty"`
+	Name          string                    `json:"name"`
+	Running       bool                      `json:"running"`
+	Config        interface{}               `json:"config,omitempty"`
+	Status        string                    `json:"status"`
+	StatusHistory []asaserver.InstanceState `json:"status_history"`
+	Error         string                    `json:"error,omitempty"`
 }
 
 type ListResponse struct {
@@ -103,20 +104,14 @@ func (s *APIServer) listInstances(c *gin.Context) {
 	for _, instanceName := range instances {
 		running, err := asaserver.IsServerRunning(instanceName)
 		config, cfgErr := asaserver.LoadInstanceConfig(instanceName)
-		_status, err := asaserver.GetLatestInstanceState(instanceName)
-		status := asaserver.StatusStopped
-		if err != nil {
-			if running {
-				status = asaserver.StatusStarted
-			}
-		} else {
-			status = _status.Status
-		}
+		_status, _ := asaserver.GetLatestInstanceState(instanceName)
+		history, _ := asaserver.GetInstanceStateHistory(instanceName, 200)
 
 		info := InstanceInfo{
-			Name:    instanceName,
-			Running: running,
-			Status:  string(status),
+			Name:          instanceName,
+			Running:       running,
+			Status:        string(_status.Status),
+			StatusHistory: history,
 		}
 
 		if cfgErr == nil {
@@ -214,13 +209,21 @@ func (s *APIServer) createInstance(c *gin.Context) {
 // getInstanceStatus returns the status of a specific instance
 func (s *APIServer) getInstanceStatus(c *gin.Context) {
 	name := c.Param("name")
-
+	if name == "" {
+		c.JSON(http.StatusNotFound, StatusResponse{
+			Success: false,
+			Error:   "Instance not found",
+		})
+	}
 	running, err := asaserver.IsServerRunning(name)
 	config, cfgErr := asaserver.LoadInstanceConfig(name)
-
+	_status, _ := asaserver.GetLatestInstanceState(name)
+	history, _ := asaserver.GetInstanceStateHistory(name, 200)
 	info := InstanceInfo{
-		Name:    name,
-		Running: running,
+		Name:          name,
+		Running:       running,
+		Status:        string(_status.Status),
+		StatusHistory: history,
 	}
 
 	if cfgErr == nil {

@@ -213,7 +213,7 @@ import {
 } from '@/apis/api.js'
 import {Modal, Button, Message, Notification} from '@arco-design/web-vue';
 import {IconCheck, IconClose, IconLoading} from '@arco-design/web-vue/es/icon';
-import {serverStore, updateInstancesInStore} from '@/store/serverStore.js'
+import {initServer, serverStore, updateInstancesInStore} from '@/store/serverStore.js'
 import {onServerEvent} from '@/utils/wsManager.js'
 import LogViewer from '@/components/LogViewer.vue'
 import SyncConfigModal from '@/components/SyncConfigModal.vue'
@@ -257,16 +257,10 @@ const renderInstanceTitle = (instance) => {
 const fetchInstances = async () => {
   loading.value = true
   try {
-    const data = await listInstances()
-    if (data.success) {
-      instances.value = data.data.instances
-      // 同时更新全局状态存储
-      updateInstancesInStore(instances.value)
-    } else {
-      console.error('获取实例列表失败:', data.error)
-    }
+    instances.value = await initServer()
   } catch (error) {
     console.error('获取实例列表失败:', error)
+    Message.error("获取实例列表失败:" + error)
   } finally {
     loading.value = false
   }
@@ -519,9 +513,9 @@ watch(
 // LogViewer 会辅地根据实例是否运行来自动开启/停止监听
 
 // 组件挂载时获取实例列表
-onActivated(() => {
-  fetchInstances()
-  fetchModInfo()
+onActivated(async () => {
+  await fetchInstances()
+  await fetchModInfo()
 })
 
 // 组件卸载时清理

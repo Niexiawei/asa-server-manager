@@ -640,3 +640,27 @@ func SaveWorldSafely(instanceName string) error {
 		}
 	}
 }
+
+func waitServerStartup(pid int, gameLogPath string, callback func()) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var (
+		startup = make(chan struct{}, 1)
+	)
+
+	go func() {
+		if exited := WaitGamePidExit(ctx, pid); exited {
+			cancel()
+		}
+	}()
+
+	TailLogFileWithLinesContext(ctx, gameLogPath, 0, func(line string) {
+		// Check for successful startup message
+		if strings.Contains(line, "Server has completed startup and is now advertising for join") {
+			callback()
+			startup <- struct{}{}
+			cancel()
+		}
+	})
+	<-startup
+}

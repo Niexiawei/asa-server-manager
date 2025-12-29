@@ -156,7 +156,7 @@ func (sm *StateManager) GetStateHistory(instanceName string, limit int) ([]Insta
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
 
-	var states []InstanceState
+	var states = make([]InstanceState, 0)
 
 	err := sm.db.View(func(txn *badger.Txn) error {
 		// 创建前缀以查找特定实例的所有状态记录
@@ -184,7 +184,7 @@ func (sm *StateManager) GetStateHistory(instanceName string, limit int) ([]Insta
 	})
 
 	if err != nil {
-		return nil, err
+		return states, err
 	}
 
 	// 按时间倒序排列（最新的在前）
@@ -337,19 +337,29 @@ func WriteInstanceState(instanceName string, status InstanceStatus, errorMessage
 // GetInstanceStateHistory 获取实例状态变更历史记录
 func GetInstanceStateHistory(instanceName string, limit int) ([]InstanceState, error) {
 	if instanceStateManager == nil {
-		return nil, fmt.Errorf("state manager not initialized")
+		return make([]InstanceState, 0), fmt.Errorf("state manager not initialized")
 	}
 
 	return instanceStateManager.GetStateHistory(instanceName, limit)
 }
 
 // GetLatestInstanceState 获取实例最新状态
-func GetLatestInstanceState(instanceName string) (*InstanceState, error) {
+func GetLatestInstanceState(instanceName string) (InstanceState, error) {
+	state := InstanceState{
+		InstanceName:  instanceName,
+		OperationTime: time.Now(),
+		ErrorMessage:  "",
+		Status:        StatusStopped,
+	}
 	if instanceStateManager == nil {
-		return nil, fmt.Errorf("state manager not initialized")
+		return state, fmt.Errorf("state manager not initialized")
 	}
 
-	return instanceStateManager.GetLatestState(instanceName)
+	status, err := instanceStateManager.GetLatestState(instanceName)
+	if err != nil {
+		return state, err
+	}
+	return *status, err
 }
 
 // GetAllInstanceNames 获取所有有状态记录的实例名称

@@ -331,7 +331,7 @@ import {
   updateInstanceConfig,
   getModInfo
 } from '@/apis/api.js'
-import {serverStore, getInstanceStatus} from '@/store/serverStore.js'
+import {serverStore, getInstanceStatus, initServer} from '@/store/serverStore.js'
 import {onServerEvent} from '@/apis/api.js'
 import {IconLeft, IconEyeInvisible, IconEye, IconClose, IconMinus, IconPlus} from '@arco-design/web-vue/es/icon'
 import {Modal, Message, Notification} from '@arco-design/web-vue'
@@ -912,7 +912,20 @@ const handleDiffSave = async ({type, content}) => {
   }
 }
 
+const fetchInstances = async () => {
+  loading.value = true
+  try {
+    await initServer()
+  } catch (error) {
+    console.error('获取实例表失败:', error)
+    Message.error("获取实列表失败:" + error)
+  } finally {
+    loading.value = false
+  }
+}
+
 onMounted(async () => {
+  await fetchInstances()
   await fetchInstanceConfig()
   loadGameIni()
   loadGameUserSettings()
