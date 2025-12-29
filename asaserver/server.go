@@ -510,6 +510,7 @@ func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
 	for _, o := range options {
 		o(opts)
 	}
+	_ = WriteInstanceState(instanceName, StatusStartStartInitialization, "")
 
 	ctx, cancel := context.WithCancel(opts.ParentCtx)
 	defer cancel()
@@ -524,20 +525,31 @@ func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
 		close(startupSuccess)
 	}()
 
-	_ = WriteInstanceState(instanceName, StatusStartStartInitialization, "")
+	// 使用一个变量来记录错误，以便在函数结束时检查是否需要记录失败状态
+	var startErr error
+
+	// 使用 defer 来在函数退出时记录失败状态（如果存在错误）
+	defer func() {
+		if startErr != nil {
+			_ = WriteInstanceState(instanceName, StatusStartFailed, startErr.Error())
+		}
+	}()
 
 	if err := removeNotRunningServerLogMapper(); err != nil {
+		startErr = err
 		return err
 	}
 
 	// Check for duplicate ports
 	if err := CheckForDuplicatePorts(); err != nil {
 		logger.GetLogger().Errorf("Port conflicts detected: %v", err)
+		startErr = err
 		return err
 	}
 
 	config, err := LoadInstanceConfig(instanceName)
 	if err != nil {
+		startErr = err
 		return err
 	}
 
@@ -545,6 +557,7 @@ func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
 
 	// Setup instance configuration directory and symlinks
 	if err := setupInstanceConfig(instanceName, &confReset); err != nil {
+		startErr = err
 		return err
 	}
 
@@ -685,7 +698,8 @@ func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
 			newArgs = append(newArgs, args...)
 			c := exec.Command("cmd", newArgs...)
 			if err := c.Start(); err != nil {
-				return fmt.Errorf("failed to start server: %w", err)
+				startErr = fmt.Errorf("failed to start server: %w", err)
+				return startErr
 			}
 			pid = c.Process.Pid
 		} else {
@@ -730,7 +744,8 @@ func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
 			}
 			c := pp.Command(arkExe, args...)
 			if err := c.Start(); err != nil {
-				return fmt.Errorf("failed to start server: %w", err)
+				startErr = fmt.Errorf("failed to start server: %w", err)
+				return startErr
 			}
 			pid = c.Process.Pid
 			go CleanConsoleOutput(pp, logWriter)
@@ -738,13 +753,15 @@ func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
 		}
 		_pid, err := WaitArkApiRunServer(ctx, config.QueryPort)
 		if err != nil {
-			return fmt.Errorf("failed to start server: %w", err)
+			startErr = fmt.Errorf("failed to start server: %w", err)
+			return startErr
 		}
 		pid = int(_pid)
 	} else {
 		cmd := exec.Command(arkExe, args...)
 		if err := cmd.Start(); err != nil {
-			return fmt.Errorf("failed to start server: %w", err)
+			startErr = fmt.Errorf("failed to start server: %w", err)
+			return startErr
 		}
 		// Save the PID to the instance directory
 		pid = cmd.Process.Pid
@@ -753,6 +770,8 @@ func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
 	if err := SaveInstancePID(instanceName, pid); err != nil {
 		logger.GetLogger().Warnf("Failed to save PID for instance %s: %v", instanceName, err)
 	}
+
+	_ = WriteInstanceState(instanceName, StatusStarting, "")
 
 	logger.GetLogger().Infof("Server started for instance: %s. It should be fully operational in approximately 60 seconds.", instanceName)
 	logger.GetLogger().Infof("Game log file: %s", gameLogPath)
@@ -801,12 +820,15 @@ func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
 	if opts.WaitServerCompleted {
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("start game server exited")
+			startErr = fmt.Errorf("start game server exited")
+			return startErr
 		case <-startupSuccess:
+			_ = WriteInstanceState(instanceName, StatusStarted, "")
 			return nil
 		}
 	}
 
+	_ = WriteInstanceState(instanceName, StatusStarted, "")
 	return nil
 }
 
@@ -849,10 +871,23 @@ func StopServer(instanceName string) error {
 	var (
 		pid int
 	)
+	// 使用一个变量来记录错误，以便在函数结束时检查是否需要记录失败状态
+	var stopErr error
+
+	// 使用 defer 来在函数退出时记录失败状态（如果存在错误）
+	defer func() {
+		if stopErr != nil {
+			_ = WriteInstanceState(instanceName, StatusStopFailed, stopErr.Error())
+		}
+	}()
+
+	_ = WriteInstanceState(instanceName, StatusStopping, "")
+
 	running, err := IsServerRunning(instanceName)
 	if err != nil || !running {
 		logger.GetLogger().Warnf("Server for instance %s is not running.", instanceName)
-		return fmt.Errorf("server for instance %s is not running", instanceName)
+		stopErr = fmt.Errorf("server for instance %s is not running", instanceName)
+		return stopErr
 	}
 
 	logger.GetLogger().Infof("Stopping server for instance: %s", instanceName)
@@ -860,15 +895,18 @@ func StopServer(instanceName string) error {
 
 	config, configErr := LoadInstanceConfig(instanceName)
 	if configErr != nil {
-		return fmt.Errorf("failed to load instance config: %w", configErr)
+		stopErr = fmt.Errorf("failed to load instance config: %w", configErr)
+		return stopErr
 	}
 	pid, err = GetPIDByPort(config.Port)
 	if err != nil {
-		return fmt.Errorf("failed to find process PID: %w", err)
+		stopErr = fmt.Errorf("failed to find process PID: %w", err)
+		return stopErr
 	}
 
 	if err := SaveWorldSafely(instanceName); err != nil {
-		return fmt.Errorf("failed to save world safely: %w", err)
+		stopErr = fmt.Errorf("failed to save world safely: %w", err)
+		return stopErr
 	}
 
 	response, err := SendRCONCommand(instanceName, "DoExit")
@@ -905,10 +943,12 @@ func StopServer(instanceName string) error {
 		logger.GetLogger().Warnf("Failed to remove log mapping for instance %s: %v", instanceName, err)
 	}
 
+	_ = WriteInstanceState(instanceName, StatusStopped, "")
 	return nil
 }
 
 func KillServer(instanceName string) error {
+
 	cfg, err := LoadInstanceConfig(instanceName)
 	if err != nil {
 		return err
@@ -917,16 +957,41 @@ func KillServer(instanceName string) error {
 	if err != nil {
 		return err
 	}
-	return exec.Command("taskkill", "/F", "/PID", fmt.Sprintf("%d", pid)).Run()
+
+	err = exec.Command("taskkill", "/F", "/PID", fmt.Sprintf("%d", pid)).Run()
+	if err != nil {
+		return err
+	}
+	_ = WriteInstanceState(instanceName, StatusStopped, "")
+	return nil
 }
 
 // RestartServer restarts a server instance
 func RestartServer(instanceName string) error {
+	// 使用一个变量来记录错误，以便在函数结束时检查是否需要记录失败状态
+	var restartErr error
+
+	// 使用 defer 来在函数退出时记录失败状态（如果存在错误）
+	defer func() {
+		if restartErr != nil {
+			_ = WriteInstanceState(instanceName, StatusRestartFailed, restartErr.Error())
+		}
+	}()
+
+	_ = WriteInstanceState(instanceName, StatusRestart, "")
+
 	if err := StopServer(instanceName); err != nil {
+		restartErr = err
 		return err
 	}
 	time.Sleep(10 * time.Second)
-	return StartServer(instanceName)
+
+	err := StartServer(instanceName)
+	if err != nil {
+		restartErr = err
+		return err
+	}
+	return nil
 }
 
 // SendRCONCommand sends an RCON command to a server using gorcon/rcon library
@@ -1020,9 +1085,6 @@ func StopAllInstances() error {
 	if err != nil {
 		return err
 	}
-
-	fmt.Println("Stopping all server instances...")
-
 	for _, instanceName := range instances {
 		running, err := IsServerRunning(instanceName)
 		if err == nil && !running {

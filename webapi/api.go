@@ -24,6 +24,7 @@ type InstanceInfo struct {
 	Name    string      `json:"name"`
 	Running bool        `json:"running"`
 	Config  interface{} `json:"config,omitempty"`
+	Status  string      `json:"status"`
 	Error   string      `json:"error,omitempty"`
 }
 
@@ -102,10 +103,20 @@ func (s *APIServer) listInstances(c *gin.Context) {
 	for _, instanceName := range instances {
 		running, err := asaserver.IsServerRunning(instanceName)
 		config, cfgErr := asaserver.LoadInstanceConfig(instanceName)
+		_status, err := asaserver.GetLatestInstanceState(instanceName)
+		status := asaserver.StatusStopped
+		if err != nil {
+			if running {
+				status = asaserver.StatusStarted
+			}
+		} else {
+			status = _status.Status
+		}
 
 		info := InstanceInfo{
 			Name:    instanceName,
 			Running: running,
+			Status:  string(status),
 		}
 
 		if cfgErr == nil {
