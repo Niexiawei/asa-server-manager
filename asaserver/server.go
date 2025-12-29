@@ -524,6 +524,8 @@ func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
 		close(startupSuccess)
 	}()
 
+	_ = WriteInstanceState(instanceName, StatusStartStartInitialization, "")
+
 	if err := removeNotRunningServerLogMapper(); err != nil {
 		return err
 	}

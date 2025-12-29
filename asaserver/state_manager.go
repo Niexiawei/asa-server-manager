@@ -15,14 +15,15 @@ import (
 type InstanceStatus string
 
 const (
-	StatusStarting      InstanceStatus = "starting"
-	StatusStarted       InstanceStatus = "started"
-	StatusStopping      InstanceStatus = "stopping"
-	StatusStopped       InstanceStatus = "stopped"
-	StatusStartFailed   InstanceStatus = "start_failed"
-	StatusStopFailed    InstanceStatus = "stop_failed"
-	StatusRestartFailed InstanceStatus = "restart_failed"
-	StatusRestart       InstanceStatus = "restart"
+	StatusStartStartInitialization InstanceStatus = "start_initialization"
+	StatusStarting                 InstanceStatus = "starting"
+	StatusStarted                  InstanceStatus = "started"
+	StatusStopping                 InstanceStatus = "stopping"
+	StatusStopped                  InstanceStatus = "stopped"
+	StatusStartFailed              InstanceStatus = "start_failed"
+	StatusStopFailed               InstanceStatus = "stop_failed"
+	StatusRestartFailed            InstanceStatus = "restart_failed"
+	StatusRestart                  InstanceStatus = "restart"
 )
 
 // InstanceState 表示实例状态记录
