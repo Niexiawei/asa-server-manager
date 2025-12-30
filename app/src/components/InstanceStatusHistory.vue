@@ -12,7 +12,7 @@
         :bordered="false"
         :virtualListProps="{
           height: height,
-          itemHeight: 30,
+          itemHeight: 46,
           overscanCount: 5
         }"
     >
@@ -45,12 +45,15 @@
 </template>
 
 <script setup>
-import {ref, onMounted, watch, useTemplateRef} from 'vue';
+import {ref, onMounted, watch, useTemplateRef, computed, onUnmounted} from 'vue';
 import {getInstanceStatus} from '@/apis/api';
 import {useElementSize} from "@vueuse/core";
+import {onAnyServerEvent} from '@/utils/wsManager';
+import {serverStore} from '@/store/serverStore';
 
 const statusHistory = ref([]);
 const loading = ref(false);
+let unlistenServerEvent = null;
 
 const props = defineProps({
   instanceName: {
@@ -123,12 +126,43 @@ const loadStatusHistory = async () => {
   }
 };
 
+// 监听 WebSocket 事件，自动刷新历史状态
+const handleServerEvent = (event) => {
+  const {event_type, instance_name} = event;
+  
+  // 只有实例相关的状态变化事件才需要刷新列表
+  const statusChangeEvents = [
+    'server_starting',
+    'server_started',
+    'server_stopping',
+    'server_stopped',
+    'server_start_failed',
+    'server_stop_failed',
+    'server_restart_failed',
+    'restart'
+  ];
+  
+  // 如果是目标实例的状态变化事件，刷新历史列表
+  if (instance_name === props.instanceName && statusChangeEvents.includes(event_type)) {
+    loadStatusHistory();
+  }
+};
+
 watch(() => props.instanceName, () => {
   loadStatusHistory();
 }, {immediate: true});
 
 onMounted(() => {
   loadStatusHistory();
+  // 监听 WebSocket 事件
+  unlistenServerEvent = onAnyServerEvent(handleServerEvent);
+});
+
+onUnmounted(() => {
+  // 移除事件监听
+  if (unlistenServerEvent && typeof unlistenServerEvent === 'function') {
+    unlistenServerEvent();
+  }
 });
 
 </script>

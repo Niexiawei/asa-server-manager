@@ -1003,14 +1003,15 @@ onUnmounted(() => {
   grid-template-columns: 3fr 1fr;
   gap: 15px;
   width: 100%;
+  height: fit-content; /* 以左侧 server-config 为基准 */
 
-  .resource-monitor-card{
+  .resource-monitor-card {
     flex: 0 0 auto;
   }
 
-  .status-history-card{
+  .status-history-card {
     flex: 1 1 0; /* 占剩余空间，可收缩 */
-    min-width: 0; /* 关键：允许收缩，禁止 min-content 阻止收缩 */
+    min-height: 0; /* 关键：允许收缩，禁止 min-content 阻止收缩 */
   }
 
   .info-right {
@@ -1018,6 +1019,7 @@ onUnmounted(() => {
     flex-direction: column;
     height: 100%;
     gap: 15px;
+    overflow-y: auto; /* 右侧内容超出后滚动 */
   }
 }
 
