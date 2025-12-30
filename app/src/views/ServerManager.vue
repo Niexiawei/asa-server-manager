@@ -63,8 +63,15 @@
                           <span class="value">
                             <template v-if="instance.config?.ModIDs">
                               <template v-for="(modId, index) in instance.config.ModIDs.split(',')" :key="modId">
-                                <a-tag class="mod-tag" v-if="modId.trim()" color="arcoblue">
+                                <a-tag
+                                    class="mod-tag"
+                                    v-if="modId.trim()"
+                                    color="arcoblue"
+                                    @click="copyModId(modId.trim())"
+                                    style="cursor: pointer; display: flex; align-items: center; gap: 4px;"
+                                >
                                   {{ getModNameById(modId.trim()) || modId.trim() }}
+                                  <icon-copy :style="{fontSize: '12px'}"/>
                                 </a-tag>
                               </template>
                             </template>
@@ -212,7 +219,7 @@ import {
   getModInfo
 } from '@/apis/api.js'
 import {Modal, Button, Message, Notification} from '@arco-design/web-vue';
-import {IconCheck, IconClose, IconLoading} from '@arco-design/web-vue/es/icon';
+import {IconCheck, IconClose, IconLoading, IconCopy} from '@arco-design/web-vue/es/icon';
 import {initServer, serverStore, updateInstancesInStore} from '@/store/serverStore.js'
 import {onServerEvent} from '@/utils/wsManager.js'
 import LogViewer from '@/components/LogViewer.vue'
@@ -285,7 +292,17 @@ const fetchModInfo = async () => {
   }
 }
 
-// 根据Mod ID获取Mod名称
+// 复制 Mod ID 到剪切板
+const copyModId = async (modId) => {
+  try {
+    await navigator.clipboard.writeText(modId)
+    Message.success(`${getModNameById(modId)}:已复制到剪切板`)
+  } catch (error) {
+    console.error('复制失败:', error)
+    Message.error('复制失败')
+  }
+}
+
 const getModNameById = (modId) => {
   if (!modId) return null
 

@@ -487,75 +487,6 @@ func MonitorAndExtractModInfo(pctx context.Context, logPath string, instanceName
 	}
 }
 
-// ExtractAndSaveModInfo extracts mod information from log file and saves it to a JSON file
-func ExtractAndSaveModInfo(logPath string, outputPath string) ([]ModInfo, error) {
-	// Regular expression to match mod info lines
-	modRegex := regexp.MustCompile(`^\[.+\]LogCFCore: Mod valid: (.+) \((\d+)\)$`)
-	completionMarker := "Initialize Primal Game Data Override."
-
-	// Map to store mod ID -> name mappings
-	mods := make(map[string]string)
-
-	// Open the log file
-	file, err := os.Open(logPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open log file: %w", err)
-	}
-	defer file.Close()
-
-	// Read the file line by line
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-
-		// Check if we've reached the completion marker
-		if strings.Contains(line, completionMarker) {
-			break
-		}
-
-		// Try to match mod info line
-		matches := modRegex.FindStringSubmatch(line)
-		if len(matches) == 3 {
-			modName := strings.TrimSpace(matches[1])
-			modID := matches[2]
-			mods[modID] = modName
-		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("error reading log file: %w", err)
-	}
-
-	// Convert map to slice of ModInfo structs
-	var modList []ModInfo
-	for id, name := range mods {
-		modList = append(modList, ModInfo{ID: id, Name: name})
-	}
-
-	// Create output directory if it doesn't exist
-	outputDir := filepath.Dir(outputPath)
-	if err := os.MkdirAll(outputDir, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create output directory: %w", err)
-	}
-
-	// Write to JSON file
-	jsonFile, err := os.Create(outputPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create JSON file: %w", err)
-	}
-	defer jsonFile.Close()
-
-	// Convert mods map to JSON
-	encoder := json.NewEncoder(jsonFile)
-	encoder.SetIndent("", "  ")
-	if err := encoder.Encode(modList); err != nil {
-		return nil, fmt.Errorf("failed to encode JSON: %w", err)
-	}
-
-	// Also return the mod list
-	return modList, nil
-}
-
 var (
 	savePathReplacement = map[string]string{
 		"BobsMissions_WP": "BobsMissions",
@@ -641,23 +572,28 @@ func SaveWorldSafely(instanceName string) error {
 	}
 }
 
-func waitServerStartup(pid int, gameLogPath string, callback func()) {
+type waitServerStartupFunc func(startup bool, err string)
+
+func waitServerStartup(pid int, gameLogPath string, callback waitServerStartupFunc) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	latestLogLine := ""
 	var (
 		startup = make(chan struct{}, 1)
 	)
 
 	go func() {
 		if exited := WaitGamePidExit(ctx, pid); exited {
+			callback(false, latestLogLine)
 			cancel()
 		}
 	}()
 
 	TailLogFileWithLinesContext(ctx, gameLogPath, 0, func(line string) {
+		latestLogLine = line
 		// Check for successful startup message
 		if strings.Contains(line, "Server has completed startup and is now advertising for join") {
-			callback()
+			callback(true, "")
 			startup <- struct{}{}
 			cancel()
 		}

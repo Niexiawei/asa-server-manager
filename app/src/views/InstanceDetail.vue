@@ -88,8 +88,12 @@
                         <template v-if="item.label === 'Mod'">
                           <template v-if="item.value && item.value !== '-'">
                             <template v-for="(modId, index) in item.value.split(',')" :key="modId">
-                              <a-tag class="mod-tag" v-if="modId.trim()" color="arcoblue">
+                              <a-tag class="mod-tag" v-if="modId.trim()" color="arcoblue"
+                                     @click="copyModId(modId.trim())"
+                                     style="cursor: pointer; display: flex; align-items: center; gap: 4px;"
+                              >
                                 {{ getModNameById(modId.trim()) || modId.trim() }}
+                                <icon-copy :style="{fontSize: '12px'}"/>
                               </a-tag>
                             </template>
                           </template>
@@ -348,6 +352,7 @@ import {serverStore, getInstanceStatus, initServer} from '@/store/serverStore.js
 import {onServerEvent} from '@/apis/api.js'
 import {IconLeft, IconEyeInvisible, IconEye, IconClose, IconMinus, IconPlus} from '@arco-design/web-vue/es/icon'
 import {Modal, Message, Notification} from '@arco-design/web-vue'
+import {IconCopy} from "@arco-design/web-vue/es/icon/index.d.ts";
 
 // Monaco Editor 引用 - 已移至 ConfigEditor 组件
 const loading = ref(true)
@@ -431,6 +436,17 @@ watch(
       }
     }
 )
+
+const copyModId = async (modId) => {
+  try {
+    await navigator.clipboard.writeText(modId)
+    Message.success(`${getModNameById(modId)}:已复制到剪切板`)
+  } catch (error) {
+    console.error('复制失败:', error)
+    Message.error('复制失败')
+  }
+}
+
 
 // 监听 server_starting 事件，自动开启日志获取
 let unlistenServerStarting = null

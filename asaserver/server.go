@@ -795,6 +795,14 @@ func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
 	// Monitor for mod information in a separate goroutine
 	go MonitorAndExtractModInfo(ctx, gameLogPath, instanceName)
 
+	go waitServerStartup(pid, gameLogPath, func(startup bool, err string) {
+		if startup {
+			_ = WriteInstanceState(instanceName, StatusStarted, "")
+		} else {
+			_ = WriteInstanceState(instanceName, StatusStartFailed, err)
+		}
+	})
+
 	if opts.WaitServerCompleted {
 		go func() {
 			if exited := WaitGamePidExit(ctx, pid); exited {
@@ -823,12 +831,9 @@ func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
 			startErr = fmt.Errorf("start game server exited")
 			return startErr
 		case <-startupSuccess:
-			_ = WriteInstanceState(instanceName, StatusStarted, "")
 			return nil
 		}
 	}
-
-	_ = WriteInstanceState(instanceName, StatusStarted, "")
 	return nil
 }
 

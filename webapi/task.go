@@ -327,10 +327,8 @@ func (s *APIServer) runStartServerTask(name string, broadcaster *TaskBroadcaster
 			broadcaster.SendMessage(fmt.Sprintf("[startup] %s", line))
 			// Check for successful startup message
 			if strings.Contains(line, "Server has completed startup and is now advertising for join") {
-				select {
-				case startupSuccess <- true:
-				case <-done:
-				}
+				startupSuccess <- true
+				fmt.Println("启动成功")
 			}
 		})
 	}()
