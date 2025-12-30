@@ -64,6 +64,7 @@ const props = defineProps({
 
 const el = useTemplateRef('statusContainerRef')
 const {width, height} = useElementSize(el)
+
 const getStatusText = (status) => {
   const statusMap = {
     'start_initialization': '启动初始化',
