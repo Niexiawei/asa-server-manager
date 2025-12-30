@@ -87,15 +87,28 @@
                       <div v-if="!item.type || item.type === 'text'" class="config-item-value">
                         <template v-if="item.label === 'Mod'">
                           <template v-if="item.value && item.value !== '-'">
-                            <template v-for="(modId, index) in item.value.split(',')" :key="modId">
-                              <a-tag class="mod-tag" v-if="modId.trim()" color="arcoblue"
-                                     @click="copyModId(modId.trim())"
-                                     style="cursor: pointer; display: flex; align-items: center; gap: 4px;"
-                              >
-                                {{ getModNameById(modId.trim()) || modId.trim() }}
-                                <icon-copy :style="{fontSize: '12px'}"/>
-                              </a-tag>
-                            </template>
+                            <div class="mod-container">
+                              <template v-for="(modId, index) in item.value.split(',')" :key="modId">
+                                <a-tag 
+                                    class="mod-tag" 
+                                    v-if="modId.trim()" 
+                                    color="arcoblue"
+                                    @click="copyModId(modId.trim())"
+                                    style="cursor: pointer; display: flex; align-items: center; gap: 4px;"
+                                >
+                                  {{ getModNameById(modId.trim()) || modId.trim() }}
+                                  <icon-copy :style="{fontSize: '12px'}"/>
+                                </a-tag>
+                              </template>
+                            </div>
+                            <a-button 
+                                type="text" 
+                                size="mini"
+                                @click="copyAllModIds(item.value)"
+                                class="copy-all-btn"
+                            >
+                              <icon-copy /> 复制全部
+                            </a-button>
                           </template>
                           <template v-else>
                             {{ item.value }}
@@ -350,9 +363,8 @@ import {
 } from '@/apis/api.js'
 import {serverStore, getInstanceStatus, initServer} from '@/store/serverStore.js'
 import {onServerEvent} from '@/apis/api.js'
-import {IconLeft, IconEyeInvisible, IconEye, IconClose, IconMinus, IconPlus} from '@arco-design/web-vue/es/icon'
+import {IconLeft, IconEyeInvisible, IconEye, IconClose, IconMinus, IconPlus, IconCopy} from '@arco-design/web-vue/es/icon'
 import {Modal, Message, Notification} from '@arco-design/web-vue'
-import {IconCopy} from "@arco-design/web-vue/es/icon/index.d.ts";
 
 // Monaco Editor 引用 - 已移至 ConfigEditor 组件
 const loading = ref(true)
@@ -436,17 +448,6 @@ watch(
       }
     }
 )
-
-const copyModId = async (modId) => {
-  try {
-    await navigator.clipboard.writeText(modId)
-    Message.success(`${getModNameById(modId)}:已复制到剪切板`)
-  } catch (error) {
-    console.error('复制失败:', error)
-    Message.error('复制失败')
-  }
-}
-
 
 // 监听 server_starting 事件，自动开启日志获取
 let unlistenServerStarting = null
@@ -909,6 +910,29 @@ const getModNameById = (modId) => {
   return mod ? mod.name : null
 }
 
+// 复制单个 Mod ID 到剪切板
+const copyModId = async (modId) => {
+  try {
+    await navigator.clipboard.writeText(modId)
+    Message.success(`${getModNameById(modId)}:已复制到剪切板`)
+  } catch (error) {
+    console.error('复制失败:', error)
+    Message.error('复制失败')
+  }
+}
+
+// 复制全部 Mod ID 到剪切板
+const copyAllModIds = async (modIds) => {
+  try {
+    const ids = modIds.split(',').map(id => id.trim()).filter(id => id).join(',')
+    await navigator.clipboard.writeText(ids)
+    Message.success('已复制所有Mod ID到剪切板')
+  } catch (error) {
+    console.error('复制失败:', error)
+    Message.error('复制失败')
+  }
+}
+
 // 打开 Game.ini 对比
 const compareGameIni = async () => {
   diffType.value = 'game-ini'
@@ -1019,15 +1043,14 @@ onUnmounted(() => {
   grid-template-columns: 3fr 1fr;
   gap: 15px;
   width: 100%;
-  height: fit-content; /* 以左侧 server-config 为基准 */
 
-  .resource-monitor-card {
+  .resource-monitor-card{
     flex: 0 0 auto;
   }
 
-  .status-history-card {
+  .status-history-card{
     flex: 1 1 0; /* 占剩余空间，可收缩 */
-    min-height: 0; /* 关键：允许收缩，禁止 min-content 阻止收缩 */
+    min-width: 0; /* 关键：允许收缩，禁止 min-content 阻止收缩 */
   }
 
   .info-right {
@@ -1035,7 +1058,6 @@ onUnmounted(() => {
     flex-direction: column;
     height: 100%;
     gap: 15px;
-    overflow-y: auto; /* 右侧内容超出后滚动 */
   }
 }
 
@@ -1108,6 +1130,7 @@ onUnmounted(() => {
     height: auto !important;
     min-height: 32px;
     align-items: flex-start !important;
+    flex-direction: column;
   }
 
   .config-item-label {
@@ -1129,7 +1152,21 @@ onUnmounted(() => {
     .config-item-value {
       width: 100%;
       display: flex;
-      flex-wrap: wrap;
+      flex-direction: column;
+      gap: 8px;
+
+      .mod-container {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+      }
+
+      .copy-all-btn {
+        align-self: flex-start;
+        font-size: 12px;
+        padding: 4px 8px;
+        height: auto;
+      }
     }
   }
 }

@@ -62,18 +62,28 @@
                           <span class="label">Mod:</span>
                           <span class="value">
                             <template v-if="instance.config?.ModIDs">
-                              <template v-for="(modId, index) in instance.config.ModIDs.split(',')" :key="modId">
-                                <a-tag
-                                    class="mod-tag"
-                                    v-if="modId.trim()"
-                                    color="arcoblue"
-                                    @click="copyModId(modId.trim())"
-                                    style="cursor: pointer; display: flex; align-items: center; gap: 4px;"
-                                >
-                                  {{ getModNameById(modId.trim()) || modId.trim() }}
-                                  <icon-copy :style="{fontSize: '12px'}"/>
-                                </a-tag>
-                              </template>
+                              <div class="mod-container">
+                                <template v-for="(modId, index) in instance.config.ModIDs.split(',')" :key="modId">
+                                  <a-tag
+                                      class="mod-tag"
+                                      v-if="modId.trim()"
+                                      color="arcoblue"
+                                      @click="copyModId(modId.trim())"
+                                      style="cursor: pointer; display: flex; align-items: center; gap: 4px;"
+                                  >
+                                    {{ getModNameById(modId.trim()) || modId.trim() }}
+                                    <icon-copy :style="{fontSize: '12px'}"/>
+                                  </a-tag>
+                                </template>
+                              </div>
+                              <a-button 
+                                  type="text" 
+                                  size="mini"
+                                  @click="copyAllModIds(instance.config.ModIDs)"
+                                  class="copy-all-btn"
+                              >
+                                <icon-copy /> 复制全部
+                              </a-button>
                             </template>
                             <template v-else>
                               -
@@ -292,11 +302,23 @@ const fetchModInfo = async () => {
   }
 }
 
-// 复制 Mod ID 到剪切板
+// 复制单个 Mod ID 到剪切板
 const copyModId = async (modId) => {
   try {
     await navigator.clipboard.writeText(modId)
     Message.success(`${getModNameById(modId)}:已复制到剪切板`)
+  } catch (error) {
+    console.error('复制失败:', error)
+    Message.error('复制失败')
+  }
+}
+
+// 复制全部 Mod ID 到剪切板
+const copyAllModIds = async (modIds) => {
+  try {
+    const ids = modIds.split(',').map(id => id.trim()).filter(id => id).join(',')
+    await navigator.clipboard.writeText(ids)
+    Message.success('已复制所有Mod ID到剪切板')
   } catch (error) {
     console.error('复制失败:', error)
     Message.error('复制失败')
@@ -725,9 +747,11 @@ const handleSyncComplete = (result) => {
 
   .value {
     display: flex;
-    flex-wrap: wrap;
+    flex-direction: column;
+    gap: 8px;
     padding: 6px 0 !important;
     box-sizing: border-box;
+    width: 100%;
 
     :deep(.arco-tag) {
       padding: 0 3px;
@@ -735,6 +759,19 @@ const handleSyncComplete = (result) => {
 
     .mod-tag {
       margin: 2px;
+    }
+
+    .mod-container {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+
+    .copy-all-btn {
+      align-self: flex-start;
+      font-size: 12px;
+      padding: 4px 8px;
+      height: auto;
     }
   }
 }
