@@ -128,29 +128,31 @@
                 </div>
               </div>
             </a-card>
-            <!-- 资源监控组件 -->
-            <a-card class="config-section resource-monitor-card">
-              <template #title>
-                <div class="config-card-title">
-                  <span>资源占用</span>
-                </div>
-              </template>
-              <resource-monitor
-                  :show-title-div="false"
-                  :instance-name="instanceName"
-              />
-            </a-card>
-            <!-- 实例历史状态组件 -->
-            <a-card class="config-section status-history-card">
-              <template #title>
-                <div class="config-card-title">
-                  <span>实例历史状态</span>
-                </div>
-              </template>
-              <instance-status-history
-                  :instance-name="instanceName"
-              />
-            </a-card>
+            <div class="info-right">
+              <!-- 资源监控组件 -->
+              <a-card class="config-section resource-monitor-card">
+                <template #title>
+                  <div class="config-card-title">
+                    <span>资源占用</span>
+                  </div>
+                </template>
+                <resource-monitor
+                    :show-title-div="false"
+                    :instance-name="instanceName"
+                />
+              </a-card>
+              <!-- 实例历史状态组件 -->
+              <a-card class="config-section status-history-card">
+                <template #title>
+                  <div class="config-card-title">
+                    <span>实例历史状态</span>
+                  </div>
+                </template>
+                <instance-status-history
+                    :instance-name="instanceName"
+                />
+              </a-card>
+            </div>
           </div>
 
           <!-- 配置文件区域 -->
@@ -998,9 +1000,25 @@ onUnmounted(() => {
 /* 服务器配置与资源监控、实例历史状态并排布局 */
 .config-resource-row {
   display: grid;
-  grid-template-columns: 3fr 1fr 1fr;
+  grid-template-columns: 3fr 1fr;
   gap: 15px;
   width: 100%;
+
+  .resource-monitor-card{
+    flex: 0 0 auto;
+  }
+
+  .status-history-card{
+    flex: 1 1 0; /* 占剩余空间，可收缩 */
+    min-width: 0; /* 关键：允许收缩，禁止 min-content 阻止收缩 */
+  }
+
+  .info-right {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    gap: 15px;
+  }
 }
 
 .server-config {
