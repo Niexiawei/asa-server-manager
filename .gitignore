@@ -13,3 +13,8 @@ mod_info.json
 bin/
 database_file/
 clusters/
+*.ark
+*.arkprofile
+*.arktribe
+*test_data/
+ark-save-tools/

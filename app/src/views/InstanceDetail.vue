@@ -89,9 +89,9 @@
                           <template v-if="item.value && item.value !== '-'">
                             <div class="mod-container">
                               <template v-for="(modId, index) in item.value.split(',')" :key="modId">
-                                <a-tag 
-                                    class="mod-tag" 
-                                    v-if="modId.trim()" 
+                                <a-tag
+                                    class="mod-tag"
+                                    v-if="modId.trim()"
                                     color="arcoblue"
                                     @click="copyModId(modId.trim())"
                                     style="cursor: pointer; display: flex; align-items: center; gap: 4px;"
@@ -101,13 +101,14 @@
                                 </a-tag>
                               </template>
                             </div>
-                            <a-button 
-                                type="text" 
+                            <a-button
+                                type="text"
                                 size="mini"
                                 @click="copyAllModIds(item.value)"
                                 class="copy-all-btn"
                             >
-                              <icon-copy /> 复制全部
+                              <icon-copy/>
+                              复制全部
                             </a-button>
                           </template>
                           <template v-else>
@@ -363,7 +364,15 @@ import {
 } from '@/apis/api.js'
 import {serverStore, getInstanceStatus, initServer} from '@/store/serverStore.js'
 import {onServerEvent} from '@/apis/api.js'
-import {IconLeft, IconEyeInvisible, IconEye, IconClose, IconMinus, IconPlus, IconCopy} from '@arco-design/web-vue/es/icon'
+import {
+  IconLeft,
+  IconEyeInvisible,
+  IconEye,
+  IconClose,
+  IconMinus,
+  IconPlus,
+  IconCopy
+} from '@arco-design/web-vue/es/icon'
 import {Modal, Message, Notification} from '@arco-design/web-vue'
 
 // Monaco Editor 引用 - 已移至 ConfigEditor 组件
@@ -1044,13 +1053,13 @@ onUnmounted(() => {
   gap: 15px;
   width: 100%;
 
-  .resource-monitor-card{
+  .resource-monitor-card {
     flex: 0 0 auto;
   }
 
-  .status-history-card{
+  .status-history-card {
     flex: 1 1 0; /* 占剩余空间，可收缩 */
-    min-width: 0; /* 关键：允许收缩，禁止 min-content 阻止收缩 */
+    min-height: 0; /* 关键：允许收缩，禁止 min-content 阻止收缩 */
   }
 
   .info-right {
