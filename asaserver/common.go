@@ -5,6 +5,7 @@ import (
 	"asa-server/logger"
 	"asa-server/win32api"
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -574,7 +575,7 @@ func SaveWorldSafely(instanceName string) error {
 
 type waitServerStartupFunc func(startup bool, err string)
 
-func waitServerStartup(pid int, gameLogPath string, callback waitServerStartupFunc) {
+func waitServerStartup(pid int, gameLogPath string, callback waitServerStartupFunc, successfullyCallback func()) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	latestLogLine := ""
@@ -597,6 +598,55 @@ func waitServerStartup(pid int, gameLogPath string, callback waitServerStartupFu
 			startup <- struct{}{}
 			cancel()
 		}
+		if strings.Contains(line, "has successfully started") {
+			successfullyCallback()
+		}
 	})
 	<-startup
+}
+
+func arkApiCleanConsoleOutput(r io.Reader, w io.Writer) error {
+	// 匹配 ANSI 转义序列以及上面提到的控制符
+	// 包括 ESC [ ? ... h/l/m 等序列
+	ansiRegexp := regexp.MustCompile(`\x1b\[[0-9;?]*[a-zA-Z]`)
+	// 去除其它 C0 控制字符（保留换行符 \n）
+	ctrlRegexp := regexp.MustCompile(`[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]`)
+	scanner := bufio.NewScanner(r)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		// 去掉 ANSI / 控制字符
+		line = ansiRegexp.ReplaceAll(line, []byte{})
+		line = ctrlRegexp.ReplaceAll(line, []byte{})
+
+		// 输出，保证每行以换行符结尾
+		line = bytes.TrimRight(line, " \t")
+		if _, err := w.Write(append(line, '\n')); err != nil {
+			return err
+		}
+	}
+	return scanner.Err()
+}
+
+func steamcmdCleanConsoleOutput(r io.Reader, w io.Writer) error {
+	// 匹配 ANSI 转义序列以及上面提到的控制符
+	// 包括 ESC [ ? ... h/l/m 等序列
+	ansiRegexp := regexp.MustCompile(`\x1b\[[0-9;?]*[a-zA-Z]`)
+	// 去除其它 C0 控制字符（保留换行符 \n）
+	ctrlRegexp := regexp.MustCompile(`[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]`)
+
+	scanner := bufio.NewScanner(r)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+
+		// 去掉 ANSI / 控制字符
+		line = ansiRegexp.ReplaceAll(line, []byte{})
+		line = ctrlRegexp.ReplaceAll(line, []byte{})
+
+		// 输出，保证每行以换行符结尾
+		line = bytes.TrimRight(line, " \t")
+		if _, err := w.Write(append(line, '\n')); err != nil {
+			return err
+		}
+	}
+	return scanner.Err()
 }

@@ -20,6 +20,7 @@ const (
 var (
 	logger       *zap.SugaredLogger
 	loggerStdout *zap.SugaredLogger
+	arkApiLogger *zap.SugaredLogger
 	loggerPath   string
 	loggerMode   = CLIMode
 	BaseDir      = "" // Will be set by InitLoggerWithBaseDir
@@ -44,6 +45,10 @@ func GetLogger() *zap.SugaredLogger {
 
 func GetStdout() *zap.SugaredLogger {
 	return loggerStdout
+}
+
+func GetArkApiLogger() *zap.SugaredLogger {
+	return arkApiLogger
 }
 
 // GetLogFilePath returns the full path to the system log file
@@ -83,6 +88,16 @@ func InitLogger() {
 		logger = _logger.Sugar()
 	}
 
+	{
+		arkApiLogPath := filepath.Join(BaseDir, "logs", "arkApiLog.log")
+		core := zapcore.NewCore(fileEncoder(), fileWriterByPath(arkApiLogPath), zap.LevelEnablerFunc(func(level zapcore.Level) bool {
+			return level >= zap.InfoLevel
+		}))
+
+		_logger := zap.New(core, zap.AddCaller())
+		arkApiLogger = _logger.Sugar()
+	}
+
 }
 
 func stdoutEncoder() zapcore.Encoder {
@@ -101,6 +116,18 @@ func fileEncoder() zapcore.Encoder {
 
 func fileWriter() zapcore.WriteSyncer {
 	filePath, _ := filepath.Abs(loggerPath)
+	ws := zapcore.AddSync(&lumberjack.Logger{
+		Filename:   filePath, // file name
+		MaxSize:    15,       // maximum file size (MB)
+		MaxBackups: 10,       // maximum number of old files
+		MaxAge:     7,        // maximum number of days for old documents
+		Compress:   true,     // whether to compress and archive old files
+	})
+	return zapcore.AddSync(ws)
+}
+
+func fileWriterByPath(path string) zapcore.WriteSyncer {
+	filePath, _ := filepath.Abs(path)
 	ws := zapcore.AddSync(&lumberjack.Logger{
 		Filename:   filePath, // file name
 		MaxSize:    15,       // maximum file size (MB)

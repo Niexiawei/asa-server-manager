@@ -362,6 +362,17 @@ func GetLatestInstanceState(instanceName string) (InstanceState, error) {
 	return *status, err
 }
 
+func GetInstanceStateIsStart(instanceName string) bool {
+	state, err := GetLatestInstanceState(instanceName)
+	if err != nil {
+		return false
+	}
+	if state.Status == StatusStarted && state.Status == StatusStarting {
+		return true
+	}
+	return false
+}
+
 // GetAllInstanceNames 获取所有有状态记录的实例名称
 func GetAllInstanceNames() ([]string, error) {
 	if instanceStateManager == nil {

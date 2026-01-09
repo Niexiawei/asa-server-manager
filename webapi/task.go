@@ -248,7 +248,6 @@ func (s *APIServer) runStartServerTask(name string, broadcaster *TaskBroadcaster
 	defer s.instanceStartBroadcasters.Cleanup(name)
 	startErr := make(chan error, 2)
 	// Tail log file and monitor for startup completion message
-	done := make(chan struct{})
 	startupSuccess := make(chan bool, 1)
 	gameLogPathChan := make(chan string, 1)
 	gamePidChan := make(chan int, 1)
@@ -261,8 +260,10 @@ func (s *APIServer) runStartServerTask(name string, broadcaster *TaskBroadcaster
 
 	defer func() {
 		close(startupSuccess)
-		close(done)
 		close(startErr)
+		close(gameLogPathChan)
+		close(gamePidChan)
+
 		if stopMonitoring != nil {
 			stopMonitoring()
 		}
@@ -298,11 +299,11 @@ func (s *APIServer) runStartServerTask(name string, broadcaster *TaskBroadcaster
 		var pid int
 		select {
 		case <-time.After(10 * time.Second):
+			logger.GetLogger().Errorf("failed wait server pid '%s': timeout", name)
 			cancel()
 			return
 		case _pid, ok := <-gamePidChan:
 			if !ok {
-				cancel()
 				return
 			}
 			pid = _pid
@@ -310,7 +311,7 @@ func (s *APIServer) runStartServerTask(name string, broadcaster *TaskBroadcaster
 
 		if exited := asaserver.WaitGamePidExit(ctx, pid); exited {
 			cancel()
-			logger.GetLogger().Infof("进程退出了,name:%s", name)
+			logger.GetLogger().Infof("进程退出了pid不存在 pid:%d name:%s", pid, name)
 		}
 	}()
 
@@ -354,8 +355,6 @@ func (s *APIServer) runStartServerTask(name string, broadcaster *TaskBroadcaster
 		broadcaster.SendMessage("[ERROR] Server startup timeout")
 		logger.GetLogger().Errorf("Server startup timeout name:%s", name)
 		s.BroadcastServerStartFailed(name, fmt.Errorf("start Server %s timeout", name))
-		return
-	case <-done:
 		return
 	}
 	s.BroadcastServerStarted(name)

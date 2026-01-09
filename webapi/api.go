@@ -1177,13 +1177,24 @@ func (s *APIServer) streamInstanceLogs(c *gin.Context) {
 	c.Header("Connection", "keep-alive")
 	c.Header("Access-Control-Allow-Origin", "*")
 	c.Header("Access-Control-Allow-Headers", "Content-Type")
-
 	// Get the log file path for the instance
-	logPath, exists := asaserver.GetInstanceLogFile(instanceName)
-	if !exists {
-		fmt.Fprintf(c.Writer, "data: %s\n\n", "failed to get log file path")
-		c.Writer.Flush()
-		return
+	timeout := time.Now().Add(120 * time.Second)
+	var (
+		logPath string
+	)
+
+	for {
+		var exists bool
+		logPath, exists = asaserver.GetInstanceLogFile(instanceName)
+		if exists {
+			break
+		}
+		if time.Now().After(timeout) {
+			fmt.Fprintf(c.Writer, "data: %s\n\n", "failed to get log file path")
+			c.Writer.Flush()
+			return
+		}
+		time.Sleep(1 * time.Second)
 	}
 
 	// Check if log file exists

@@ -4,12 +4,9 @@ import (
 	"asa-server/common"
 	"asa-server/logger"
 	"asa-server/win32api"
-	"bufio"
-	"bytes"
 	"context"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -425,6 +422,9 @@ func setupInstanceConfig(instanceName string, confReset *func()) error {
 
 	if confReset != nil {
 		reset := func() {
+			//if _, err := os.Stat(baseConfigDirBackup); os.IsNotExist(err) {
+			//	return
+			//}
 			// Remove the junction
 			if err := os.RemoveAll(baseConfigDir); err != nil {
 				logger.GetLogger().Warnf("Warning: Failed to remove junction for instance %s: %v", instanceName, err)
@@ -693,64 +693,62 @@ func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
 	}
 
 	if arkAsaApiRunning {
-		if logger.GetLogMode() == logger.CLIMode {
-			newArgs := []string{"/C", "start", "", arkExe}
-			newArgs = append(newArgs, args...)
-			c := exec.Command("cmd", newArgs...)
-			if err := c.Start(); err != nil {
-				startErr = fmt.Errorf("failed to start server: %w", err)
-				return startErr
-			}
-			pid = c.Process.Pid
-		} else {
-			CleanConsoleOutput := func(r io.Reader, w io.Writer) error {
-				// 匹配 ANSI 转义序列以及上面提到的控制符
-				// 包括 ESC [ ? ... h/l/m 等序列
-				ansiRegexp := regexp.MustCompile(`\x1b\[[0-9;?]*[a-zA-Z]`)
-				// 去除其它 C0 控制字符（保留换行符 \n）
-				ctrlRegexp := regexp.MustCompile(`[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]`)
+		//if logger.GetLogMode() == logger.CLIMode {
+		//	newArgs := []string{"/C", "start", "", arkExe}
+		//	newArgs = append(newArgs, args...)
+		//	c := exec.Command("cmd", newArgs...)
+		//	if err := c.Start(); err != nil {
+		//		startErr = fmt.Errorf("failed to start server: %w", err)
+		//		return startErr
+		//	}
+		//} else {
+		//
+		//	pp, err := pty.New()
+		//	if err != nil {
+		//		log.Fatalf("failed to open pty: %s", err)
+		//	}
+		//
+		//	logWriter := &LogWriter{
+		//		loggerFn: func(msg string) {
+		//			msg = strings.TrimRight(msg, "\n\r")
+		//			if msg != "" {
+		//				if strings.Contains(msg, "Info/GameAnalytics") {
+		//					return
+		//				}
+		//				logger.GetLogger().Infof("[%s][AsaApiLoader] %s", instanceName, msg)
+		//			}
+		//		},
+		//	}
+		//	c := pp.Command(arkExe, args...)
+		//	if err := c.Start(); err != nil {
+		//		startErr = fmt.Errorf("failed to start server: %w", err)
+		//		return startErr
+		//	}
+		//	go arkApiCleanConsoleOutput(pp, logWriter)
+		//	logger.GetLogger().Infof("[%s] Redirecting AsaApiLoader output to logger", instanceName)
+		//}
 
-				scanner := bufio.NewScanner(r)
-				for scanner.Scan() {
-					line := scanner.Bytes()
-
-					// 去掉 ANSI / 控制字符
-					line = ansiRegexp.ReplaceAll(line, []byte{})
-					line = ctrlRegexp.ReplaceAll(line, []byte{})
-
-					// 输出，保证每行以换行符结尾
-					line = bytes.TrimRight(line, " \t")
-					if _, err := w.Write(append(line, '\n')); err != nil {
-						return err
+		logWriter := &LogWriter{
+			loggerFn: func(msg string) {
+				msg = strings.TrimRight(msg, "\n\r")
+				if msg != "" {
+					if strings.Contains(msg, "Info/GameAnalytics") {
+						return
 					}
+					logger.GetArkApiLogger().Infof("[%s][AsaApiLoader] %s", instanceName, msg)
 				}
-				return scanner.Err()
-			}
-			pp, err := pty.New()
-			if err != nil {
-				log.Fatalf("failed to open pty: %s", err)
-			}
-
-			logWriter := &LogWriter{
-				loggerFn: func(msg string) {
-					msg = strings.TrimRight(msg, "\n\r")
-					if msg != "" {
-						if strings.Contains(msg, "Info/GameAnalytics") {
-							return
-						}
-						logger.GetLogger().Infof("[%s][AsaApiLoader] %s", instanceName, msg)
-					}
-				},
-			}
-			c := pp.Command(arkExe, args...)
-			if err := c.Start(); err != nil {
-				startErr = fmt.Errorf("failed to start server: %w", err)
-				return startErr
-			}
-			pid = c.Process.Pid
-			go CleanConsoleOutput(pp, logWriter)
-			logger.GetLogger().Infof("[%s] Redirecting AsaApiLoader output to logger", instanceName)
+			},
 		}
+
+		pp, err := pty.New()
+		c := pp.Command(arkExe, args...)
+		if err := c.Start(); err != nil {
+			startErr = fmt.Errorf("failed to start server: %w", err)
+			return startErr
+		}
+		go arkApiCleanConsoleOutput(pp, logWriter)
+		logger.GetLogger().Infof("[%s] Redirecting AsaApiLoader output to logger", instanceName)
+
 		_pid, err := WaitArkApiRunServer(ctx, config.QueryPort)
 		if err != nil {
 			startErr = fmt.Errorf("failed to start server: %w", err)
@@ -801,33 +799,31 @@ func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
 		} else {
 			_ = WriteInstanceState(instanceName, StatusStartFailed, err)
 		}
+	}, func() {
+		confReset()
 	})
+
+	WaitServerCompletedCtx, WaitServerCompletedCancel := context.WithCancel(ctx)
+	defer WaitServerCompletedCancel()
 
 	if opts.WaitServerCompleted {
 		go func() {
-			if exited := WaitGamePidExit(ctx, pid); exited {
-				cancel()
+			if exited := WaitGamePidExit(WaitServerCompletedCtx, pid); exited {
+				WaitServerCompletedCancel()
 			}
 		}()
 
-		TailLogFileWithLinesContext(ctx, gameLogPath, 0, func(line string) {
+		TailLogFileWithLinesContext(WaitServerCompletedCtx, gameLogPath, 0, func(line string) {
 			// Check for successful startup message
 			if strings.Contains(line, "Server has completed startup and is now advertising for join") {
 				startupSuccess <- true
 			}
-			if strings.Contains(line, "has successfully started!") {
-				confReset()
-			}
 		})
-
-	} else {
-		time.Sleep(60 * time.Second)
-		confReset()
 	}
 
 	if opts.WaitServerCompleted {
 		select {
-		case <-ctx.Done():
+		case <-WaitServerCompletedCtx.Done():
 			startErr = fmt.Errorf("start game server exited")
 			return startErr
 		case <-startupSuccess:
