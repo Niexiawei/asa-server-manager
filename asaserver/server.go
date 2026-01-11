@@ -518,11 +518,13 @@ func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
 	var (
 		confReset      func()
 		startupSuccess = make(chan bool, 1)
+		initSuccessful = make(chan bool, 1)
 		pid            int
 	)
 
 	defer func() {
 		close(startupSuccess)
+		close(initSuccessful)
 	}()
 
 	// 使用一个变量来记录错误，以便在函数结束时检查是否需要记录失败状态
@@ -801,13 +803,14 @@ func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
 		}
 	}, func() {
 		_ = WriteInstanceState(instanceName, StatusStartStartInitializationSuccessful, "")
+		initSuccessful <- true
 		confReset()
 	})
 
-	WaitServerCompletedCtx, WaitServerCompletedCancel := context.WithCancel(ctx)
-	defer WaitServerCompletedCancel()
-
 	if opts.WaitServerCompleted {
+		WaitServerCompletedCtx, WaitServerCompletedCancel := context.WithCancel(ctx)
+		defer WaitServerCompletedCancel()
+
 		go func() {
 			if exited := WaitGamePidExit(WaitServerCompletedCtx, pid); exited {
 				WaitServerCompletedCancel()
@@ -820,9 +823,7 @@ func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
 				startupSuccess <- true
 			}
 		})
-	}
 
-	if opts.WaitServerCompleted {
 		select {
 		case <-WaitServerCompletedCtx.Done():
 			startErr = fmt.Errorf("start game server exited")
@@ -830,7 +831,10 @@ func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
 		case <-startupSuccess:
 			return nil
 		}
+	} else {
+		<-initSuccessful
 	}
+
 	return nil
 }
 
