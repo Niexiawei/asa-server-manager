@@ -75,7 +75,8 @@ const getStatusText = (status) => {
     'start_failed': '启动失败',
     'stop_failed': '停止失败',
     'restart_failed': '重启失败',
-    'restart': '重启中'
+    'restart': '重启中',
+    'start_initialization_successful':'初始化成功'
   };
   return statusMap[status] || status;
 };

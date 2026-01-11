@@ -800,6 +800,7 @@ func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
 			_ = WriteInstanceState(instanceName, StatusStartFailed, err)
 		}
 	}, func() {
+		_ = WriteInstanceState(instanceName, StatusStartStartInitializationSuccessful, "")
 		confReset()
 	})
 
