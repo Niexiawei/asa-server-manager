@@ -67,7 +67,7 @@ const {width, height} = useElementSize(el)
 
 const getStatusText = (status) => {
   const statusMap = {
-    'start_initialization': '启动初始化',
+    'start_initialization': '初始化',
     'starting': '正在启动',
     'started': '已启动',
     'stopping': '正在停止',

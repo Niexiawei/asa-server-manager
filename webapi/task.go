@@ -252,7 +252,11 @@ func (s *APIServer) runStartServerTask(name string, broadcaster *TaskBroadcaster
 
 	go func() {
 		broadcaster.SendMessage(fmt.Sprintf("[startup] %s:%s", "starting server", name))
-		err := asaserver.StartServer(name, asaserver.WithWaitServerCompleted())
+		err := asaserver.StartServer(name, asaserver.WithWaitServerCompleted(),
+			asaserver.WithGameInitializationSuccessfulCallback(func() {
+				s.BroadcastServerStarting(name)
+				broadcaster.SendMessage(fmt.Sprintf("[initSuccessful] %s:%s", "initSuccessful server", name))
+			}))
 
 		if err != nil {
 			logger.GetLogger().Errorf("failed to start server '%s': %v", name, err)

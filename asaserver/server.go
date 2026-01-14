@@ -465,21 +465,21 @@ func removeNotRunningServerLogMapper() error {
 }
 
 type StartServerOptions struct {
-	SetGameLogPath               func(path string)
-	GameInitializationSuccessful func(logPath string)
+	GameLogPathCallback          func(path string)
+	GameInitializationSuccessful func()
 	WaitServerCompleted          bool
 	ParentCtx                    context.Context
-	SetPid                       func(pid int)
+	PidCallback                  func(pid int)
 }
 
 type StartServerOptionsFunc func(options *StartServerOptions)
 
-func WithSetGameLogPath(callback func(path string)) StartServerOptionsFunc {
+func WithGameLogPathCallback(callback func(path string)) StartServerOptionsFunc {
 	return func(options *StartServerOptions) {
-		options.SetGameLogPath = callback
+		options.GameLogPathCallback = callback
 	}
 }
-func WithGameInitializationSuccessful(callback func(path string)) StartServerOptionsFunc {
+func WithGameInitializationSuccessfulCallback(callback func()) StartServerOptionsFunc {
 	return func(options *StartServerOptions) {
 		options.GameInitializationSuccessful = callback
 	}
@@ -496,9 +496,9 @@ func WithCtx(ctx context.Context) StartServerOptionsFunc {
 	}
 }
 
-func WithSetPid(callback func(pid int)) StartServerOptionsFunc {
+func WithPidCallback(callback func(pid int)) StartServerOptionsFunc {
 	return func(options *StartServerOptions) {
-		options.SetPid = callback
+		options.PidCallback = callback
 	}
 }
 
@@ -681,8 +681,8 @@ func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
 		return fmt.Errorf("failed to get game log file path: %w", err)
 	}
 
-	if opts.SetGameLogPath != nil {
-		opts.SetGameLogPath(gameLogPath)
+	if opts.GameLogPathCallback != nil {
+		opts.GameLogPathCallback(gameLogPath)
 	}
 
 	// Create the log file if it doesn't exist
@@ -784,12 +784,8 @@ func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
 		killGameServer(pid)
 	}
 
-	if opts.SetPid != nil {
-		opts.SetPid(pid)
-	}
-
-	if opts.GameInitializationSuccessful != nil {
-		opts.GameInitializationSuccessful(gameLogPath)
+	if opts.PidCallback != nil {
+		opts.PidCallback(pid)
 	}
 
 	// Monitor for mod information in a separate goroutine
@@ -805,6 +801,10 @@ func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
 		_ = WriteInstanceState(instanceName, StatusStartStartInitializationSuccessful, "")
 		initSuccessful <- true
 		confReset()
+
+		if opts.GameInitializationSuccessful != nil {
+			opts.GameInitializationSuccessful()
+		}
 	})
 
 	if opts.WaitServerCompleted {
