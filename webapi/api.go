@@ -72,10 +72,11 @@ type SyncConfigRequest struct {
 }
 
 type SyncInstanceConfigRequest struct {
-	SourceInstance            string   `json:"source_instance" binding:"required"`
-	TargetInstances           []string `json:"target_instances" binding:"required,min=1"`
-	SyncCustomStartParameters *bool    `json:"sync_custom_start_parameters,omitempty"`
-	SyncEnableAsaPlugin       *bool    `json:"sync_enable_asa_plugin,omitempty"`
+	SourceInstance              string   `json:"source_instance" binding:"required"`
+	TargetInstances             []string `json:"target_instances" binding:"required,min=1"`
+	SyncCustomStartParameters   *bool    `json:"sync_custom_start_parameters,omitempty"`
+	SyncEnableAsaPlugin         *bool    `json:"sync_enable_asa_plugin,omitempty"`
+	OnlySyncServerGameINIConfig *bool    `json:"only_sync_server_game_ini_config,omitempty"`
 }
 
 // ========== Handlers ==========
@@ -1812,8 +1813,26 @@ func (s *APIServer) syncInstanceConfig(c *gin.Context) {
 		return
 	}
 
+	var (
+		opts []asaserver.SetSyncInstanceConfig
+	)
+
+	if req.OnlySyncServerGameINIConfig != nil {
+		opts = append(opts, asaserver.WithOnlySyncServerGameINIConfig(*req.OnlySyncServerGameINIConfig))
+	}
+
+	if req.SyncCustomStartParameters != nil {
+		opts = append(opts, asaserver.WithSyncCustomStartParameters(*req.SyncCustomStartParameters))
+	}
+
+	if req.SyncEnableAsaPlugin != nil {
+		opts = append(opts, asaserver.WithSyncEnableAsaPlugin(*req.SyncEnableAsaPlugin))
+	}
+
 	// Sync config from source to each target instance
-	results := asaserver.SyncInstanceConfigToMultiple(req.SourceInstance, req.TargetInstances, req.SyncCustomStartParameters, req.SyncEnableAsaPlugin)
+	results := asaserver.SyncInstanceConfigToMultiple(req.SourceInstance, req.TargetInstances,
+		opts...,
+	)
 
 	// Separate successful and failed instances
 	var successInstances []string

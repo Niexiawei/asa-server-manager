@@ -570,6 +570,40 @@ func CheckForDuplicatePorts() error {
 	return nil
 }
 
+type SyncInstanceConfigOptions struct {
+	SyncCustomStartParameters   bool
+	SyncEnableAsaPlugin         bool
+	OnlySyncServerGameINIConfig bool
+}
+
+func newSyncInstanceConfigOptions() *SyncInstanceConfigOptions {
+	return &SyncInstanceConfigOptions{
+		SyncCustomStartParameters:   false,
+		SyncEnableAsaPlugin:         false,
+		OnlySyncServerGameINIConfig: false,
+	}
+}
+
+type SetSyncInstanceConfig func(*SyncInstanceConfigOptions)
+
+func WithSyncCustomStartParameters(sync bool) SetSyncInstanceConfig {
+	return func(o *SyncInstanceConfigOptions) {
+		o.SyncCustomStartParameters = sync
+	}
+}
+
+func WithSyncEnableAsaPlugin(sync bool) SetSyncInstanceConfig {
+	return func(o *SyncInstanceConfigOptions) {
+		o.SyncEnableAsaPlugin = sync
+	}
+}
+
+func WithOnlySyncServerGameINIConfig(sync bool) SetSyncInstanceConfig {
+	return func(o *SyncInstanceConfigOptions) {
+		o.OnlySyncServerGameINIConfig = sync
+	}
+}
+
 // SyncInstanceConfigFromSource syncs instance configuration and Config folder from a source instance
 // It copies:
 // 1. The entire Config folder (all files)
@@ -577,7 +611,11 @@ func CheckForDuplicatePorts() error {
 // 3. CustomStartParameters (if syncCustomStartParameters is true)
 // 4. EnableAsaPlugin (if syncEnableAsaPlugin is true)
 // The target instance keeps its other configuration fields (ServerName, Port, RCONPort, QueryPort, MaxPlayers, MapName, SaveDir, ClusterID)
-func SyncInstanceConfigFromSource(sourceInstanceName, targetInstanceName string, syncCustomStartParameters bool, syncEnableAsaPlugin bool) error {
+func SyncInstanceConfigFromSource(sourceInstanceName, targetInstanceName string, options ...SetSyncInstanceConfig) error {
+	opts := newSyncInstanceConfigOptions()
+	for _, option := range options {
+		option(opts)
+	}
 	// Load source instance configuration
 	sourceConfig, err := LoadInstanceConfig(sourceInstanceName)
 	if err != nil {
@@ -597,14 +635,16 @@ func SyncInstanceConfigFromSource(sourceInstanceName, targetInstanceName string,
 	targetConfig.ServerAdminPassword = sourceConfig.ServerAdminPassword
 	targetConfig.BindDomain = sourceConfig.BindDomain
 
-	// Conditionally sync CustomStartParameters
-	if syncCustomStartParameters {
-		targetConfig.CustomStartParameters = sourceConfig.CustomStartParameters
-	}
+	if !opts.OnlySyncServerGameINIConfig {
+		// Conditionally sync CustomStartParameters
+		if opts.SyncCustomStartParameters {
+			targetConfig.CustomStartParameters = sourceConfig.CustomStartParameters
+		}
 
-	// Conditionally sync EnableAsaPlugin
-	if syncEnableAsaPlugin {
-		targetConfig.EnableAsaPlugin = sourceConfig.EnableAsaPlugin
+		// Conditionally sync EnableAsaPlugin
+		if opts.SyncEnableAsaPlugin {
+			targetConfig.EnableAsaPlugin = sourceConfig.EnableAsaPlugin
+		}
 	}
 
 	// Save updated target configuration
@@ -677,27 +717,16 @@ func SyncInstanceConfigFromSource(sourceInstanceName, targetInstanceName string,
 // 4. EnableAsaPlugin (if syncEnableAsaPlugin is true)
 // The target instances keep their other configuration fields (ServerName, Port, RCONPort, QueryPort, MaxPlayers, MapName, SaveDir, ClusterID)
 // Returns a map of target instance names to their sync results (error or nil if successful)
-func SyncInstanceConfigToMultiple(sourceInstanceName string, targetInstanceNames []string, syncCustomStartParameters *bool, syncEnableAsaPlugin *bool) map[string]error {
+func SyncInstanceConfigToMultiple(sourceInstanceName string, targetInstanceNames []string, options ...SetSyncInstanceConfig) map[string]error {
 	results := make(map[string]error)
 
 	// Validate that we have target instances
 	if len(targetInstanceNames) == 0 {
 		return results
 	}
-
-	// Default values for optional sync flags (sync by default if not specified)
-	syncStartParams := true
-	syncPlugin := true
-	if syncCustomStartParameters != nil {
-		syncStartParams = *syncCustomStartParameters
-	}
-	if syncEnableAsaPlugin != nil {
-		syncPlugin = *syncEnableAsaPlugin
-	}
-
 	// Sync to each target instance
 	for _, targetName := range targetInstanceNames {
-		results[targetName] = SyncInstanceConfigFromSource(sourceInstanceName, targetName, syncStartParams, syncPlugin)
+		results[targetName] = SyncInstanceConfigFromSource(sourceInstanceName, targetName, options...)
 	}
 
 	return results
