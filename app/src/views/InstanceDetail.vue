@@ -337,7 +337,7 @@
 </template>
 
 <script setup>
-import {ref, onMounted, onUnmounted, nextTick, watch, computed} from 'vue'
+import {onMounted, onUnmounted, ref, watch} from 'vue'
 import {useRoute, useRouter} from 'vue-router'
 import ConfigEditor from '@/components/ConfigEditor.vue'
 import ConfigFileViewer from '@/components/ConfigFileViewer.vue'
@@ -348,32 +348,24 @@ import RconTerminal from '@/components/RconTerminal.vue'
 import ResourceMonitor from '@/components/ResourceMonitor.vue'
 import InstanceStatusHistory from '@/components/InstanceStatusHistory.vue'
 import {
-  getInstanceConfig,
-  startServer,
-  stopServer,
-  restartServerSSE,
   getGameIni,
   getGameUserSettings,
+  getInstanceConfig,
+  getModInfo,
   getServerConfigs,
+  restartServerSSE,
+  startServer,
+  stopServer,
   updateGameIni,
   updateGameUserSettings,
-  uploadGameIniFile,
-  uploadGameUserSettingsFile,
   updateInstanceConfig,
-  getModInfo
+  uploadGameIniFile,
+  uploadGameUserSettingsFile
 } from '@/apis/api.js'
-import {serverStore, getInstanceStatus, initServer} from '@/store/serverStore.js'
-import {onServerEvent} from '@/apis/api.js'
-import {
-  IconLeft,
-  IconEyeInvisible,
-  IconEye,
-  IconClose,
-  IconMinus,
-  IconPlus,
-  IconCopy
-} from '@arco-design/web-vue/es/icon'
-import {Modal, Message, Notification} from '@arco-design/web-vue'
+import {getInstanceStatus, initServer} from '@/store/serverStore.js'
+import {IconCopy, IconEye, IconEyeInvisible, IconLeft} from '@arco-design/web-vue/es/icon'
+import {Message, Modal, Notification} from '@arco-design/web-vue'
+import {useClipboard} from "@vueuse/core";
 
 // Monaco Editor 引用 - 已移至 ConfigEditor 组件
 const loading = ref(true)
@@ -919,14 +911,19 @@ const getModNameById = (modId) => {
   return mod ? mod.name : null
 }
 
+
+const {text, isSupported, copy} = useClipboard({
+  legacy: true,
+})
+
 // 复制单个 Mod ID 到剪切板
 const copyModId = async (modId) => {
   try {
-    await navigator.clipboard.writeText(modId)
+    await copy(modId);
     Message.success(`${getModNameById(modId)}:已复制到剪切板`)
   } catch (error) {
     console.error('复制失败:', error)
-    Message.error('复制失败')
+    Message.error('复制失败:' + error,)
   }
 }
 
@@ -934,11 +931,11 @@ const copyModId = async (modId) => {
 const copyAllModIds = async (modIds) => {
   try {
     const ids = modIds.split(',').map(id => id.trim()).filter(id => id).join(',')
-    await navigator.clipboard.writeText(ids)
+    await copy(ids)
     Message.success('已复制所有Mod ID到剪切板')
   } catch (error) {
     console.error('复制失败:', error)
-    Message.error('复制失败')
+    Message.error('复制失败:' + error,)
   }
 }
 

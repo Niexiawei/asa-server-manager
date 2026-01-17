@@ -76,13 +76,13 @@
                                   </a-tag>
                                 </template>
                               </div>
-                              <a-button 
-                                  type="text" 
+                              <a-button
+                                  type="text"
                                   size="mini"
                                   @click="copyAllModIds(instance.config.ModIDs)"
                                   class="copy-all-btn"
                               >
-                                <icon-copy /> 复制全部
+                                <icon-copy/> 复制全部
                               </a-button>
                             </template>
                             <template v-else>
@@ -201,41 +201,22 @@
 </template>
 
 <script setup>
-defineOptions({
-  name: 'ServerManager'
-})
-import {
-  ref,
-  reactive,
-  onMounted,
-  onUnmounted,
-  watch,
-  computed,
-  nextTick,
-  h,
-  inject,
-  onDeactivated,
-  onActivated
-} from 'vue'
+
+import {useClipboard} from "@vueuse/core";
+import {h, inject, onActivated, onDeactivated, reactive, ref, watch} from 'vue'
 import {useRouter} from 'vue-router'
-import {
-  listInstances,
-  createInstance,
-  startServer,
-  stopServer,
-  restartServer,
-  restartServerSSE,
-  deleteInstance,
-  getModInfo
-} from '@/apis/api.js'
-import {Modal, Button, Message, Notification} from '@arco-design/web-vue';
-import {IconCheck, IconClose, IconLoading, IconCopy} from '@arco-design/web-vue/es/icon';
-import {initServer, serverStore, updateInstancesInStore} from '@/store/serverStore.js'
-import {onServerEvent} from '@/utils/wsManager.js'
+import {createInstance, deleteInstance, getModInfo, restartServerSSE, startServer, stopServer} from '@/apis/api.js'
+import {Message, Modal, Notification} from '@arco-design/web-vue';
+import {IconCheck, IconClose, IconCopy, IconLoading} from '@arco-design/web-vue/es/icon';
+import {initServer, serverStore} from '@/store/serverStore.js'
 import LogViewer from '@/components/LogViewer.vue'
 import SyncConfigModal from '@/components/SyncConfigModal.vue'
 import ResourceMonitor from '@/components/ResourceMonitor.vue'
 import MasonryWall from '@yeger/vue-masonry-wall'
+
+defineOptions({
+  name: 'ServerManager'
+})
 
 const addTab = inject('addTab')
 // 状态管理
@@ -302,10 +283,15 @@ const fetchModInfo = async () => {
   }
 }
 
+
+const {text, isSupported, copy} = useClipboard({
+  legacy: true,
+})
+
 // 复制单个 Mod ID 到剪切板
 const copyModId = async (modId) => {
   try {
-    await navigator.clipboard.writeText(modId)
+    await copy(modId);
     Message.success(`${getModNameById(modId)}:已复制到剪切板`)
   } catch (error) {
     console.error('复制失败:', error)
@@ -317,7 +303,7 @@ const copyModId = async (modId) => {
 const copyAllModIds = async (modIds) => {
   try {
     const ids = modIds.split(',').map(id => id.trim()).filter(id => id).join(',')
-    await navigator.clipboard.writeText(ids)
+    await copy(ids)
     Message.success('已复制所有Mod ID到剪切板')
   } catch (error) {
     console.error('复制失败:', error)
