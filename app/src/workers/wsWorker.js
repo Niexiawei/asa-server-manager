@@ -7,6 +7,7 @@ let reconnectInterval = null;
 let isReconnecting = false;
 let clientId = null;
 let eventListeners = new Map(); // 存储事件监听器
+let isIntentionalDisconnect = false; // 标记是否是用户主动断开
 
 // WebSocket 配置
 const WS_CONFIG = {
@@ -32,6 +33,7 @@ function createEventMessage(type = 'ping', extraData = {}) {
 
 // 建立 WebSocket 连接
 function connectWebSocket(wsUrl) {
+    isIntentionalDisconnect = false;
     try {
         wsConnection = new WebSocket(wsUrl);
 
@@ -88,6 +90,11 @@ function connectWebSocket(wsUrl) {
             postMessage({
                 type: 'WS_CLOSE'
             });
+
+            // 如果不是主动断开，则尝试重连
+            if (!isIntentionalDisconnect) {
+                startReconnect();
+            }
         };
     } catch (err) {
         console.error('[WebSocket Worker] Failed to connect:', err);
@@ -100,6 +107,7 @@ function connectWebSocket(wsUrl) {
 
 // 断开 WebSocket 连接
 function disconnectWebSocket() {
+    isIntentionalDisconnect = true;
     stopHeartbeat();
     stopReconnect();
     if (wsConnection) {
