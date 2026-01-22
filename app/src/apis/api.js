@@ -715,29 +715,6 @@ export async function syncGameConfig(instances) {
     })
     return handleResponse(response)
 }
-
-// 导入事件 WebSocket 管理器
-import {
-    connectWebSocket,
-    disconnectWebSocket,
-    onServerEvent,
-    onAnyServerEvent,
-    isWebSocketConnected,
-    sendWebSocketMessage,
-    startReconnect,
-    stopReconnect,
-    getWebSocketStatus
-} from '@/utils/wsManager.js'
-
-// 导入 RCON WebSocket 管理器
-import {
-    connectRCONWebSocket,
-    disconnectRCONWebSocket,
-    sendRCONCommandViaWebSocket,
-    onRCONMessage,
-    isRCONWebSocketConnected
-} from '@/store/rconStore.js'
-
 // 获取实例资源占用信息（SSE 流式响应）
 export function streamInstanceResourceInfo(instanceName, onData, onError) {
     const eventSource = new EventSource(`${API_BASE_URL}/api/server/${instanceName}/info`)
@@ -966,22 +943,4 @@ export async function restartSyncthing() {
 export async function getModInfo() {
     const response = await fetch(`${API_BASE_URL}/api/mod-info`)
     return handleResponse(response)
-}
-
-// 重新导出这些函数供其他模块使用
-export {
-    connectWebSocket,
-    disconnectWebSocket,
-    onServerEvent,
-    onAnyServerEvent,
-    isWebSocketConnected,
-    sendWebSocketMessage,
-    startReconnect,
-    stopReconnect,
-    getWebSocketStatus,
-    connectRCONWebSocket,
-    disconnectRCONWebSocket,
-    sendRCONCommandViaWebSocket,
-    onRCONMessage,
-    isRCONWebSocketConnected
 }

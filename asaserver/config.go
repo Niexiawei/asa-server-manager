@@ -731,3 +731,79 @@ func SyncInstanceConfigToMultiple(sourceInstanceName string, targetInstanceNames
 
 	return results
 }
+
+// SetMessageOfTheDay updates the MessageOfTheDay section in GameUserSettings.ini
+func SetMessageOfTheDay(instanceName string, message string, duration int) error {
+	gameUserSettingsPath := filepath.Join(InstancesDir, instanceName, "Config", "GameUserSettings.ini")
+
+	if _, err := os.Stat(gameUserSettingsPath); os.IsNotExist(err) {
+		return fmt.Errorf("GameUserSettings.ini not found for instance '%s'", instanceName)
+	}
+
+	contentBytes, err := os.ReadFile(gameUserSettingsPath)
+	if err != nil {
+		return fmt.Errorf("failed to read GameUserSettings.ini: %w", err)
+	}
+
+	lines := strings.Split(string(contentBytes), "\n")
+	var outputLines []string
+	inTargetSection := false
+	sectionFound := false
+
+	for _, line := range lines {
+		trimLine := strings.TrimSpace(line)
+		// Keep the line (remove \r if present to normalize)
+		cleanLine := strings.TrimRight(line, "\r")
+
+		// Detect section start
+		if strings.HasPrefix(trimLine, "[") && strings.HasSuffix(trimLine, "]") {
+			if trimLine == "[MessageOfTheDay]" {
+				inTargetSection = true
+				sectionFound = true
+				outputLines = append(outputLines, cleanLine)
+				outputLines = append(outputLines, fmt.Sprintf("Message=%s", message))
+				outputLines = append(outputLines, fmt.Sprintf("Duration=%d", duration))
+				continue
+			} else {
+				// If we were in the target section and encounter a new section,
+				// ensure there is a blank line before the new section starts.
+				if inTargetSection {
+					if len(outputLines) > 0 && outputLines[len(outputLines)-1] != "" {
+						outputLines = append(outputLines, "")
+					}
+				}
+				inTargetSection = false
+			}
+		}
+
+		if inTargetSection {
+			// Skip existing keys we want to override
+			parts := strings.SplitN(trimLine, "=", 2)
+			if len(parts) == 2 {
+				key := strings.TrimSpace(parts[0])
+				if key == "Message" || key == "Duration" {
+					continue
+				}
+			}
+			// Also skip empty lines immediately inside the section to avoid gaps
+			if trimLine == "" {
+				continue
+			}
+		}
+
+		outputLines = append(outputLines, cleanLine)
+	}
+
+	if !sectionFound {
+		if len(outputLines) > 0 && outputLines[len(outputLines)-1] != "" {
+			outputLines = append(outputLines, "")
+		}
+		outputLines = append(outputLines, "[MessageOfTheDay]")
+		outputLines = append(outputLines, fmt.Sprintf("Message=%s", message))
+		outputLines = append(outputLines, fmt.Sprintf("Duration=%d", duration))
+	}
+
+	newContent := strings.Join(outputLines, "\r\n")
+
+	return os.WriteFile(gameUserSettingsPath, []byte(newContent), 0644)
+}

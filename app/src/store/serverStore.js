@@ -1,12 +1,10 @@
-import {onMounted, reactive, ref} from 'vue'
+import {reactive} from 'vue'
 import {
     connectWebSocket,
     disconnectWebSocket,
     onAnyServerEvent,
-    sendWebSocketMessage,
     startReconnect,
-    stopReconnect,
-    isWebSocketConnected
+    stopReconnect
 } from '@/utils/wsManager.js'
 import {listInstances} from "@/apis/api.js";
 

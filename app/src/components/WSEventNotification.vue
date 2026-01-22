@@ -42,10 +42,9 @@
 </template>
 
 <script setup>
-import {ref, onMounted, onUnmounted} from 'vue';
-import {onAnyServerEvent} from '@/apis/api.js';
+import {onMounted, onUnmounted, ref} from 'vue';
+import {onAnyServerEvent} from '@/utils/wsManager.js';
 import {IconNotification} from '@arco-design/web-vue/es/icon';
-import {Timeline, TimelineItem} from '@arco-design/web-vue';
 import dayjs from "dayjs";
 
 const wsEvents = ref([])

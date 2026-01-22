@@ -368,7 +368,7 @@ func GetInstanceStateIsStart(instanceName string) bool {
 	if err != nil {
 		return false
 	}
-	if state.Status == StatusStarted && state.Status == StatusStarting {
+	if state.Status == StatusStarted || state.Status == StatusStarting {
 		return true
 	}
 	return false

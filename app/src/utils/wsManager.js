@@ -4,7 +4,7 @@
  * 现在使用 Web Worker 运行以避免页面休眠时连接断开
  */
 import {buildWebSocketUrl} from "@/utils/utils.js";
-import { ref, computed } from 'vue';
+import {computed, ref} from 'vue';
 
 // ============ Web Worker 管理 ============
 let wsWorker = null;
