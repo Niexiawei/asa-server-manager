@@ -18,3 +18,4 @@ clusters/
 *.arktribe
 *test_data/
 ark-save-tools/
+app/node_modules
