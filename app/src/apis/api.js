@@ -1,208 +1,9 @@
 // API 服务封装
-export const API_BASE_URL = import.meta.env.VITE_API_ROOT
+import apiClient, { API_BASE_URL } from '@/utils/http'
 
-// 处理 API 响应
-async function handleResponse(response) {
-    if (!response.ok) {
-        // 尝试解析错误响应体，获取 message 或 error 字段
-        try {
-            const errorData = await response.json()
-            const errorMessage = errorData.message || errorData.error || `HTTP error! status: ${response.status}`
-            throw new Error(errorMessage)
-        } catch (parseError) {
-            // 如果无法解析 JSON，使用默认错误信息
-            if (parseError instanceof Error && parseError.message) {
-                throw parseError
-            }
-            throw new Error(`HTTP error! status: ${response.status}`)
-        }
-    }
-    return await response.json()
-}
+export { API_BASE_URL }
 
-// 健康检查
-export async function healthCheck() {
-    const response = await fetch(`${API_BASE_URL}/health`)
-    return handleResponse(response)
-}
-
-// 获取实例列表
-export async function listInstances() {
-    const response = await fetch(`${API_BASE_URL}/api/instances`)
-    return handleResponse(response)
-}
-
-// 创建实例
-export async function createInstance(name) {
-    const response = await fetch(`${API_BASE_URL}/api/instances`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({name}),
-    })
-    return handleResponse(response)
-}
-
-// 获取实例状态
-export async function getInstanceStatus(name) {
-    const response = await fetch(`${API_BASE_URL}/api/instances/${name}`)
-    return handleResponse(response)
-}
-
-// 获取实例完整配置
-export async function getInstanceConfig(name) {
-    const response = await fetch(`${API_BASE_URL}/api/instances/${name}`)
-    return handleResponse(response)
-}
-
-// 更新实例配置
-export async function updateInstanceConfig(name, config) {
-    const response = await fetch(`${API_BASE_URL}/api/instances/${name}/config`, {
-        method: 'PATCH',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(config),
-    })
-    return handleResponse(response)
-}
-
-// 删除实例
-export async function deleteInstance(name) {
-    const response = await fetch(`${API_BASE_URL}/api/instances/${name}`, {
-        method: 'DELETE',
-    })
-    return handleResponse(response)
-}
-
-// 重命名实例
-export async function renameInstance(name, newName) {
-    const response = await fetch(`${API_BASE_URL}/api/instances/${name}`, {
-        method: 'PUT',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({new_name: newName}),
-    })
-    return handleResponse(response)
-}
-
-// 启动服务器实例（SSE 流式响应）
-export async function startServer(name, onMessage, onError, onComplete) {
-    try {
-        const response = await fetch(`${API_BASE_URL}/api/server/${name}/start`, {
-            method: 'POST',
-        })
-
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`)
-        }
-
-        const reader = response.body.getReader()
-        let hasError = false
-
-        const processor = createSSEStreamProcessor((content) => {
-            try {
-                const data = JSON.parse(content)
-                if (data.status === 'error' || data.status === 'start_failed') {
-                    hasError = true
-                    if (onError) {
-                        onError(new Error(data.message))
-                    }
-                } else if (onMessage) {
-                    onMessage(data)
-                }
-            } catch (e) {
-                console.error('Failed to parse start server response:', e, 'content:', content)
-                if (onError) {
-                    onError(new Error('Failed to parse server response'))
-                }
-            }
-        })
-
-        while (true) {
-            const {done, value} = await reader.read()
-            if (done) break
-            processor.process(value)
-        }
-
-        processor.flush()
-
-        // 如果没有错误，则调用完成回调
-        if (!hasError && onComplete) {
-            onComplete()
-        }
-    } catch (error) {
-        console.error('Start server error:', error)
-        if (onError) {
-            onError(error)
-        }
-    }
-}
-
-// 停止服务器实例
-export async function stopServer(name) {
-    const response = await fetch(`${API_BASE_URL}/api/server/${name}/stop`, {
-        method: 'POST',
-    })
-    return handleResponse(response)
-}
-
-// 重启服务器实例
-export async function restartServer(name) {
-    const response = await fetch(`${API_BASE_URL}/api/server/${name}/restart`, {
-        method: 'POST',
-    })
-    return handleResponse(response)
-}
-
-// 重启服务器实例（SSE 流式响应）
-export async function restartServerSSE(name, onMessage, onError, onComplete) {
-    try {
-        const response = await fetch(`${API_BASE_URL}/api/server/${name}/restart`, {
-            method: 'POST',
-        })
-
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`)
-        }
-
-        const reader = response.body.getReader()
-        let hasError = false
-
-        const processor = createSSEStreamProcessor((content) => {
-            // 检测错误消息
-            if (content.startsWith('Error:')) {
-                hasError = true
-                if (onError) {
-                    onError(new Error(content))
-                }
-            } else if (onMessage) {
-                onMessage(content)
-            }
-        })
-
-        while (true) {
-            const {done, value} = await reader.read()
-            if (done) break
-            processor.process(value)
-        }
-
-        processor.flush()
-
-        // 如果没有错误，则调用完成回调
-        if (!hasError && onComplete) {
-            onComplete()
-        }
-    } catch (error) {
-        console.error('Restart server error:', error)
-        if (onError) {
-            onError(error)
-        }
-    }
-}
-
+// 为了兼容之前的 SSE 逻辑，保留 createSSEStreamProcessor
 // SSE 流处理辅助函数 - 正确处理 UTF-8 多字节字符
 function createSSEStreamProcessor(onMessage) {
     const decoder = new TextDecoder('utf-8')
@@ -300,7 +101,156 @@ function createSSEStreamProcessor(onMessage) {
     }
 }
 
-// 启动所有服务器实例（SSE 流式响应）
+// 健康检查
+export function healthCheck() {
+    return apiClient.get('/health')
+}
+
+// 获取实例列表
+export function listInstances() {
+    return apiClient.get('/api/instances')
+}
+
+// 创建实例
+export function createInstance(name) {
+    return apiClient.post('/api/instances', {name})
+}
+
+// 获取实例状态
+export function getInstanceStatus(name) {
+    return apiClient.get(`/api/instances/${name}`)
+}
+
+// 获取实例完整配置
+export function getInstanceConfig(name) {
+    return apiClient.get(`/api/instances/${name}`)
+}
+
+// 更新实例配置
+export function updateInstanceConfig(name, config) {
+    return apiClient.patch(`/api/instances/${name}/config`, config)
+}
+
+// 删除实例
+export function deleteInstance(name) {
+    return apiClient.delete(`/api/instances/${name}`)
+}
+
+// 重命名实例
+export function renameInstance(name, newName) {
+    return apiClient.put(`/api/instances/${name}`, {new_name: newName})
+}
+
+// 启动服务器实例（SSE 流式响应 - 保持 fetch，因为是流式）
+export async function startServer(name, onMessage, onError, onComplete) {
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/server/${name}/start`, {
+            method: 'POST',
+        })
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`)
+        }
+
+        const reader = response.body.getReader()
+        let hasError = false
+
+        const processor = createSSEStreamProcessor((content) => {
+            try {
+                const data = JSON.parse(content)
+                if (data.status === 'error' || data.status === 'start_failed') {
+                    hasError = true
+                    if (onError) {
+                        onError(new Error(data.message))
+                    }
+                } else if (onMessage) {
+                    onMessage(data)
+                }
+            } catch (e) {
+                console.error('Failed to parse start server response:', e, 'content:', content)
+                if (onError) {
+                    onError(new Error('Failed to parse server response'))
+                }
+            }
+        })
+
+        while (true) {
+            const {done, value} = await reader.read()
+            if (done) break
+            processor.process(value)
+        }
+
+        processor.flush()
+
+        // 如果没有错误，则调用完成回调
+        if (!hasError && onComplete) {
+            onComplete()
+        }
+    } catch (error) {
+        console.error('Start server error:', error)
+        if (onError) {
+            onError(error)
+        }
+    }
+}
+
+// 停止服务器实例
+export function stopServer(name) {
+    return apiClient.post(`/api/server/${name}/stop`)
+}
+
+// 重启服务器实例
+export function restartServer(name) {
+    return apiClient.post(`/api/server/${name}/restart`)
+}
+
+// 重启服务器实例（SSE 流式响应 - 保持 fetch）
+export async function restartServerSSE(name, onMessage, onError, onComplete) {
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/server/${name}/restart`, {
+            method: 'POST',
+        })
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`)
+        }
+
+        const reader = response.body.getReader()
+        let hasError = false
+
+        const processor = createSSEStreamProcessor((content) => {
+            // 检测错误消息
+            if (content.startsWith('Error:')) {
+                hasError = true
+                if (onError) {
+                    onError(new Error(content))
+                }
+            } else if (onMessage) {
+                onMessage(content)
+            }
+        })
+
+        while (true) {
+            const {done, value} = await reader.read()
+            if (done) break
+            processor.process(value)
+        }
+
+        processor.flush()
+
+        // 如果没有错误，则调用完成回调
+        if (!hasError && onComplete) {
+            onComplete()
+        }
+    } catch (error) {
+        console.error('Restart server error:', error)
+        if (onError) {
+            onError(error)
+        }
+    }
+}
+
+// 启动所有服务器实例（SSE 流式响应 - 保持 fetch）
 export async function startAllServers(onMessage, onError, onComplete) {
     try {
         const response = await fetch(`${API_BASE_URL}/api/server/start-all`, {
@@ -346,7 +296,7 @@ export async function startAllServers(onMessage, onError, onComplete) {
     }
 }
 
-// 停止所有服务器实例（SSE 流式响应）
+// 停止所有服务器实例（SSE 流式响应 - 保持 fetch）
 export async function stopAllServers(onMessage, onError, onComplete) {
     try {
         const response = await fetch(`${API_BASE_URL}/api/server/stop-all`, {
@@ -392,7 +342,7 @@ export async function stopAllServers(onMessage, onError, onComplete) {
     }
 }
 
-// 重启所有服务器实例（SSE 流式响应）
+// 重启所有服务器实例（SSE 流式响应 - 保持 fetch）
 export async function restartAllServers(onMessage, onError, onComplete) {
     try {
         const response = await fetch(`${API_BASE_URL}/api/server/restart-all`, {
@@ -439,37 +389,22 @@ export async function restartAllServers(onMessage, onError, onComplete) {
 }
 
 // 发送 RCON 命令
-export async function sendRCONCommand(name, command) {
-    const response = await fetch(`${API_BASE_URL}/api/rcon/${name}/command`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({command}),
-    })
-    return handleResponse(response)
+export function sendRCONCommand(name, command) {
+    return apiClient.post(`/api/rcon/${name}/command`, {command})
 }
 
 // 创建备份
-export async function createBackup(name) {
-    const response = await fetch(`${API_BASE_URL}/api/backup/${name}`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({}),
-    })
-    return handleResponse(response)
+export function createBackup(name) {
+    return apiClient.post(`/api/backup/${name}`, {})
 }
 
 // 列出所有备份
-export async function listBackups() {
-    const response = await fetch(`${API_BASE_URL}/api/backup`)
-    return handleResponse(response)
+export function listBackups() {
+    return apiClient.get('/api/backup')
 }
 
 // 恢复备份（可选择恢复的内容）
-export async function restoreBackup(name, backupFile, options = {}) {
+export function restoreBackup(name, backupFile, options = {}) {
     const requestBody = {
         backup_file: backupFile
     }
@@ -485,17 +420,10 @@ export async function restoreBackup(name, backupFile, options = {}) {
         requestBody.restore_game_config = options.restoreGameConfig
     }
 
-    const response = await fetch(`${API_BASE_URL}/api/backup/${name}/restore`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestBody),
-    })
-    return handleResponse(response)
+    return apiClient.post(`/api/backup/${name}/restore`, requestBody)
 }
 
-// 更新服务器（SSE 流式响应）
+// 更新服务器（SSE 流式响应 - 保持 fetch）
 export async function updateServer(onMessage, onError, onComplete) {
     try {
         const response = await fetch(`${API_BASE_URL}/api/server/update`, {
@@ -525,7 +453,7 @@ export async function updateServer(onMessage, onError, onComplete) {
     }
 }
 
-// 实时查看服务器日志（使用 Server-Sent Events）
+// 实时查看服务器日志（使用 Server-Sent Events - 保持 EventSource）
 export function streamInstanceLogs(instanceName, onLog, onError, onClose) {
     const eventSource = new EventSource(`${API_BASE_URL}/api/logs/${instanceName}`)
 
@@ -552,7 +480,7 @@ export function streamInstanceLogs(instanceName, onLog, onError, onClose) {
     }
 }
 
-// 获取最近 1000 条日志（使用 Server-Sent Events）
+// 获取最近 1000 条日志（使用 Server-Sent Events - 保持 EventSource）
 export function getRecentInstanceLogs(instanceName, onLog, onError, onClose) {
     const eventSource = new EventSource(`${API_BASE_URL}/api/logs/${instanceName}/recent`)
 
@@ -587,7 +515,7 @@ export function getRecentInstanceLogs(instanceName, onLog, onError, onClose) {
     }
 }
 
-// 实时查看系统日志（使用 Server-Sent Events）
+// 实时查看系统日志（使用 Server-Sent Events - 保持 EventSource）
 export function streamSystemLogs(onLog, onError, onClose) {
     const eventSource = new EventSource(`${API_BASE_URL}/api/logs`)
 
@@ -615,107 +543,66 @@ export function streamSystemLogs(onLog, onError, onClose) {
 }
 
 // 获取 Game.ini 配置文件内容
-export async function getGameIni(instanceName) {
-    const response = await fetch(`${API_BASE_URL}/api/config/${instanceName}/game-ini`)
-    return handleResponse(response)
+export function getGameIni(instanceName) {
+    return apiClient.get(`/api/config/${instanceName}/game-ini`)
 }
 
 // 获取 GameUserSettings.ini 配置文件内容
-export async function getGameUserSettings(instanceName) {
-    const response = await fetch(`${API_BASE_URL}/api/config/${instanceName}/game-user-settings`)
-    return handleResponse(response)
+export function getGameUserSettings(instanceName) {
+    return apiClient.get(`/api/config/${instanceName}/game-user-settings`)
 }
 
 // 获取服务器基础配置文件（Game.ini 和 GameUserSettings.ini）
-export async function getServerConfigs() {
-    const response = await fetch(`${API_BASE_URL}/api/config/server/configs`)
-    return handleResponse(response)
+export function getServerConfigs() {
+    return apiClient.get('/api/config/server/configs')
 }
 
 // 获取实例配置文件（Game.ini 和 GameUserSettings.ini）
-export async function getInstanceConfigs(instanceName) {
-    const response = await fetch(`${API_BASE_URL}/api/config/${instanceName}/configs`)
-    return handleResponse(response)
+export function getInstanceConfigs(instanceName) {
+    return apiClient.get(`/api/config/${instanceName}/configs`)
 }
 
 
 // 更新 Game.ini 配置文件内容（直接通过文本）
-export async function updateGameIni(instanceName, content) {
-    const response = await fetch(`${API_BASE_URL}/api/config/${instanceName}/game-ini`, {
-        method: 'PUT',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({content}),
-    })
-    return handleResponse(response)
+export function updateGameIni(instanceName, content) {
+    return apiClient.put(`/api/config/${instanceName}/game-ini`, {content})
 }
 
 // 更新 GameUserSettings.ini 配置文件内容（直接通过文本）
-export async function updateGameUserSettings(instanceName, content) {
-    const response = await fetch(`${API_BASE_URL}/api/config/${instanceName}/game-user-settings`, {
-        method: 'PUT',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({content}),
-    })
-    return handleResponse(response)
+export function updateGameUserSettings(instanceName, content) {
+    return apiClient.put(`/api/config/${instanceName}/game-user-settings`, {content})
 }
 
 // 上传 Game.ini 文件（FormData 方式）
-export async function uploadGameIniFile(instanceName, file) {
+export function uploadGameIniFile(instanceName, file) {
     const formData = new FormData()
     formData.append('file', file)
-    const response = await fetch(`${API_BASE_URL}/api/config/${instanceName}/game-ini`, {
-        method: 'POST',
-        body: formData,
-    })
-    return handleResponse(response)
+    return apiClient.post(`/api/config/${instanceName}/game-ini`, formData)
 }
 
 // 上传 GameUserSettings.ini 文件（FormData 方式）
-export async function uploadGameUserSettingsFile(instanceName, file) {
+export function uploadGameUserSettingsFile(instanceName, file) {
     const formData = new FormData()
     formData.append('file', file)
-    const response = await fetch(`${API_BASE_URL}/api/config/${instanceName}/game-user-settings`, {
-        method: 'POST',
-        body: formData,
-    })
-    return handleResponse(response)
+    return apiClient.post(`/api/config/${instanceName}/game-user-settings`, formData)
 }
 
 // 同步实例配置
-export async function syncInstanceConfig(sourceInstance, targetInstances, syncCustomStartParameters, syncEnableAsaPlugin) {
-    const response = await fetch(`${API_BASE_URL}/api/config/sync-instance`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-            source_instance: sourceInstance,
-            target_instances: targetInstances,
-            sync_custom_start_parameters: syncCustomStartParameters,
-            sync_enable_asa_plugin: syncEnableAsaPlugin,
-        }),
+export function syncInstanceConfig(sourceInstance, targetInstances, syncCustomStartParameters, syncEnableAsaPlugin) {
+    return apiClient.post('/api/config/sync-instance', {
+        source_instance: sourceInstance,
+        target_instances: targetInstances,
+        sync_custom_start_parameters: syncCustomStartParameters,
+        sync_enable_asa_plugin: syncEnableAsaPlugin,
     })
-    return handleResponse(response)
 }
 
 // 同步游戏配置（Game.ini 和 GameUserSettings.ini）
-export async function syncGameConfig(instances) {
-    const response = await fetch(`${API_BASE_URL}/api/config/sync`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-            instances: instances,
-        }),
-    })
-    return handleResponse(response)
+export function syncGameConfig(instances) {
+    return apiClient.post('/api/config/sync', {instances})
 }
-// 获取实例资源占用信息（SSE 流式响应）
+
+// 获取实例资源占用信息（SSE 流式响应 - 保持 EventSource）
 export function streamInstanceResourceInfo(instanceName, onData, onError) {
     const eventSource = new EventSource(`${API_BASE_URL}/api/server/${instanceName}/info`)
 
@@ -744,7 +631,7 @@ export function streamInstanceResourceInfo(instanceName, onData, onError) {
     }
 }
 
-// 获取系统资源占用信息（SSE 流式响应）
+// 获取系统资源占用信息（SSE 流式响应 - 保持 EventSource）
 export function streamServerResourceInfo(onData, onError) {
     const eventSource = new EventSource(`${API_BASE_URL}/api/server/info`)
 
@@ -775,30 +662,21 @@ export function streamServerResourceInfo(onData, onError) {
 
 // FRP 管理接口
 // 获取 FRP 配置
-export async function getFRPConfig() {
-    const response = await fetch(`${API_BASE_URL}/api/frp/config`)
-    return handleResponse(response)
+export function getFRPConfig() {
+    return apiClient.get('/api/frp/config')
 }
 
 // 更新 FRP 配置
-export async function updateFRPConfig(config) {
-    const response = await fetch(`${API_BASE_URL}/api/frp/config`, {
-        method: 'PUT',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({config}),
-    })
-    return handleResponse(response)
+export function updateFRPConfig(config) {
+    return apiClient.put('/api/frp/config', {config})
 }
 
 // 获取 FRP 状态
-export async function getFRPStatus() {
-    const response = await fetch(`${API_BASE_URL}/api/frp/status`)
-    return handleResponse(response)
+export function getFRPStatus() {
+    return apiClient.get('/api/frp/status')
 }
 
-// 流式获取 FRP 状态变化
+// 流式获取 FRP 状态变化（SSE - 保持 EventSource）
 export function streamFRPStatus(onStatus, onError, onClose) {
     const eventSource = new EventSource(`${API_BASE_URL}/api/frp/status/stream`)
 
@@ -833,55 +711,37 @@ export function streamFRPStatus(onStatus, onError, onClose) {
 }
 
 // 启动 FRP
-export async function startFRP() {
-    const response = await fetch(`${API_BASE_URL}/api/frp/start`, {
-        method: 'POST',
-    })
-    return handleResponse(response)
+export function startFRP() {
+    return apiClient.post('/api/frp/start')
 }
 
 // 停止 FRP
-export async function stopFRP() {
-    const response = await fetch(`${API_BASE_URL}/api/frp/stop`, {
-        method: 'POST',
-    })
-    return handleResponse(response)
+export function stopFRP() {
+    return apiClient.post('/api/frp/stop')
 }
 
 // 重启 FRP
-export async function restartFRP() {
-    const response = await fetch(`${API_BASE_URL}/api/frp/restart`, {
-        method: 'POST',
-    })
-    return handleResponse(response)
+export function restartFRP() {
+    return apiClient.post('/api/frp/restart')
 }
 
 // Syncthing 管理接口
 // 获取 Syncthing 配置
-export async function getSyncthingConfig() {
-    const response = await fetch(`${API_BASE_URL}/api/syncthing/config`)
-    return handleResponse(response)
+export function getSyncthingConfig() {
+    return apiClient.get('/api/syncthing/config')
 }
 
 // 更新 Syncthing 配置
-export async function updateSyncthingConfig(config) {
-    const response = await fetch(`${API_BASE_URL}/api/syncthing/config`, {
-        method: 'PUT',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({config}),
-    })
-    return handleResponse(response)
+export function updateSyncthingConfig(config) {
+    return apiClient.put('/api/syncthing/config', {config})
 }
 
 // 获取 Syncthing 状态
-export async function getSyncthingStatus() {
-    const response = await fetch(`${API_BASE_URL}/api/syncthing/status`)
-    return handleResponse(response)
+export function getSyncthingStatus() {
+    return apiClient.get('/api/syncthing/status')
 }
 
-// 流式获取 Syncthing 状态变化
+// 流式获取 Syncthing 状态变化（SSE - 保持 EventSource）
 export function streamSyncthingStatus(onStatus, onError, onClose) {
     const eventSource = new EventSource(`${API_BASE_URL}/api/syncthing/status/stream`)
 
@@ -916,31 +776,21 @@ export function streamSyncthingStatus(onStatus, onError, onClose) {
 }
 
 // 启动 Syncthing
-export async function startSyncthing() {
-    const response = await fetch(`${API_BASE_URL}/api/syncthing/start`, {
-        method: 'POST',
-    })
-    return handleResponse(response)
+export function startSyncthing() {
+    return apiClient.post('/api/syncthing/start')
 }
 
 // 停止 Syncthing
-export async function stopSyncthing() {
-    const response = await fetch(`${API_BASE_URL}/api/syncthing/stop`, {
-        method: 'POST',
-    })
-    return handleResponse(response)
+export function stopSyncthing() {
+    return apiClient.post('/api/syncthing/stop')
 }
 
 // 重启 Syncthing
-export async function restartSyncthing() {
-    const response = await fetch(`${API_BASE_URL}/api/syncthing/restart`, {
-        method: 'POST',
-    })
-    return handleResponse(response)
+export function restartSyncthing() {
+    return apiClient.post('/api/syncthing/restart')
 }
 
 // 获取 Mod 信息
-export async function getModInfo() {
-    const response = await fetch(`${API_BASE_URL}/api/mod-info`)
-    return handleResponse(response)
+export function getModInfo() {
+    return apiClient.get('/api/mod-info')
 }
