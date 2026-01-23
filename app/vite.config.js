@@ -37,6 +37,10 @@ export default defineConfig({
                         return 'terminal'
                     }
 
+                    if (id.includes('axios')) {
+                        return 'axios'
+                    }
+                    
                     // 4️⃣ 其他第三方
                     if (
                         id.includes('dayjs') ||

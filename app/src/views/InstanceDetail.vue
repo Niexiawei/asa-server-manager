@@ -838,7 +838,7 @@ const restartInstance = () => {
       instanceRestartLoading.value = true
       try {
         // 使用 SSE 方式调用重启
-        restartServerSSE(
+        await restartServerSSE(
             instanceName,
             // onMessage 回调 - 接收实时进度消息
             (message) => {

@@ -180,12 +180,12 @@ func (s *APIServer) setupRoutes() {
 	// Server control endpoints
 	server := s.engine.Group("/api/server")
 	{
-		server.POST("/:name/start", s.startServer)
-		server.POST("/:name/stop", s.stopServer)
-		server.POST("/:name/restart", s.restartServer)
-		server.POST("/start-all", s.startAllServers)
-		server.POST("/stop-all", s.stopAllServers)
-		server.POST("/restart-all", s.restartAllServers)
+		server.GET("/:name/start", s.startServer)
+		server.GET("/:name/stop", s.stopServer)
+		server.GET("/:name/restart", s.restartServer)
+		server.GET("/start-all", s.startAllServers)
+		server.GET("/stop-all", s.stopAllServers)
+		server.GET("/restart-all", s.restartAllServers)
 	}
 
 	// RCON endpoints
