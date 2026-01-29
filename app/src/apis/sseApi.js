@@ -110,15 +110,33 @@ export function restartAllServers(onMessage, onError, onComplete) {
 
 // 更新服务器
 export function updateServer(onMessage, onError, onComplete) {
-    const url = `${API_BASE_URL}/api/server/update`
-    // updateServer 原逻辑没有特殊的 JSON 解析或 Error 前缀检查，直接透传 content
-    // 但原逻辑 try-catch 包裹了 JSON.parse? 不，updateServer 原逻辑是直接 createSSEStreamProcessor(onMessage)
-    // createSSEStreamProcessor 内部处理了 data: 前缀。 EventSource 自动处理了。
-    // 所以直接返回 content
 
-    return createEventSourceAction(url, onMessage, onError, onComplete, (content) => {
-        return {success: true, error: null}
+    const url = `${API_BASE_URL}/api/server/update`
+    return new Promise((resolve) => {
+        const eventSource = new EventSource(url)
+
+        eventSource.onmessage = (event) => {
+            if (event.data?.startsWith('Error:') && onError) {
+                onError(event.data)
+                return
+            }
+            if (onMessage) {
+                onMessage(event.data)
+            }
+        }
+        eventSource.onerror = (error) => {
+            console.error('SSE connection error:', error)
+            if (onComplete) {
+                onComplete()
+            }
+            eventSource.close()
+            resolve()
+        }
     })
+
+    // return createEventSourceAction(url, onMessage, onError, onComplete, (content) => {
+    //     return {success: true, error: null}
+    // })
 }
 
 // 实时查看服务器日志

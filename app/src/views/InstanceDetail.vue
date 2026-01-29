@@ -84,50 +84,50 @@
                   <div class="config-item">
                     <div class="config-item-label">{{ item.label }}</div>
                     <div class="config-item-content">
-                      <div v-if="!item.type || item.type === 'text'" class="config-item-value">
-                        <template v-if="item.label === 'Mod'">
-                          <template v-if="item.value && item.value !== '-'">
-                            <div class="mod-container">
-                              <template v-for="(modId, index) in item.value.split(',')" :key="modId">
-                                <a-tag
-                                    class="mod-tag"
-                                    v-if="modId.trim()"
-                                    color="arcoblue"
-                                    @click="copyModId(modId.trim())"
-                                    style="cursor: pointer; display: flex; align-items: center; gap: 4px;"
-                                >
-                                  {{ getModNameById(modId.trim()) || modId.trim() }}
-                                  <icon-copy :style="{fontSize: '12px'}"/>
-                                </a-tag>
-                              </template>
-                            </div>
-                            <a-button
-                                type="text"
-                                size="mini"
-                                @click="copyAllModIds(item.value)"
-                                class="copy-all-btn"
-                            >
-                              <icon-copy/>
-                              复制全部
-                            </a-button>
-                          </template>
-                          <template v-else>
-                            {{ item.value }}
-                          </template>
-                        </template>
-                        <template v-else>
+                      <div v-if="(!item.type || item.type === 'text') && item.label === 'Mod'"
+                           class="config-item-value">
+                        <div v-if="item.value && item.value !== '-'">
+                          <div class="mod-container">
+                            <template v-for="(modId, index) in item.value.split(',')" :key="modId">
+                              <a-tag
+                                  class="mod-tag"
+                                  v-if="modId.trim()"
+                                  color="arcoblue"
+                                  @click="copyModId(modId.trim())"
+                                  style="cursor: pointer; display: flex; align-items: center; gap: 4px;"
+                              >
+                                {{ getModNameById(modId.trim()) || modId.trim() }}
+                                <icon-copy :style="{fontSize: '12px'}"/>
+                              </a-tag>
+                            </template>
+                          </div>
+                          <a-button
+                              type="text"
+                              size="mini"
+                              @click="copyAllModIds(item.value)"
+                              class="copy-all-btn"
+                          >
+                            <icon-copy/>
+                            复制全部
+                          </a-button>
+                        </div>
+                        <div v-else>
                           {{ item.value }}
-                        </template>
+                        </div>
                       </div>
-                      <div v-else-if="item.type === 'boolean'" class="config-item-value">
+                      <div v-if="(!item.type || item.type === 'text') && item.label !== 'Mod'"
+                           class="config-item-value">
+                        {{ item.value }}
+                      </div>
+                      <div v-if="item.type === 'boolean'" class="config-item-value">
                         <a-tag :color="item.value === '是' ? 'green' : 'gray'">{{ item.value }}</a-tag>
                       </div>
-                      <div v-else-if="item.type === 'password'" class="password-wrapper">
-                      <span class="config-item-value">
-                        {{
-                          item.label === '服务器密码' && showServerPassword ? item.value : (item.label === '管理员密码' && showAdminPassword ? item.value : (item.hasPassword ? '●●●●●●' : item.value))
-                        }}
-                      </span>
+                      <div v-if="item.type === 'password'" class="password-wrapper">
+                        <span class="config-item-value">
+                          {{
+                            item.label === '服务器密码' && showServerPassword ? item.value : (item.label === '管理员密码' && showAdminPassword ? item.value : (item.hasPassword ? '●●●●●●' : item.value))
+                          }}
+                        </span>
                         <a-button
                             v-if="item.hasPassword"
                             type="text"
@@ -175,6 +175,29 @@
 
           <!-- 配置文件区域 -->
           <a-collapse v-model:active-key="activeCollapseKeys" class="config-files-collapse">
+            <a-collapse-item key="motd" header="服务器公告">
+              <a-card title="公告" class="config-section config-file-card">
+                <template #extra>
+                  <a-space>
+                    <div>
+                      消息时长：{{ motdDuration + '秒' || '-' }}
+                    </div>
+                    <a-button
+                        @click="openMotdEditModal"
+                        type="primary"
+                        :disabled="instanceData?.running"
+                    >
+                      编辑
+                    </a-button>
+                  </a-space>
+                </template>
+                <div class="config-viewer-wrapper">
+                  <div style="white-space: pre-wrap; word-break: break-word;">
+                    {{ motdContent || '-' }}
+                  </div>
+                </div>
+              </a-card>
+            </a-collapse-item>
             <a-collapse-item key="config-files" header="实例配置文件">
               <div class="config-files-row">
                 <!-- Game.ini 配置 -->
@@ -263,6 +286,38 @@
         @update:visible="configEditModalVisible = $event"
         @save="saveConfig"
     />
+
+    <a-modal
+        v-model:visible="motdEditModalVisible"
+        title="编辑 Message Of The Day"
+        width="500px"
+        :ok-loading="savingMotd"
+        ok-text="保存"
+        cancel-text="取消"
+        @ok="saveMotd"
+        @cancel="motdEditModalVisible = false"
+    >
+      <a-form layout="vertical">
+        <a-form-item field="MessageOfTheDayDuration" label="消息时长">
+          <a-input-number
+              v-model="motdDuration"
+              :min="1"
+              placeholder="输入消息时长"
+          >
+            <template #suffix>
+              秒
+            </template>
+          </a-input-number>
+        </a-form-item>
+        <a-form-item field="MessageOfTheDay" label="公告">
+          <a-textarea
+              v-model="motdContent"
+              placeholder="输入公告"
+              :rows="5"
+          />
+        </a-form-item>
+      </a-form>
+    </a-modal>
 
     <!-- Game.ini 编辑模态框 -->
     <config-editor
@@ -415,6 +470,11 @@ const gameUserSettingsFileInput = ref(null)
 // 配置编辑弹出框相关
 const configEditModalVisible = ref(false)
 const savingConfig = ref(false)
+
+const motdEditModalVisible = ref(false)
+const motdContent = ref('')
+const motdDuration = ref('')
+const savingMotd = ref(false)
 
 // 启动、停止、重启 按预的 loading 状态
 const instanceStartLoading = ref(false)
@@ -624,6 +684,8 @@ const fetchInstanceConfig = async () => {
       instanceData.value = instance
 
       const config = instance.config || {}
+      motdContent.value = config.MessageOfTheDay || ''
+      motdDuration.value = config.MessageOfTheDayDuration ?? ''
 
       // 基本信息
       basicInfo.value = [
@@ -690,8 +752,13 @@ const fetchInstanceConfig = async () => {
           type: 'text'
         },
         {
-          label: '自定义启动参数',
-          value: config.CustomStartParameters || '-',
+          label: 'Message Of The Day',
+          value: config.MessageOfTheDay || '-',
+          type: 'text'
+        },
+        {
+          label: '消息时长',
+          value: config.MessageOfTheDayDuration || '-',
           type: 'text'
         },
         {
@@ -705,7 +772,12 @@ const fetchInstanceConfig = async () => {
           value: config.ServerAdminPassword || '-',
           type: 'password',
           hasPassword: !!config.ServerAdminPassword
-        }
+        },
+        {
+          label: '自定义启动参数',
+          value: config.CustomStartParameters || '-',
+          type: 'text'
+        },
       ]
     } else {
       error.value = data.error || '获取实例配置失败'
@@ -721,6 +793,13 @@ const fetchInstanceConfig = async () => {
 // 打开配置编辑弹出框
 const openConfigEditModal = () => {
   configEditModalVisible.value = true
+}
+
+const openMotdEditModal = () => {
+  const config = instanceData.value?.config || instanceData.value || {}
+  motdContent.value = config.MessageOfTheDay || ''
+  motdDuration.value = config.MessageOfTheDayDuration ?? ''
+  motdEditModalVisible.value = true
 }
 
 // 保存配置
@@ -740,6 +819,31 @@ const saveConfig = async (config) => {
     Message.error(err.message || '保存配置失败')
   } finally {
     savingConfig.value = false
+  }
+}
+
+const saveMotd = async () => {
+  savingMotd.value = true
+  try {
+    const payload = {
+      MessageOfTheDay: motdContent.value
+    }
+    if (motdDuration.value !== '' && motdDuration.value !== null && motdDuration.value !== undefined) {
+      payload.MessageOfTheDayDuration = Number(motdDuration.value)
+    }
+    const data = await updateInstanceConfig(instanceName, payload)
+    if (data.success) {
+      Message.success('Message Of The Day 已保存')
+      motdEditModalVisible.value = false
+      await fetchInstanceConfig()
+      await loadGameUserSettings()
+    } else {
+      Message.error(data.error || '保存 Message Of The Day 失败')
+    }
+  } catch (err) {
+    Message.error(err.message || '保存 Message Of The Day 失败')
+  } finally {
+    savingMotd.value = false
   }
 }
 

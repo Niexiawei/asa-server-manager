@@ -225,7 +225,7 @@ func (s *APIServer) setupRoutes() {
 	}
 
 	// Server update endpoints
-	s.engine.POST("/api/server/update", s.handleServerUpdate)
+	s.engine.GET("/api/server/update", s.handleServerUpdate)
 
 	// Server info endpoints
 	s.engine.GET("/api/server/info", s.streamServerInfo)

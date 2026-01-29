@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/jinzhu/copier"
 )
 
 var (
@@ -29,20 +31,41 @@ const (
 
 // InstanceConfig represents an instance configuration
 type InstanceConfig struct {
-	ServerName            string
-	ServerPassword        string
-	ServerAdminPassword   string
-	MaxPlayers            int
-	MapName               string
-	RCONPort              int
-	QueryPort             int
-	Port                  int
-	ModIDs                string
-	SaveDir               string
-	ClusterID             string
-	CustomStartParameters string
-	EnableAsaPlugin       bool
-	BindDomain            string
+	ServerName              string
+	ServerPassword          string
+	ServerAdminPassword     string
+	MaxPlayers              int
+	MapName                 string
+	RCONPort                int
+	QueryPort               int
+	Port                    int
+	ModIDs                  string
+	SaveDir                 string
+	ClusterID               string
+	CustomStartParameters   string
+	EnableAsaPlugin         bool
+	BindDomain              string
+	MessageOfTheDay         string
+	MessageOfTheDayDuration int
+}
+
+type UpdateInstanceConfigRequest struct {
+	ServerName              string `json:"ServerName,omitempty"`
+	ServerPassword          string `json:"ServerPassword,omitempty"`
+	ServerAdminPassword     string `json:"ServerAdminPassword,omitempty"`
+	MaxPlayers              *int   `json:"MaxPlayers,omitempty"`
+	MapName                 string `json:"MapName,omitempty"`
+	RCONPort                *int   `json:"RCONPort,omitempty"`
+	QueryPort               *int   `json:"QueryPort,omitempty"`
+	Port                    *int   `json:"Port,omitempty"`
+	ModIDs                  string `json:"ModIDs,omitempty"`
+	SaveDir                 string `json:"SaveDir,omitempty"`
+	ClusterID               string `json:"ClusterID,omitempty"`
+	CustomStartParameters   string `json:"CustomStartParameters,omitempty"`
+	EnableAsaPlugin         *bool  `json:"EnableAsaPlugin,omitempty"`
+	BindDomain              string `json:"BindDomain,omitempty"`
+	MessageOfTheDay         string `json:"MessageOfTheDay,omitempty"`
+	MessageOfTheDayDuration *int   `json:"MessageOfTheDayDuration,omitempty"`
 }
 
 // EnsureDirectories Initialize directories based on executable location
@@ -149,11 +172,21 @@ func LoadInstanceConfig(instanceName string) (*InstanceConfig, error) {
 			config.EnableAsaPlugin = strings.ToLower(value) == "true"
 		case "BindDomain":
 			config.BindDomain = value
+		case "MessageOfTheDay":
+			config.MessageOfTheDay = value
+		case "MessageOfTheDayDuration":
+			if val, err := strconv.Atoi(value); err == nil {
+				config.MessageOfTheDayDuration = val
+			}
 		}
 	}
 
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("error reading config file: %w", err)
+	}
+
+	if err := SetMessageOfTheDay(instanceName, config.MessageOfTheDay, config.MessageOfTheDayDuration); err != nil {
+		return nil, fmt.Errorf("error setting message of the day: %w", err)
 	}
 
 	return config, nil
@@ -183,6 +216,8 @@ SaveDir=%s
 ClusterID=%s
 EnableAsaPlugin=%v
 BindDomain=%s
+MessageOfTheDayDuration=%d
+MessageOfTheDay=%s
 `,
 		config.ServerName,
 		config.ServerPassword,
@@ -198,6 +233,8 @@ BindDomain=%s
 		config.ClusterID,
 		config.EnableAsaPlugin,
 		config.BindDomain,
+		config.MessageOfTheDayDuration,
+		config.MessageOfTheDay,
 	)
 
 	if err := os.WriteFile(configFile, []byte(content), 0600); err != nil {
@@ -208,108 +245,51 @@ BindDomain=%s
 }
 
 // UpdateInstanceConfig updates the configuration for an instance with partial updates
-func UpdateInstanceConfig(instanceName string, updates map[string]interface{}) error {
+func UpdateInstanceConfig(instanceName string, req UpdateInstanceConfigRequest) error {
 	// Load current config
 	currentConfig, err := LoadInstanceConfig(instanceName)
 	if err != nil {
 		return fmt.Errorf("failed to load current config: %w", err)
 	}
 
-	// Apply updates
-	if val, ok := updates["ServerName"]; ok {
-		if str, ok := val.(string); ok {
-			currentConfig.ServerName = str
-		}
+	stringUpdates := struct {
+		ServerName            string
+		ServerAdminPassword   string
+		MapName               string
+		SaveDir               string
+		ClusterID             string
+		CustomStartParameters string
+		BindDomain            string
+		MessageOfTheDay       string
+	}{}
+
+	if err := copier.CopyWithOption(&stringUpdates, &req, copier.Option{IgnoreEmpty: true}); err != nil {
+		return fmt.Errorf("failed to map config updates: %w", err)
 	}
-	if val, ok := updates["ServerPassword"]; ok {
-		if str, ok := val.(string); ok {
-			currentConfig.ServerPassword = str
-		}
-	}
-	if val, ok := updates["ServerAdminPassword"]; ok {
-		if str, ok := val.(string); ok {
-			currentConfig.ServerAdminPassword = str
-		}
-	}
-	if val, ok := updates["MaxPlayers"]; ok {
-		switch v := val.(type) {
-		case float64:
-			currentConfig.MaxPlayers = int(v)
-		case int:
-			currentConfig.MaxPlayers = v
-		}
-	}
-	if val, ok := updates["MapName"]; ok {
-		if str, ok := val.(string); ok {
-			currentConfig.MapName = str
-		}
-	}
-	if val, ok := updates["RCONPort"]; ok {
-		switch v := val.(type) {
-		case float64:
-			currentConfig.RCONPort = int(v)
-		case int:
-			currentConfig.RCONPort = v
-		}
-	}
-	if val, ok := updates["QueryPort"]; ok {
-		switch v := val.(type) {
-		case float64:
-			currentConfig.QueryPort = int(v)
-		case int:
-			currentConfig.QueryPort = v
-		}
-	}
-	if val, ok := updates["Port"]; ok {
-		switch v := val.(type) {
-		case float64:
-			currentConfig.Port = int(v)
-		case int:
-			currentConfig.Port = v
-		}
-	}
-	if val, ok := updates["ModIDs"]; ok {
-		if str, ok := val.(string); ok {
-			currentConfig.ModIDs = str
-		}
-	}
-	if val, ok := updates["SaveDir"]; ok {
-		if str, ok := val.(string); ok {
-			currentConfig.SaveDir = str
-		}
-	}
-	if val, ok := updates["ClusterID"]; ok {
-		if str, ok := val.(string); ok {
-			currentConfig.ClusterID = str
-		}
-	}
-	if val, ok := updates["CustomStartParameters"]; ok {
-		if str, ok := val.(string); ok {
-			currentConfig.CustomStartParameters = str
-		}
-	}
-	if val, ok := updates["EnableMods"]; ok {
-		switch v := val.(type) {
-		case bool:
-			currentConfig.EnableAsaPlugin = v
-		case float64:
-			currentConfig.EnableAsaPlugin = v != 0
-		}
-	}
-	if val, ok := updates["EnableAsaPlugin"]; ok {
-		switch v := val.(type) {
-		case bool:
-			currentConfig.EnableAsaPlugin = v
-		case float64:
-			currentConfig.EnableAsaPlugin = v != 0
-		}
+	if err := copier.CopyWithOption(currentConfig, &stringUpdates, copier.Option{IgnoreEmpty: true}); err != nil {
+		return fmt.Errorf("failed to apply config updates: %w", err)
 	}
 
-	// Add BindDomain update
-	if val, ok := updates["BindDomain"]; ok {
-		if str, ok := val.(string); ok {
-			currentConfig.BindDomain = str
-		}
+	currentConfig.ServerPassword = req.ServerPassword
+	currentConfig.ModIDs = req.ModIDs
+
+	if req.MaxPlayers != nil {
+		currentConfig.MaxPlayers = *req.MaxPlayers
+	}
+	if req.RCONPort != nil {
+		currentConfig.RCONPort = *req.RCONPort
+	}
+	if req.QueryPort != nil {
+		currentConfig.QueryPort = *req.QueryPort
+	}
+	if req.Port != nil {
+		currentConfig.Port = *req.Port
+	}
+	if req.EnableAsaPlugin != nil {
+		currentConfig.EnableAsaPlugin = *req.EnableAsaPlugin
+	}
+	if req.MessageOfTheDayDuration != nil {
+		currentConfig.MessageOfTheDayDuration = *req.MessageOfTheDayDuration
 	}
 
 	// Save updated config

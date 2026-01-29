@@ -446,7 +446,7 @@ func (s *APIServer) startServer(c *gin.Context) {
 				startedResponse := gin.H{
 					"status":    "started",
 					"timestamp": time.Now().Format(time.RFC3339Nano),
-					"message":   "Server has started successfully",
+					"message":   "[COMPLETED] Server has started successfully",
 				}
 				startedData, _ := json.Marshal(startedResponse)
 				fmt.Fprintf(w, "data: %s\n\n", startedData)
@@ -1648,29 +1648,11 @@ func (s *APIServer) getInstanceConfig(c *gin.Context) {
 	})
 }
 
-// UpdateInstanceConfigRequest represents a request to update instance configuration
-type UpdateInstanceConfigRequest struct {
-	ServerName            string `json:"ServerName,omitempty"`
-	ServerPassword        string `json:"ServerPassword,omitempty"`
-	ServerAdminPassword   string `json:"ServerAdminPassword,omitempty"`
-	MaxPlayers            *int   `json:"MaxPlayers,omitempty"`
-	MapName               string `json:"MapName,omitempty"`
-	RCONPort              *int   `json:"RCONPort,omitempty"`
-	QueryPort             *int   `json:"QueryPort,omitempty"`
-	Port                  *int   `json:"Port,omitempty"`
-	ModIDs                string `json:"ModIDs,omitempty"`
-	SaveDir               string `json:"SaveDir,omitempty"`
-	ClusterID             string `json:"ClusterID,omitempty"`
-	CustomStartParameters string `json:"CustomStartParameters,omitempty"`
-	EnableAsaPlugin       *bool  `json:"EnableAsaPlugin,omitempty"`
-	BindDomain            string `json:"BindDomain,omitempty"`
-}
-
 // updateInstanceConfig updates the configuration for an instance
 func (s *APIServer) updateInstanceConfig(c *gin.Context) {
 	instanceName := c.Param("name")
 
-	var req UpdateInstanceConfigRequest
+	var req asaserver.UpdateInstanceConfigRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, StatusResponse{
 			Success: false,
@@ -1679,56 +1661,7 @@ func (s *APIServer) updateInstanceConfig(c *gin.Context) {
 		return
 	}
 
-	// Build updates map
-	updates := make(map[string]interface{})
-	if req.ServerName != "" {
-		updates["ServerName"] = req.ServerName
-	}
-	updates["ServerPassword"] = req.ServerPassword
-	if req.ServerAdminPassword != "" {
-		updates["ServerAdminPassword"] = req.ServerAdminPassword
-	}
-	if req.MaxPlayers != nil {
-		updates["MaxPlayers"] = *req.MaxPlayers
-	}
-	if req.MapName != "" {
-		updates["MapName"] = req.MapName
-	}
-	if req.RCONPort != nil {
-		updates["RCONPort"] = *req.RCONPort
-	}
-	if req.QueryPort != nil {
-		updates["QueryPort"] = *req.QueryPort
-	}
-	if req.Port != nil {
-		updates["Port"] = *req.Port
-	}
-	updates["ModIDs"] = req.ModIDs
-	if req.SaveDir != "" {
-		updates["SaveDir"] = req.SaveDir
-	}
-	if req.ClusterID != "" {
-		updates["ClusterID"] = req.ClusterID
-	}
-	if req.CustomStartParameters != "" {
-		updates["CustomStartParameters"] = req.CustomStartParameters
-	}
-	if req.EnableAsaPlugin != nil {
-		updates["EnableAsaPlugin"] = *req.EnableAsaPlugin
-	}
-	if req.BindDomain != "" {
-		updates["BindDomain"] = req.BindDomain
-	}
-
-	if len(updates) == 0 {
-		c.JSON(http.StatusBadRequest, StatusResponse{
-			Success: false,
-			Error:   "No fields to update",
-		})
-		return
-	}
-
-	if err := asaserver.UpdateInstanceConfig(instanceName, updates); err != nil {
+	if err := asaserver.UpdateInstanceConfig(instanceName, req); err != nil {
 		c.JSON(http.StatusInternalServerError, StatusResponse{
 			Success: false,
 			Error:   err.Error(),

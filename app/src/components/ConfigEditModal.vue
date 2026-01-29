@@ -237,7 +237,9 @@ const editingConfig = ref({
   ClusterID: '',
   CustomStartParameters: '',
   EnableAsaPlugin: false,
-  BindDomain: ''
+  BindDomain: '',
+  MessageOfTheDay: '',
+  MessageOfTheDayDuration: ''
 })
 
 // Mod 信息相关
@@ -349,7 +351,9 @@ const initializeConfig = () => {
     ClusterID: props.config?.ClusterID || '',
     CustomStartParameters: props.config?.CustomStartParameters || '',
     EnableAsaPlugin: props.config?.EnableAsaPlugin || false,
-    BindDomain: props.config?.BindDomain || ''
+    BindDomain: props.config?.BindDomain || '',
+    MessageOfTheDay: props.config?.MessageOfTheDay || '',
+    MessageOfTheDayDuration: props.config?.MessageOfTheDayDuration || ''
   }
   // 同步 ModIDs 到标签
   syncInputToModTags()
