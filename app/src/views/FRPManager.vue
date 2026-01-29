@@ -9,9 +9,11 @@
           <IconClose v-else style="color: #ef4444; font-size: 18px;"/>
         </div>
         <a-space>
-          <a-button size="small" type="primary" @click="startFRP" :disabled="frpStatus === 'running'">启动</a-button>
-          <a-button size="small" status="danger" @click="stopFRP" :disabled="frpStatus === 'stopped'">停止</a-button>
-          <a-button size="small" status="warning" @click="restartFRP">重启</a-button>
+          <a-button size="small" type="primary" @click="startFRPAction" :disabled="frpStatus === 'running'">启动
+          </a-button>
+          <a-button size="small" status="danger" @click="stopFRPAction" :disabled="frpStatus === 'stopped'">停止
+          </a-button>
+          <a-button size="small" status="warning" @click="restartFRPAction">重启</a-button>
         </a-space>
       </div>
     </template>
@@ -71,7 +73,7 @@
               <span class="log-text">{{ log.msg }}</span>
             </div>
             <div v-if="systemLogs.length === 0" class="log-empty">
-              暂无日志。{{ isStreaming ? "" : '点击"开始监听"按钮开始实时查看系统日志。'}}
+              暂无日志。{{ isStreaming ? "" : '点击"开始监听"按钮开始实时查看系统日志。' }}
             </div>
           </div>
         </div>
@@ -81,7 +83,16 @@
 </template>
 
 <script setup>
-import * as api from '@/apis/api.js'
+import {
+  getFRPStatus,
+  streamFRPStatus,
+  getFRPConfig,
+  updateFRPConfig,
+  streamSystemLogs,
+  startFRP,
+  stopFRP,
+  restartFRP
+} from '@/apis/api.js'
 import * as monaco from 'monaco-editor'
 import dayjs from 'dayjs'
 import {ref, onMounted, onBeforeUnmount, nextTick, shallowRef} from 'vue'
@@ -111,7 +122,7 @@ const initializeFRP = async () => {
 
 const checkFRPStatus = async () => {
   try {
-    const response = await api.getFRPStatus()
+    const response = await getFRPStatus()
     if (response.success) {
       frpStatus.value = response.data.status
     }
@@ -122,19 +133,19 @@ const checkFRPStatus = async () => {
 
 const startStatusStream = () => {
   if (statusStreamStop.value) return
-  
-  statusStreamStop.value = api.streamFRPStatus(
-    (status) => {
-      frpStatus.value = status
-    },
-    (error) => {
-      console.error('Status stream error:', error)
-      // 错误发生时，对5秒后重新连接
-      setTimeout(() => {
-        statusStreamStop.value = null
-        startStatusStream()
-      }, 5000)
-    }
+
+  statusStreamStop.value = streamFRPStatus(
+      (status) => {
+        frpStatus.value = status
+      },
+      (error) => {
+        console.error('Status stream error:', error)
+        // 错误发生时，对5秒后重新连接
+        setTimeout(() => {
+          statusStreamStop.value = null
+          startStatusStream()
+        }, 5000)
+      }
   )
 }
 
@@ -147,7 +158,7 @@ const stopStatusStream = () => {
 
 const loadFRPConfig = async () => {
   try {
-    const response = await api.getFRPConfig()
+    const response = await getFRPConfig()
     if (response.success) {
       frpConfig.value = response.data
       if (editor.value) {
@@ -181,7 +192,7 @@ const saveFRPConfig = async () => {
   saving.value = true
   try {
     const content = editor.value.getValue()
-    const response = await api.updateFRPConfig(content)
+    const response = await updateFRPConfig(content)
     if (response.success) {
       frpConfig.value = content
       console.log('FRP config saved successfully')
@@ -197,9 +208,9 @@ const reloadFRPConfig = async () => {
   await loadFRPConfig()
 }
 
-const startFRP = async () => {
+const startFRPAction = async () => {
   try {
-    const response = await api.startFRP()
+    const response = await startFRP()
     if (response.success) {
       frpStatus.value = 'running'
       console.log('FRP started successfully')
@@ -209,9 +220,9 @@ const startFRP = async () => {
   }
 }
 
-const stopFRP = async () => {
+const stopFRPAction = async () => {
   try {
-    const response = await api.stopFRP()
+    const response = await stopFRP()
     if (response.success) {
       frpStatus.value = 'stopped'
       console.log('FRP stopped successfully')
@@ -221,9 +232,9 @@ const stopFRP = async () => {
   }
 }
 
-const restartFRP = async () => {
+const restartFRPAction = async () => {
   try {
-    const response = await api.restartFRP()
+    const response = await restartFRP()
     if (response.success) {
       frpStatus.value = 'running'
       console.log('FRP restarted successfully')
@@ -268,7 +279,7 @@ const isFRPCLog = (msg) => {
 const startLogStream = () => {
   if (isStreaming.value) return
   isStreaming.value = true
-  stopStreamFn.value = api.streamSystemLogs(
+  stopStreamFn.value = streamSystemLogs(
       (log) => {
         // 解析日志为结构化格式
         const parsedLog = parseLogLine(log)

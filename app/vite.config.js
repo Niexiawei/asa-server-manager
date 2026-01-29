@@ -40,7 +40,11 @@ export default defineConfig({
                     if (id.includes('axios')) {
                         return 'axios'
                     }
-                    
+
+                    if (id.includes('arco-design')) {
+                        return 'arco-design'
+                    }
+
                     // 4️⃣ 其他第三方
                     if (
                         id.includes('dayjs') ||

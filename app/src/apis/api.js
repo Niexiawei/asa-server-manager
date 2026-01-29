@@ -161,6 +161,20 @@ export function getFRPStatus() {
     return apiClient.get('/api/frp/status')
 }
 
+export function startFRP() {
+    return apiClient.post('/api/frp/start')
+}
+
+// 停止 FRP
+export function stopFRP() {
+    return apiClient.post('/api/frp/stop')
+}
+
+// 重启 FRP
+export function restartFRP() {
+    return apiClient.post('/api/frp/restart')
+}
+
 
 // Syncthing 管理接口
 // 获取 Syncthing 配置
