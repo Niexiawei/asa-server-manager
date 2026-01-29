@@ -20,6 +20,7 @@ type TaskBroadcaster struct {
 	subscribers map[chan<- string]bool
 	mu          sync.RWMutex
 	running     bool
+	wg          sync.WaitGroup
 }
 
 // NewTaskBroadcaster creates a new task broadcaster
@@ -58,6 +59,7 @@ func (tb *TaskBroadcaster) Start() bool {
 
 	tb.running = true
 	// Start the broadcaster goroutine
+	tb.wg.Add(1)
 	go tb.broadcast()
 	return true
 }
@@ -108,10 +110,10 @@ func (tb *TaskBroadcaster) Subscribe() (chan string, func()) {
 // Stop marks the task as completed and closes all subscriber channels
 func (tb *TaskBroadcaster) Stop() {
 	tb.mu.Lock()
-	defer tb.mu.Unlock()
 
 	// Only stop if we're actually running
 	if !tb.running {
+		tb.mu.Unlock()
 		return
 	}
 
@@ -122,7 +124,11 @@ func (tb *TaskBroadcaster) Stop() {
 		close(tb.msgChan)
 		tb.msgChan = nil
 	}
+	tb.mu.Unlock()
 
+	tb.wg.Wait()
+
+	tb.mu.Lock()
 	// Close all subscriber channels and clear the map
 	for subscriber := range tb.subscribers {
 		delete(tb.subscribers, subscriber)
@@ -131,10 +137,12 @@ func (tb *TaskBroadcaster) Stop() {
 	// Clear the subscribers map to ensure it's empty for the next run
 	// This isn't strictly necessary since we delete each entry, but it's safe
 	tb.subscribers = make(map[chan<- string]bool)
+	tb.mu.Unlock()
 }
 
 // broadcast distributes messages to all subscribers
 func (tb *TaskBroadcaster) broadcast() {
+	defer tb.wg.Done()
 	for msg := range tb.msgChan {
 		tb.mu.RLock()
 		// Create a copy of subscribers to avoid issues if map changes during iteration
