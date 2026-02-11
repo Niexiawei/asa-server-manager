@@ -1,161 +1,161 @@
 <template>
-  <a-modal
+  <t-dialog
       v-model:visible="localVisible"
-      title="编辑服务器配置"
+      header="编辑服务器配置"
       width="900px"
-      :ok-loading="saving"
-      ok-text="保存"
-      cancel-text="取消"
-      @before-ok="handleBeforeOk"
-      @cancel="handleCancel"
+      :confirm-btn="{ content: '保存', loading: saving }"
+      :cancel-btn="'取消'"
+      @confirm="handleBeforeOk"
+      @close="handleCancel"
   >
-    <a-form ref="formRef" :model="editingConfig" layout="vertical">
+    <t-form ref="formRef" :data="editingConfig" layout="vertical">
       <!-- 第一行 -->
-      <a-row :gutter="16">
-        <a-col :span="6">
-          <a-form-item field="ServerName" label="服务器名称"
+      <t-row :gutter="16">
+        <t-col :span="6">
+          <t-form-item name="ServerName" label="服务器名称"
                        :rules="[{ required: true, message: '服务器名称为必填项' }]">
-            <a-input
+            <t-input
                 v-model="editingConfig.ServerName"
                 placeholder="输入服务器名称"
             />
-          </a-form-item>
-        </a-col>
-        <a-col :span="6">
-          <a-form-item field="MaxPlayers" label="最大玩家数"
+          </t-form-item>
+        </t-col>
+        <t-col :span="6">
+          <t-form-item name="MaxPlayers" label="最大玩家数"
                        :rules="[{ required: true, message: '最大玩家数为必填项' }]">
-            <a-input-number
+            <t-input-number
                 v-model="editingConfig.MaxPlayers"
                 :min="1"
                 placeholder="输入最大玩家数"
             />
-          </a-form-item>
-        </a-col>
-        <a-col :span="6">
-          <a-form-item field="Port" label="游戏端口" :rules="[{ required: true, message: '游戏端口为必填项' }]">
-            <a-input-number
+          </t-form-item>
+        </t-col>
+        <t-col :span="6">
+          <t-form-item name="Port" label="游戏端口" :rules="[{ required: true, message: '游戏端口为必填项' }]">
+            <t-input-number
                 v-model="editingConfig.Port"
                 :min="1"
                 :max="65535"
                 placeholder="输入游戏端口"
             />
-          </a-form-item>
-        </a-col>
-        <a-col :span="6">
-          <a-form-item field="RCONPort" label="RCON端口" :rules="[{ required: true, message: 'RCON端口为必填项' }]">
-            <a-input-number
+          </t-form-item>
+        </t-col>
+        <t-col :span="6">
+          <t-form-item name="RCONPort" label="RCON端口" :rules="[{ required: true, message: 'RCON端口为必填项' }]">
+            <t-input-number
                 v-model="editingConfig.RCONPort"
                 :min="1"
                 :max="65535"
                 placeholder="输入RCON端口"
             />
-          </a-form-item>
-        </a-col>
-      </a-row>
+          </t-form-item>
+        </t-col>
+      </t-row>
 
       <!-- 第二行 -->
-      <a-row :gutter="16">
-        <a-col :span="6">
-          <a-form-item field="QueryPort" label="查询端口" :rules="[{ required: true, message: '查询端口为必填项' }]">
-            <a-input-number
+      <t-row :gutter="16">
+        <t-col :span="6">
+          <t-form-item name="QueryPort" label="查询端口" :rules="[{ required: true, message: '查询端口为必填项' }]">
+            <t-input-number
                 v-model="editingConfig.QueryPort"
                 :min="1"
                 :max="65535"
                 placeholder="输入查询端口"
             />
-          </a-form-item>
-        </a-col>
-        <a-col :span="6">
-          <a-form-item field="BindDomain" label="绑定域名">
-            <a-input
+          </t-form-item>
+        </t-col>
+        <t-col :span="6">
+          <t-form-item name="BindDomain" label="绑定域名">
+            <t-input
                 v-model="editingConfig.BindDomain"
                 placeholder="请输入绑定域名"
             />
-          </a-form-item>
-        </a-col>
-        <a-col :span="6">
-          <a-form-item field="MapName" label="地图名称" :rules="[{ required: true, message: '地图名称为必填项' }]">
-            <a-input
+          </t-form-item>
+        </t-col>
+        <t-col :span="6">
+          <t-form-item name="MapName" label="地图名称" :rules="[{ required: true, message: '地图名称为必填项' }]">
+            <t-input
                 v-model="editingConfig.MapName"
                 placeholder="输入地图名称"
             />
-          </a-form-item>
-        </a-col>
-        <a-col :span="6">
-          <a-form-item field="ClusterID" label="集群ID" :rules="[{ required: true, message: '集群ID为必填项' }]">
-            <a-input
+          </t-form-item>
+        </t-col>
+        <t-col :span="6">
+          <t-form-item name="ClusterID" label="集群ID" :rules="[{ required: true, message: '集群ID为必填项' }]">
+            <t-input
                 v-model="editingConfig.ClusterID"
                 placeholder="输入集群ID"
             />
-          </a-form-item>
-        </a-col>
-      </a-row>
+          </t-form-item>
+        </t-col>
+      </t-row>
 
       <!-- 第三行 -->
-      <a-row :gutter="16">
-        <a-col :span="6">
-          <a-form-item field="SaveDir" label="存档目录" :rules="[{ required: true, message: '存档目录为必填项' }]">
-            <a-input
+      <t-row :gutter="16">
+        <t-col :span="6">
+          <t-form-item name="SaveDir" label="存档目录" :rules="[{ required: true, message: '存档目录为必填项' }]">
+            <t-input
                 v-model="editingConfig.SaveDir"
                 placeholder="输入存档目录"
             />
-          </a-form-item>
-        </a-col>
-        <a-col :span="6">
-          <a-form-item field="ServerPassword" label="服务器密码">
-            <a-input-password
+          </t-form-item>
+        </t-col>
+        <t-col :span="6">
+          <t-form-item name="ServerPassword" label="服务器密码">
+            <t-input
                 v-model="editingConfig.ServerPassword"
+                type="password"
                 placeholder="输入服务器密码"
             />
-          </a-form-item>
-        </a-col>
-        <a-col :span="6">
-          <a-form-item field="ServerAdminPassword" label="管理员密码"
+          </t-form-item>
+        </t-col>
+        <t-col :span="6">
+          <t-form-item name="ServerAdminPassword" label="管理员密码"
                        :rules="[{ required: true, message: '管理员密码为必填项' }]">
-            <a-input-password
+            <t-input
                 v-model="editingConfig.ServerAdminPassword"
+                type="password"
                 placeholder="输入管理员密码"
             />
-          </a-form-item>
-        </a-col>
-        <a-col :span="6">
-          <a-form-item field="EnableAsaPlugin" label="启用ASA插件">
-            <a-switch
+          </t-form-item>
+        </t-col>
+        <t-col :span="6">
+          <t-form-item name="EnableAsaPlugin" label="启用ASA插件">
+            <t-switch
                 v-model="editingConfig.EnableAsaPlugin"
-                size="large"
             />
-          </a-form-item>
-        </a-col>
-      </a-row>
+          </t-form-item>
+        </t-col>
+      </t-row>
 
       <!-- 第四行 -->
-      <a-row :gutter="16">
-        <a-col :span="24">
-          <a-form-item field="ModIDs" content-class="mod-edit-item" label="Mod IDs">
+      <t-row :gutter="16">
+        <t-col :span="24">
+          <t-form-item name="ModIDs" class="mod-edit-item" label="Mod IDs">
             <!-- 动态标签编辑模式 -->
             <div style="margin-bottom: 8px;width: 100%">
-              <a-space wrap>
-                <a-tag
+              <t-space break-line>
+                <t-tag
                     v-for="(tag, index) in modTags"
                     :key="tag"
                     closable
-                    color="arcoblue"
+                    theme="primary"
                     @close="handleRemove(tag)"
                 >
                   {{ getModNameById(tag) || tag }}
-                </a-tag>
+                </t-tag>
 
-                <a-input
+                <t-input
                     v-if="showInput"
                     ref="inputRef"
                     :style="{ width: '120px'}"
-                    size="mini"
+                    size="small"
                     v-model.trim="inputVal"
                     placeholder="Mod ID"
                     @keyup.enter="handleAdd"
                     @blur="handleAdd"
                 />
-                <a-tag
+                <t-tag
                     v-else
                     :style="{
                       width: '120px',
@@ -166,42 +166,42 @@
                     @click="handleEdit"
                 >
                   <template #icon>
-                    <icon-plus/>
+                    <add-icon/>
                   </template>
                   添加 Mod ID
-                </a-tag>
-              </a-space>
+                </t-tag>
+              </t-space>
             </div>
 
             <!-- 原有的文本输入框 -->
-            <a-textarea
+            <t-textarea
                 v-model="editingConfig.ModIDs"
                 placeholder="输入Mod IDs（逗号分隔）"
                 :rows="2"
             />
-          </a-form-item>
-        </a-col>
-      </a-row>
+          </t-form-item>
+        </t-col>
+      </t-row>
 
       <!-- 第五行 -->
-      <a-row :gutter="16">
-        <a-col :span="24">
-          <a-form-item field="CustomStartParameters" label="自定义启动参数">
-            <a-textarea
+      <t-row :gutter="16">
+        <t-col :span="24">
+          <t-form-item name="CustomStartParameters" label="自定义启动参数">
+            <t-textarea
                 v-model="editingConfig.CustomStartParameters"
                 placeholder="输入自定义启动参数"
                 :rows="2"
             />
-          </a-form-item>
-        </a-col>
-      </a-row>
-    </a-form>
-  </a-modal>
+          </t-form-item>
+        </t-col>
+      </t-row>
+    </t-form>
+  </t-dialog>
 </template>
 
 <script setup>
 import {ref, watch, nextTick, onMounted, computed} from 'vue'
-import {IconPlus} from '@arco-design/web-vue/es/icon'
+import {AddIcon} from 'tdesign-icons-vue-next'
 import {getModInfo} from '@/apis/api.js'
 
 const props = defineProps({
@@ -397,7 +397,6 @@ const handleCancel = () => {
 </script>
 
 <style scoped lang="less">
-/* 使用 arco design 的内置样式，无需额外定义 */
 
 :deep(.mod-edit-item) {
   flex-direction: column;

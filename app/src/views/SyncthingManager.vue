@@ -1,18 +1,21 @@
 <template>
-  <a-card class="syncthing-card" :bordered="false">
+  <t-card class="syncthing-card layout-card">
     <template #title>
       <div class="syncthing-header">
         <div class="header-left">
           <span class="page-title">Syncthing 管理</span>
-          <IconCheck v-if="syncthingStatus === 'running'"
-                     style="color: #22c55e; font-size: 18px;"/>
-          <IconClose v-else style="color: #ef4444; font-size: 18px;"/>
+          <check-icon v-if="syncthingStatus === 'running'"
+                      style="color: #22c55e; font-size: 18px;"/>
+          <close-icon v-else style="color: #ef4444; font-size: 18px;"/>
         </div>
-        <a-space>
-          <a-button size="small" type="primary" @click="startSyncthing" :disabled="syncthingStatus === 'running'">启动</a-button>
-          <a-button size="small" status="danger" @click="stopSyncthing" :disabled="syncthingStatus === 'stopped'">停止</a-button>
-          <a-button size="small" status="warning" @click="restartSyncthing">重启</a-button>
-        </a-space>
+        <t-space>
+          <t-button size="small" theme="primary" @click="startSyncthing" :disabled="syncthingStatus === 'running'">
+            启动
+          </t-button>
+          <t-button size="small" theme="danger" @click="stopSyncthing" :disabled="syncthingStatus === 'stopped'">停止
+          </t-button>
+          <t-button size="small" theme="warning" @click="restartSyncthing">重启</t-button>
+        </t-space>
       </div>
     </template>
 
@@ -20,42 +23,42 @@
       <div class="config-panel">
         <div class="panel-header">
           <h3>配置文件编辑</h3>
-          <a-space>
-            <a-button type="primary" size="small" @click="saveSyncthingConfig" :loading="saving">保存</a-button>
-            <a-button size="small" @click="reloadSyncthingConfig" type="outline">重新加载</a-button>
-          </a-space>
+          <t-space>
+            <t-button theme="primary" size="small" @click="saveSyncthingConfig" :loading="saving">保存</t-button>
+            <t-button size="small" @click="reloadSyncthingConfig" variant="outline">重新加载</t-button>
+          </t-space>
         </div>
         <div ref="editorContainer" class="editor-container"></div>
       </div>
 
       <div class="log-panel">
-        <a-space class="log-controls">
-          <a-button
+        <t-space class="log-controls">
+          <t-button
               @click="startLogStream"
-              type="primary"
+              theme="primary"
               :disabled="isStreaming"
           >
             {{ isStreaming ? '监听中...' : '开始监听' }}
-          </a-button>
-          <a-button
+          </t-button>
+          <t-button
               @click="stopLogStream"
-              status="warning"
+              theme="warning"
               :disabled="!isStreaming"
           >
             停止监听
-          </a-button>
-          <a-button
+          </t-button>
+          <t-button
               @click="clearLogs"
               :disabled="systemLogs.length === 0"
           >
             清空日志
-          </a-button>
-          <a-divider direction="vertical"/>
-          <a-badge :color="isStreaming ? 'green' : 'gray'"
-                   :text="isStreaming ? '监听中' : '已停止'"
+          </t-button>
+          <t-divider layout="vertical"/>
+          <t-badge :color="isStreaming ? 'green' : 'gray'"
+                   :count="isStreaming ? '监听中' : '已停止'"
           />
           <span class="log-count">日志行数: {{ systemLogs.length }}</span>
-        </a-space>
+        </t-space>
 
         <div class="log-viewer">
           <div class="log-container" ref="logContainer">
@@ -71,13 +74,13 @@
               <span class="log-text">{{ log.msg }}</span>
             </div>
             <div v-if="systemLogs.length === 0" class="log-empty">
-              暂无日志。{{ isStreaming ? "" : '点击"开始监听"按钮开始实时查看系统日志。'}}
+              暂无日志。{{ isStreaming ? "" : '点击"开始监听"按钮开始实时查看系统日志。' }}
             </div>
           </div>
         </div>
       </div>
     </div>
-  </a-card>
+  </t-card>
 </template>
 
 <script setup>
@@ -85,7 +88,7 @@ import * as api from '@/apis/api.js'
 import * as monaco from 'monaco-editor'
 import dayjs from 'dayjs'
 import {ref, onMounted, onBeforeUnmount, nextTick, shallowRef} from 'vue'
-import {IconCheck, IconClose} from "@arco-design/web-vue/es/icon";
+import {CheckIcon, CloseIcon} from 'tdesign-icons-vue-next';
 
 const syncthingStatus = ref('stopped')
 const syncthingConfig = ref('')
@@ -122,19 +125,19 @@ const checkSyncthingStatus = async () => {
 
 const startStatusStream = () => {
   if (statusStreamStop.value) return
-  
+
   statusStreamStop.value = api.streamSyncthingStatus(
-    (status) => {
-      syncthingStatus.value = status
-    },
-    (error) => {
-      console.error('Status stream error:', error)
-      // 错误发生时，对5秒后重新连接
-      setTimeout(() => {
-        statusStreamStop.value = null
-        startStatusStream()
-      }, 5000)
-    }
+      (status) => {
+        syncthingStatus.value = status
+      },
+      (error) => {
+        console.error('Status stream error:', error)
+        // 错误发生时，对5秒后重新连接
+        setTimeout(() => {
+          statusStreamStop.value = null
+          startStatusStream()
+        }, 5000)
+      }
   )
 }
 
@@ -335,7 +338,7 @@ onBeforeUnmount(() => {
   overflow: hidden;
 }
 
-:deep(.arco-card-body) {
+:deep(.t-card__body) {
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -343,7 +346,7 @@ onBeforeUnmount(() => {
   overflow: hidden;
 }
 
-:deep(.arco-card-header-title) {
+:deep(.t-card__title) {
   width: 100%;
 }
 
@@ -398,7 +401,7 @@ onBeforeUnmount(() => {
   font-size: 16px;
 }
 
-:deep(.arco-badge-status-text) {
+:deep(.t-badge__text) {
   line-height: 16px !important;
   font-size: 16px;
   color: var(--color-text-2);

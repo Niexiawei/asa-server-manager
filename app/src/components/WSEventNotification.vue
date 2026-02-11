@@ -1,12 +1,12 @@
 <template>
   <div class="ws-notification" style="margin-left: auto; padding-right: 20px;">
-    <a-popover position="br" trigger="click" class="ws-notification-popover">
+    <t-popup placement="bottom-right" trigger="click" class="ws-notification-popover">
       <template #content>
-        <a-card :bordered=false>
+        <t-card :bordered="false">
           <template #title>
             <div class="popover-header">
               <span class="popover-title">事件 ({{ wsEvents.length }})</span>
-              <a-button type="outline" size="small" @click="clearEvents">清空</a-button>
+              <t-button variant="outline" size="small" @click="clearEvents">清空</t-button>
             </div>
           </template>
           <div class="event-popover-content">
@@ -14,8 +14,8 @@
               <div v-if="wsEvents.length === 0" class="empty-state">
                 暂无事件消息
               </div>
-              <a-timeline v-else>
-                <a-timeline-item v-for="(event, index) in [...wsEvents].reverse()" :key="index"
+              <t-timeline v-else>
+                <t-timeline-item v-for="(event, index) in [...wsEvents].reverse()" :key="index"
                                  :dot-color="getEventColor(event.event_type)">
                   <div class="timeline-content">
                     <div class="timeline-header">
@@ -24,27 +24,27 @@
                     </div>
                     <div class="event-message">{{ event.instance_name || '' }} - {{ event.message || '' }}</div>
                   </div>
-                </a-timeline-item>
-              </a-timeline>
+                </t-timeline-item>
+              </t-timeline>
             </div>
           </div>
-        </a-card>
+        </t-card>
       </template>
-      <a-badge :count="wsEvents.length" :max-count="99" class="bell-icon">
-        <a-button type="text" size="large" class="notification-btn">
+      <t-badge :count="wsEvents.length" :max-count="99" class="bell-icon">
+        <t-button variant="text" size="large" class="notification-btn">
           <template #icon>
-            <icon-notification/>
+            <notification-icon/>
           </template>
-        </a-button>
-      </a-badge>
-    </a-popover>
+        </t-button>
+      </t-badge>
+    </t-popup>
   </div>
 </template>
 
 <script setup>
 import {onMounted, onUnmounted, ref} from 'vue';
 import {onAnyServerEvent} from '@/utils/wsManager.js';
-import {IconNotification} from '@arco-design/web-vue/es/icon';
+import {NotificationIcon} from 'tdesign-icons-vue-next';
 import dayjs from "dayjs";
 
 const wsEvents = ref([])
@@ -161,7 +161,7 @@ onUnmounted(() => {
     }
   }
 
-  :deep(.arco-badge-count) {
+  :deep(.t-badge__count) {
     background-color: #f53f3f;
     color: #ffffff;
     font-size: 12px;
@@ -196,10 +196,10 @@ onUnmounted(() => {
     padding: 15px;
     box-sizing: border-box;
 
-    :deep(.arco-timeline-item-dot-content) {
+    :deep(.t-timeline-item__dot) {
       width: 13px;
 
-      .arco-timeline-item-dot {
+      .t-timeline-item__dot-content {
         width: 13px;
         height: 13px;
         border: 3px solid #fff;
@@ -214,8 +214,8 @@ onUnmounted(() => {
       font-size: 14px;
     }
 
-    :deep(.arco-timeline) {
-      .arco-timeline-item {
+    :deep(.t-timeline) {
+      .t-timeline-item {
         padding-bottom: 16px;
       }
     }
@@ -282,17 +282,17 @@ onUnmounted(() => {
 
 <style lang="less">
 .ws-notification-popover {
-  .arco-popover-popup-content {
+  .t-popup__content {
     padding: 0 !important;
   }
 
-  .arco-popover-content {
+  .t-popup__content {
     border-radius: var(--border-radius-large);
     overflow: hidden;
     margin-top: 0 !important;
   }
 
-  .arco-card-body {
+  .t-card__body {
     padding: 0 !important;
   }
 }

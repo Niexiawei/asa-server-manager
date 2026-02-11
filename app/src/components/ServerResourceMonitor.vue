@@ -1,5 +1,5 @@
 <template>
-  <a-popover position="br" trigger="click" :content-style="{ padding: '16px', minWidth: '400px' }">
+  <t-popup placement="bottom-right" trigger="click" :content-style="{ padding: '16px', minWidth: '400px' }">
     <template #content>
       <div class="server-resource-content">
         <div class="section-title">服务器资源占用</div>
@@ -9,20 +9,20 @@
           <div class="progress-item progress-item-cpu" v-if="resourceData.cpu">
             <div class="progress-label">CPU 使用率</div>
             <div class="progress-container">
-              <a-progress
-                  type="circle"
-                  :percent="(resourceData.cpu.used_percent / 100)"
-                  :width="80"
+              <t-progress
+                  theme="circle"
+                  :percentage="resourceData.cpu.used_percent"
+                  :size="80"
                   :stroke-width="5"
                   :color="getProgressColor(resourceData.cpu.used_percent)"
               >
-                <template #text="{ percent }">
+                <template #label>
                   <div class="progress-text">
-                    <div class="percent-value">{{ (percent * 100).toFixed(1) }}%</div>
+                    <div class="percent-value">{{ resourceData.cpu.used_percent?.toFixed(1) }}%</div>
                     <div class="core-info" v-if="resourceData.cpu.core_count">{{ resourceData.cpu.core_count }}核</div>
                   </div>
                 </template>
-              </a-progress>
+              </t-progress>
             </div>
           </div>
 
@@ -38,14 +38,14 @@
           <div class="progress-item" v-if="resourceData.memory">
             <div class="progress-label">内存使用率</div>
             <div class="linear-progress-container">
-              <a-progress
-                  :percent="(resourceData.memory.used_percent / 100)"
+              <t-progress
+                  :percentage="resourceData.memory.used_percent"
                   :stroke-width="5"
-                  :show-text="false"
+                  :label="false"
                   :color="getProgressColor(resourceData.memory.used_percent)"
               />
               <div class="linear-progress-text">
-                <span class="percent-value">{{ resourceData.memory.used_percent.toFixed(2) }}%</span>
+                <span class="percent-value">{{ resourceData.memory.used_percent?.toFixed(2) }}%</span>
               </div>
             </div>
           </div>
@@ -53,14 +53,14 @@
 
         <template v-else-if="isMonitoring && resourceData?.error">
           <div class="info-item error-state">
-            <icon-exclamation-circle-fill :style="{fontSize: '20px', color: '#f53f3f'}"/>
+            <error-circle-filled-icon :style="{fontSize: '20px', color: '#f53f3f'}"/>
             <span class="error-text">{{ resourceData.error }}</span>
           </div>
         </template>
 
         <template v-else-if="isMonitoring">
           <div class="info-item loading-state">
-            <a-spin/>
+            <t-loading size="small"/>
             <span class="loading-text">正在获取资源信息...</span>
           </div>
         </template>
@@ -73,19 +73,19 @@
       </div>
     </template>
 
-    <a-badge :count="isMonitoring ? 0 : ''" dot :dot-style="{ width: '8px', height: '8px' }">
-      <a-button type="text" @click="handlePopoverClick">
+    <t-badge :count="isMonitoring ? 0 : ''" dot :dot-style="{ width: '8px', height: '8px' }">
+      <t-button variant="text" @click="handlePopoverClick">
         <template #icon>
-          <icon-dashboard :style="{ fontSize: '20px', color: getIconColor() }"/>
+          <dashboard-icon :style="{ fontSize: '20px', color: getIconColor() }"/>
         </template>
-      </a-button>
-    </a-badge>
-  </a-popover>
+      </t-button>
+    </t-badge>
+  </t-popup>
 </template>
 
 <script setup>
 import {ref, onMounted, onUnmounted} from 'vue'
-import {IconDashboard, IconExclamationCircleFill} from '@arco-design/web-vue/es/icon'
+import {DashboardIcon, ErrorCircleFilledIcon} from 'tdesign-icons-vue-next'
 import {API_BASE_URL} from '@/apis/api.js'
 
 const isMonitoring = ref(false)
@@ -352,7 +352,7 @@ const getIconColor = () => {
   gap: 12px;
 }
 
-.linear-progress-container :deep(.arco-progress) {
+.linear-progress-container :deep(.t-progress) {
   flex: 1;
 }
 

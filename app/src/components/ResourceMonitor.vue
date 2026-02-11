@@ -15,35 +15,35 @@
       <div class="progress-item progress-item-cpu" v-if="resourceData.process?.cpu_percent !== undefined">
         <div class="progress-label">CPU 使用率</div>
         <div class="progress-container">
-          <a-progress
-              type="circle"
-              :percent="resourceData.render.cpu_percent_normalized"
-              :width="80"
+          <t-progress
+              theme="circle"
+              :percentage="resourceData.render.cpu_percent_normalized * 100"
+              :size="80"
               :stroke-width="5"
               :color="resourceData.render.cpu_percent_color"
           >
-            <template #text="{ percent }">
+            <template #label>
               <div class="progress-text">
                 <div class="percent-value">{{ resourceData.render.cpu_percent_value }}%</div>
               </div>
             </template>
-          </a-progress>
+          </t-progress>
         </div>
         <div class="progress-container" v-if="resourceData.process?.cpu_total_percent">
-          <a-progress
-              type="circle"
-              :percent="resourceData.render.cpu_total_percent_normalized"
-              :width="80"
+          <t-progress
+              theme="circle"
+              :percentage="resourceData.render.cpu_total_percent_normalized * 100"
+              :size="80"
               :stroke-width="5"
               :color="resourceData.render.cpu_total_percent_color"
           >
-            <template #text="{ percent }">
+            <template #label>
               <div class="progress-text">
                 <div class="percent-value">{{ resourceData.render.cpu_total_percent_value }}%</div>
                 <div class="core-info" v-if="resourceData.cpu_cores">{{ resourceData.cpu_cores }}核</div>
               </div>
             </template>
-          </a-progress>
+          </t-progress>
         </div>
       </div>
 
@@ -59,10 +59,10 @@
       <div class="progress-item" v-if="resourceData.process?.memory_percent">
         <div class="progress-label">内存使用率</div>
         <div class="linear-progress-container">
-          <a-progress
-              :percent="resourceData.render.memory_percent_normalized"
+          <t-progress
+              :percentage="resourceData.render.memory_percent_normalized * 100"
               :stroke-width="5"
-              :show-text="false"
+              :label="false"
               :color="resourceData.render.memory_percent_color"
           />
           <div class="linear-progress-text">
@@ -73,13 +73,13 @@
     </template>
     <template v-else-if="isMonitoring && resourceData?.error">
       <div class="info-item error-state">
-        <icon-exclamation-circle-fill :style="{fontSize: '20px', color: '#f53f3f'}"/>
+        <error-circle-filled-icon :style="{fontSize: '20px', color: '#f53f3f'}"/>
         <span class="error-text">{{ resourceData.error }}</span>
       </div>
     </template>
     <template v-else-if="isMonitoring">
       <div class="info-item loading-state">
-        <a-spin/>
+        <t-loading size="small"/>
         <span class="loading-text">正在获取资源信息...</span>
       </div>
     </template>
@@ -93,7 +93,7 @@
 
 <script setup>
 import {ref, watch, onUnmounted, onMounted} from 'vue'
-import {IconExclamationCircleFill} from '@arco-design/web-vue/es/icon'
+import {ErrorCircleFilledIcon} from 'tdesign-icons-vue-next'
 import {serverStore, getInstanceStatus} from '@/store/serverStore.js'
 import {API_BASE_URL} from '@/apis/api.js'
 
@@ -409,7 +409,7 @@ defineExpose({
   gap: 12px;
 }
 
-.linear-progress-container :deep(.arco-progress) {
+.linear-progress-container :deep(.t-progress) {
   flex: 1;
 }
 

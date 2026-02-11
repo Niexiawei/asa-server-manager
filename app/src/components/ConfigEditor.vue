@@ -1,16 +1,15 @@
 <template>
-  <a-modal
+  <t-dialog
     :visible="visible"
-    :title="title"
-    @ok="handleSave"
-    @cancel="handleCancel"
+    :header="title"
+    @confirm="handleConfirm"
+    @close="handleCancel"
     :confirm-loading="saving"
     width="90%"
     :body-style="{ height: '70vh', padding: '0', overflow: 'hidden' }"
-    @before-ok="beforeOk"
   >
     <div ref="editorContainer" style="width: 100%; height: 100%"></div>
-  </a-modal>
+  </t-dialog>
 </template>
 
 <script setup>
@@ -109,6 +108,11 @@ const handleSave = () => {
 const handleCancel = () => {
   emit('update:visible', false)
   emit('cancel')
+}
+
+const handleConfirm = async () => {
+  await beforeOk()
+  handleSave()
 }
 
 onUnmounted(() => {

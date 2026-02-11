@@ -1,37 +1,37 @@
 <template>
   <div class="log-viewer">
-    <a-space style="margin-bottom: 15px">
-      <a-button
+    <t-space style="margin-bottom: 15px">
+      <t-button
           @click="startLogStream"
-          type="primary"
+          theme="primary"
           :disabled="isStreaming"
           ref="startButtonRef"
       >
         {{ isStreaming ? '监听中...' : '开始监听' }}
-      </a-button>
-      <a-button
+      </t-button>
+      <t-button
           @click="stopLogStream"
-          status="warning"
+          theme="warning"
           :disabled="!isStreaming"
           ref="stopButtonRef"
       >
         停止监听
-      </a-button>
-      <a-button
+      </t-button>
+      <t-button
           @click="clearLogs"
           :disabled="logs.length === 0"
       >
         清空日志
-      </a-button>
-      <a-divider direction="vertical"/>
-      <a-badge :color="isStreaming ? 'green' : 'gray'"
-               :text="isStreaming ? '监听中' : '已停止'"
+      </t-button>
+      <t-divider layout="vertical"/>
+      <t-badge :color="isStreaming ? 'green' : 'gray'"
+               :count="isStreaming ? '监听中' : '已停止'"
       />
       <span style="font-size: 16px">日志行数: {{ logs.length }}</span>
-    </a-space>
+    </t-space>
 
     <div class="log-container" ref="logContainerRef">
-      <a-list
+      <t-list
           ref="listRef"
           :data="logs"
           :virtualListProps="{
@@ -53,10 +53,10 @@
             marginTop: (height / 2 ) - 100 + 'px'
             }"
           >
-            <a-empty description="暂无日志"/>
+            <t-empty description="暂无日志"/>
           </div>
         </template>
-      </a-list>
+      </t-list>
     </div>
   </div>
 </template>
@@ -87,7 +87,7 @@ let resizeObserver = null
 const scrollToBottom = () => {
   nextTick(() => {
     if (listRef.value && listRef.value.$el) {
-      const virtualList = listRef.value.$el.querySelector('.arco-virtual-list')
+      const virtualList = listRef.value.$el.querySelector('.t-virtual-list')
       if (virtualList) {
         // 使用 setTimeout 确保 DOM 已完全渲染
         setTimeout(() => {
@@ -198,7 +198,7 @@ defineExpose({
   flex-direction: column;
   height: 100%;
 
-  :deep(.arco-badge-status-text) {
+  :deep(.t-badge__text) {
     font-size: 16px;
     color: var(--color-text-2);
   }
@@ -261,41 +261,41 @@ defineExpose({
 }
 
 /* 虚拟列表样式 */
-:deep(.arco-list) {
+:deep(.t-list) {
   background-color: transparent;
   border: none;
 }
 
-:deep(.arco-list-empty-text) {
+:deep(.t-list__empty) {
   color: #999;
 }
 
-:deep(.arco-virtual-list) {
+:deep(.t-virtual-list) {
   overflow-y: auto;
   background-color: #1a1a1a;
   padding: 0 !important;
 }
 
-:deep(.arco-virtual-list-holder-inner) {
+:deep(.t-virtual-list__content) {
   padding: 15px !important;
   box-sizing: border-box;
 }
 
 /* 滚动条样式 */
-:deep(.arco-virtual-list::-webkit-scrollbar) {
+:deep(.t-virtual-list::-webkit-scrollbar) {
   width: 8px;
 }
 
-:deep(.arco-virtual-list::-webkit-scrollbar-track) {
+:deep(.t-virtual-list::-webkit-scrollbar-track) {
   background: #2a2a2a;
 }
 
-:deep(.arco-virtual-list::-webkit-scrollbar-thumb) {
+:deep(.t-virtual-list::-webkit-scrollbar-thumb) {
   background: #555;
   border-radius: 4px;
 }
 
-:deep(.arco-virtual-list::-webkit-scrollbar-thumb:hover) {
+:deep(.t-virtual-list::-webkit-scrollbar-thumb:hover) {
   background: #777;
 }
 </style>

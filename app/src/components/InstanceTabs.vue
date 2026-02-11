@@ -10,7 +10,7 @@
       >
         <span class="tag-text">{{ `Server: ${tab.title}` }}</span>
         <span class="tag-close" @click.stop="handleDelete(tab.key)">
-          <icon-close-circle/>
+          <CloseCircleIcon/>
         </span>
       </div>
     </div>
@@ -21,6 +21,7 @@
 <script setup>
 import {onBeforeUnmount, onMounted, ref, watch} from 'vue'
 import {useRoute, useRouter} from 'vue-router'
+import {CloseCircleIcon} from "tdesign-icons-vue-next";
 
 // const tabs = defineModel('tabs', {
 //   default: () => {

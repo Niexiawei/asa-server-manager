@@ -1,80 +1,78 @@
 <template>
   <div class="main-body">
     <div class="_content">
-      <a-layout-header>
-        <div class="header-content">
-          <div class="icon">
-            <img class="img" src="/ASA_Logo_transparent.webp">
-            <!--            <div class="title-text">Ascended Server</div>-->
+      <div class="header-content">
+        <div class="icon">
+          <img class="img" src="/ASA_Logo_transparent.webp">
+        </div>
+        <div class="header-bottom">
+          <div class="menu-content">
+            <t-head-menu mode="horizontal" :value="currentRoute" @change="handleMenuClick">
+              <t-menu-item value="manager">
+                <span>服务器管理</span>
+              </t-menu-item>
+              <t-menu-item value="control">
+                <span>服务器控制</span>
+              </t-menu-item>
+              <t-menu-item value="frp-manager">
+                <span>FRP管理</span>
+              </t-menu-item>
+              <t-menu-item value="syncthing-manager">
+                <span>Syncthing管理</span>
+              </t-menu-item>
+              <t-menu-item value="system-logs">
+                <span>系统日志</span>
+              </t-menu-item>
+            </t-head-menu>
           </div>
-          <div class="header-bottom">
-            <div class="menu-content">
-              <a-menu mode="horizontal" :selected-keys="[currentRoute]"
-                      @menu-item-click="handleMenuClick">
-                <a-menu-item key="manager">
-                  <span>服务器管理</span>
-                </a-menu-item>
-                <a-menu-item key="control">
-                  <span>服务器控制</span>
-                </a-menu-item>
-                <a-menu-item key="frp-manager">
-                  <span>FRP管理</span>
-                </a-menu-item>
-                <a-menu-item key="syncthing-manager">
-                  <span>Syncthing管理</span>
-                </a-menu-item>
-                <a-menu-item key="system-logs">
-                  <span>系统日志</span>
-                </a-menu-item>
-              </a-menu>
-            </div>
-            <div class="header-middle">
-              <instance-tabs
-                  ref="InstanceTabRef"
-                  @close="handleTabClose"
-                  @change="handleTabChange"
-              />
-            </div>
-            <div class="header-tools">
-              <WSStatusIndicator/>
-              <ServerResourceMonitor/>
-              <WSEventNotification/>
-            </div>
+          <div class="header-middle">
+            <instance-tabs
+                ref="InstanceTabRef"
+                @close="handleTabClose"
+                @change="handleTabChange"
+            />
+          </div>
+          <div class="header-tools">
+            <WSStatusIndicator/>
+            <ServerResourceMonitor/>
+            <WSEventNotification/>
           </div>
         </div>
-      </a-layout-header>
-      <a-layout-content>
-        <div class="content-wrapper">
-          <router-view v-slot="{Component,route}">
-            <KeepAlive :include="[
-                'SystemLogs',
-                'ServerManager'
-            ]">
-              <component :is="Component"
-                         :key="route.name === 'InstanceDetail' ? route.fullPath : route.name">
-
-              </component>
-            </KeepAlive>
-          </router-view>
-        </div>
-      </a-layout-content>
+      </div>
+      <div class="content-wrapper"
+           ref="contentWrapperRef"
+      >
+        <router-view v-slot="{Component,route}">
+          <KeepAlive :include="[
+                  'SystemLogs',
+                  'ServerManager'
+              ]">
+            <component :is="Component"
+                       :key="route.name === 'InstanceDetail' ? route.fullPath : route.name">
+            </component>
+          </KeepAlive>
+        </router-view>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import {ref, watch, computed, provide} from 'vue';
+import {ref, watch, computed, provide, useTemplateRef} from 'vue';
 import {useRouter, useRoute} from "vue-router";
 import WSEventNotification from '@/components/WSEventNotification.vue';
 import ServerResourceMonitor from '@/components/ServerResourceMonitor.vue';
 import WSStatusIndicator from '@/components/WSStatusIndicator.vue';
 import InstanceTabs from '@/components/InstanceTabs.vue';
-import "@/app.less"
+import {useElementSize} from "@vueuse/core";
 
 const router = useRouter()
 const route = useRoute()
 const InstanceTabRef = ref()
 const currentRoute = ref('manager');
+const el = useTemplateRef('contentWrapperRef')
+const {width, height} = useElementSize(el)
+
 
 const addTab = (title, path, name, params) => {
   InstanceTabRef.value.addTab(title, path, name, params);
@@ -98,9 +96,9 @@ watch(() => route.path, (newPath) => {
   }
 }, {immediate: true});
 
-const handleMenuClick = (key) => {
-  currentRoute.value = key;
-  switch (key) {
+const handleMenuClick = (value) => {
+  currentRoute.value = value;
+  switch (value) {
     case "manager":
       router.push({
         path: '/'
@@ -173,7 +171,7 @@ const handleTabChange = (tab) => {
     display: flex;
     flex-direction: column;
 
-    .arco-layout-content {
+    .t-layout__content {
       height: calc(100% - 128px);
     }
   }
@@ -185,6 +183,7 @@ const handleTabChange = (tab) => {
   height: 58px;
   width: 100%;
   flex: 0 0 auto;
+  background: #fff;
 
   .icon {
     padding: 4px;
@@ -212,7 +211,7 @@ const handleTabChange = (tab) => {
     min-width: 0; /* 关键：允许收缩，禁止 min-content 阻止收缩 */
     gap: 16px;
 
-    :deep(.arco-menu-inner) {
+    :deep(.t-menu__inner) {
       padding: 14px 6px;
     }
 
@@ -243,12 +242,12 @@ const handleTabChange = (tab) => {
   margin: 0 auto;
   padding: 10px;
   width: 100%;
-  height: 100%;
+  height: calc(100% - 58px);
   box-sizing: border-box;
   background-color: #eeeeee;
 }
 
-.arco-layout-header {
+.t-layout__header {
   width: 100%;
   position: relative;
 }

@@ -1,87 +1,87 @@
 <template>
   <!-- 配置同步 -->
-  <a-card title="配置同步" :bordered="false" class="section-card">
-    <a-form :model="syncForm" layout="vertical">
-      <a-row :gutter="20">
-        <a-col :span="12">
-          <a-form-item field="sourceInstance" label="源实例">
-            <a-select 
+  <t-card title="配置同步" :bordered="false" class="section-card">
+    <t-form :data="syncForm" layout="vertical">
+      <t-row :gutter="20">
+        <t-col :span="12">
+          <t-form-item name="sourceInstance" label="源实例">
+            <t-select 
               v-model="syncForm.sourceInstance" 
               placeholder="请选择源实例"
               @change="onSourceInstanceChange"
             >
-              <a-option value="">请选择源实例</a-option>
-              <a-option 
+              <t-option value="">请选择源实例</t-option>
+              <t-option 
                 v-for="instance in instances" 
                 :key="instance.name" 
                 :value="instance.name"
               >
                 {{ instance.name }} {{ instance.running ? '(运行中)' : '(已停止)' }}
-              </a-option>
-            </a-select>
-          </a-form-item>
-        </a-col>
+              </t-option>
+            </t-select>
+          </t-form-item>
+        </t-col>
         
-        <a-col :span="12">
-          <a-form-item label="目标实例">
-            <a-select 
+        <t-col :span="12">
+          <t-form-item label="目标实例">
+            <t-select 
               v-model="syncForm.targetInstances" 
               placeholder="请选择目标实例（可多选）"
               multiple
             >
-              <a-option 
+              <t-option 
                 v-for="instance in targetInstanceOptions" 
                 :key="instance.name" 
                 :value="instance.name"
               >
                 {{ instance.name }} {{ instance.running ? '(运行中)' : '(已停止)' }}
-              </a-option>
-            </a-select>
-          </a-form-item>
-        </a-col>
-      </a-row>
+              </t-option>
+            </t-select>
+          </t-form-item>
+        </t-col>
+      </t-row>
 
       <!-- 同步选项 -->
-      <a-row v-if="syncForm.sourceInstance" :gutter="20">
-        <a-col :span="24">
+      <t-row v-if="syncForm.sourceInstance" :gutter="20">
+        <t-col :span="24">
           <div class="sync-options-section">
             <div class="sync-options-title">同步选项：</div>
-            <a-checkbox v-model="syncForm.syncCustomStartParameters" class="option-item">
+            <t-checkbox v-model="syncForm.syncCustomStartParameters" class="option-item">
               同步自定义启动参数 (CustomStartParameters)
-            </a-checkbox>
-            <a-checkbox v-model="syncForm.syncEnableAsaPlugin" class="option-item">
+            </t-checkbox>
+            <t-checkbox v-model="syncForm.syncEnableAsaPlugin" class="option-item">
               同步启用ASA插件 (EnableAsaPlugin)
-            </a-checkbox>
+            </t-checkbox>
           </div>
-        </a-col>
-      </a-row>
+        </t-col>
+      </t-row>
       
-      <a-form-item>
-        <a-button 
+      <t-form-item>
+        <t-button 
           @click="handleSyncConfig" 
-          type="primary"
+          theme="primary"
           :loading="syncing"
           :disabled="!syncForm.sourceInstance || syncForm.targetInstances.length === 0"
         >
           {{ syncing ? '同步中...' : '开始同步' }}
-        </a-button>
-      </a-form-item>
-    </a-form>
+        </t-button>
+      </t-form-item>
+    </t-form>
 
     <!-- 同步结果 -->
     <div v-if="syncResult" class="sync-result">
-      <a-alert 
-        :type="syncResult.success ? 'success' : 'warning'"
-        :title="syncResult.message"
-        closable
+      <t-alert 
+        :theme="syncResult.success ? 'success' : 'warning'"
+        :message="syncResult.message"
+        close
         @close="syncResult = null"
       >
         <div v-if="syncResult.data">
           <div v-if="syncResult.data.synced_instances">
             <p><strong>成功同步的实例：</strong></p>
-            <a-tag v-for="instance in syncResult.data.synced_instances" :key="instance" color="green" class="tag-item">
+            <t-tag v-for="instance in syncResult.data.synced_instances" :key="instance" theme="success" class="tag-item">
               {{ instance }}
-            </a-tag>
+            </t-tag>
           </div>
           <div v-if="syncResult.data.failed_instances && syncResult.data.failed_instances.length > 0">
             <p><strong style="color: red;">失败的实例：</strong></p>
@@ -90,15 +90,15 @@
             </div>
           </div>
         </div>
-      </a-alert>
+      </t-alert>
     </div>
-  </a-card>
+  </t-card>
 </template>
 
 <script setup>
 import { ref, reactive, computed } from 'vue'
 import { syncInstanceConfig } from '@/apis/api.js'
-import { Message, Modal } from '@arco-design/web-vue'
+import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next'
 
 const props = defineProps({
   instances: {
@@ -130,16 +130,16 @@ const onSourceInstanceChange = () => {
 // 同步配置
 const handleSyncConfig = async () => {
   if (!syncForm.sourceInstance || syncForm.targetInstances.length === 0) {
-    Message.warning('请选择源实例和目标实例')
+    MessagePlugin.warning('请选择源实例和目标实例')
     return
   }
 
-  Modal.confirm({
-    title: '确认',
-    content: `确定要将 "${syncForm.sourceInstance}" 的配置同步到 ${syncForm.targetInstances.length} 个目标实例吗？`,
-    okText: '确定',
-    cancelText: '取消',
-    onOk: async () => {
+  DialogPlugin.confirm({
+    header: '确认',
+    body: `确定要将 "${syncForm.sourceInstance}" 的配置同步到 ${syncForm.targetInstances.length} 个目标实例吗？`,
+    confirmBtn: '确定',
+    cancelBtn: '取消',
+    onConfirm: async () => {
       await executeSyncConfig()
     }
   })
@@ -158,7 +158,7 @@ const executeSyncConfig = async () => {
     )
 
     if (data.success) {
-      Message.success('配置同步成功')
+      MessagePlugin.success('配置同步成功')
       syncResult.value = {
         success: true,
         message: data.message,
@@ -175,7 +175,7 @@ const executeSyncConfig = async () => {
         message: data.message || '配置同步失败',
         data: data.data
       }
-      Message.error(data.message || '配置同步失败')
+      MessagePlugin.error(data.message || '配置同步失败')
     }
   } catch (error) {
     console.error('配置同步失败:', error)
@@ -184,7 +184,7 @@ const executeSyncConfig = async () => {
       message: `配置同步失败: ${error.message}`,
       data: null
     }
-    Message.error(`配置同步失败: ${error.message}`)
+    MessagePlugin.error(`配置同步失败: ${error.message}`)
   } finally {
     syncing.value = false
   }

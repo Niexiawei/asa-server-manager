@@ -1,16 +1,12 @@
 <template>
-  <a-modal
-      :visible="visible"
-      :title="`配置同步 - 源实例: ${selectedSourceInstance}`"
+  <t-dialog
+      v-model:visible="visible"
+      :header="`配置同步 - 源实例: ${selectedSourceInstance}`"
       width="800px"
-      :ok-loading="syncing"
-      :ok-button-props="{
-        disabled: selectedTargetInstances.length === 0 || syncing
-      }"
-      ok-text="开始同步"
-      cancel-text="取消"
-      @ok="handleSyncConfig"
-      @cancel="() => {
+      :confirm-btn="{ content: '开始同步', disabled: selectedTargetInstances.length === 0 || syncing, loading: syncing }"
+      :cancel-btn="'取消'"
+      @confirm="handleSyncConfig"
+      @close="() => {
         selectedTargetInstances = []
         syncLogs = []
         syncCustomStartParameters = true
@@ -18,7 +14,7 @@
         visible = false
       }"
   >
-    <a-space direction="vertical" fill style="width: 100%">
+    <t-space direction="vertical" style="width: 100%">
       <!-- 源实例信息 -->
       <div class="sync-section">
         <div class="section-title">源实例</div>
@@ -31,12 +27,12 @@
       <div class="sync-section">
         <div class="section-title">同步选项</div>
         <div class="sync-options">
-          <a-checkbox v-model="syncCustomStartParameters" class="option-item">
+          <t-checkbox v-model="syncCustomStartParameters" class="option-item">
             同步自定义启动参数 (CustomStartParameters)
-          </a-checkbox>
-          <a-checkbox v-model="syncEnableAsaPlugin" class="option-item">
+          </t-checkbox>
+          <t-checkbox v-model="syncEnableAsaPlugin" class="option-item">
             同步启用ASA插件 (EnableAsaPlugin)
-          </a-checkbox>
+          </t-checkbox>
         </div>
       </div>
 
@@ -52,16 +48,16 @@
               @click="toggleTargetInstance(instance.name)"
           >
             <div class="instance-select-checkbox">
-              <a-checkbox :model-value="selectedTargetInstances.includes(instance.name)"/>
+              <t-checkbox :model-value="selectedTargetInstances.includes(instance.name)"/>
             </div>
             <div class="instance-select-info">
               <div class="instance-select-name">{{ instance.name }}</div>
               <div class="instance-select-status">
-                <a-tag
-                    :color="instance.running ? 'green' : 'gray'"
+                <t-tag
+                    :theme="instance.running ? 'success' : 'default'"
                 >
                   {{ instance.running ? '运行中' : '已停止' }}
-                </a-tag>
+                </t-tag>
               </div>
             </div>
           </div>
@@ -76,13 +72,13 @@
             {{ log }}
           </div>
           <div v-if="syncing" class="log-line syncing">
-            <a-spin size="small"/>
+            <t-loading size="small"/>
             同步中...
           </div>
         </div>
       </div>
-    </a-space>
-  </a-modal>
+    </t-space>
+  </t-dialog>
 </template>
 
 <script setup>

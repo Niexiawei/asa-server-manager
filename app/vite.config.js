@@ -41,8 +41,8 @@ export default defineConfig({
                         return 'axios'
                     }
 
-                    if (id.includes('arco-design')) {
-                        return 'arco-design'
+                    if (id.includes('tdesign')) {
+                        return 'tdesign'
                     }
 
                     // 4️⃣ 其他第三方

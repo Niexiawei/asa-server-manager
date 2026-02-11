@@ -1,12 +1,12 @@
 <template>
-  <a-modal
+  <t-dialog
       v-model:visible="modalVisible"
-      :title="diffType === 'game-ini' ? 'Game.ini 对比' : 'GameUserSettings.ini 对比'"
+      :header="diffType === 'game-ini' ? 'Game.ini 对比' : 'GameUserSettings.ini 对比'"
       :width="1600"
-      :height="900"
-      :mask="true"
-      unmountOnClose
-      :footer="editable"
+      :body-style="{ height: '900px' }"
+      :modal="true"
+      destroy-on-close
+      :footer="false"
       class="diff-modal"
   >
     <div class="diff-modal-wrapper">
@@ -16,19 +16,19 @@
           <div class="toolbar-label">右侧：实例配置</div>
         </div>
       </div>
-      <a-spin :loading="dataLoading" class="diff-editor-spinner">
+      <t-loading :loading="dataLoading" class="diff-editor-spinner">
         <div class="editor-wrapper">
           <div ref="diffEditorContainer" class="diff-editor-container"></div>
         </div>
-      </a-spin>
+      </t-loading>
     </div>
-    <template #footer>
+    <template #footer v-if="editable">
       <div class="editor-toolbar">
-        <a-button type="primary" @click="saveModifiedContent" :loading="savingLoading">保存修改</a-button>
-        <a-button @click="resetModifiedContent" style="margin-left: 8px">放弃修改</a-button>
+        <t-button theme="primary" @click="saveModifiedContent" :loading="savingLoading">保存修改</t-button>
+        <t-button @click="resetModifiedContent" style="margin-left: 8px">放弃修改</t-button>
       </div>
     </template>
-  </a-modal>
+  </t-dialog>
 </template>
 
 <script setup>
@@ -237,13 +237,13 @@ onUnmounted(() => {
 <style scoped>
 /* Diff Modal 调整 */
 .diff-modal {
-  :deep(.arco-modal-body) {
+  :deep(.t-dialog__body) {
     padding: 0;
     height: calc(100vh - 150px);
     overflow: hidden;
   }
 
-  :deep(.arco-modal-header) {
+  :deep(.t-dialog__header) {
     padding: 20px;
     border-bottom: 1px solid #dfe1e6;
   }
@@ -264,7 +264,7 @@ onUnmounted(() => {
   height: 100%;
   overflow: hidden;
 
-  :deep(.arco-spin-content) {
+  :deep(.t-loading__content) {
     width: 100%;
     height: 100%;
     display: flex;

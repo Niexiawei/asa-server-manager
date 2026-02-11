@@ -1,6 +1,6 @@
 <template>
   <div class="server-control">
-    <a-card title="服务器控制面板" :bordered="false" class="main-card">
+    <t-card title="服务器控制面板" :bordered="false" class="main-card layout-card">
       <div class="server-control-body scrollbar">
         <GlobalServerControl
             :instances="instances"
@@ -19,14 +19,14 @@
             :instances="instances"
         />
       </div>
-    </a-card>
+    </t-card>
   </div>
 </template>
 
 <script setup>
 import {ref, onMounted} from 'vue'
 import {listInstances} from '@/apis/api.js'
-import {Message} from '@arco-design/web-vue'
+import {MessagePlugin} from 'tdesign-vue-next'
 import GlobalServerControl from '@/views/ServerController/components/GlobalServerControl.vue'
 import BackupManagement from '@/views/ServerController/components/BackupManagement.vue'
 import RconCommand from '@/views/ServerController/components/RconCommand.vue'
@@ -44,11 +44,11 @@ const fetchInstances = async () => {
       instances.value = data.data.instances
     } else {
       console.error('获取实例列表失败:', data.error)
-      Message.error('获取实例列表失败: ' + (data.error || '未知错误'))
+      MessagePlugin.error('获取实例列表失败: ' + (data.error || '未知错误'))
     }
   } catch (error) {
     console.error('获取实例列表失败:', error)
-    Message.error('获取实例列表失败: ' + error.message)
+    MessagePlugin.error('获取实例列表失败: ' + error.message)
   }
 }
 
@@ -73,7 +73,7 @@ onMounted(() => {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   overflow: hidden;
 
-  :deep(.arco-card-body) {
+  :deep(.t-card__body) {
     height: calc(100% - 46px);
     padding: 16px 8px 16px 16px;
     box-sizing: border-box;

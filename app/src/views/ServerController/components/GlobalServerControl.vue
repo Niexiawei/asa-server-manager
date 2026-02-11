@@ -1,22 +1,22 @@
 <template>
   <!-- 服务器控制 -->
-  <a-card title="全局服务器控制" :bordered="false">
-    <a-space>
-      <a-button @click="startAllServersHandler" type="primary">启动所有服务器</a-button>
-      <a-button @click="stopAllServersHandler" status="warning">停止所有服务器</a-button>
-      <a-button @click="restartAllServersHandler" status="success">重启所有服务器</a-button>
-      <a-button @click="updateServerHandler" status="normal">更新服务器</a-button>
-    </a-space>
-  </a-card>
+  <t-card title="全局服务器控制" :bordered="false">
+    <t-space>
+      <t-button @click="startAllServersHandler" theme="primary">启动所有服务器</t-button>
+      <t-button @click="stopAllServersHandler" theme="warning">停止所有服务器</t-button>
+      <t-button @click="restartAllServersHandler" theme="success">重启所有服务器</t-button>
+      <t-button @click="updateServerHandler" theme="default">更新服务器</t-button>
+    </t-space>
+  </t-card>
 
   <!-- 启动所有服务器日志 -->
-  <a-modal
+  <t-dialog
       v-model:visible="startModalVisible"
-      :title="startingServers ? '启动中...':'启动所有服务器'"
+      :header="startingServers ? '启动中...':'启动所有服务器'"
       :width="800"
       :footer="false"
-      :mask-closable="!startingServers"
-      :closable="!startingServers"
+      :close-on-overlay-click="!startingServers"
+      :close-btn="!startingServers"
   >
     <div class="update-log-container">
       <div id="startLogContainer" class="update-log">
@@ -29,16 +29,16 @@
         </div>
       </div>
     </div>
-  </a-modal>
+  </t-dialog>
 
   <!-- 停止所有服务器日志 -->
-  <a-modal
+  <t-dialog
       v-model:visible="stopModalVisible"
-      :title="stoppingServers ? '停止中...':'停止所有服务器'"
+      :header="stoppingServers ? '停止中...':'停止所有服务器'"
       :width="800"
       :footer="false"
-      :mask-closable="!stoppingServers"
-      :closable="!stoppingServers"
+      :close-on-overlay-click="!stoppingServers"
+      :close-btn="!stoppingServers"
   >
     <div class="update-log-container">
       <div id="stopLogContainer" class="update-log">
@@ -51,16 +51,16 @@
         </div>
       </div>
     </div>
-  </a-modal>
+  </t-dialog>
 
   <!-- 重启所有服务器日志 -->
-  <a-modal
+  <t-dialog
       v-model:visible="restartModalVisible"
-      :title="restartingServers ? '重启中...':'重启所有服务器'"
+      :header="restartingServers ? '重启中...':'重启所有服务器'"
       :width="800"
       :footer="false"
-      :mask-closable="!restartingServers"
-      :closable="!restartingServers"
+      :close-on-overlay-click="!restartingServers"
+      :close-btn="!restartingServers"
   >
     <div class="update-log-container">
       <div id="restartLogContainer" class="update-log">
@@ -73,16 +73,16 @@
         </div>
       </div>
     </div>
-  </a-modal>
+  </t-dialog>
 
   <!-- 服务器更新日志 -->
-  <a-modal
+  <t-dialog
       v-model:visible="updateModalVisible"
-      :title="updating ? '服务器更新中...':'服务器更新'"
+      :header="updating ? '服务器更新中...':'服务器更新'"
       :width="800"
       :footer="false"
-      :mask-closable="!updating"
-      :closable="!updating"
+      :close-on-overlay-click="!updating"
+      :close-btn="!updating"
   >
     <div class="update-log-container">
       <div id="updateLogContainer" class="update-log">
@@ -95,7 +95,7 @@
         </div>
       </div>
     </div>
-  </a-modal>
+  </t-dialog>
 </template>
 
 <script setup>
@@ -107,7 +107,7 @@ import {
   updateServer,
   listInstances
 } from '@/apis/api.js'
-import {Message, Modal} from '@arco-design/web-vue'
+import {MessagePlugin, DialogPlugin} from 'tdesign-vue-next'
 
 const props = defineProps({
   instances: {
@@ -142,12 +142,12 @@ const updateModalName = ref("")
 
 // 启动所有服务器
 const startAllServersHandler = async () => {
-  Modal.confirm({
-    title: '确认',
-    content: '确定要启动所有服务器吗？',
-    okText: '确定',
-    cancelText: '取消',
-    onOk: async () => {
+  DialogPlugin.confirm({
+    header: '确认',
+    body: '确定要启动所有服务器吗？',
+    confirmBtn: '确定',
+    cancelBtn: '取消',
+    onConfirm: async () => {
       startModalVisible.value = true
       startingServers.value = true
       startLogs.value = []
@@ -171,7 +171,7 @@ const startAllServersHandler = async () => {
           () => {
             startingServers.value = false
             startLogs.value.push('\n业务处理完成')
-            Message.success('所有服务器已启动')
+            MessagePlugin.success('所有服务器已启动')
             emits('refresh')
           }
       )
@@ -181,12 +181,12 @@ const startAllServersHandler = async () => {
 
 // 停止所有服务器
 const stopAllServersHandler = async () => {
-  Modal.confirm({
-    title: '确认',
-    content: '确定要停止所有服务器吗？',
-    okText: '确定',
-    cancelText: '取消',
-    onOk: async () => {
+  DialogPlugin.confirm({
+    header: '确认',
+    body: '确定要停止所有服务器吗？',
+    confirmBtn: '确定',
+    cancelBtn: '取消',
+    onConfirm: async () => {
       stopModalVisible.value = true
       stoppingServers.value = true
       stopLogs.value = []
@@ -210,7 +210,7 @@ const stopAllServersHandler = async () => {
           () => {
             stoppingServers.value = false
             stopLogs.value.push('\n业务处理完成')
-            Message.success('所有服务器已停止')
+            MessagePlugin.success('所有服务器已停止')
             emits('refresh')
           }
       )
@@ -220,12 +220,12 @@ const stopAllServersHandler = async () => {
 
 // 重启所有服务器
 const restartAllServersHandler = async () => {
-  Modal.confirm({
-    title: '确认',
-    content: '确定要重启所有服务器吗？',
-    okText: '确定',
-    cancelText: '取消',
-    onOk: async () => {
+  DialogPlugin.confirm({
+    header: '确认',
+    body: '确定要重启所有服务器吗？',
+    confirmBtn: '确定',
+    cancelBtn: '取消',
+    onConfirm: async () => {
       restartModalVisible.value = true
       restartingServers.value = true
       restartLogs.value = []
@@ -249,7 +249,7 @@ const restartAllServersHandler = async () => {
           () => {
             restartingServers.value = false
             restartLogs.value.push('\n业务处理完成')
-            Message.success('所有服务器已重启')
+            MessagePlugin.success('所有服务器已重启')
             emits('refresh')
           }
       )
@@ -266,12 +266,12 @@ const updateServerHandler = async () => {
     const runningInstances = instances?.filter(i => i.running) || []
 
     if (runningInstances.length > 0) {
-      Modal.confirm({
-        title: '无法更新',
-        content: `程序检测到以下实例正在运行：${runningInstances.map(i => i.name).join('、')}。\n\n请先关闭所有实例后再试`,
-        okText: '关闭',
-        cancelText: '取消',
-        onOk: async () => {
+      DialogPlugin.confirm({
+        header: '无法更新',
+        body: `程序检测到以下实例正在运行：${runningInstances.map(i => i.name).join('、')}。\n\n请先关闭所有实例后再试`,
+        confirmBtn: '关闭',
+        cancelBtn: '取消',
+        onConfirm: async () => {
           // 打开日志面板展示停止过程
           updateModalVisible.value = true
           updating.value = true
@@ -304,16 +304,16 @@ const updateServerHandler = async () => {
     }
   } catch (error) {
     console.error('获取服务器状态失败:', error)
-    Message.error('获取服务器状态失败，请重试')
+    MessagePlugin.error('获取服务器状态失败，请重试')
     return
   }
 
-  Modal.confirm({
-    title: '确认',
-    content: '确定要更新服务器吗？这可能需要一些时间。',
-    okText: '确定',
-    cancelText: '取消',
-    onOk: async () => {
+  DialogPlugin.confirm({
+    header: '确认',
+    body: '确定要更新服务器吗？这可能需要一些时间。',
+    confirmBtn: '确定',
+    cancelBtn: '取消',
+    onConfirm: async () => {
       updateModalVisible.value = true
       updating.value = true
       updateLogs.value = []
@@ -341,7 +341,7 @@ const updateServerHandler = async () => {
             // onComplete callback
             updating.value = false
             updateLogs.value.push('\n更新完成')
-            Message.success('服务器更新成功')
+            MessagePlugin.success('服务器更新成功')
             emits('refresh')
           }
       )

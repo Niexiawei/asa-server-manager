@@ -1,167 +1,169 @@
 <template>
   <div class="server-manager">
     <!-- 实例列表 -->
-    <a-card :bordered="false" class="main-card">
-      <template #extra>
-        <a-button type="primary" @click="showCreateModal = true">新建实例</a-button>
+    <t-card :bordered="false" class="main-card layout-card" :loading="loading"
+            title="实例列表"
+    >
+      <template #actions>
+        <t-button theme="primary" @click="showCreateModal = true">新建实例</t-button>
       </template>
-      <a-spin :loading="loading" style="width: 100%;height: 100%">
-        <a-empty v-if="instances.length === 0" description="暂无实例，请创建新实例"/>
-        <div v-else class="instance-list scrollbar">
-          <masonry-wall
-              :items="instances"
-              :ssr-columns="2"
-              :column-width="800"
-              :gap="10"
-          >
-            <template #default="{ item: instance }">
-              <a-card
-                  class="instance-item"
-                  :bordered="true"
-                  :class="'instance-card'"
-                  :title="renderInstanceTitle(instance)"
-              >
-                <template #extra>
-                  <a-link @click="viewInstanceDetail(instance.name)">查看详情</a-link>
-                </template>
-                <a-card-meta>
-                  <template #description>
-                    <!-- 左右布局：服务器配置参数 | 资源占用 -->
-                    <div class="instance-content">
-                      <!-- 左侧：服务器配置参数 -->
-                      <div class="instance-info">
-                        <div class="section-title">服务器配置</div>
-                        <div class="info-item" v-if="instance.config?.ServerName">
-                          <span class="label">服务器名称:</span>
-                          <span class="value">{{ instance.config.ServerName }}</span>
-                        </div>
-                        <div class="info-item">
-                          <span class="label">状态:</span>
-                          <a-tag :color="instance.running ? 'green' : 'gray'">{{
-                              instance.running ? '运行中' : '已停止'
-                            }}
-                          </a-tag>
-                        </div>
-                        <div class="info-item" v-if="instance.config?.MapName">
-                          <span class="label">地图:</span>
-                          <span class="value">{{ instance.config.MapName }}</span>
-                        </div>
-                        <div class="info-item" v-if="instance.config?.Port">
-                          <span class="label">端口:</span>
-                          <span class="value">{{ instance.config.Port }}</span>
-                        </div>
-                        <div class="info-item" v-if="instance.config?.RCONPort">
-                          <span class="label">RCON端口:</span>
-                          <span class="value">{{ instance.config.RCONPort }}</span>
-                        </div>
-                        <div class="info-item" v-if="instance.config?.QueryPort">
-                          <span class="label">查询端口:</span>
-                          <span class="value">{{ instance.config.QueryPort }}</span>
-                        </div>
-                        <div class="info-item info-item-custom info-item-modid">
-                          <span class="label">Mod:</span>
-                          <span class="value">
-                            <template v-if="instance.config?.ModIDs">
-                              <div class="mod-container">
-                                <template v-for="(modId, index) in instance.config.ModIDs.split(',')" :key="modId">
-                                  <a-tag
-                                      class="mod-tag"
-                                      v-if="modId.trim()"
-                                      color="arcoblue"
-                                      @click="copyModId(modId.trim())"
-                                      style="cursor: pointer; display: flex; align-items: center; gap: 4px;"
-                                  >
-                                    {{ getModNameById(modId.trim()) || modId.trim() }}
-                                    <icon-copy :style="{fontSize: '12px'}"/>
-                                  </a-tag>
-                                </template>
-                              </div>
-                              <a-button
-                                  type="text"
-                                  size="mini"
-                                  @click="copyAllModIds(instance.config.ModIDs)"
-                                  class="copy-all-btn"
+      <t-empty v-if="instances.length === 0" description="暂无实例，请创建新实例"/>
+      <div v-else class="instance-list">
+        <masonry-wall
+            :items="instances"
+            :ssr-columns="2"
+            :column-width="800"
+            :gap="10"
+        >
+          <template #default="{ item: instance }">
+            <t-card
+                class="instance-item"
+                :bordered="true"
+                :class="'instance-card'"
+                :title="renderInstanceTitle(instance)"
+                hoverShadow
+            >
+              <template #actions>
+                <t-link theme="primary" @click="viewInstanceDetail(instance.name)">查看详情</t-link>
+              </template>
+              <!-- 左右布局：服务器配置参数 | 资源占用 -->
+              <div class="instance-content">
+                <!-- 左侧：服务器配置参数 -->
+                <div class="instance-info">
+                  <div class="section-title">服务器配置</div>
+                  <div class="info-item" v-if="instance.config?.ServerName">
+                    <span class="label">服务器名称:</span>
+                    <span class="value">{{ instance.config.ServerName }}</span>
+                  </div>
+                  <div class="info-item">
+                    <span class="label">状态:</span>
+                    <t-tag :theme="instance.running ? 'success' : 'default'">{{
+                        instance.running ? '运行中' : '已停止'
+                      }}
+                    </t-tag>
+                  </div>
+                  <div class="info-item" v-if="instance.config?.MapName">
+                    <span class="label">地图:</span>
+                    <span class="value">{{ instance.config.MapName }}</span>
+                  </div>
+                  <div class="info-item" v-if="instance.config?.Port">
+                    <span class="label">端口:</span>
+                    <span class="value">{{ instance.config.Port }}</span>
+                  </div>
+                  <div class="info-item" v-if="instance.config?.RCONPort">
+                    <span class="label">RCON端口:</span>
+                    <span class="value">{{ instance.config.RCONPort }}</span>
+                  </div>
+                  <div class="info-item" v-if="instance.config?.QueryPort">
+                    <span class="label">查询端口:</span>
+                    <span class="value">{{ instance.config.QueryPort }}</span>
+                  </div>
+                  <div class="info-item info-item-custom info-item-modid">
+                    <span class="label">Mod:</span>
+                    <span class="value">
+                        <template v-if="instance.config?.ModIDs">
+                          <div class="mod-container">
+                            <template v-for="(modId, index) in instance.config.ModIDs.split(',')" :key="modId">
+                              <t-tag
+                                  class="mod-tag"
+                                  v-if="modId.trim()"
+                                  theme="primary"
+                                  @click="copyModId(modId.trim())"
+                                  style="cursor: pointer; display: flex; align-items: center; gap: 4px;"
                               >
-                                <icon-copy/> 复制全部
-                              </a-button>
+                                {{ getModNameById(modId.trim()) || modId.trim() }}
+                                <file-copy-icon :style="{fontSize: '12px'}"/>
+                              </t-tag>
                             </template>
-                            <template v-else>
-                              -
-                            </template>
-                          </span>
-                        </div>
-                        <div class="info-item info-item-custom" v-if="instance.config?.CustomStartParameters">
-                          <span class="label">自定义参数:</span>
-                          <span class="value">{{ instance.config.CustomStartParameters }}</span>
-                        </div>
-                      </div>
+                          </div>
+                          <t-button
+                              variant="text"
+                              size="small"
+                              @click="copyAllModIds(instance.config.ModIDs)"
+                              class="copy-all-btn"
+                          >
+                            <file-copy-icon/> 复制全部
+                          </t-button>
+                        </template>
+                        <template v-else>
+                          -
+                        </template>
+                      </span>
+                  </div>
+                  <div class="info-item info-item-custom" v-if="instance.config?.CustomStartParameters">
+                    <span class="label">自定义参数:</span>
+                    <span class="value">{{ instance.config.CustomStartParameters }}</span>
+                  </div>
+                </div>
 
-                      <!-- 右侧：资源占用 -->
-                      <resource-monitor
-                          class="resource-info"
-                          :instance-name="instance.name"
-                      />
-                    </div>
-                  </template>
-                </a-card-meta>
-                <template #actions>
-                  <a-button
+                <!-- 右侧：资源占用 -->
+                <resource-monitor
+                    class="resource-info"
+                    :instance-name="instance.name"
+                />
+              </div>
+              <template #footer>
+                <div class="server-footer">
+                  <t-button
                       @click="startInstance(instance.name)"
                       :disabled="instance.running || instanceLoadingMap.get(instance.name)"
                       :loading="instanceLoadingMap.get(instance.name)"
-                      type="primary"
-                      size="small"
+                      theme="primary"
                   >
                     启动
-                  </a-button>
-                  <a-button
+                  </t-button>
+                  <t-button
                       @click="stopInstance(instance.name)"
                       :disabled="!instance.running"
                       :loading="operationLoadingMap.get(`${instance.name}-stop`)"
-                      status="warning"
-                      size="small"
-                  >
+                      theme="warning">
                     停止
-                  </a-button>
-                  <a-dropdown-button
+                  </t-button>
+                  <t-button
+                      theme="primary"
                       @click="viewInstanceLogs(instance.name)"
-                      type="primary"
-                      size="small"
                   >
                     查看日志
-                    <template #content>
-                      <a-doption @click="restartInstance(instance.name)"
-                                 :disabled="!instance.running || operationLoadingMap.get(`${instance.name}-restart`)">
-                        <span v-if="operationLoadingMap.get(`${instance.name}-restart`)">
-                          <icon-loading spin/> 重启中...
-                        </span>
+                  </t-button>
+                  <t-dropdown trigger="hover">
+                    <t-button shape="circle">
+                      <template #icon>
+                        <MoreIcon/>
+                      </template>
+                    </t-button>
+                    <t-dropdown-menu>
+                      <t-dropdown-item @click="restartInstance(instance.name)"
+                                       :disabled="!instance.running || operationLoadingMap.get(`${instance.name}-restart`)">
+                          <span v-if="operationLoadingMap.get(`${instance.name}-restart`)">
+                            <loading-icon/> 重启中...
+                          </span>
                         <span v-else>重启</span>
-                      </a-doption>
-                      <a-doption @click="deleteInstanceHandler(instance.name)" :disabled="instance.running">
+                      </t-dropdown-item>
+                      <t-dropdown-item @click="deleteInstanceHandler(instance.name)" :disabled="instance.running">
                         删除
-                      </a-doption>
-                      <a-doption @click="openSyncModal(instance.name)">
+                      </t-dropdown-item>
+                      <t-dropdown-item @click="openSyncModal(instance.name)">
                         同步配置
-                      </a-doption>
-                    </template>
-                  </a-dropdown-button>
-                </template>
-              </a-card>
-            </template>
-          </masonry-wall>
-        </div>
-      </a-spin>
-    </a-card>
+                      </t-dropdown-item>
+                    </t-dropdown-menu>
+                  </t-dropdown>
+                </div>
+              </template>
+            </t-card>
+          </template>
+        </masonry-wall>
+      </div>
+    </t-card>
 
     <!-- 日志查看弹窗 -->
-    <a-modal
+    <t-dialog
         v-model:visible="logModalVisible"
-        :title="`${selectedInstanceName} - 实时日志`"
+        :header="`${selectedInstanceName} - 实时日志`"
         width="1000px"
         :body-style="{height: '600px'}"
-        @cancel="logViewerClose"
+        @close="logViewerClose"
         :footer="false"
-        :unmountOnClose="true"
+        destroy-on-close
     >
       <div style="height: 100%; display: flex; flex-direction: column;">
         <log-viewer
@@ -170,7 +172,7 @@
             style="flex: 1;"
         />
       </div>
-    </a-modal>
+    </t-dialog>
 
     <!-- 配置同步弹窗 -->
     <sync-config-modal
@@ -182,21 +184,21 @@
     />
 
     <!-- 创建实例弹窗 -->
-    <a-modal
+    <t-dialog
         v-model:visible="showCreateModal"
-        title="创建新实例"
-        @ok="createInstanceHandler"
-        @cancel="showCreateModal = false"
+        header="创建新实例"
+        @confirm="createInstanceHandler"
+        @close="showCreateModal = false"
     >
-      <a-form :model="form">
-        <a-form-item field="instanceName" label="实例名称">
-          <a-input
+      <t-form :data="form">
+        <t-form-item name="instanceName" label="实例名称">
+          <t-input
               v-model="form.instanceName"
               placeholder="输入实例名称"
           />
-        </a-form-item>
-      </a-form>
-    </a-modal>
+        </t-form-item>
+      </t-form>
+    </t-dialog>
   </div>
 </template>
 
@@ -206,8 +208,8 @@ import {useClipboard} from "@vueuse/core";
 import {h, inject, onActivated, onDeactivated, reactive, ref, watch} from 'vue'
 import {useRouter} from 'vue-router'
 import {createInstance, deleteInstance, getModInfo, restartServerSSE, startServer, stopServer} from '@/apis/api.js'
-import {Message, Modal, Notification} from '@arco-design/web-vue';
-import {IconCheck, IconClose, IconCopy, IconLoading} from '@arco-design/web-vue/es/icon';
+import {MessagePlugin, DialogPlugin, NotifyPlugin} from 'tdesign-vue-next';
+import {CheckIcon, CloseIcon, FileCopyIcon, LoadingIcon, MoreIcon} from 'tdesign-icons-vue-next';
 import {initServer, serverStore} from '@/store/serverStore.js'
 import LogViewer from '@/components/LogViewer.vue'
 import SyncConfigModal from '@/components/SyncConfigModal.vue'
@@ -246,7 +248,7 @@ const selectedSourceInstance = ref('')
 // 渲染实例标题，在名称前添加状态图标
 const renderInstanceTitle = (instance) => {
   return h('div', {style: {display: 'flex', alignItems: 'center', gap: '8px'}}, [
-    h(instance.running ? IconCheck : IconClose, {style: {color: instance.running ? '#00b42a' : '#f53f3f'}}),
+    h(instance.running ? CheckIcon : CloseIcon, {style: {color: instance.running ? '#00b42a' : '#f53f3f'}}),
     h('span', instance.name)
   ])
 }
@@ -258,7 +260,7 @@ const fetchInstances = async () => {
     instances.value = await initServer()
   } catch (error) {
     console.error('获取实例列表失败:', error)
-    Message.error("获取实例列表失败:" + error)
+    MessagePlugin.error("获取实例列表失败:" + error)
   } finally {
     loading.value = false
   }
@@ -292,10 +294,10 @@ const {text, isSupported, copy} = useClipboard({
 const copyModId = async (modId) => {
   try {
     await copy(modId);
-    Message.success(`${getModNameById(modId)}:已复制到剪切板`)
+    MessagePlugin.success(`${getModNameById(modId)}:已复制到剪切板`)
   } catch (error) {
     console.error('复制失败:', error)
-    Message.error('复制失败')
+    MessagePlugin.error('复制失败')
   }
 }
 
@@ -304,10 +306,10 @@ const copyAllModIds = async (modIds) => {
   try {
     const ids = modIds.split(',').map(id => id.trim()).filter(id => id).join(',')
     await copy(ids)
-    Message.success('已复制所有Mod ID到剪切板')
+    MessagePlugin.success('已复制所有Mod ID到剪切板')
   } catch (error) {
     console.error('复制失败:', error)
-    Message.error('复制失败')
+    MessagePlugin.error('复制失败')
   }
 }
 
@@ -325,8 +327,8 @@ function logViewerClose() {
 }
 
 // 创建实例
-const createInstanceHandler = async ({values, errors}) => {
-  if (errors || !form.instanceName.trim()) return
+const createInstanceHandler = async () => {
+  if (!form.instanceName.trim()) return
   try {
     const data = await createInstance(form.instanceName)
     if (data.success) {
@@ -346,12 +348,12 @@ const createInstanceHandler = async ({values, errors}) => {
 
 // 启动实例
 const startInstance = async (name) => {
-  Modal.confirm({
-    title: '提示',
-    content: `确定要启动实例 "${name}" 吗？`,
-    okText: '确定',
-    cancelText: '取消',
-    onOk: async () => {
+  DialogPlugin.confirm({
+    header: '提示',
+    body: `确定要启动实例 "${name}" 吗？`,
+    confirmBtn: '确定',
+    cancelBtn: '取消',
+    onConfirm: async () => {
       // 设置 loading 状态
       instanceLoadingMap.value.set(name, true)
 
@@ -371,18 +373,20 @@ const startInstance = async (name) => {
                 instance.running = false
               }
 
-              Notification.error({
+              //MessagePlugin.error(error.message || `实例 "${name}" 启动失败`)
+
+
+              NotifyPlugin.error({
                 title: `实例 "${name}" 启动失败`,
-                content: error.message || `实例 "${name}" 启动失败`,
-                duration: 0, // 0 表示不自动隐藏
-                closable: true
+                content: error.message || `实例 "${name}" 启动失败`
               })
+
 
               console.error('启动实例失败:', error)
             },
             // onComplete 回调 - 启动完成
             () => {
-              Message.success(`实例 "${name}" 启动成功`)
+              MessagePlugin.success(`实例 "${name}" 启动成功`)
               // 更新本地状态
               const instance = instances.value.find(inst => inst.name === name)
               if (instance) {
@@ -391,7 +395,7 @@ const startInstance = async (name) => {
             }
         )
       } catch (error) {
-        Message.error(`启动实例失败: ${error.message}`)
+        MessagePlugin.error(`启动实例失败: ${error.message}`)
         console.error('启动实例失败:', error)
       } finally {
         // 清除 loading 状态
@@ -403,30 +407,30 @@ const startInstance = async (name) => {
 
 // 停止实例
 const stopInstance = async (name) => {
-  Modal.confirm({
-    title: '提示',
-    content: `确定要停止实例 "${name}" 吗？`,
-    okText: '确定',
-    cancelText: '取消',
-    onOk: async () => {
+  DialogPlugin.confirm({
+    header: '提示',
+    body: `确定要停止实例 "${name}" 吗？`,
+    confirmBtn: '确定',
+    cancelBtn: '取消',
+    onConfirm: async () => {
       // 设置停止操作 loading 状态
       operationLoadingMap.value.set(`${name}-stop`, true)
 
       try {
         const data = await stopServer(name)
         if (data.success) {
-          Message.success(data.message || `实例 "${name}" 停止成功`)
+          MessagePlugin.success(data.message || `实例 "${name}" 停止成功`)
           // 更新本地状态
           const instance = instances.value.find(inst => inst.name === name)
           if (instance) {
             instance.running = false
           }
         } else {
-          Message.error(data.error || `实例 "${name}" 停止失败`)
+          MessagePlugin.error(data.error || `实例 "${name}" 停止失败`)
           console.error('停止实例失败:', data.error)
         }
       } catch (error) {
-        Message.error(`停止实例失败: ${error.message}`)
+        MessagePlugin.error(`停止实例失败: ${error.message}`)
         console.error('停止实例失败:', error)
       } finally {
         // 清除停止操作 loading 状态
@@ -438,12 +442,12 @@ const stopInstance = async (name) => {
 
 // 重启实例
 const restartInstance = async (name) => {
-  Modal.confirm({
-    title: '提示',
-    content: `确定要重启实例 "${name}" 吗？`,
-    okText: '确定',
-    cancelText: '取消',
-    onOk: async () => {
+  DialogPlugin.confirm({
+    header: '提示',
+    body: `确定要重启实例 "${name}" 吗？`,
+    confirmBtn: '确定',
+    cancelBtn: '取消',
+    onConfirm: async () => {
       // 设置重启操作 loading 状态
       operationLoadingMap.value.set(`${name}-restart`, true)
 
@@ -459,21 +463,21 @@ const restartInstance = async (name) => {
             // onError 回调 - 处理错误
             (error) => {
               console.error('重启实例失败:', error)
-              Message.error('重启实例失败')
+              MessagePlugin.error('重启实例失败')
               // 清除重启操作 loading 状态
               operationLoadingMap.value.set(`${name}-restart`, false)
             },
             // onComplete 回调 - 重启完成
             () => {
               console.log('Server restart completed')
-              Message.success('实例重启成功')
+              MessagePlugin.success('实例重启成功')
               // 清除重启操作 loading 状态
               operationLoadingMap.value.set(`${name}-restart`, false)
             }
         )
       } catch (error) {
         console.error('重启实例失败:', error)
-        Message.error('重启实例失败')
+        MessagePlugin.error('重启实例失败')
         // 清除重启操作 loading 状态
         operationLoadingMap.value.set(`${name}-restart`, false)
       }
@@ -483,13 +487,12 @@ const restartInstance = async (name) => {
 
 // 删除实例
 const deleteInstanceHandler = async (name) => {
-  // 使用 arco-design 的确认对话框
-  Modal.confirm({
-    title: '确认',
-    content: `确定要删除实例 "${name}" 吗？`,
-    okText: '确定',
-    cancelText: '取消',
-    onOk: async () => {
+  DialogPlugin.confirm({
+    header: '确认',
+    body: `确定要删除实例 "${name}" 吗？`,
+    confirmBtn: '确定',
+    cancelBtn: '取消',
+    onConfirm: async () => {
       try {
         const data = await deleteInstance(name)
         if (data.success) {
@@ -591,16 +594,23 @@ const handleSyncComplete = (result) => {
 <style scoped lang="less">
 .instance-item {
   border-radius: 8px;
-  //box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, .12), 0 0 6px rgba(0, 0, 0, .04)
+  --td-comp-paddingTB-l: 12px;
+  --td-comp-paddingLR-xl: 12px;
+
+  .server-footer {
+    display: flex;
+    justify-content: end;
+    gap: 10px;
+  }
+
+  :deep(.t-card__footer) {
+    border-top: 1px solid #eee
+  }
 }
 
 .instance-list {
-  height: 100%;
-  overflow-y: auto;
-  overflow-x: hidden;
 
-  :deep(.arco-card-header-title) {
+  :deep(.t-card__title) {
     font-size: 24px !important;
     font-weight: bold;
   }
@@ -628,24 +638,26 @@ const handleSyncComplete = (result) => {
 
 .server-manager {
   height: 100%;
-  display: flex;
-  flex-direction: column;
+  overflow-y: auto;
+
+  :deep(.t-card__body) {
+    --td-comp-paddingTB-l: 12px;
+    --td-comp-paddingLR-xl: 12px;
+  }
+
+  background-color: transparent;
 }
 
-:deep(.main-card) {
-  .arco-card-body {
-    height: calc(100% - 78px) !important;
-  }
-}
+//:deep(.main-card) {
+//  .t-card__body {
+//    height: calc(100% - 80px) !important;
+//  }
+//}
 
 .main-card {
   flex: 1;
   border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  overflow: hidden;
-  height: calc(100% - 40px);
-
-
+  //overflow: hidden;
 }
 
 .instance-card {
@@ -666,11 +678,11 @@ const handleSyncComplete = (result) => {
   border-left: 4px solid #52c41a;
 }
 
-:deep(.arco-card-header) {
+:deep(.t-card__header) {
   border-bottom: 1px solid #eee;
 }
 
-:deep(.arco-card-actions) {
+:deep(.t-card__actions) {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
@@ -739,7 +751,7 @@ const handleSyncComplete = (result) => {
     box-sizing: border-box;
     width: 100%;
 
-    :deep(.arco-tag) {
+    :deep(.t-tag) {
       padding: 0 3px;
     }
 

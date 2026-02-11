@@ -1,81 +1,81 @@
 <template>
   <div class="instance-detail">
-    <a-card class="detail-card" :bordered="false">
+    <t-card class="detail-card" :bordered="false">
       <template #title>
         <div class="detail-header">
-          <a-button
-              type="text"
+          <t-button
+              variant="text"
               size="large"
               @click="backMainPage"
           >
             <template #icon>
-              <icon-left/>
+              <chevron-left-icon/>
             </template>
-          </a-button>
+          </t-button>
           <span class="instance-name">{{ instanceName }}</span>
-          <a-tag :color="instanceData?.running ? 'green' : 'gray'">
+          <t-tag :theme="instanceData?.running ? 'success' : 'default'">
             {{ instanceData?.running ? '运行中' : '已停止' }}
-          </a-tag>
-          <a-space style="margin-left: 20px">
-            <a-button
+          </t-tag>
+          <t-space style="margin-left: 20px">
+            <t-button
                 @click="startInstance"
                 :disabled="instanceData?.running || instanceStartLoading"
                 :loading="instanceStartLoading"
-                type="primary"
+                theme="primary"
                 size="small"
             >
               启动
-            </a-button>
-            <a-button
+            </t-button>
+            <t-button
                 @click="stopInstance"
                 :disabled="!instanceData?.running || instanceStopLoading"
                 :loading="instanceStopLoading"
-                status="warning"
+                theme="warning"
                 size="small"
             >
               停止
-            </a-button>
-            <a-button
+            </t-button>
+            <t-button
                 @click="restartInstance"
                 :disabled="!instanceData?.running || instanceRestartLoading"
                 :loading="instanceRestartLoading"
-                status="success"
+                theme="success"
                 size="small"
             >
               重启
-            </a-button>
-            <a-divider direction="vertical" :margin="8" style="height: 24px"/>
-            <a-button
+            </t-button>
+            <t-divider layout="vertical" :margin="8" style="height: 24px"/>
+            <t-button
                 @click="rconFloatingVisible = true"
                 :disabled="!instanceData?.running"
-                type="primary"
+                theme="primary"
                 size="small"
             >
               RCON 终端
-            </a-button>
-          </a-space>
+            </t-button>
+          </t-space>
         </div>
       </template>
 
-      <a-spin :loading="loading" style="width: 100%">
-        <a-alert v-if="error" type="error" :title="`错误: ${error}`" closable/>
+      <t-loading :loading="loading" style="width: 100%">
+        <t-alert v-if="error" theme="error" :message="`错误: ${error}`" close/>
 
         <div v-else class="config-container">
           <!-- 服务器配置与资源监控并排布局 -->
           <div class="config-resource-row">
-            <a-card title="服务器配置" class="config-section server-config">
+            <t-card title="服务器配置" class="config-section server-config">
               <template #title>
                 <div class="config-card-title">
                   <span>服务器配置</span>
-                  <a-button
-                      type="primary"
+                  <t-button
+                      theme="primary"
                       size="small"
                       @click="openConfigEditModal"
                       style="margin-left: 12px"
                       :disabled="instanceData?.running"
                   >
                     编辑
-                  </a-button>
+                  </t-button>
                 </div>
               </template>
               <div class="config-grid">
@@ -89,27 +89,27 @@
                         <div v-if="item.value && item.value !== '-'">
                           <div class="mod-container">
                             <template v-for="(modId, index) in item.value.split(',')" :key="modId">
-                              <a-tag
+                              <t-tag
                                   class="mod-tag"
                                   v-if="modId.trim()"
-                                  color="arcoblue"
+                                  theme="primary"
                                   @click="copyModId(modId.trim())"
                                   style="cursor: pointer; display: flex; align-items: center; gap: 4px;"
                               >
                                 {{ getModNameById(modId.trim()) || modId.trim() }}
-                                <icon-copy :style="{fontSize: '12px'}"/>
-                              </a-tag>
+                                <file-copy-icon :style="{fontSize: '12px'}"/>
+                              </t-tag>
                             </template>
                           </div>
-                          <a-button
-                              type="text"
-                              size="mini"
+                          <t-button
+                              variant="text"
+                              size="small"
                               @click="copyAllModIds(item.value)"
                               class="copy-all-btn"
                           >
-                            <icon-copy/>
+                            <file-copy-icon/>
                             复制全部
-                          </a-button>
+                          </t-button>
                         </div>
                         <div v-else>
                           {{ item.value }}
@@ -120,7 +120,7 @@
                         {{ item.value }}
                       </div>
                       <div v-if="item.type === 'boolean'" class="config-item-value">
-                        <a-tag :color="item.value === '是' ? 'green' : 'gray'">{{ item.value }}</a-tag>
+                        <t-tag :theme="item.value === '是' ? 'success' : 'default'">{{ item.value }}</t-tag>
                       </div>
                       <div v-if="item.type === 'password'" class="password-wrapper">
                         <span class="config-item-value">
@@ -128,27 +128,26 @@
                             item.label === '服务器密码' && showServerPassword ? item.value : (item.label === '管理员密码' && showAdminPassword ? item.value : (item.hasPassword ? '●●●●●●' : item.value))
                           }}
                         </span>
-                        <a-button
+                        <t-button
                             v-if="item.hasPassword"
-                            type="text"
+                            variant="text"
                             size="small"
-                            :icon="item.label === '服务器密码' ? (showServerPassword ? 'icon-eye-invisible' : 'icon-eye') : (showAdminPassword ? 'icon-eye-invisible' : 'icon-eye')"
                             @click="item.label === '服务器密码' ? (showServerPassword = !showServerPassword) : (showAdminPassword = !showAdminPassword)"
                         >
                           <template #icon>
                             <component
-                                :is="item.label === '服务器密码' ? (showServerPassword ? IconEyeInvisible : IconEye) : (showAdminPassword ? IconEyeInvisible : IconEye)"/>
+                                :is="item.label === '服务器密码' ? (showServerPassword ? BrowseOffIcon : BrowseIcon) : (showAdminPassword ? BrowseOffIcon : BrowseIcon)"/>
                           </template>
-                        </a-button>
+                        </t-button>
                       </div>
                     </div>
                   </div>
                 </div>
               </div>
-            </a-card>
+            </t-card>
             <div class="info-right">
               <!-- 资源监控组件 -->
-              <a-card class="config-section resource-monitor-card">
+              <t-card class="config-section resource-monitor-card">
                 <template #title>
                   <div class="config-card-title">
                     <span>资源占用</span>
@@ -158,9 +157,9 @@
                     :show-title-div="false"
                     :instance-name="instanceName"
                 />
-              </a-card>
+              </t-card>
               <!-- 实例历史状态组件 -->
-              <a-card class="config-section status-history-card">
+              <t-card class="config-section status-history-card">
                 <template #title>
                   <div class="config-card-title">
                     <span>实例历史状态</span>
@@ -169,62 +168,62 @@
                 <instance-status-history
                     :instance-name="instanceName"
                 />
-              </a-card>
+              </t-card>
             </div>
           </div>
 
           <!-- 配置文件区域 -->
-          <a-collapse v-model:active-key="activeCollapseKeys" class="config-files-collapse">
-            <a-collapse-item key="motd" header="服务器公告">
-              <a-card title="公告" class="config-section config-file-card">
+          <t-collapse v-model:value="activeCollapseKeys" class="config-files-collapse">
+            <t-collapse-panel value="motd" header="服务器公告">
+              <t-card title="公告" class="config-section config-file-card">
                 <template #extra>
-                  <a-space>
+                  <t-space>
                     <div>
                       消息时长：{{ motdDuration + '秒' || '-' }}
                     </div>
-                    <a-button
+                    <t-button
                         @click="openMotdEditModal"
-                        type="primary"
+                        theme="primary"
                         :disabled="instanceData?.running"
                     >
                       编辑
-                    </a-button>
-                  </a-space>
+                    </t-button>
+                  </t-space>
                 </template>
                 <div class="config-viewer-wrapper">
                   <div style="white-space: pre-wrap; word-break: break-word;">
                     {{ motdContent || '-' }}
                   </div>
                 </div>
-              </a-card>
-            </a-collapse-item>
-            <a-collapse-item key="config-files" header="实例配置文件">
+              </t-card>
+            </t-collapse-panel>
+            <t-collapse-panel value="config-files" header="实例配置文件">
               <div class="config-files-row">
                 <!-- Game.ini 配置 -->
-                <a-card title="Game.ini 配置" class="config-section config-file-card">
-                  <a-space style="margin-bottom: 15px">
-                    <a-button
+                <t-card title="Game.ini 配置" class="config-section config-file-card">
+                  <t-space style="margin-bottom: 15px">
+                    <t-button
                         @click="triggerGameIniUpload"
-                        status="success"
+                        theme="success"
                         :disabled="instanceData?.running"
                     >
                       上传文件
-                    </a-button>
-                    <a-button
+                    </t-button>
+                    <t-button
                         @click="gameIniEditModalVisible = true"
-                        type="primary"
+                        theme="primary"
                         :disabled="instanceData?.running"
                     >
                       编辑文件
-                    </a-button>
-                    <a-button
+                    </t-button>
+                    <t-button
                         @click="compareGameIni"
                         :loading="loadingDiffContent"
                         :disabled="instanceData?.running"
                     >
                       对比配置
-                    </a-button>
-                  </a-space>
+                    </t-button>
+                  </t-space>
 
                   <div class="config-viewer-wrapper">
                     <config-file-viewer
@@ -232,33 +231,33 @@
                         language="ini"
                     />
                   </div>
-                </a-card>
+                </t-card>
 
                 <!-- GameUserSettings.ini 配置 -->
-                <a-card title="GameUserSettings.ini 配置" class="config-section config-file-card">
-                  <a-space style="margin-bottom: 15px">
-                    <a-button
+                <t-card title="GameUserSettings.ini 配置" class="config-section config-file-card">
+                  <t-space style="margin-bottom: 15px">
+                    <t-button
                         @click="triggerGameUserSettingsUpload"
-                        status="success"
+                        theme="success"
                         :disabled="instanceData?.running"
                     >
                       上传文件
-                    </a-button>
-                    <a-button
+                    </t-button>
+                    <t-button
                         @click="gameUserSettingsEditModalVisible = true"
-                        type="primary"
+                        theme="primary"
                         :disabled="instanceData?.running"
                     >
                       编辑文件
-                    </a-button>
-                    <a-button
+                    </t-button>
+                    <t-button
                         @click="compareGameUserSettings"
                         :loading="loadingDiffContent"
                         :disabled="instanceData?.running"
                     >
                       对比配置
-                    </a-button>
-                  </a-space>
+                    </t-button>
+                  </t-space>
 
                   <div class="config-viewer-wrapper">
                     <config-file-viewer
@@ -266,17 +265,17 @@
                         language="ini"
                     />
                   </div>
-                </a-card>
+                </t-card>
               </div>
-            </a-collapse-item>
-          </a-collapse>
+            </t-collapse-panel>
+          </t-collapse>
 
-          <a-card title="实时日志" class="config-section log-viewer-card">
+          <t-card title="实时日志" class="config-section log-viewer-card">
             <log-viewer ref="logViewerRef" :instance-name="instanceName"/>
-          </a-card>
+          </t-card>
         </div>
-      </a-spin>
-    </a-card>
+      </t-loading>
+    </t-card>
 
     <!-- 配置编辑弹出框 -->
     <config-edit-modal
@@ -287,19 +286,18 @@
         @save="saveConfig"
     />
 
-    <a-modal
+    <t-dialog
         v-model:visible="motdEditModalVisible"
-        title="编辑 Message Of The Day"
+        header="编辑 Message Of The Day"
         width="500px"
-        :ok-loading="savingMotd"
-        ok-text="保存"
-        cancel-text="取消"
-        @ok="saveMotd"
-        @cancel="motdEditModalVisible = false"
+        :confirm-btn="{ content: '保存', loading: savingMotd }"
+        :cancel-btn="'取消'"
+        @confirm="saveMotd"
+        @close="motdEditModalVisible = false"
     >
-      <a-form layout="vertical">
-        <a-form-item field="MessageOfTheDayDuration" label="消息时长">
-          <a-input-number
+      <t-form layout="vertical">
+        <t-form-item name="MessageOfTheDayDuration" label="消息时长">
+          <t-input-number
               v-model="motdDuration"
               :min="1"
               placeholder="输入消息时长"
@@ -307,17 +305,17 @@
             <template #suffix>
               秒
             </template>
-          </a-input-number>
-        </a-form-item>
-        <a-form-item field="MessageOfTheDay" label="公告">
-          <a-textarea
+          </t-input-number>
+        </t-form-item>
+        <t-form-item name="MessageOfTheDay" label="公告">
+          <t-textarea
               v-model="motdContent"
               placeholder="输入公告"
               :rows="5"
           />
-        </a-form-item>
-      </a-form>
-    </a-modal>
+        </t-form-item>
+      </t-form>
+    </t-dialog>
 
     <!-- Game.ini 编辑模态框 -->
     <config-editor
@@ -344,13 +342,13 @@
     />
 
     <!-- RCON 浮窗 Modal -->
-    <a-modal
+    <t-dialog
         v-model:visible="rconFloatingVisible"
-        title="RCON 交互式终端"
+        header="RCON 交互式终端"
         draggable
         :width="1000"
-        :mask="false"
-        unmountOnClose
+        :modal="false"
+        destroy-on-close
         :footer="false"
         class="rcon-modal"
     >
@@ -358,7 +356,7 @@
         <rcon-terminal :headerDisable="true"
                        :instance-name="instanceName" :instance-running="instanceData?.running || false"/>
       </div>
-    </a-modal>
+    </t-dialog>
 
     <!-- 配置文件对比 Modal 组件 -->
     <config-diff-modal
@@ -418,8 +416,8 @@ import {
   uploadGameUserSettingsFile
 } from '@/apis/api.js'
 import {getInstanceStatus, initServer} from '@/store/serverStore.js'
-import {IconCopy, IconEye, IconEyeInvisible, IconLeft} from '@arco-design/web-vue/es/icon'
-import {Message, Modal, Notification} from '@arco-design/web-vue'
+import {FileCopyIcon, BrowseIcon, BrowseOffIcon, ChevronLeftIcon} from 'tdesign-icons-vue-next'
+import {MessagePlugin, DialogPlugin, NotifyPlugin} from 'tdesign-vue-next'
 import {useClipboard} from "@vueuse/core";
 
 // Monaco Editor 引用 - 已移至 ConfigEditor 组件
@@ -537,10 +535,10 @@ const loadGameIni = async () => {
     if (data.success && data.data) {
       gameIniContent.value = data.data.content || ''
     } else {
-      Message.error(data.error || '加载 Game.ini 失败')
+      MessagePlugin.error(data.error || '加载 Game.ini 失败')
     }
   } catch (err) {
-    Message.error(err.message || '加载 Game.ini 失败')
+    MessagePlugin.error(err.message || '加载 Game.ini 失败')
   } finally {
     loadingGameIni.value = false
   }
@@ -558,14 +556,14 @@ const saveGameIni = async (content) => {
   try {
     const data = await updateGameIni(instanceName, content)
     if (data.success) {
-      Message.success('Game.ini 已保存')
+      MessagePlugin.success('Game.ini 已保存')
       gameIniEdited.value = false
       await loadGameIni()
     } else {
-      Message.error(data.error || '保存 Game.ini 失败')
+      MessagePlugin.error(data.error || '保存 Game.ini 失败')
     }
   } catch (err) {
-    Message.error(err.message || '保存 Game.ini 失败')
+    MessagePlugin.error(err.message || '保存 Game.ini 失败')
     throw err
   } finally {
     savingGameIni.value = false
@@ -588,13 +586,13 @@ const handleGameIniFileSelected = async (event) => {
   try {
     const data = await uploadGameIniFile(instanceName, file)
     if (data.success) {
-      Message.success('Game.ini 已上传')
+      MessagePlugin.success('Game.ini 已上传')
       loadGameIni()
     } else {
-      Message.error(data.error || '上传 Game.ini 失败')
+      MessagePlugin.error(data.error || '上传 Game.ini 失败')
     }
   } catch (err) {
-    Message.error(err.message || '上传 Game.ini 失败')
+    MessagePlugin.error(err.message || '上传 Game.ini 失败')
   } finally {
     uploadingGameIni.value = false
     // 重置文件输入
@@ -613,10 +611,10 @@ const loadGameUserSettings = async () => {
     if (data.success && data.data) {
       gameUserSettingsContent.value = data.data.content || ''
     } else {
-      Message.error(data.error || '加载 GameUserSettings.ini 失败')
+      MessagePlugin.error(data.error || '加载 GameUserSettings.ini 失败')
     }
   } catch (err) {
-    Message.error(err.message || '加载 GameUserSettings.ini 失败')
+    MessagePlugin.error(err.message || '加载 GameUserSettings.ini 失败')
   } finally {
     loadingGameUserSettings.value = false
   }
@@ -628,14 +626,14 @@ const saveGameUserSettings = async (content) => {
   try {
     const data = await updateGameUserSettings(instanceName, content)
     if (data.success) {
-      Message.success('GameUserSettings.ini 已保存')
+      MessagePlugin.success('GameUserSettings.ini 已保存')
       gameUserSettingsEdited.value = false
       await loadGameUserSettings()
     } else {
-      Message.error(data.error || '保存 GameUserSettings.ini 失败')
+      MessagePlugin.error(data.error || '保存 GameUserSettings.ini 失败')
     }
   } catch (err) {
-    Message.error(err.message || '保存 GameUserSettings.ini 失败')
+    MessagePlugin.error(err.message || '保存 GameUserSettings.ini 失败')
     throw err
   } finally {
     savingGameUserSettings.value = false
@@ -658,13 +656,13 @@ const handleGameUserSettingsFileSelected = async (event) => {
   try {
     const data = await uploadGameUserSettingsFile(instanceName, file)
     if (data.success) {
-      Message.success('GameUserSettings.ini 已上传')
+      MessagePlugin.success('GameUserSettings.ini 已上传')
       loadGameUserSettings()
     } else {
-      Message.error(data.error || '上传 GameUserSettings.ini 失败')
+      MessagePlugin.error(data.error || '上传 GameUserSettings.ini 失败')
     }
   } catch (err) {
-    Message.error(err.message || '上传 GameUserSettings.ini 失败')
+    MessagePlugin.error(err.message || '上传 GameUserSettings.ini 失败')
   } finally {
     uploadingGameUserSettings.value = false
     // 重置文件输入
@@ -808,15 +806,15 @@ const saveConfig = async (config) => {
   try {
     const data = await updateInstanceConfig(instanceName, config)
     if (data.success) {
-      Message.success('配置已保存')
+      MessagePlugin.success('配置已保存')
       configEditModalVisible.value = false
       // 刷新实例配置
       await fetchInstanceConfig()
     } else {
-      Message.error(data.error || '保存配置失败')
+      MessagePlugin.error(data.error || '保存配置失败')
     }
   } catch (err) {
-    Message.error(err.message || '保存配置失败')
+    MessagePlugin.error(err.message || '保存配置失败')
   } finally {
     savingConfig.value = false
   }
@@ -833,15 +831,15 @@ const saveMotd = async () => {
     }
     const data = await updateInstanceConfig(instanceName, payload)
     if (data.success) {
-      Message.success('Message Of The Day 已保存')
+      MessagePlugin.success('Message Of The Day 已保存')
       motdEditModalVisible.value = false
       await fetchInstanceConfig()
       await loadGameUserSettings()
     } else {
-      Message.error(data.error || '保存 Message Of The Day 失败')
+      MessagePlugin.error(data.error || '保存 Message Of The Day 失败')
     }
   } catch (err) {
-    Message.error(err.message || '保存 Message Of The Day 失败')
+    MessagePlugin.error(err.message || '保存 Message Of The Day 失败')
   } finally {
     savingMotd.value = false
   }
@@ -849,12 +847,12 @@ const saveMotd = async () => {
 
 // 启动实例
 const startInstance = () => {
-  Modal.confirm({
-    title: '提示',
-    content: `确定要启动实例 "${instanceName}" 吗？`,
-    okText: '确定',
-    cancelText: '取消',
-    onOk: async () => {
+  DialogPlugin.confirm({
+    header: '提示',
+    body: `确定要启动实例 "${instanceName}" 吗？`,
+    confirmBtn: '确定',
+    cancelBtn: '取消',
+    onConfirm: async () => {
       instanceStartLoading.value = true
       try {
         // 使用 SSE 方式调用启动
@@ -872,18 +870,18 @@ const startInstance = () => {
                 instanceData.value.running = false
               }
 
-              Notification.error({
-                title: `实例 "${instanceName}" 启动失败`,
-                content: error.message || `实例 "${instanceName}" 启动失败`,
-                duration: 0, // 0 表示不自动隐藏
-                closable: true
+              //MessagePlugin.error(error.message || `实例 "${instanceName}" 启动失败`)
+
+              NotifyPlugin.error({
+                title: `实例 "${name}" 启动失败`,
+                content: error.message || `实例 "${name}" 启动失败`
               })
 
               console.error('启动实例失败:', error)
             },
             // onComplete 回调 - 启动完成
             () => {
-              Message.success(`实例 "${instanceName}" 启动成功`)
+              MessagePlugin.success(`实例 "${instanceName}" 启动成功`)
               // 更新实例运行状态
               if (instanceData.value) {
                 instanceData.value.running = true
@@ -891,7 +889,7 @@ const startInstance = () => {
             }
         )
       } catch (error) {
-        Message.error(`启动实例失败: ${error.message}`)
+        MessagePlugin.error(`启动实例失败: ${error.message}`)
         console.error('启动实例失败:', error)
       } finally {
         instanceStartLoading.value = false
@@ -902,27 +900,27 @@ const startInstance = () => {
 
 // 停止实例
 const stopInstance = () => {
-  Modal.confirm({
-    title: '提示',
-    content: `确定要停止实例 "${instanceName}" 吗？`,
-    okText: '确定',
-    cancelText: '取消',
-    onOk: async () => {
+  DialogPlugin.confirm({
+    header: '提示',
+    body: `确定要停止实例 "${instanceName}" 吗？`,
+    confirmBtn: '确定',
+    cancelBtn: '取消',
+    onConfirm: async () => {
       instanceStopLoading.value = true
       try {
         const data = await stopServer(instanceName)
         if (data.success) {
-          Message.success(data.message || `实例 "${instanceName}" 停止成功`)
+          MessagePlugin.success(data.message || `实例 "${instanceName}" 停止成功`)
           // 更新实例运行状态
           if (instanceData.value) {
             instanceData.value.running = false
           }
         } else {
-          Message.error(data.error || `实例 "${instanceName}" 停止失败`)
+          MessagePlugin.error(data.error || `实例 "${instanceName}" 停止失败`)
           console.error('停止实例失败:', data.error)
         }
       } catch (error) {
-        Message.error(`停止实例失败: ${error.message}`)
+        MessagePlugin.error(`停止实例失败: ${error.message}`)
         console.error('停止实例失败:', error)
       } finally {
         instanceStopLoading.value = false
@@ -933,12 +931,12 @@ const stopInstance = () => {
 
 // 重启实例
 const restartInstance = () => {
-  Modal.confirm({
-    title: '提示',
-    content: `确定要重启实例 "${instanceName}" 吗？`,
-    okText: '确定',
-    cancelText: '取消',
-    onOk: async () => {
+  DialogPlugin.confirm({
+    header: '提示',
+    body: `确定要重启实例 "${instanceName}" 吗？`,
+    confirmBtn: '确定',
+    cancelBtn: '取消',
+    onConfirm: async () => {
       instanceRestartLoading.value = true
       try {
         // 使用 SSE 方式调用重启
@@ -952,17 +950,17 @@ const restartInstance = () => {
             // onError 回调 - 处理错误
             (error) => {
               console.error('重启实例失败:', error)
-              Message.error('重启实例失败')
+              MessagePlugin.error('重启实例失败')
             },
             // onComplete 回调 - 重启完成
             () => {
               console.log('Server restart completed')
-              Message.success('实例重启成功')
+              MessagePlugin.success('实例重启成功')
             }
         )
       } catch (error) {
         console.error('重启实例失败:', error)
-        Message.error('重启实例失败')
+        MessagePlugin.error('重启实例失败')
       } finally {
         instanceRestartLoading.value = false
       }
@@ -979,10 +977,10 @@ const loadServerConfigs = async () => {
       serverGameIniContent.value = data.data.game_ini?.content || ''
       serverGameUserSettingsContent.value = data.data.game_user_settings?.content || ''
     } else {
-      Message.error('加载服务器配置失败')
+      MessagePlugin.error('加载服务器配置失败')
     }
   } catch (err) {
-    Message.error('加载服务器配置失败: ' + err.message)
+    MessagePlugin.error('加载服务器配置失败: ' + err.message)
   } finally {
     loadingDiffContent.value = false
   }
@@ -1024,10 +1022,10 @@ const {text, isSupported, copy} = useClipboard({
 const copyModId = async (modId) => {
   try {
     await copy(modId);
-    Message.success(`${getModNameById(modId)}:已复制到剪切板`)
+    MessagePlugin.success(`${getModNameById(modId)}:已复制到剪切板`)
   } catch (error) {
     console.error('复制失败:', error)
-    Message.error('复制失败:' + error,)
+    MessagePlugin.error('复制失败:' + error)
   }
 }
 
@@ -1036,10 +1034,10 @@ const copyAllModIds = async (modIds) => {
   try {
     const ids = modIds.split(',').map(id => id.trim()).filter(id => id).join(',')
     await copy(ids)
-    Message.success('已复制所有Mod ID到剪切板')
+    MessagePlugin.success('已复制所有Mod ID到剪切板')
   } catch (error) {
     console.error('复制失败:', error)
-    Message.error('复制失败:' + error,)
+    MessagePlugin.error('复制失败:' + error)
   }
 }
 
@@ -1068,7 +1066,7 @@ const handleDiffSave = async ({type, content}) => {
     } else if (type == "game-user-settings") {
       await saveGameUserSettings(content)
     } else {
-      Message.error("不支持的文件对比")
+      MessagePlugin.error("不支持的文件对比")
     }
   } finally {
     diffSaveLoading.value = false
@@ -1081,7 +1079,7 @@ const fetchInstances = async () => {
     await initServer()
   } catch (error) {
     console.error('获取实例表失败:', error)
-    Message.error("获取实列表失败:" + error)
+    MessagePlugin.error("获取实列表失败:" + error)
   } finally {
     loading.value = false
   }
@@ -1118,7 +1116,7 @@ onUnmounted(() => {
 }
 
 .status-history-card {
-  :deep(.arco-card-body) {
+  :deep(.t-card__body) {
     height: calc(100% - 46px) !important;
   }
 }
@@ -1174,7 +1172,7 @@ onUnmounted(() => {
 .server-config {
   height: auto !important;
 
-  :deep(.arco-card-body) {
+  :deep(.t-card__body) {
     height: auto !important;
     box-sizing: border-box;
   }
@@ -1183,7 +1181,7 @@ onUnmounted(() => {
 .resource-monitor-card {
   height: auto !important;
 
-  :deep(.arco-card-body) {
+  :deep(.t-card__body) {
     height: auto !important;
     box-sizing: border-box;
     padding: 15px !important;
@@ -1194,7 +1192,7 @@ onUnmounted(() => {
   border-radius: 6px;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
 
-  :deep(.arco-card-body) {
+  :deep(.t-card__body) {
     height: calc(100% - 45.5px);
     box-sizing: border-box;
   }
@@ -1359,7 +1357,7 @@ onUnmounted(() => {
 }
 
 .config-files-collapse {
-  :deep(.arco-collapse-item-content) {
+  :deep(.t-collapse-panel__content) {
     padding-left: 13px !important;
   }
 }

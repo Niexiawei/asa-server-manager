@@ -1,12 +1,12 @@
 <template>
-  <a-card :title="headerDisable ? null :'RCON终端'" class="rcon-terminal-card"
+  <t-card :title="headerDisable ? null :'RCON终端'" class="rcon-terminal-card"
           :bordered="false"
   >
-    <a-space style="margin-bottom: 15px">
-      <a-tag :color="rconConnected ? 'green' : 'gray'">
+    <t-space style="margin-bottom: 15px">
+      <t-tag :theme="rconConnected ? 'success' : 'default'">
         {{ rconConnected ? '已连接' : '未连接' }}
-      </a-tag>
-    </a-space>
+      </t-tag>
+    </t-space>
 
     <div v-if="rconConnected" class="rcon-terminal-wrapper">
       <vue-web-terminal
@@ -18,16 +18,16 @@
       />
     </div>
     <div v-else class="rcon-disconnected-tip">
-      <a-empty description="请刷新页面或在 Game.ini 中配置 ServerAdminPassword"/>
+      <t-empty description="请刷新页面或在 Game.ini 中配置 ServerAdminPassword"/>
     </div>
-  </a-card>
+  </t-card>
 </template>
 
 <script setup>
 import {ref, onUnmounted, computed, onMounted} from 'vue'
 import VueWebTerminal from 'vue-web-terminal'
 import {TerminalApi} from 'vue-web-terminal';
-import {Message} from '@arco-design/web-vue'
+import {MessagePlugin} from 'tdesign-vue-next'
 import {
   connectRCONWebSocket,
   disconnectRCONWebSocket,
@@ -66,7 +66,7 @@ const initRCON = () => {
   // 定义回调函数
   rconOnOpen = () => {
     rconConnected.value = true
-    Message.success('RCON 已连接')
+    MessagePlugin.success('RCON 已连接')
     // 监听 RCON 消息
     unlistenRCONMessage = onRCONMessage((message) => {
       console.log('RCON message:', message)
@@ -75,7 +75,7 @@ const initRCON = () => {
   }
 
   rconOnError = (error) => {
-    Message.error('RCON 连接失败')
+    MessagePlugin.error('RCON 连接失败')
     console.error('RCON connection error:', error)
   }
 
@@ -154,7 +154,7 @@ onUnmounted(() => {
 .rcon-terminal-card {
   height: 100%;
 
-  :deep(.arco-card-body) {
+  :deep(.t-card__body) {
     height: 100%;
     box-sizing: border-box;
     display: flex;

@@ -1,84 +1,81 @@
 <template>
   <!-- 备份管理 -->
-  <a-card title="备份管理" :bordered="false" class="section-card">
-    <a-form :model="backupForm" layout="vertical">
-      <a-row :gutter="20">
-        <a-col :span="12">
-          <a-form-item field="instance" label="选择实例">
-            <a-select
+  <t-card title="备份管理" :bordered="false" class="section-card">
+    <t-form :data="backupForm" layout="vertical">
+      <t-row :gutter="20">
+        <t-col :span="12">
+          <t-form-item name="instance" label="选择实例">
+            <t-select
                 v-model="backupForm.instance"
                 placeholder="请选择实例"
             >
-              <a-option value="">请选择实例</a-option>
-              <a-option
+              <t-option value="">请选择实例</t-option>
+              <t-option
                   v-for="instance in instances"
                   :key="instance.name"
                   :value="instance.name"
               >
                 {{ instance.name }}
-              </a-option>
-            </a-select>
-          </a-form-item>
-        </a-col>
-      </a-row>
+              </t-option>
+            </t-select>
+          </t-form-item>
+        </t-col>
+      </t-row>
 
-      <a-form-item>
-        <a-button
+      <t-form-item>
+        <t-button
             @click="createBackupHandler"
-            type="primary"
+            theme="primary"
             :disabled="!backupForm.instance"
             :loading="loading"
         >
           创建备份
-        </a-button>
-      </a-form-item>
-    </a-form>
+        </t-button>
+      </t-form-item>
+    </t-form>
 
     <div class="backup-list" v-if="backups.length > 0">
       <h4>现有备份:</h4>
-      <a-list :data="backups" :bordered="false">
+      <t-list :data="backups" :split="false">
         <template #item="{ item }">
-          <a-list-item>
-            <a-list-item-meta :description="item"/>
-            <template #actions>
-              <a-button @click="restoreBackupHandler(item)" size="small">恢复</a-button>
-            </template>
-          </a-list-item>
+          <div class="backup-item">
+            <div class="backup-item-name">{{ item }}</div>
+            <t-button @click="restoreBackupHandler(item)" size="small">恢复</t-button>
+          </div>
         </template>
-      </a-list>
+      </t-list>
     </div>
-  </a-card>
+  </t-card>
 
   <!-- 恢复选项对话框 -->
-  <a-modal
+  <t-dialog
       v-model:visible="restoreModal.visible"
-      title="选择要恢复的内容"
-      ok-text="恢复"
-      cancel-text="取消"
+      header="选择要恢复的内容"
+      :confirm-btn="{ content: '恢复', loading: restoreModal.confirmLoading }"
+      :cancel-btn="'取消'"
       width="760px"
-      @ok="confirmRestore"
-      :confirm-loading="restoreModal.confirmLoading"
+      @confirm="confirmRestore"
   >
-    <a-form layout="vertical">
-      <a-form-item label="实例">
+    <t-form layout="vertical">
+      <t-form-item label="实例">
         <div style="font-size: 14px">{{ restoreModal.instanceName }}</div>
-      </a-form-item>
-      <a-form-item label="备份文件">
+      </t-form-item>
+      <t-form-item label="备份文件">
         <div style="font-size: 14px">{{ restoreModal.backupFile }}</div>
-      </a-form-item>
-      <a-form-item label="下列组件将被恢复：">
-        <a-checkbox v-model="restoreModal.options.restoreWorldfile">
+      </t-form-item>
+      <t-form-item label="下列组件将被恢复：">
+        <t-checkbox v-model="restoreModal.options.restoreWorldfile">
           worldfile (世界文件/SaveDir)
-        </a-checkbox>
-        <a-checkbox v-model="restoreModal.options.restoreInstanceConfig">
+        </t-checkbox>
+        <t-checkbox v-model="restoreModal.options.restoreInstanceConfig">
           instance_config.ini (实例配置)
-        </a-checkbox>
-        <a-checkbox v-model="restoreModal.options.restoreGameConfig">
+        </t-checkbox>
+        <t-checkbox v-model="restoreModal.options.restoreGameConfig">
           Config (游戏配置)
-        </a-checkbox>
-      </a-form-item>
-    </a-form>
-  </a-modal>
+        </t-checkbox>
+      </t-form-item>
+    </t-form>
+  </t-dialog>
 </template>
 
 <script setup>
@@ -88,7 +85,7 @@ import {
   listBackups,
   restoreBackup
 } from '@/apis/api.js'
-import {Message, Modal} from '@arco-design/web-vue'
+import {MessagePlugin, DialogPlugin} from 'tdesign-vue-next'
 
 const props = defineProps({
   instances: {
@@ -143,16 +140,16 @@ const createBackupHandler = async () => {
   try {
     const data = await createBackup(backupForm.instance)
     if (data.success) {
-      Message.success('备份创建成功')
+      MessagePlugin.success('备份创建成功')
       // 刷新备份列表
       await fetchBackups()
     } else {
       console.error('创建备份失败:', data.error)
-      Message.error('创建备份失败: ' + (data.error || '未知错误'))
+      MessagePlugin.error('创建备份失败: ' + (data.error || '未知错误'))
     }
   } catch (error) {
     console.error('创建备份失败:', error)
-    Message.error('创建备份失败: ' + error.message)
+    MessagePlugin.error('创建备份失败: ' + error.message)
   } finally {
     loading.value = false
   }
@@ -161,7 +158,7 @@ const createBackupHandler = async () => {
 // 恢复备份
 const restoreBackupHandler = async (backupFile) => {
   if (!backupForm.instance) {
-    Message.warning('请先选择要恢复备份的实例')
+    MessagePlugin.warning('请先选择要恢复备份的实例')
     return
   }
 
@@ -183,7 +180,7 @@ const confirmRestore = async () => {
   // 检查是否至少选择了一个组件
   const { restoreWorldfile, restoreInstanceConfig, restoreGameConfig } = restoreModal.options
   if (!restoreWorldfile && !restoreInstanceConfig && !restoreGameConfig) {
-    Message.warning('请至少选择一个要恢复的组件')
+    MessagePlugin.warning('请至少选择一个要恢复的组件')
     return
   }
 
@@ -195,21 +192,20 @@ const confirmRestore = async () => {
   const componentsList = components.map((c, i) => `${i + 1}. ${c}`).join('\n')
 
   // 二次确认
-  Modal.confirm({
-    title: '确认恢复备份',
-    content: `确定要将以下内容从备份 "${restoreModal.backupFile}" 恢复到实例 "${restoreModal.instanceName}" 吗？
+  DialogPlugin.confirm({
+    header: '确认恢复备份',
+    body: `确定要将以下内容从备份 "${restoreModal.backupFile}" 恢复到实例 "${restoreModal.instanceName}" 吗？
 
 将恢复的内容：
 ${componentsList}
 
 此操作不可撤销，请谨慎操作！`,
-    okText: '确认恢复',
-    cancelText: '取消',
-    okButtonProps: { status: 'danger' },
-    onOk: async () => {
+    confirmBtn: { content: '确认恢复', theme: 'danger' },
+    cancelBtn: '取消',
+    onConfirm: async () => {
       loading.value = true
       restoreModal.confirmLoading = true
-      
+
       try {
         const data = await restoreBackup(
           restoreModal.instanceName,
@@ -217,15 +213,16 @@ ${componentsList}
           restoreModal.options
         )
         if (data.success) {
-          Message.success('备份恢复成功')
+          MessagePlugin.success('备份恢复成功')
           restoreModal.visible = false
+          await fetchBackups()
         } else {
           console.error('恢复备份失败:', data.error)
-          Message.error('恢复备份失败: ' + (data.error || '未知错误'))
+          MessagePlugin.error('恢复备份失败: ' + (data.error || '未知错误'))
         }
       } catch (error) {
         console.error('恢复备份失败:', error)
-        Message.error('恢复备份失败: ' + error.message)
+        MessagePlugin.error('恢复备份失败: ' + error.message)
       } finally {
         loading.value = false
         restoreModal.confirmLoading = false
@@ -250,5 +247,16 @@ watch(() => backupForm.instance, () => {
 
 .backup-list h4 {
   margin: 20px 0 10px 0;
+}
+
+.backup-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
+}
+
+.backup-item-name {
+  color: var(--color-text-1);
 }
 </style>

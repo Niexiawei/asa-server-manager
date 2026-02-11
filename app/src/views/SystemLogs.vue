@@ -1,39 +1,39 @@
 <template>
   <div class="system-logs">
-    <a-card class="logs-card" :bordered="false">
+    <t-card class="logs-card layout-card" :bordered="false">
       <template #title>
         <div class="logs-header">
           <span class="page-title">系统日志</span>
         </div>
       </template>
 
-      <a-space style="margin-bottom: 15px">
-        <a-button
+      <t-space style="margin-bottom: 15px">
+        <t-button
             @click="startLogStream"
-            type="primary"
+            theme="primary"
             :disabled="isStreaming"
         >
           {{ isStreaming ? '监听中...' : '开始监听' }}
-        </a-button>
-        <a-button
+        </t-button>
+        <t-button
             @click="stopLogStream"
-            status="warning"
+            theme="warning"
             :disabled="!isStreaming"
         >
           停止监听
-        </a-button>
-        <a-button
+        </t-button>
+        <t-button
             @click="clearLogs"
             :disabled="logs.length === 0"
         >
           清空日志
-        </a-button>
-        <a-divider direction="vertical"/>
-        <a-badge :color="isStreaming ? 'green' : 'gray'"
-                 :text="isStreaming ? '监听中' : '已停止'"
+        </t-button>
+        <t-divider layout="vertical"/>
+        <t-badge :color="isStreaming ? 'green' : 'gray'"
+                 :count="isStreaming ? '监听中' : '已停止'"
         />
         <span style="font-size: 16px">日志行数: {{ logs.length }}</span>
-      </a-space>
+      </t-space>
 
       <div class="log-viewer">
         <div class="log-container" ref="logContainer">
@@ -53,7 +53,7 @@
           </div>
         </div>
       </div>
-    </a-card>
+    </t-card>
   </div>
 </template>
 
@@ -64,7 +64,6 @@ defineOptions({
 import {ref, onMounted, onBeforeUnmount, nextTick, onDeactivated, onActivated} from 'vue'
 import dayjs from 'dayjs'
 import {streamSystemLogs} from '@/apis/api'
-import {IconLeft} from '@arco-design/web-vue/es/icon'
 
 const logs = ref([])
 const isStreaming = ref(false)
@@ -166,7 +165,7 @@ onBeforeUnmount(() => {
   width: 100%;
 }
 
-:deep(.arco-badge-status-text) {
+:deep(.t-badge__text) {
   line-height: 16px !important;
   font-size: 16px;
   color: var(--color-text-2);
@@ -176,7 +175,7 @@ onBeforeUnmount(() => {
   border-radius: var(--border-radius-large);
   height: 100%;
 
-  :deep(.arco-card-body) {
+  :deep(.t-card__body) {
     height: calc(100% - 45.2px);
     box-sizing: border-box;
   }

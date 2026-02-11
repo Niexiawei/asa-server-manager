@@ -1,5 +1,5 @@
 <template>
-  <a-popover
+  <t-popup
       trigger="click"
       :content-style="{ padding: '0' }"
   >
@@ -11,19 +11,19 @@
     <template #content>
       <div class="ws-status-content">
         <div class="ws-status-item">
-          <a-tag size="large" :color="wsConnected ? 'green' : 'red'">
+          <t-tag size="large" :theme="wsConnected ? 'success' : 'danger'">
             {{ wsConnected ? '已连接' : '已断开' }}
-          </a-tag>
+          </t-tag>
         </div>
         <div class="ws-status-actions">
-          <a-button
-              size="mini"
+          <t-button
+              size="small"
               :disabled="wsConnected"
               @click="reconnect"
               :loading="reconnecting"
           >
             重连
-          </a-button>
+          </t-button>
         </div>
       </div>
     </template>
@@ -33,7 +33,7 @@
       <div class="status-dot" :style="{ backgroundColor: wsConnected ? '#52c41a' : '#f53f3f' }"></div>
       <span class="status-text">{{ wsConnected ? '已连接' : '已断开' }}</span>
     </div>
-  </a-popover>
+  </t-popup>
 </template>
 
 <script setup>
@@ -114,7 +114,7 @@ onUnmounted(() => {
 .ws-status-item {
   margin-bottom: 12px;
 
-  :deep(.arco-tag) {
+  :deep(.t-tag) {
     width: 100%;
     text-align: center;
     display: inline-block;

@@ -1,15 +1,15 @@
 <template>
   <div class="status-history-content" ref="statusContainerRef">
     <div v-if="loading" class="loading-container">
-      <a-spin/>
+      <t-loading size="small"/>
     </div>
     <div v-else-if="statusHistory.length === 0" class="no-data">
       暂无历史状态数据
     </div>
-    <a-list
+    <t-list
         v-else
         :data="statusHistory"
-        :bordered="false"
+        :split="false"
         :virtualListProps="{
           height: height,
           itemHeight: 46,
@@ -17,30 +17,26 @@
         }"
     >
       <template #item="{ item,index }">
-        <a-list-item :key="index">
-          <a-list-item-meta>
-            <template #avatar>
-              <a-tag class="status-tag" :color="getTagColor(item.status)">
-                {{ getStatusText(item.status) }}
-              </a-tag>
-            </template>
-            <template #description>
-              <div class="status-description">
-                <div v-if="item.error_message" class="status-error">
-                  {{ item.error_message }}
-                </div>
-                <div class="status-time">
-                  {{ formatTime(item.operation_time) }}
-                </div>
-              </div>
-            </template>
-            <template #title>
+        <div class="status-item" :key="index">
+          <t-tag class="status-tag" :theme="getTagTheme(item.status)">
+            {{ getStatusText(item.status) }}
+          </t-tag>
+          <div class="status-content">
+            <div class="status-title">
               {{ getStatusText(item.status) }}
-            </template>
-          </a-list-item-meta>
-        </a-list-item>
+            </div>
+            <div class="status-description">
+              <div v-if="item.error_message" class="status-error">
+                {{ item.error_message }}
+              </div>
+              <div class="status-time">
+                {{ formatTime(item.operation_time) }}
+              </div>
+            </div>
+          </div>
+        </div>
       </template>
-    </a-list>
+    </t-list>
   </div>
 </template>
 
@@ -81,19 +77,19 @@ const getStatusText = (status) => {
   return statusMap[status] || status;
 };
 
-const getTagColor = (status) => {
-  const statusColorMap = {
-    'start_initialization': 'blue',
-    'starting': 'green',
-    'started': 'green',
-    'stopping': 'orange',
-    'stopped': '#86909c',
-    'start_failed': 'red',
-    'stop_failed': 'red',
-    'restart_failed': 'red',
-    'restart': 'purple'
+const getTagTheme = (status) => {
+  const statusThemeMap = {
+    'start_initialization': 'primary',
+    'starting': 'success',
+    'started': 'success',
+    'stopping': 'warning',
+    'stopped': 'default',
+    'start_failed': 'danger',
+    'stop_failed': 'danger',
+    'restart_failed': 'danger',
+    'restart': 'primary'
   };
-  return statusColorMap[status] || 'gray';
+  return statusThemeMap[status] || 'default';
 };
 
 const isFailedStatus = (status) => {
@@ -189,6 +185,24 @@ onUnmounted(() => {
   }
 }
 
+.status-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+}
+
+.status-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.status-title {
+  font-weight: 600;
+  color: #333;
+}
+
 .loading-container {
   display: flex;
   justify-content: center;
@@ -220,20 +234,5 @@ onUnmounted(() => {
   word-break: break-word;
 }
 
-:deep(.arco-list-item) {
-  padding: 8px 12px !important;
-}
-
-:deep(.arco-list-item-meta) {
-  align-items: flex-start;
-}
-
-:deep(.arco-list-item-meta-content) {
-  flex: 1;
-}
-
-:deep(.arco-list-item-meta-description) {
-  margin-top: 4px;
-}
 
 </style>
