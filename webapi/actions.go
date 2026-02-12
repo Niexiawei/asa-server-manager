@@ -13,6 +13,7 @@ import (
 	"log"
 	"net/http"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -153,16 +154,6 @@ func (s *APIServer) Stop() error {
 
 // setupRoutes configures all API endpoints
 func (s *APIServer) setupRoutes() {
-	distFs := app.GetDistFs()
-	fs, err := static.EmbedFolder(distFs, "dist")
-	if err != nil {
-		panic(err)
-	}
-	appVue := func() gin.HandlerFunc {
-		return static.Serve("/", fs)
-	}
-	//s.engine.StaticFS("/", http.FS(distFs))
-	s.engine.Use(appVue())
 
 	s.engine.GET("/health", s.health)
 	// Instance management endpoints
@@ -183,9 +174,16 @@ func (s *APIServer) setupRoutes() {
 		server.GET("/:name/start", s.startServer)
 		server.GET("/:name/stop", s.stopServer)
 		server.GET("/:name/restart", s.restartServer)
+		server.GET("/:name/info", s.streamInstanceInfo)
+
 		server.GET("/start-all", s.startAllServers)
 		server.GET("/stop-all", s.stopAllServers)
 		server.GET("/restart-all", s.restartAllServers)
+		// Server update endpoints
+		server.GET("/update", s.handleServerUpdate)
+		// Server info endpoints
+		server.GET("/info", s.streamServerInfo)
+		server.GET("/all-info", s.streamAllInstancesInfo)
 	}
 
 	// RCON endpoints
@@ -224,14 +222,6 @@ func (s *APIServer) setupRoutes() {
 		config.POST("/sync-instance", s.syncInstanceConfig)
 	}
 
-	// Server update endpoints
-	s.engine.GET("/api/server/update", s.handleServerUpdate)
-
-	// Server info endpoints
-	s.engine.GET("/api/server/info", s.streamServerInfo)
-	s.engine.GET("/api/server/:name/info", s.streamInstanceInfo)
-	s.engine.GET("/api/server/all-info", s.streamAllInstancesInfo)
-
 	// Mod info endpoint
 	s.engine.GET("/api/mod-info", s.getModInfo)
 	// WebSocket endpoints
@@ -242,7 +232,24 @@ func (s *APIServer) setupRoutes() {
 	frpmanage.RegisterFRPRoutes(s.engine)
 	syncthingmanage.RegisterSyncthingRoutes(s.engine)
 
+	distFs := app.GetDistFs()
+	fs, err := static.EmbedFolder(distFs, "dist")
+	if err != nil {
+		panic(err)
+	}
+
+	appVue := func() gin.HandlerFunc {
+		return static.Serve("/", fs)
+	}
+	s.engine.Use(appVue())
+
 	s.engine.NoRoute(func(c *gin.Context) {
+		log.Println(c.Request.URL.Path)
+		if strings.HasPrefix(c.Request.URL.Path, "/api") {
+			c.JSON(404, gin.H{"error": "not found"})
+			return
+		}
+
 		f, err := distFs.Open("dist/index.html")
 		if err != nil {
 			c.Status(http.StatusNotFound)

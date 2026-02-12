@@ -10,13 +10,17 @@
         v-else
         :data="statusHistory"
         :split="false"
-        :virtualListProps="{
-          height: height,
-          itemHeight: 46,
-          overscanCount: 5
+        :style="{
+          height: `${height}px`
+        }"
+        :scroll="{
+          type: 'virtual',
+          rowHeight: 46,
+          bufferSize: 10,
+          threshold: 10
         }"
     >
-      <template #item="{ item,index }">
+      <t-list-item v-for="(item,index) in statusHistory" :key="index">
         <div class="status-item" :key="index">
           <t-tag class="status-tag" :theme="getTagTheme(item.status)">
             {{ getStatusText(item.status) }}
@@ -35,7 +39,7 @@
             </div>
           </div>
         </div>
-      </template>
+      </t-list-item>
     </t-list>
   </div>
 </template>
@@ -72,7 +76,7 @@ const getStatusText = (status) => {
     'stop_failed': '停止失败',
     'restart_failed': '重启失败',
     'restart': '重启中',
-    'start_initialization_successful':'初始化成功'
+    'start_initialization_successful': '初始化成功'
   };
   return statusMap[status] || status;
 };
@@ -127,7 +131,7 @@ const loadStatusHistory = async () => {
 // 监听 WebSocket 事件，自动刷新历史状态
 const handleServerEvent = (event) => {
   const {event_type, instance_name} = event;
-  
+
   // 只有实例相关的状态变化事件才需要刷新列表
   const statusChangeEvents = [
     'server_starting',
@@ -139,7 +143,7 @@ const handleServerEvent = (event) => {
     'server_restart_failed',
     'restart'
   ];
-  
+
   // 如果是目标实例的状态变化事件，刷新历史列表
   if (instance_name === props.instanceName && statusChangeEvents.includes(event_type)) {
     loadStatusHistory();

@@ -17,16 +17,6 @@ export default defineConfig({
             output: {
                 manualChunks(id) {
                     if (!id.includes('node_modules')) return
-
-                    // 1️⃣ Vue 核心
-                    if (
-                        id.includes('/vue/') ||
-                        id.includes('vue-router') ||
-                        id.includes('@vueuse')
-                    ) {
-                        return 'vue'
-                    }
-
                     // 2️⃣ Monaco（必须独立）
                     if (id.includes('monaco-editor')) {
                         return 'monaco'
@@ -40,11 +30,6 @@ export default defineConfig({
                     if (id.includes('axios')) {
                         return 'axios'
                     }
-
-                    if (id.includes('tdesign')) {
-                        return 'tdesign'
-                    }
-
                     // 4️⃣ 其他第三方
                     if (
                         id.includes('dayjs') ||

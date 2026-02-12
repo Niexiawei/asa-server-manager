@@ -1,13 +1,19 @@
 <template>
   <div class="ws-notification" style="margin-left: auto; padding-right: 20px;">
-    <t-popup placement="bottom-right" trigger="click" class="ws-notification-popover">
+    <t-popup placement="bottom-right" trigger="click" showArrow class="ws-notification-popover">
       <template #content>
-        <t-card :bordered="false">
+        <t-card :bordered="false" headerBordered>
           <template #title>
             <div class="popover-header">
               <span class="popover-title">事件 ({{ wsEvents.length }})</span>
-              <t-button variant="outline" size="small" @click="clearEvents">清空</t-button>
             </div>
+          </template>
+          <template #actions>
+            <t-button theme="danger" @click="clearEvents" shape="circle">
+              <template #icon>
+                <ClearIcon/>
+              </template>
+            </t-button>
           </template>
           <div class="event-popover-content">
             <div class="event-list">
@@ -30,7 +36,9 @@
           </div>
         </t-card>
       </template>
-      <t-badge :count="wsEvents.length" :max-count="99" class="bell-icon">
+      <t-badge :count="wsEvents.length" :max-count="99" class="bell-icon"
+               :offset="[5, 5]"
+      >
         <t-button variant="text" size="large" class="notification-btn">
           <template #icon>
             <notification-icon/>
@@ -44,7 +52,7 @@
 <script setup>
 import {onMounted, onUnmounted, ref} from 'vue';
 import {onAnyServerEvent} from '@/utils/wsManager.js';
-import {NotificationIcon} from 'tdesign-icons-vue-next';
+import {ClearIcon, NotificationIcon} from 'tdesign-icons-vue-next';
 import dayjs from "dayjs";
 
 const wsEvents = ref([])
@@ -160,12 +168,6 @@ onUnmounted(() => {
       color: #000;
     }
   }
-
-  :deep(.t-badge__count) {
-    background-color: #f53f3f;
-    color: #ffffff;
-    font-size: 12px;
-  }
 }
 
 
@@ -195,17 +197,17 @@ onUnmounted(() => {
     width: 100%;
     padding: 15px;
     box-sizing: border-box;
-
-    :deep(.t-timeline-item__dot) {
-      width: 13px;
-
-      .t-timeline-item__dot-content {
-        width: 13px;
-        height: 13px;
-        border: 3px solid #fff;
-        box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
-      }
-    }
+    //
+    //:deep(.t-timeline-item__dot) {
+    //  width: 13px;
+    //
+    //  .t-timeline-item__dot-content {
+    //    width: 13px;
+    //    height: 13px;
+    //    border: 3px solid #fff;
+    //    box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
+    //  }
+    //}
 
     .empty-state {
       padding: 30px 20px;
@@ -214,11 +216,11 @@ onUnmounted(() => {
       font-size: 14px;
     }
 
-    :deep(.t-timeline) {
-      .t-timeline-item {
-        padding-bottom: 16px;
-      }
-    }
+    //:deep(.t-timeline) {
+    //  .t-timeline-item {
+    //    padding-bottom: 16px;
+    //  }
+    //}
 
     .timeline-content {
 

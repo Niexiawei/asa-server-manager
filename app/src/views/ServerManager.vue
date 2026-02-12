@@ -348,7 +348,7 @@ const createInstanceHandler = async () => {
 
 // 启动实例
 const startInstance = async (name) => {
-  DialogPlugin.confirm({
+  let startDialog = DialogPlugin.confirm({
     header: '提示',
     body: `确定要启动实例 "${name}" 吗？`,
     confirmBtn: '确定',
@@ -356,6 +356,7 @@ const startInstance = async (name) => {
     onConfirm: async () => {
       // 设置 loading 状态
       instanceLoadingMap.value.set(name, true)
+      startDialog.hide()
 
       try {
         // 使用 SSE 方式调用启动
@@ -407,7 +408,7 @@ const startInstance = async (name) => {
 
 // 停止实例
 const stopInstance = async (name) => {
-  DialogPlugin.confirm({
+  let stopDialog = DialogPlugin.confirm({
     header: '提示',
     body: `确定要停止实例 "${name}" 吗？`,
     confirmBtn: '确定',
@@ -415,6 +416,7 @@ const stopInstance = async (name) => {
     onConfirm: async () => {
       // 设置停止操作 loading 状态
       operationLoadingMap.value.set(`${name}-stop`, true)
+      stopDialog.hide()
 
       try {
         const data = await stopServer(name)
@@ -442,7 +444,7 @@ const stopInstance = async (name) => {
 
 // 重启实例
 const restartInstance = async (name) => {
-  DialogPlugin.confirm({
+  let restartDialog = DialogPlugin.confirm({
     header: '提示',
     body: `确定要重启实例 "${name}" 吗？`,
     confirmBtn: '确定',
@@ -450,7 +452,7 @@ const restartInstance = async (name) => {
     onConfirm: async () => {
       // 设置重启操作 loading 状态
       operationLoadingMap.value.set(`${name}-restart`, true)
-
+      restartDialog.hide()
       try {
         // 使用 SSE 方式调用重启
         restartServerSSE(
@@ -487,12 +489,13 @@ const restartInstance = async (name) => {
 
 // 删除实例
 const deleteInstanceHandler = async (name) => {
-  DialogPlugin.confirm({
+  let delDialog = DialogPlugin.confirm({
     header: '确认',
     body: `确定要删除实例 "${name}" 吗？`,
     confirmBtn: '确定',
     cancelBtn: '取消',
     onConfirm: async () => {
+      delDialog.setConfirmLoading(true)
       try {
         const data = await deleteInstance(name)
         if (data.success) {
@@ -503,6 +506,9 @@ const deleteInstanceHandler = async (name) => {
         }
       } catch (error) {
         console.error('删除实例失败:', error)
+      } finally {
+        delDialog.setConfirmLoading(false)
+        delDialog.hide()
       }
     }
   })

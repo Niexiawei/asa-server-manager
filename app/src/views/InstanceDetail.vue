@@ -1,6 +1,6 @@
 <template>
   <div class="instance-detail">
-    <t-card class="detail-card" :bordered="false">
+    <t-card class="detail-card" :bordered="false" headerBordered>
       <template #title>
         <div class="detail-header">
           <t-button
@@ -16,45 +16,43 @@
           <t-tag :theme="instanceData?.running ? 'success' : 'default'">
             {{ instanceData?.running ? '运行中' : '已停止' }}
           </t-tag>
-          <t-space style="margin-left: 20px">
-            <t-button
-                @click="startInstance"
-                :disabled="instanceData?.running || instanceStartLoading"
-                :loading="instanceStartLoading"
-                theme="primary"
-                size="small"
-            >
-              启动
-            </t-button>
-            <t-button
-                @click="stopInstance"
-                :disabled="!instanceData?.running || instanceStopLoading"
-                :loading="instanceStopLoading"
-                theme="warning"
-                size="small"
-            >
-              停止
-            </t-button>
-            <t-button
-                @click="restartInstance"
-                :disabled="!instanceData?.running || instanceRestartLoading"
-                :loading="instanceRestartLoading"
-                theme="success"
-                size="small"
-            >
-              重启
-            </t-button>
-            <t-divider layout="vertical" :margin="8" style="height: 24px"/>
-            <t-button
-                @click="rconFloatingVisible = true"
-                :disabled="!instanceData?.running"
-                theme="primary"
-                size="small"
-            >
-              RCON 终端
-            </t-button>
-          </t-space>
         </div>
+      </template>
+      <template #actions>
+        <t-space breakLine>
+          <t-button
+              @click="startInstance"
+              :disabled="instanceData?.running || instanceStartLoading"
+              :loading="instanceStartLoading"
+              theme="primary"
+          >
+            启动
+          </t-button>
+          <t-button
+              @click="stopInstance"
+              :disabled="!instanceData?.running || instanceStopLoading"
+              :loading="instanceStopLoading"
+              theme="warning"
+          >
+            停止
+          </t-button>
+          <t-button
+              @click="restartInstance"
+              :disabled="!instanceData?.running || instanceRestartLoading"
+              :loading="instanceRestartLoading"
+              theme="success"
+          >
+            重启
+          </t-button>
+          <t-divider layout="vertical" style="height: 100%"/>
+          <t-button
+              @click="rconFloatingVisible = true"
+              :disabled="!instanceData?.running"
+              theme="primary"
+          >
+            RCON 终端
+          </t-button>
+        </t-space>
       </template>
 
       <t-loading :loading="loading" style="width: 100%">
@@ -88,28 +86,23 @@
                            class="config-item-value">
                         <div v-if="item.value && item.value !== '-'">
                           <div class="mod-container">
-                            <template v-for="(modId, index) in item.value.split(',')" :key="modId">
-                              <t-tag
-                                  class="mod-tag"
-                                  v-if="modId.trim()"
-                                  theme="primary"
-                                  @click="copyModId(modId.trim())"
-                                  style="cursor: pointer; display: flex; align-items: center; gap: 4px;"
-                              >
-                                {{ getModNameById(modId.trim()) || modId.trim() }}
-                                <file-copy-icon :style="{fontSize: '12px'}"/>
-                              </t-tag>
-                            </template>
+                            <t-tag
+                                v-for="(modId, index) in item.value.split(',')" :key="modId"
+                                class="mod-tag"
+                                theme="primary"
+                                @click="copyModId(modId.trim())"
+                            >
+                              {{ getModNameById(modId.trim()) || modId.trim() }}
+                              <file-copy-icon :style="{fontSize: '12px'}"/>
+                            </t-tag>
+                            <t-tag
+                                @click="copyAllModIds(item.value)"
+                                class="copy-all-btn"
+                            >
+                              <file-copy-icon/>
+                              复制全部
+                            </t-tag>
                           </div>
-                          <t-button
-                              variant="text"
-                              size="small"
-                              @click="copyAllModIds(item.value)"
-                              class="copy-all-btn"
-                          >
-                            <file-copy-icon/>
-                            复制全部
-                          </t-button>
                         </div>
                         <div v-else>
                           {{ item.value }}
@@ -147,7 +140,7 @@
             </t-card>
             <div class="info-right">
               <!-- 资源监控组件 -->
-              <t-card class="config-section resource-monitor-card">
+              <t-card class="config-section resource-monitor-card" headerBordered>
                 <template #title>
                   <div class="config-card-title">
                     <span>资源占用</span>
@@ -159,7 +152,7 @@
                 />
               </t-card>
               <!-- 实例历史状态组件 -->
-              <t-card class="config-section status-history-card">
+              <t-card class="config-section status-history-card" headerBordered>
                 <template #title>
                   <div class="config-card-title">
                     <span>实例历史状态</span>
@@ -1117,7 +1110,7 @@ onUnmounted(() => {
 
 .status-history-card {
   :deep(.t-card__body) {
-    height: calc(100% - 46px) !important;
+    height: calc(100% - 56px) !important;
   }
 }
 
@@ -1267,6 +1260,10 @@ onUnmounted(() => {
         display: flex;
         flex-wrap: wrap;
         gap: 4px;
+
+        > .t-tag {
+          cursor: pointer;
+        }
       }
 
       .copy-all-btn {

@@ -7,7 +7,7 @@
         </div>
       </template>
 
-      <t-space style="margin-bottom: 15px">
+      <t-space style="margin-bottom: 15px" align="center">
         <t-button
             @click="startLogStream"
             theme="primary"
@@ -28,10 +28,10 @@
         >
           清空日志
         </t-button>
-        <t-divider layout="vertical"/>
-        <t-badge :color="isStreaming ? 'green' : 'gray'"
-                 :count="isStreaming ? '监听中' : '已停止'"
-        />
+        <t-divider layout="vertical" style="height: 30px"/>
+        <t-tag :color="isStreaming ? 'green' : 'gray'">
+          {{ isStreaming ? '监听中' : '已停止' }}
+        </t-tag>
         <span style="font-size: 16px">日志行数: {{ logs.length }}</span>
       </t-space>
 

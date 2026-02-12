@@ -1,5 +1,5 @@
 <template>
-  <t-popup placement="bottom-right" trigger="click" :content-style="{ padding: '16px', minWidth: '400px' }">
+  <t-popup placement="bottom-right" trigger="click" showArrow :content-style="{ padding: '16px', minWidth: '400px' }">
     <template #content>
       <div class="server-resource-content">
         <div class="section-title">服务器资源占用</div>
