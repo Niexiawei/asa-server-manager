@@ -244,7 +244,6 @@ func (s *APIServer) setupRoutes() {
 	s.engine.Use(appVue())
 
 	s.engine.NoRoute(func(c *gin.Context) {
-		log.Println(c.Request.URL.Path)
 		if strings.HasPrefix(c.Request.URL.Path, "/api") {
 			c.JSON(404, gin.H{"error": "not found"})
 			return

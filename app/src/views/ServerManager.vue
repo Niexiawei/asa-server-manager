@@ -75,15 +75,14 @@
                                 <file-copy-icon :style="{fontSize: '12px'}"/>
                               </t-tag>
                             </template>
-                          </div>
-                          <t-button
-                              variant="text"
-                              size="small"
-                              @click="copyAllModIds(instance.config.ModIDs)"
-                              class="copy-all-btn"
-                          >
+                            <div class="break"></div>
+                            <t-tag
+                                @click="copyAllModIds(instance.config.ModIDs)"
+                                class="copy-all-btn"
+                            >
                             <file-copy-icon/> 复制全部
-                          </t-button>
+                          </t-tag>
+                          </div>
                         </template>
                         <template v-else>
                           -
@@ -769,6 +768,15 @@ const handleSyncComplete = (result) => {
       display: flex;
       flex-wrap: wrap;
       gap: 4px;
+
+      > .t-tag {
+        cursor: pointer;
+      }
+
+      .break {
+        flex: 0 0 100%;
+        height: 0;
+      }
     }
 
     .copy-all-btn {
@@ -776,6 +784,7 @@ const handleSyncComplete = (result) => {
       font-size: 12px;
       padding: 4px 8px;
       height: auto;
+
     }
   }
 }

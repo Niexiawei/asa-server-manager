@@ -95,6 +95,7 @@
                               {{ getModNameById(modId.trim()) || modId.trim() }}
                               <file-copy-icon :style="{fontSize: '12px'}"/>
                             </t-tag>
+                            <div class="break"></div>
                             <t-tag
                                 @click="copyAllModIds(item.value)"
                                 class="copy-all-btn"
@@ -263,7 +264,7 @@
             </t-collapse-panel>
           </t-collapse>
 
-          <t-card title="实时日志" class="config-section log-viewer-card">
+          <t-card title="实时日志" class="config-section log-viewer-card" headerBordered>
             <log-viewer ref="logViewerRef" :instance-name="instanceName"/>
           </t-card>
         </div>
@@ -1186,7 +1187,7 @@ onUnmounted(() => {
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
 
   :deep(.t-card__body) {
-    height: calc(100% - 45.5px);
+    height: calc(100% - 56px);
     box-sizing: border-box;
   }
 }
@@ -1263,6 +1264,11 @@ onUnmounted(() => {
 
         > .t-tag {
           cursor: pointer;
+        }
+
+        .break{
+          flex: 0 0 100%;
+          height: 0;
         }
       }
 

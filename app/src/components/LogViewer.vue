@@ -1,53 +1,66 @@
 <template>
   <div class="log-viewer">
-    <t-space style="margin-bottom: 15px">
-      <t-button
-          @click="startLogStream"
-          theme="primary"
-          :disabled="isStreaming"
-          ref="startButtonRef"
-      >
-        {{ isStreaming ? '监听中...' : '开始监听' }}
-      </t-button>
-      <t-button
-          @click="stopLogStream"
-          theme="warning"
-          :disabled="!isStreaming"
-          ref="stopButtonRef"
-      >
-        停止监听
-      </t-button>
-      <t-button
-          @click="clearLogs"
-          :disabled="logs.length === 0"
-      >
-        清空日志
-      </t-button>
-      <t-divider layout="vertical"/>
-      <t-badge :color="isStreaming ? 'green' : 'gray'"
-               :count="isStreaming ? '监听中' : '已停止'"
-      />
-      <span style="font-size: 16px">日志行数: {{ logs.length }}</span>
-    </t-space>
+    <div class="header-actions">
+      <t-space style="margin-bottom: 15px" align="center">
+        <t-button
+            @click="startLogStream"
+            theme="primary"
+            :disabled="isStreaming"
+            ref="startButtonRef"
+        >
+          {{ isStreaming ? '监听中...' : '开始监听' }}
+        </t-button>
+        <t-button
+            @click="stopLogStream"
+            theme="warning"
+            :disabled="!isStreaming"
+            ref="stopButtonRef"
+        >
+          停止监听
+        </t-button>
+        <t-button
+            @click="clearLogs"
+            :disabled="logs.length === 0"
+        >
+          清空日志
+        </t-button>
+        <t-divider layout="vertical" style="height: 30px"/>
+        <t-tag :color="isStreaming ? 'green' : 'gray'"
+        >
+          {{ isStreaming ? '监听中' : '已停止' }}
+        </t-tag>
+        <span style="font-size: 16px">日志行数: {{ logs.length }}</span>
+      </t-space>
+      <t-switch v-model="autoScroll"
+                size="large"
+                :label="['自动滚动', '关闭滚动']"
+      ></t-switch>
+    </div>
 
     <div class="log-container" ref="logContainerRef">
       <t-list
           ref="listRef"
-          :data="logs"
-          :virtualListProps="{
-          height: height,
-          itemHeight: 30,
-          overscanCount: 5
+          :split="false"
+          :style="{
+          height: `${height}px`
+        }"
+          :scroll="{
+          type: 'virtual',
+          rowHeight: 30,
+          bufferSize: 10,
+          threshold: 10
         }"
           class="log-content"
       >
-        <template #item="{ item, index }">
-          <div class="log-line">
-            <span class="log-number">{{ index + 1 }}</span>
-            <span class="log-text">{{ item }}</span>
-          </div>
+        <template v-if="logs?.length > 0">
+          <t-list-item v-for="(item,index) in logs" :key="index">
+            <div class="log-line">
+              <span class="log-number">{{ index + 1 }}</span>
+              <span class="log-text">{{ item }}</span>
+            </div>
+          </t-list-item>
         </template>
-        <template #empty>
+        <template v-else>
           <div class="empty-logs"
                :style="{
             marginTop: (height / 2 ) - 100 + 'px'
@@ -77,28 +90,28 @@ const props = defineProps({
 const el = useTemplateRef('logContainerRef')
 const {width, height} = useElementSize(el)
 
+const autoScroll = ref(true)
 const logs = ref([])
 const isStreaming = ref(false)
 const listRef = ref(null)
 let stopLogStream_func = null
 let resizeObserver = null
+let scrollInterval = null
+
+
+scrollInterval = setInterval(() => {
+  scrollToBottom()
+}, 500)
+
 
 // 滚动到底部
 const scrollToBottom = () => {
-  nextTick(() => {
-    if (listRef.value && listRef.value.$el) {
-      const virtualList = listRef.value.$el.querySelector('.t-virtual-list')
-      if (virtualList) {
-        // 使用 setTimeout 确保 DOM 已完全渲染
-        setTimeout(() => {
-          //virtualList.scrollTop = virtualList.scrollHeight
-          listRef.value.scrollIntoView({
-            index: logs.value.length - 1,
-            align: "bottom"
-          })
-        }, 50)
-      }
-    }
+  if (!autoScroll.value) {
+    return
+  }
+  listRef.value?.scrollTo({
+    index: logs.value?.length - 1,
+    behavior: 'smooth',
   })
 }
 
@@ -112,10 +125,6 @@ const startLogStream = () => {
       // onLog 回调
       (line) => {
         logs.value.push(line)
-        // 自动滚动到底部
-        nextTick(() => {
-          scrollToBottom()
-        })
       },
       // onError 回调
       (error) => {
@@ -154,7 +163,7 @@ watch(
     (newVal) => {
       // 判断是否应该监听日志
       const shouldMonitor = newVal.isStartingOrRunning === true ||
-          ['starting', 'started', 'stopping','started'].includes(newVal.status)
+          ['starting', 'started', 'stopping', 'started'].includes(newVal.status)
 
       if (shouldMonitor && !isStreaming.value) {
         startLogStream()
@@ -175,6 +184,9 @@ onUnmounted(() => {
   if (isStreaming.value) {
     stopLogStream()
   }
+  if (scrollInterval) {
+    clearInterval(scrollInterval)
+  }
 })
 
 // 暴露函数给父组件
@@ -193,6 +205,12 @@ defineExpose({
 </script>
 
 <style scoped lang="less">
+.header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
 .log-viewer {
   display: flex;
   flex-direction: column;
@@ -205,25 +223,31 @@ defineExpose({
 }
 
 .log-container {
-  border: 1px solid var(--color-border);
   border-radius: 4px;
-  background-color: #1a1a1a;
-  overflow: hidden;
   flex: 1;
   display: flex;
-  flex-direction: column;
   min-height: 0;
+  overflow: hidden;
 }
 
 .log-content {
   flex: 1;
-  overflow: hidden;
-  font-family: 'Courier New', monospace;
   font-size: 14px;
-  background-color: #1a1a1a;
+  background: #1a1a1a !important;
   color: #e0e0e0;
   height: 100%;
   box-sizing: border-box;
+
+  &::-webkit-scrollbar-thumb{
+    background-color: rgba(255,255,255,0.7);
+    &:hover{
+      background-color: rgba(255,255,255,0.7);
+    }
+  }
+
+  :deep(.t-list-item) {
+    padding: 2px 0 !important;
+  }
 }
 
 .log-line {
