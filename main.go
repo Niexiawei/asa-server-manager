@@ -3,6 +3,7 @@ package main
 import (
 	"asa-server/actions"
 	"asa-server/asaserver"
+	"asa-server/gui"
 	"asa-server/logger"
 	"asa-server/webapi"
 	"asa-server/winservice"
@@ -107,16 +108,35 @@ func main() {
 					},
 				},
 			},
+			{
+				Name:   "gui",
+				Usage:  "Start GUI mode",
+				Action: actionGUI,
+			},
 		},
 	}
 
+	// Check if running as Windows service and run service
 	if isService {
 		logger.SetLogMode(logger.ServicesMode)
 		winservice.RunService(false)
 		return
 	}
 
+	// If no arguments provided, start GUI mode
+	if len(os.Args) == 1 {
+		actionGUI(context.Background(), nil)
+		return
+	}
+
 	if err := app.Run(context.Background(), os.Args); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// actionGUI starts the GUI application
+func actionGUI(ctx context.Context, cmd *cli.Command) error {
+	guiApp := gui.NewGUIApp()
+	guiApp.Run()
+	return nil
 }
