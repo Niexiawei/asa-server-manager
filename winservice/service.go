@@ -67,8 +67,8 @@ func (p *program) Stop(s service.Service) error {
 	return nil
 }
 
-// installService installs the Windows service
-func installService() error {
+// InstallService installs the Windows service
+func InstallService() error {
 	prg := &program{}
 	s, err := service.New(prg, &service.Config{
 		Name:        ServiceName,
@@ -88,8 +88,8 @@ func installService() error {
 	return nil
 }
 
-// removeService removes the Windows service
-func removeService() error {
+// RemoveService removes the Windows service
+func RemoveService() error {
 	prg := &program{}
 	s, err := service.New(prg, &service.Config{
 		Name:        ServiceName,
@@ -100,6 +100,10 @@ func removeService() error {
 		return err
 	}
 
+	// Try to stop first
+	_ = s.Stop()
+	time.Sleep(500 * time.Millisecond)
+
 	err = s.Uninstall()
 	if err != nil {
 		return err
@@ -109,8 +113,8 @@ func removeService() error {
 	return nil
 }
 
-// startService starts the Windows service
-func startService() error {
+// StartService starts the Windows service
+func StartService() error {
 	prg := &program{}
 	s, err := service.New(prg, &service.Config{
 		Name:        ServiceName,
@@ -130,8 +134,8 @@ func startService() error {
 	return nil
 }
 
-// stopService stops the Windows service
-func stopService() error {
+// StopService stops the Windows service
+func StopService() error {
 	prg := &program{}
 	s, err := service.New(prg, &service.Config{
 		Name:        ServiceName,
@@ -149,6 +153,26 @@ func stopService() error {
 
 	fmt.Printf("Service %s stopped successfully\n", ServiceName)
 	return nil
+}
+
+// installService installs the Windows service (internal use)
+func installService() error {
+	return InstallService()
+}
+
+// removeService removes the Windows service (internal use)
+func removeService() error {
+	return RemoveService()
+}
+
+// startService starts the Windows service (internal use)
+func startService() error {
+	return StartService()
+}
+
+// stopService stops the Windows service (internal use)
+func stopService() error {
+	return StopService()
 }
 
 // RunService runs the service

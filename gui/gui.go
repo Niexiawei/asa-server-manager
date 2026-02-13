@@ -1,6 +1,7 @@
 package gui
 
 import (
+	"asa-server/asaserver"
 	"asa-server/serverinfo"
 	"asa-server/winservice"
 	_ "embed"
@@ -37,6 +38,12 @@ const (
 	StatusUnknown      ServiceStatus = "未知"
 )
 
+// InstanceInfo holds information about a game server instance
+type InstanceInfo struct {
+	Name    string
+	Running bool
+}
+
 // GUIApp holds the GUI application state
 type GUIApp struct {
 	app         fyne.App
@@ -53,6 +60,9 @@ type GUIApp struct {
 	memUsedLabel     *widget.Label
 	resourceError    *widget.Label
 	stopResourceChan chan struct{}
+	// Instance list
+	instances    []InstanceInfo
+	instanceList *widget.List
 }
 
 // NewGUIApp creates a new GUI application
@@ -161,6 +171,56 @@ func (g *GUIApp) stopResourceMonitoring() {
 	default:
 		close(g.stopResourceChan)
 	}
+}
+
+// fetchInstances fetches the list of game server instances
+func (g *GUIApp) fetchInstances() {
+	instances, err := asaserver.GetAvailableInstances()
+	if err != nil {
+		return
+	}
+
+	g.instances = make([]InstanceInfo, 0, len(instances))
+	for _, name := range instances {
+		running, err := asaserver.IsServerRunning(name)
+		if err != nil {
+			running = false
+		}
+		g.instances = append(g.instances, InstanceInfo{
+			Name:    name,
+			Running: running,
+		})
+	}
+}
+
+// startInstanceMonitoring starts monitoring instance status
+func (g *GUIApp) startInstanceMonitoring() {
+	go func() {
+		ticker := time.NewTicker(3 * time.Second)
+		defer ticker.Stop()
+
+		// Initial fetch
+		g.fetchInstances()
+		fyne.Do(func() {
+			if g.instanceList != nil {
+				g.instanceList.Refresh()
+			}
+		})
+
+		for {
+			select {
+			case <-g.stopResourceChan:
+				return
+			case <-ticker.C:
+				g.fetchInstances()
+				fyne.Do(func() {
+					if g.instanceList != nil {
+						g.instanceList.Refresh()
+					}
+				})
+			}
+		}
+	}()
 }
 
 // getServiceStatus checks the current status of the service
@@ -326,20 +386,7 @@ func (g *GUIApp) installService() {
 
 	// Confirm installation
 	g.showConfirm("确认安装", "确定要安装 ASA Server 服务吗？", func() {
-		prg := &program{}
-		s, err := service.New(prg, &service.Config{
-			Name:        winservice.ServiceName,
-			DisplayName: winservice.ServiceDisplayName,
-			Description: winservice.ServiceDescription,
-			Arguments:   []string{"service-run"},
-		})
-		if err != nil {
-			g.showError(fmt.Errorf("创建服务失败: %v", err))
-			return
-		}
-
-		err = s.Install()
-		if err != nil {
+		if err := winservice.InstallService(); err != nil {
 			g.showError(fmt.Errorf("安装服务失败: %v", err))
 			return
 		}
@@ -365,23 +412,7 @@ func (g *GUIApp) uninstallService() {
 
 	// Confirm uninstallation
 	g.showConfirm("确认卸载", "确定要卸载 ASA Server 服务吗？\n卸载前会先停止服务。", func() {
-		prg := &program{}
-		s, err := service.New(prg, &service.Config{
-			Name:        winservice.ServiceName,
-			DisplayName: winservice.ServiceDisplayName,
-			Description: winservice.ServiceDescription,
-		})
-		if err != nil {
-			g.showError(fmt.Errorf("创建服务失败: %v", err))
-			return
-		}
-
-		// Try to stop first
-		_ = s.Stop()
-		time.Sleep(500 * time.Millisecond)
-
-		err = s.Uninstall()
-		if err != nil {
+		if err := winservice.RemoveService(); err != nil {
 			g.showError(fmt.Errorf("卸载服务失败: %v", err))
 			return
 		}
@@ -393,19 +424,7 @@ func (g *GUIApp) uninstallService() {
 
 // startService starts the Windows service
 func (g *GUIApp) startService() {
-	prg := &program{}
-	s, err := service.New(prg, &service.Config{
-		Name:        winservice.ServiceName,
-		DisplayName: winservice.ServiceDisplayName,
-		Description: winservice.ServiceDescription,
-	})
-	if err != nil {
-		g.showError(fmt.Errorf("创建服务失败: %v", err))
-		return
-	}
-
-	err = s.Start()
-	if err != nil {
+	if err := winservice.StartService(); err != nil {
 		g.showError(fmt.Errorf("启动服务失败: %v", err))
 		return
 	}
@@ -416,19 +435,7 @@ func (g *GUIApp) startService() {
 
 // stopService stops the Windows service
 func (g *GUIApp) stopService() {
-	prg := &program{}
-	s, err := service.New(prg, &service.Config{
-		Name:        winservice.ServiceName,
-		DisplayName: winservice.ServiceDisplayName,
-		Description: winservice.ServiceDescription,
-	})
-	if err != nil {
-		g.showError(fmt.Errorf("创建服务失败: %v", err))
-		return
-	}
-
-	err = s.Stop()
-	if err != nil {
+	if err := winservice.StopService(); err != nil {
 		g.showError(fmt.Errorf("停止服务失败: %v", err))
 		return
 	}
@@ -454,6 +461,14 @@ func (g *GUIApp) confirmAndQuit() {
 	})
 }
 
+// showMainWindow shows the main window with layout fix for Windows
+func (g *GUIApp) showMainWindow() {
+	// Fix for Windows: Hide then show to force window recreation
+	g.window.Hide()
+	g.window.Show()
+	g.window.RequestFocus()
+}
+
 // createTray creates the system tray icon and menu
 func (g *GUIApp) createTray() {
 	if desk, ok := g.app.(desktop.App); ok {
@@ -464,7 +479,7 @@ func (g *GUIApp) createTray() {
 			fyne.NewMenuItem("● 服务状态: 检查中...", nil),
 			fyne.NewMenuItemSeparator(),
 			fyne.NewMenuItem("显示主窗口", func() {
-				g.window.Show()
+				g.showMainWindow()
 			}),
 			fyne.NewMenuItem("打开 Web 界面", func() {
 				g.openWebUI()
@@ -499,7 +514,6 @@ func (g *GUIApp) createMainWindow() {
 	g.window = g.app.NewWindow("ASA Server Manager")
 	g.window.SetMaster()
 	g.window.Resize(fyne.NewSize(380, 520))
-	g.window.SetFixedSize(true)
 
 	// Set window icon from embedded webp file
 	if len(trayIconData) > 0 {
@@ -517,40 +531,44 @@ func (g *GUIApp) createMainWindow() {
 	statusSection.TextStyle = fyne.TextStyle{Bold: true}
 
 	g.statusLabel = widget.NewLabel("状态: 检查中...")
+	g.statusLabel.Alignment = fyne.TextAlignCenter
 	g.statusIcon = widget.NewIcon(theme.QuestionIcon())
 
-	// Status row with vertical centering
-	iconBox := container.NewCenter(g.statusIcon)
-	labelBox := container.NewCenter(g.statusLabel)
-	statusRow := container.NewHBox(iconBox, labelBox)
+	// Status row - left aligned with vertical centering
+	statusRow := container.NewHBox(g.statusIcon, g.statusLabel)
 	statusBox := container.NewPadded(statusRow)
 
 	// Resource Monitor Section
 	resourceSection := widget.NewLabel("资源监控")
 	resourceSection.TextStyle = fyne.TextStyle{Bold: true}
 
-	// CPU Progress
+	// CPU Progress - use Border layout for alignment
 	cpuLabelTitle := widget.NewLabel("CPU 使用率:")
+	cpuLabelTitleContainer := container.NewGridWithColumns(1, cpuLabelTitle)
 	g.cpuLabel = widget.NewLabel("--")
+	g.cpuLabel.Alignment = fyne.TextAlignTrailing
 	g.cpuProgress = widget.NewProgressBar()
 	g.cpuProgress.Min = 0
 	g.cpuProgress.Max = 1
 
 	cpuBox := container.NewVBox(
-		container.NewHBox(cpuLabelTitle, g.cpuLabel),
+		container.NewBorder(nil, nil, cpuLabelTitleContainer, nil, g.cpuLabel),
 		g.cpuProgress,
 	)
 
-	// Memory Progress
+	// Memory Progress - use Border layout for alignment
 	memLabelTitle := widget.NewLabel("内存使用率:")
+	memLabelTitleContainer := container.NewGridWithColumns(1, memLabelTitle)
 	g.memLabel = widget.NewLabel("--")
+	g.memLabel.Alignment = fyne.TextAlignTrailing
 	g.memProgress = widget.NewProgressBar()
 	g.memProgress.Min = 0
 	g.memProgress.Max = 1
 	g.memUsedLabel = widget.NewLabel("-- / --")
+	//g.memUsedLabel.Alignment = fyne.
 
 	memBox := container.NewVBox(
-		container.NewHBox(memLabelTitle, g.memLabel),
+		container.NewBorder(nil, nil, memLabelTitleContainer, nil, g.memLabel),
 		g.memProgress,
 		g.memUsedLabel,
 	)
@@ -688,17 +706,6 @@ func (m *myTheme) Icon(name fyne.ThemeIconName) fyne.Resource {
 
 func (m *myTheme) Size(name fyne.ThemeSizeName) float32 {
 	return theme.DefaultTheme().Size(name)
-}
-
-// program implements the service.Service interface for service operations
-type program struct{}
-
-func (p *program) Start(s service.Service) error {
-	return nil
-}
-
-func (p *program) Stop(s service.Service) error {
-	return nil
 }
 
 // makeButtonBox creates a button container that fills available width
