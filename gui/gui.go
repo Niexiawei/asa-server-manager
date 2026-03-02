@@ -2,6 +2,7 @@ package gui
 
 import (
 	"asa-server/asaserver"
+	"asa-server/logger"
 	"asa-server/serverinfo"
 	"asa-server/winservice"
 	_ "embed"
@@ -9,14 +10,17 @@ import (
 	"image/color"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"syscall"
 	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/driver/desktop"
+	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"github.com/kardianos/service"
@@ -63,6 +67,14 @@ type GUIApp struct {
 	// Instance list
 	instances    []InstanceInfo
 	instanceList *widget.List
+	// Log viewer
+	logWindow       fyne.Window
+	logText         *widget.RichText
+	logStatusLabel  *widget.Label
+	logScroll       *container.Scroll
+	isLogStreaming  bool
+	autoScroll      bool
+	stopLogFunc     func()
 }
 
 // NewGUIApp creates a new GUI application
@@ -70,6 +82,8 @@ func NewGUIApp() *GUIApp {
 	return &GUIApp{
 		app:              app.NewWithID("com.asa.server.manager"),
 		stopResourceChan: make(chan struct{}),
+		isLogStreaming:   false,
+		autoScroll:       true,
 	}
 }
 
@@ -613,6 +627,10 @@ func (g *GUIApp) createMainWindow() {
 		g.openWebUI()
 	})
 
+	viewLogsBtn := widget.NewButtonWithIcon("查看系统日志", theme.DocumentIcon(), func() {
+		g.openLogViewer()
+	})
+
 	exitBtn := widget.NewButtonWithIcon("退出", theme.LogoutIcon(), func() {
 		g.confirmAndQuit()
 	})
@@ -627,9 +645,10 @@ func (g *GUIApp) createMainWindow() {
 	)
 
 	// Other buttons - buttons fill the grid columns
-	otherButtons := container.NewGridWithColumns(2,
+	otherButtons := container.NewGridWithColumns(3,
 		makeButtonBox(refreshBtn),
 		makeButtonBox(openWebBtn),
+		makeButtonBox(viewLogsBtn),
 	)
 
 	// Exit button row
@@ -708,8 +727,274 @@ func (m *myTheme) Size(name fyne.ThemeSizeName) float32 {
 	return theme.DefaultTheme().Size(name)
 }
 
+// logTheme is a dark theme for log viewer with white text and visible scrollbar
+type logTheme struct{}
+
+func (t *logTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) color.Color {
+	switch name {
+	case theme.ColorNameForeground:
+		return color.White // White text
+	case theme.ColorNameScrollBar:
+		return color.NRGBA{R: 100, G: 100, B: 100, A: 200} // Visible scrollbar
+	case theme.ColorNameInputBackground:
+		return color.NRGBA{R: 30, G: 30, B: 30, A: 255} // Dark input background
+	case theme.ColorNameBackground:
+		return color.NRGBA{R: 20, G: 20, B: 20, A: 255} // Dark background
+	case theme.ColorNamePlaceHolder:
+		return color.NRGBA{R: 128, G: 128, B: 128, A: 255} // Gray placeholder
+	case theme.ColorNameDisabled:
+		return color.NRGBA{R: 200, G: 200, B: 200, A: 255} // Disabled text (still visible)
+	default:
+		return theme.DefaultTheme().Color(name, variant)
+	}
+}
+
+func (t *logTheme) Font(style fyne.TextStyle) fyne.Resource {
+	return theme.DefaultTheme().Font(style)
+}
+
+func (t *logTheme) Icon(name fyne.ThemeIconName) fyne.Resource {
+	return theme.DefaultTheme().Icon(name)
+}
+
+func (t *logTheme) Size(name fyne.ThemeSizeName) float32 {
+	return theme.DefaultTheme().Size(name)
+}
+
 // makeButtonBox creates a button container that fills available width
 func makeButtonBox(btn *widget.Button) *fyne.Container {
 	// Use Border layout to make button fill horizontal space
 	return container.NewBorder(nil, nil, nil, nil, btn)
+}
+
+// ==================== System Log Viewer ====================
+
+// LogViewerButtons holds references to log viewer buttons for state management
+type LogViewerButtons struct {
+	startBtn  *widget.Button
+	stopBtn   *widget.Button
+	clearBtn  *widget.Button
+	refreshBtn *widget.Button
+}
+
+var logButtons *LogViewerButtons
+
+// getLogFilePath returns the path to the system log file
+func (g *GUIApp) getLogFilePath() string {
+	// Try to get from logger package first
+	logPath := logger.GetLogFilePath()
+	if logPath != "" {
+		return logPath
+	}
+	// Fallback to default path
+	return filepath.Join("logs", "asaServer.log")
+}
+
+// updateLogButtonsState updates button states based on streaming status
+func (g *GUIApp) updateLogButtonsState() {
+	if logButtons == nil {
+		return
+	}
+	fyne.Do(func() {
+		logButtons.startBtn.Disable()
+		logButtons.stopBtn.Disable()
+		logButtons.clearBtn.Disable()
+		logButtons.refreshBtn.Disable()
+
+		if g.isLogStreaming {
+			logButtons.stopBtn.Enable()
+			logButtons.refreshBtn.Enable()
+		} else {
+			logButtons.startBtn.Enable()
+			logButtons.clearBtn.Enable()
+			logButtons.refreshBtn.Enable()
+		}
+	})
+}
+
+// startLogStreaming starts the log streaming using asaserver.TailLogFileWithLines
+func (g *GUIApp) startLogStreaming() {
+	if g.isLogStreaming {
+		return
+	}
+
+	g.isLogStreaming = true
+	g.updateLogButtonsState()
+
+	// Update UI status
+	fyne.Do(func() {
+		if g.logStatusLabel != nil {
+			g.logStatusLabel.SetText("状态: 监听中...")
+		}
+	})
+
+	// Use asaserver.TailLogFileWithLines for efficient log tailing
+	logPath := g.getLogFilePath()
+	g.stopLogFunc = asaserver.TailLogFileWithLines(logPath, 100, func(line string) {
+		fyne.Do(func() {
+			if g.logText != nil {
+				// Create white text segment
+				segment := &widget.TextSegment{
+					Style: widget.RichTextStyle{
+						ColorName: theme.ColorNameForeground,
+						TextStyle: fyne.TextStyle{Monospace: true},
+					},
+					Text: line + "\n",
+				}
+
+				// Append new segment
+				g.logText.Segments = append(g.logText.Segments, segment)
+				g.logText.Refresh()
+
+				// Auto scroll to bottom only if auto scroll is enabled
+				if g.autoScroll && g.logScroll != nil {
+					g.logScroll.ScrollToBottom()
+				}
+			}
+		})
+	})
+}
+
+// stopLogStreaming stops the log streaming
+func (g *GUIApp) stopLogStreaming() {
+	if !g.isLogStreaming {
+		return
+	}
+
+	g.isLogStreaming = false
+	if g.stopLogFunc != nil {
+		g.stopLogFunc()
+		g.stopLogFunc = nil
+	}
+	g.updateLogButtonsState()
+
+	// Update UI status
+	fyne.Do(func() {
+		if g.logStatusLabel != nil {
+			g.logStatusLabel.SetText("状态: 已停止")
+		}
+	})
+}
+
+// clearLogs clears the log text
+func (g *GUIApp) clearLogs() {
+	if g.logText != nil {
+		g.logText.Segments = nil
+		g.logText.Refresh()
+	}
+}
+
+// openLogViewer opens the log viewer window
+func (g *GUIApp) openLogViewer() {
+	// If window already exists, just show it and start streaming
+	if g.logWindow != nil {
+		g.logWindow.Show()
+		g.logWindow.RequestFocus()
+		// Auto start streaming if not already streaming
+		if !g.isLogStreaming {
+			g.startLogStreaming()
+		}
+		return
+	}
+
+	// Create log viewer window
+	g.logWindow = g.app.NewWindow("系统日志查看器")
+	g.logWindow.Resize(fyne.NewSize(900, 600))
+
+	// Set window close behavior
+	g.logWindow.SetCloseIntercept(func() {
+		g.stopLogStreaming()
+		g.logWindow.Hide()
+	})
+
+	// Log text area - RichText with white text on black background
+	g.logText = widget.NewRichText()
+	g.logText.Wrapping = fyne.TextWrapBreak
+
+	// Create black background
+	logBg := canvas.NewRectangle(color.NRGBA{R: 15, G: 15, B: 15, A: 255})
+	logContainer := container.NewStack(logBg, container.NewPadded(g.logText))
+
+	// Scrollable container for log text
+	g.logScroll = container.NewScroll(logContainer)
+	g.logScroll.SetMinSize(fyne.NewSize(880, 480))
+
+	// Status label
+	g.logStatusLabel = widget.NewLabel("状态: 已停止")
+
+	// Auto scroll checkbox
+	autoScrollCheck := widget.NewCheck("自动滚动", func(checked bool) {
+		g.autoScroll = checked
+	})
+	autoScrollCheck.SetChecked(g.autoScroll)
+
+	// Control buttons
+	startBtn := widget.NewButtonWithIcon("开始监听", theme.MediaPlayIcon(), func() {
+		g.startLogStreaming()
+	})
+
+	stopBtn := widget.NewButtonWithIcon("停止监听", theme.MediaStopIcon(), func() {
+		g.stopLogStreaming()
+	})
+
+	clearBtn := widget.NewButtonWithIcon("清空日志", theme.DeleteIcon(), func() {
+		g.clearLogs()
+	})
+
+	refreshBtn := widget.NewButtonWithIcon("刷新", theme.ViewRefreshIcon(), func() {
+		g.clearLogs()
+		if g.isLogStreaming {
+			g.stopLogStreaming()
+			g.startLogStreaming()
+		}
+	})
+
+	closeBtn := widget.NewButtonWithIcon("关闭窗口", theme.CancelIcon(), func() {
+		g.stopLogStreaming()
+		g.logWindow.Hide()
+	})
+
+	// Store button references for state management
+	logButtons = &LogViewerButtons{
+		startBtn:   startBtn,
+		stopBtn:    stopBtn,
+		clearBtn:   clearBtn,
+		refreshBtn: refreshBtn,
+	}
+
+	// Initial button state
+	g.updateLogButtonsState()
+
+	// Button container
+	buttonContainer := container.NewHBox(
+		startBtn,
+		stopBtn,
+		clearBtn,
+		refreshBtn,
+		widget.NewSeparator(),
+		g.logStatusLabel,
+		widget.NewSeparator(),
+		autoScrollCheck,
+		container.NewHBox(layout.NewSpacer()),
+		closeBtn,
+	)
+
+	// Main content with black background
+	content := container.NewBorder(
+		container.NewVBox(
+			widget.NewLabelWithStyle("实时系统日志", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+			widget.NewSeparator(),
+		),
+		buttonContainer,
+		nil,
+		nil,
+		g.logScroll,
+	)
+
+	g.logWindow.SetContent(content)
+
+	// Start streaming automatically
+	g.startLogStreaming()
+
+	g.logWindow.Show()
 }
