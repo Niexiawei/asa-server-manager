@@ -208,6 +208,9 @@ onUnmounted(() => {
     width: 100%;
     padding: 15px 0;
     box-sizing: border-box;
+    :deep(.t-timeline-item__wrapper){
+      margin-left: 20px !important;
+    }
 
     .empty-state {
       padding: 30px 20px;

@@ -27,12 +27,60 @@
 }
 
 .layout-card-wrapper.t-card {
-  display: grid;
+  display: flex;
+  flex-direction: column;
 
   .t-card__body {
     height: 100%;
     box-sizing: border-box;
   }
 
-  grid-template-rows: fit-content(100%) 1fr;
+  .t-card__header {
+    flex: 0 0 auto;
+  }
+
+  .t-loading__parent {
+    flex: 1 1 0; /* 占剩余空间，可收缩 */
+    min-height: 0; /* 关键：允许收缩，禁止 min-content 阻止收缩 */
+  }
+}
+
+.t-card.t-card-flex-custom {
+  display: flex;
+  flex-direction: column;
+
+  .t-card__body {
+    height: 100%;
+    box-sizing: border-box;
+  }
+
+  .t-card__header {
+    flex: 0 0 auto;
+  }
+
+  .t-loading__parent {
+    flex: 1 1 0; /* 占剩余空间，可收缩 */
+    min-height: 0; /* 关键：允许收缩，禁止 min-content 阻止收缩 */
+  }
+}
+
+.t-card-flex-custom-mixin() {
+  :deep(.t-card) {
+    display: flex;
+    flex-direction: column;
+
+    .t-card__body {
+      height: 100%;
+      box-sizing: border-box;
+    }
+
+    .t-card__header {
+      flex: 0 0 auto;
+    }
+
+    .t-loading__parent {
+      flex: 1 1 0; /* 占剩余空间，可收缩 */
+      min-height: 0; /* 关键：允许收缩，禁止 min-content 阻止收缩 */
+    }
+  }
 }

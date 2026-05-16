@@ -58,7 +58,7 @@
       <div v-else class="config-container">
         <!-- 服务器配置与资源监控并排布局 -->
         <div class="config-resource-row">
-          <t-card title="服务器配置" class="config-section server-config">
+          <t-card title="服务器配置" headerBordered class="config-section server-config">
             <template #title>
               <div class="config-card-title">
                 <span>服务器配置</span>
@@ -136,7 +136,7 @@
               </div>
             </div>
           </t-card>
-          <div class="info-right">
+          <div class="info-right" v-if="baseLoadedSuccessfully">
             <!-- 资源监控组件 -->
             <t-card class="config-section resource-monitor-card" headerBordered>
               <template #title>
@@ -161,6 +161,12 @@
               />
             </t-card>
           </div>
+          <t-card class="info-right" v-else>
+            <t-skeleton :animation="true" theme="paragraph"></t-skeleton>
+            <t-skeleton :animation="true" theme="paragraph"></t-skeleton>
+            <t-skeleton :animation="true" theme="paragraph"></t-skeleton>
+            <t-skeleton :animation="true" theme="paragraph"></t-skeleton>
+          </t-card>
         </div>
 
         <!-- 配置文件区域 -->
@@ -468,6 +474,7 @@ const savingMotd = ref(false)
 const instanceStartLoading = ref(false)
 const instanceStopLoading = ref(false)
 const instanceRestartLoading = ref(false)
+const baseLoadedSuccessfully = ref(false)
 
 // 日志查看器引用
 const logViewerRef = ref(null)
@@ -497,15 +504,6 @@ watch(
       }
     }
 )
-
-// 监听 server_starting 事件，自动开启日志获取
-let unlistenServerStarting = null
-
-// 监听 server_stopped 事件，自动关闭日志获取
-let unlistenServerStopped = null
-
-// ... existing code ...
-
 // 获取所有配置项
 const getAllConfigItems = () => {
   return [
@@ -1077,8 +1075,9 @@ const fetchInstances = async () => {
 
 onMounted(async () => {
   await fetchInstanceConfig()
-
   await fetchInstances()
+  baseLoadedSuccessfully.value = true
+
   loadGameIni()
   loadGameUserSettings()
   fetchModInfo()
@@ -1106,10 +1105,6 @@ onUnmounted(() => {
   overflow-y: auto;
 }
 
-.status-history-card {
-
-}
-
 .detail-card {
   background-color: white;
   border-radius: 8px;
@@ -1134,7 +1129,6 @@ onUnmounted(() => {
   gap: 20px;
 }
 
-/* 服务器配置与资源监控、实例历史状态并排布局 */
 .config-resource-row {
   display: grid;
   grid-template-columns: 3fr 1fr;
@@ -1142,35 +1136,35 @@ onUnmounted(() => {
   width: 100%;
 
   .resource-monitor-card {
-
+    flex: 0 0 auto;
   }
 
   .status-history-card {
-
+    flex: 1 1 0; /* 占剩余空间，可收缩 */
+    min-height: 0; /* 关键：允许收缩，禁止 min-content 阻止收缩 */
   }
 
   .info-right {
-    display: grid;
-    grid-template-rows: fit-content(100%) 1fr;
+    display: flex;
+    flex-direction: column;
     height: 100%;
     gap: 15px;
+
+    :deep(.t-skeleton) {
+      padding-bottom: 12px;
+
+      &:last-child {
+        padding-bottom: 0;
+      }
+    }
   }
 }
 
 .server-config {
-  height: auto !important;
-
-  :deep(.t-card__body) {
-    height: auto !important;
-    box-sizing: border-box;
-  }
 }
 
 .resource-monitor-card {
-  height: auto !important;
-
   :deep(.t-card__body) {
-    height: auto !important;
     box-sizing: border-box;
     padding: 15px !important;
   }
@@ -1179,14 +1173,30 @@ onUnmounted(() => {
 .config-section {
   border-radius: 6px;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
-  display: grid;
+
+  //:deep(.t-card__body) {
+  //  height: 100%;
+  //  box-sizing: border-box;
+  //}
+  //
+  //.t-card__header {
+  //  flex: 0 0 auto;
+  //}
+  //
+  //.t-loading__parent {
+  //  flex: 1 1 0; /* 占剩余空间，可收缩 */
+  //  min-height: 0; /* 关键：允许收缩，禁止 min-content 阻止收缩 */
+  //}
+
+
+  :deep(.t-loading__parent) {
+    height: calc(100% - 56px);
+  }
 
   :deep(.t-card__body) {
     height: 100%;
     box-sizing: border-box;
   }
-
-  grid-template-rows: fit-content(100%) 1fr;
 }
 
 /* 配置一縎标题样式 */
