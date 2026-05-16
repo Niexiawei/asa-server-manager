@@ -18,6 +18,19 @@ export function buildWebSocketUrl(url, token = "") {
     return urlJoin(protocol + window.location.host, window.location.pathname, url, `?${authParam.join('&')}`)
 }
 
+export function buildEventSourceUrl(url) {
+    // In production mode, use current host
+    const protocol = location.protocol
+
+    // In development mode, connect directly to backend server
+    if (import.meta.env.DEV) {
+        const proxyTarget = import.meta.env.VITE_PROXY_TARGET || 'http://localhost:19193'
+        return urlJoin(proxyTarget, url)
+    }
+
+    return urlJoin(protocol + "//"+ window.location.host, window.location.pathname, url)
+}
+
 function urlJoin(...args) {
     return args
         .filter(arg => arg)

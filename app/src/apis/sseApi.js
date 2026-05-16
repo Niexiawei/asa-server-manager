@@ -1,5 +1,4 @@
-import {API_BASE_URL} from '@/utils/http'
-import {useEventSource} from "@vueuse/core";
+import {buildEventSourceUrl} from "@/utils/utils.js";
 
 /**
  * 封装 EventSource 处理逻辑，模拟 fetch 的 onComplete 行为
@@ -43,7 +42,7 @@ function createEventSourceAction(url, onMessage, onError, onComplete, errorCallb
 
 // 启动服务器实例
 export function startServer(name, onMessage, onError, onComplete) {
-    const url = `${API_BASE_URL}/api/server/${name}/start`
+    const url = buildEventSourceUrl(`/api/server/${name}/start`)
 
     return createEventSourceAction(url, onMessage, onError, onComplete, (data) => {
         if (data.status === 'error' || data.status === 'start_failed') {
@@ -58,7 +57,7 @@ export function startServer(name, onMessage, onError, onComplete) {
 
 // 重启服务器实例（SSE）
 export function restartServerSSE(name, onMessage, onError, onComplete) {
-    const url = `${API_BASE_URL}/api/server/${name}/restart`
+    const url = buildEventSourceUrl(`/api/server/${name}/restart`)
 
     return createEventSourceAction(url, onMessage, onError, onComplete, (content) => {
         if (content.startsWith('Error:')) {
@@ -71,7 +70,7 @@ export function restartServerSSE(name, onMessage, onError, onComplete) {
 
 // 启动所有服务器实例
 export function startAllServers(onMessage, onError, onComplete) {
-    const url = `${API_BASE_URL}/api/server/start-all`
+    const url = buildEventSourceUrl('/api/server/start-all')
 
     return createEventSourceAction(url, onMessage, onError, onComplete, (content) => {
         if (content.startsWith('Error:')) {
@@ -84,7 +83,7 @@ export function startAllServers(onMessage, onError, onComplete) {
 
 // 停止所有服务器实例
 export function stopAllServers(onMessage, onError, onComplete) {
-    const url = `${API_BASE_URL}/api/server/stop-all`
+    const url = buildEventSourceUrl('/api/server/stop-all')
 
     return createEventSourceAction(url, onMessage, onError, onComplete, (content, setError, setSuccess) => {
         if (content.startsWith('Error:')) {
@@ -97,7 +96,7 @@ export function stopAllServers(onMessage, onError, onComplete) {
 
 // 重启所有服务器实例
 export function restartAllServers(onMessage, onError, onComplete) {
-    const url = `${API_BASE_URL}/api/server/restart-all`
+    const url = buildEventSourceUrl('/api/server/restart-all')
 
     return createEventSourceAction(url, onMessage, onError, onComplete, (content, setError, setSuccess) => {
         if (content.startsWith('Error:')) {
@@ -111,7 +110,7 @@ export function restartAllServers(onMessage, onError, onComplete) {
 // 更新服务器
 export function updateServer(onMessage, onError, onComplete) {
 
-    const url = `${API_BASE_URL}/api/server/update`
+    const url = buildEventSourceUrl('/api/server/update')
     return new Promise((resolve) => {
         const eventSource = new EventSource(url)
 
@@ -141,7 +140,7 @@ export function updateServer(onMessage, onError, onComplete) {
 
 // 实时查看服务器日志
 export function streamInstanceLogs(instanceName, onLog, onError, onClose) {
-    const eventSource = new EventSource(`${API_BASE_URL}/api/logs/${instanceName}`)
+    const eventSource = new EventSource(buildEventSourceUrl(`/api/logs/${instanceName}`))
 
     eventSource.onmessage = (event) => {
         if (onLog) {
@@ -167,7 +166,7 @@ export function streamInstanceLogs(instanceName, onLog, onError, onClose) {
 
 // 实时查看系统日志
 export function streamSystemLogs(onLog, onError, onClose) {
-    const eventSource = new EventSource(`${API_BASE_URL}/api/logs`)
+    const eventSource = new EventSource(buildEventSourceUrl('/api/logs'))
 
     eventSource.onmessage = (event) => {
         if (onLog) {
@@ -193,7 +192,8 @@ export function streamSystemLogs(onLog, onError, onClose) {
 
 // 流式获取 FRP 状态变化
 export function streamFRPStatus(onStatus, onError, onClose) {
-    const eventSource = new EventSource(`${API_BASE_URL}/api/frp/status/stream`)
+    console.log(buildEventSourceUrl('/api/frp/status/stream'))
+    const eventSource = new EventSource(buildEventSourceUrl('/api/frp/status/stream'))
 
     eventSource.onmessage = (event) => {
         try {
@@ -223,7 +223,7 @@ export function streamFRPStatus(onStatus, onError, onClose) {
 
 // 流式获取 Syncthing 状态变化（SSE - 保持 EventSource）
 export function streamSyncthingStatus(onStatus, onError, onClose) {
-    const eventSource = new EventSource(`${API_BASE_URL}/api/syncthing/status/stream`)
+    const eventSource = new EventSource(buildEventSourceUrl('/api/syncthing/status/stream'))
 
     eventSource.onmessage = (event) => {
         try {

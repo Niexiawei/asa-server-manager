@@ -5,10 +5,10 @@
         <div class="header-left">
           <span class="page-title">FRP 管理</span>
           <check-icon v-if="frpStatus === 'running'"
-                     style="color: #22c55e; font-size: 18px;"/>
+                      style="color: #22c55e; font-size: 18px;"/>
           <close-icon v-else style="color: #ef4444; font-size: 18px;"/>
         </div>
-        <t-space>
+        <t-space size="small">
           <t-button size="small" theme="primary" @click="startFRPAction" :disabled="frpStatus === 'running'">启动
           </t-button>
           <t-button size="small" theme="danger" @click="stopFRPAction" :disabled="frpStatus === 'stopped'">停止
@@ -31,33 +31,36 @@
       </div>
 
       <div class="log-panel">
-        <t-space class="log-controls">
-          <t-button
-              @click="startLogStream"
-              theme="primary"
-              :disabled="isStreaming"
-          >
-            {{ isStreaming ? '监听中...' : '开始监听' }}
-          </t-button>
-          <t-button
-              @click="stopLogStream"
-              theme="warning"
-              :disabled="!isStreaming"
-          >
-            停止监听
-          </t-button>
-          <t-button
-              @click="clearLogs"
-              :disabled="systemLogs.length === 0"
-          >
-            清空日志
-          </t-button>
-          <t-divider layout="vertical"/>
-          <t-badge :color="isStreaming ? 'green' : 'gray'"
-                   :count="isStreaming ? '监听中' : '已停止'"
-          />
-          <span class="log-count">日志行数: {{ systemLogs.length }}</span>
-        </t-space>
+        <div class="log-panel-header">
+          <t-space class="log-controls" align="center" size="small">
+            <t-button
+                @click="startLogStream"
+                theme="primary"
+                :disabled="isStreaming"
+            >
+              {{ isStreaming ? '监听中...' : '开始监听' }}
+            </t-button>
+            <t-button
+                @click="stopLogStream"
+                theme="warning"
+                :disabled="!isStreaming"
+            >
+              停止监听
+            </t-button>
+            <t-button
+                @click="clearLogs"
+                :disabled="systemLogs.length === 0"
+            >
+              清空日志
+            </t-button>
+            <t-divider layout="vertical"/>
+            <t-tag :theme="isStreaming ? 'success' : ''"
+
+            >{{ isStreaming ? '监听中' : '已停止' }}
+            </t-tag>
+          </t-space>
+          <div class="log-count">日志行数: {{ systemLogs.length }}</div>
+        </div>
 
         <div class="log-viewer">
           <div class="log-container" ref="logContainer">
@@ -394,15 +397,22 @@ onBeforeUnmount(() => {
   border: 1px solid rgb(229, 231, 235);
   border-radius: 4px;
   overflow: hidden;
+
+  .log-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid rgb(229, 231, 235);
+    background: rgb(249, 250, 251);
+    margin: 0;
+    width: 100%;
+    box-sizing: border-box;
+  }
 }
 
 .log-controls {
-  padding: 12px 16px;
-  border-bottom: 1px solid rgb(229, 231, 235);
-  background: rgb(249, 250, 251);
-  margin: 0;
-  width: 100%;
-  box-sizing: border-box;
+
 }
 
 .log-count {

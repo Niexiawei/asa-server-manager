@@ -19,3 +19,7 @@ clusters/
 *test_data/
 ark-save-tools/
 app/node_modules
+*/CLAUDE.md
+CLAUDE.md
+.claude
+*/.claude

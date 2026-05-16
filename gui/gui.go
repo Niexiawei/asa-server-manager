@@ -4,6 +4,7 @@ import (
 	"asa-server/asaserver"
 	"asa-server/logger"
 	"asa-server/serverinfo"
+	"asa-server/webapi"
 	"asa-server/winservice"
 	_ "embed"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 
@@ -68,13 +70,20 @@ type GUIApp struct {
 	instances    []InstanceInfo
 	instanceList *widget.List
 	// Log viewer
-	logWindow       fyne.Window
-	logText         *widget.RichText
-	logStatusLabel  *widget.Label
-	logScroll       *container.Scroll
-	isLogStreaming  bool
-	autoScroll      bool
-	stopLogFunc     func()
+	logWindow      fyne.Window
+	logText        *widget.RichText
+	logStatusLabel *widget.Label
+	logScroll      *container.Scroll
+	isLogStreaming bool
+	autoScroll     bool
+	stopLogFunc    func()
+	// API server management
+	apiServer      *webapi.APIServer
+	apiServerMu    sync.Mutex
+	apiRunning     bool
+	apiStatusLabel *widget.Label
+	startAPIBtn    *widget.Button
+	stopAPIBtn     *widget.Button
 }
 
 // NewGUIApp creates a new GUI application
@@ -458,6 +467,80 @@ func (g *GUIApp) stopService() {
 	g.updateStatus()
 }
 
+// startAPIServer starts the API server directly without Windows service
+func (g *GUIApp) startAPIServer() {
+	g.apiServerMu.Lock()
+	if g.apiRunning {
+		g.apiServerMu.Unlock()
+		g.showError(fmt.Errorf("API 服务器已在运行中"))
+		return
+	}
+	g.apiServerMu.Unlock()
+
+	// Set log mode for HTTP API
+	logger.SetLogMode(logger.HttpApiMode)
+
+	// Create and start API server
+	g.apiServerMu.Lock()
+	g.apiServer = webapi.NewAPIServer()
+	g.apiRunning = true
+	g.updateAPIServerUI()
+	g.apiServerMu.Unlock()
+
+	go func() {
+		if err := g.apiServer.Start(); err != nil {
+			logger.GetLogger().Errorf("API server stopped with error: %v", err)
+			g.apiServerMu.Lock()
+			g.apiRunning = false
+			g.updateAPIServerUI()
+			g.apiServerMu.Unlock()
+		}
+	}()
+
+	g.showSuccess("API 服务器启动成功!\n访问 http://localhost:19193")
+}
+
+// stopAPIServer stops the API server
+func (g *GUIApp) stopAPIServer() {
+	g.apiServerMu.Lock()
+	if !g.apiRunning || g.apiServer == nil {
+		g.apiServerMu.Unlock()
+		g.showError(fmt.Errorf("API 服务器未运行"))
+		return
+	}
+	server := g.apiServer
+	g.apiServerMu.Unlock()
+
+	// Stop server (this blocks until shutdown completes)
+	if err := server.Stop(); err != nil {
+		g.showError(fmt.Errorf("停止 API 服务器失败: %v", err))
+		return
+	}
+
+	g.apiServerMu.Lock()
+	g.apiRunning = false
+	g.apiServer = nil
+	g.updateAPIServerUI()
+	g.apiServerMu.Unlock()
+
+	g.showSuccess("API 服务器已停止")
+}
+
+// updateAPIServerUI updates the API server status label and button states
+func (g *GUIApp) updateAPIServerUI() {
+	if g.apiRunning {
+		g.apiStatusLabel.SetText("状态: ● 运行中")
+		g.apiStatusLabel.Importance = widget.HighImportance
+		g.startAPIBtn.Disable()
+		g.stopAPIBtn.Enable()
+	} else {
+		g.apiStatusLabel.SetText("状态: ● 已停止")
+		g.apiStatusLabel.Importance = widget.MediumImportance
+		g.startAPIBtn.Enable()
+		g.stopAPIBtn.Disable()
+	}
+}
+
 // openWebUI opens the web UI in browser
 func (g *GUIApp) openWebUI() {
 	url := "http://localhost:19193"
@@ -471,6 +554,15 @@ func (g *GUIApp) openWebUI() {
 // confirmAndQuit shows a confirmation dialog before quitting
 func (g *GUIApp) confirmAndQuit() {
 	g.showConfirm("确认退出", "确定要退出 ASA Server 管理器吗？", func() {
+		// Stop API server if running
+		g.apiServerMu.Lock()
+		if g.apiRunning && g.apiServer != nil {
+			server := g.apiServer
+			g.apiServerMu.Unlock()
+			server.Stop()
+		} else {
+			g.apiServerMu.Unlock()
+		}
 		g.app.Quit()
 	})
 }
@@ -497,6 +589,13 @@ func (g *GUIApp) createTray() {
 			}),
 			fyne.NewMenuItem("打开 Web 界面", func() {
 				g.openWebUI()
+			}),
+			fyne.NewMenuItemSeparator(),
+			fyne.NewMenuItem("启动 API 服务器", func() {
+				g.startAPIServer()
+			}),
+			fyne.NewMenuItem("停止 API 服务器", func() {
+				g.stopAPIServer()
 			}),
 			fyne.NewMenuItemSeparator(),
 			fyne.NewMenuItem("启动服务", func() {
@@ -527,7 +626,7 @@ func (g *GUIApp) createTray() {
 func (g *GUIApp) createMainWindow() {
 	g.window = g.app.NewWindow("ASA Server Manager")
 	g.window.SetMaster()
-	g.window.Resize(fyne.NewSize(380, 520))
+	g.window.Resize(fyne.NewSize(1200, 600))
 
 	// Set window icon from embedded webp file
 	if len(trayIconData) > 0 {
@@ -539,6 +638,8 @@ func (g *GUIApp) createMainWindow() {
 	g.window.SetCloseIntercept(func() {
 		g.window.Hide()
 	})
+
+	// ==================== Left Panel - Controls ====================
 
 	// Service Status Section
 	statusSection := widget.NewLabel("服务状态")
@@ -579,7 +680,6 @@ func (g *GUIApp) createMainWindow() {
 	g.memProgress.Min = 0
 	g.memProgress.Max = 1
 	g.memUsedLabel = widget.NewLabel("-- / --")
-	//g.memUsedLabel.Alignment = fyne.
 
 	memBox := container.NewVBox(
 		container.NewBorder(nil, nil, memLabelTitleContainer, nil, g.memLabel),
@@ -627,10 +727,6 @@ func (g *GUIApp) createMainWindow() {
 		g.openWebUI()
 	})
 
-	viewLogsBtn := widget.NewButtonWithIcon("查看系统日志", theme.DocumentIcon(), func() {
-		g.openLogViewer()
-	})
-
 	exitBtn := widget.NewButtonWithIcon("退出", theme.LogoutIcon(), func() {
 		g.confirmAndQuit()
 	})
@@ -645,10 +741,31 @@ func (g *GUIApp) createMainWindow() {
 	)
 
 	// Other buttons - buttons fill the grid columns
-	otherButtons := container.NewGridWithColumns(3,
+	otherButtons := container.NewGridWithColumns(2,
 		makeButtonBox(refreshBtn),
 		makeButtonBox(openWebBtn),
-		makeButtonBox(viewLogsBtn),
+	)
+
+	// API Server Section
+	apiSection := widget.NewLabel("API 服务器")
+	apiSection.TextStyle = fyne.TextStyle{Bold: true}
+
+	g.apiStatusLabel = widget.NewLabel("状态: ● 已停止")
+	g.apiStatusLabel.Importance = widget.MediumImportance
+
+	g.startAPIBtn = widget.NewButton("启动 API", func() {
+		g.startAPIServer()
+	})
+	g.startAPIBtn.Importance = widget.HighImportance
+
+	g.stopAPIBtn = widget.NewButton("停止 API", func() {
+		g.stopAPIServer()
+	})
+	g.stopAPIBtn.Disable()
+
+	apiButtons := container.NewGridWithColumns(2,
+		makeButtonBox(g.startAPIBtn),
+		makeButtonBox(g.stopAPIBtn),
 	)
 
 	// Exit button row
@@ -656,8 +773,8 @@ func (g *GUIApp) createMainWindow() {
 		makeButtonBox(exitBtn),
 	)
 
-	// Main content - removed title label to save space
-	content := container.NewVBox(
+	// Left panel content
+	leftPanel := container.NewVBox(
 		statusSection,
 		statusBox,
 		widget.NewSeparator(),
@@ -668,11 +785,105 @@ func (g *GUIApp) createMainWindow() {
 		serviceButtons,
 		otherButtons,
 		widget.NewSeparator(),
+		apiSection,
+		g.apiStatusLabel,
+		apiButtons,
+		widget.NewSeparator(),
 		exitButtons,
 	)
 
-	// Set content with padding
-	g.window.SetContent(container.NewPadded(content))
+	// ==================== Right Panel - Log Viewer ====================
+
+	// Log title
+	logTitle := widget.NewLabel("实时系统日志")
+	logTitle.TextStyle = fyne.TextStyle{Bold: true}
+
+	// Log text area - RichText with white text on black background
+	g.logText = widget.NewRichText()
+	g.logText.Wrapping = fyne.TextWrapBreak
+
+	// Create black background
+	logBg := canvas.NewRectangle(color.NRGBA{R: 15, G: 15, B: 15, A: 255})
+	logContainer := container.NewStack(logBg, container.NewPadded(g.logText))
+
+	// Scrollable container for log text
+	g.logScroll = container.NewScroll(logContainer)
+
+	// Status label
+	g.logStatusLabel = widget.NewLabel("状态: 已停止")
+
+	// Auto scroll checkbox
+	autoScrollCheck := widget.NewCheck("自动滚动", func(checked bool) {
+		g.autoScroll = checked
+	})
+	autoScrollCheck.SetChecked(g.autoScroll)
+
+	// Control buttons
+	startLogBtn := widget.NewButtonWithIcon("开始监听", theme.MediaPlayIcon(), func() {
+		g.startLogStreaming()
+	})
+
+	stopLogBtn := widget.NewButtonWithIcon("停止监听", theme.MediaStopIcon(), func() {
+		g.stopLogStreaming()
+	})
+
+	clearBtn := widget.NewButtonWithIcon("清空日志", theme.DeleteIcon(), func() {
+		g.clearLogs()
+	})
+
+	refreshLogBtn := widget.NewButtonWithIcon("刷新", theme.ViewRefreshIcon(), func() {
+		g.clearLogs()
+		if g.isLogStreaming {
+			g.stopLogStreaming()
+			g.startLogStreaming()
+		}
+	})
+
+	// Store button references for state management
+	logButtons = &LogViewerButtons{
+		startBtn:   startLogBtn,
+		stopBtn:    stopLogBtn,
+		clearBtn:   clearBtn,
+		refreshBtn: refreshLogBtn,
+	}
+
+	// Initial button state
+	g.updateLogButtonsState()
+
+	// Button container
+	logButtonContainer := container.NewHBox(
+		startLogBtn,
+		stopLogBtn,
+		clearBtn,
+		refreshLogBtn,
+		widget.NewSeparator(),
+		g.logStatusLabel,
+		widget.NewSeparator(),
+		autoScrollCheck,
+	)
+
+	// Right panel content
+	rightPanel := container.NewBorder(
+		container.NewVBox(
+			logTitle,
+			widget.NewSeparator(),
+		),
+		logButtonContainer,
+		nil,
+		nil,
+		g.logScroll,
+	)
+
+	// ==================== Main Layout ====================
+
+	content := container.NewHSplit(
+		container.NewPadded(leftPanel),
+		rightPanel,
+	)
+	content.SetOffset(0.4)
+
+	// Set content
+	g.window.SetContent(content)
 }
 
 // Run starts the GUI application
@@ -700,6 +911,12 @@ func (g *GUIApp) Run() {
 
 	// Start resource monitoring
 	g.startResourceMonitoring()
+
+	// Auto-start log streaming after a short delay
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		g.startLogStreaming()
+	}()
 
 	// Show window
 	g.window.ShowAndRun()
@@ -771,9 +988,9 @@ func makeButtonBox(btn *widget.Button) *fyne.Container {
 
 // LogViewerButtons holds references to log viewer buttons for state management
 type LogViewerButtons struct {
-	startBtn  *widget.Button
-	stopBtn   *widget.Button
-	clearBtn  *widget.Button
+	startBtn   *widget.Button
+	stopBtn    *widget.Button
+	clearBtn   *widget.Button
 	refreshBtn *widget.Button
 }
 
