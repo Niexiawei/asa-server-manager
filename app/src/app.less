@@ -11,10 +11,28 @@
 
 .layout-card {
   border-radius: 8px !important;
-  >.t-card__header{
+
+  > .t-card__header {
     border-bottom: 1px solid #eee;
   }
 
   --td-comp-paddingTB-l: 12px;
   --td-comp-paddingLR-xl: 12px;
+}
+
+.server-manager-log-viewer {
+  .t-dialog__body {
+    height: 600px;
+  }
+}
+
+.layout-card-wrapper.t-card {
+  display: grid;
+
+  .t-card__body {
+    height: 100%;
+    box-sizing: border-box;
+  }
+
+  grid-template-rows: fit-content(100%) 1fr;
 }

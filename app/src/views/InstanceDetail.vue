@@ -54,221 +54,217 @@
           </t-button>
         </t-space>
       </template>
-
-      <t-loading :loading="loading" style="width: 100%">
-        <t-alert v-if="error" theme="error" :message="`错误: ${error}`" close/>
-
-        <div v-else class="config-container">
-          <!-- 服务器配置与资源监控并排布局 -->
-          <div class="config-resource-row">
-            <t-card title="服务器配置" class="config-section server-config">
-              <template #title>
-                <div class="config-card-title">
-                  <span>服务器配置</span>
-                  <t-button
-                      theme="primary"
-                      size="small"
-                      @click="openConfigEditModal"
-                      style="margin-left: 12px"
-                      :disabled="instanceData?.running"
-                  >
-                    编辑
-                  </t-button>
-                </div>
-              </template>
-              <div class="config-grid">
-                <div v-for="item in getAllConfigItems()" :key="item.label" class="config-grid-item"
-                     :class="{ 'full-width': item.label === '自定义启动参数', 'modid-item':item.label === 'Mod'}">
-                  <div class="config-item">
-                    <div class="config-item-label">{{ item.label }}</div>
-                    <div class="config-item-content">
-                      <div v-if="(!item.type || item.type === 'text') && item.label === 'Mod'"
-                           class="config-item-value">
-                        <div v-if="item.value && item.value !== '-'">
-                          <div class="mod-container">
-                            <t-tag
-                                v-for="(modId, index) in item.value.split(',')" :key="modId"
-                                class="mod-tag"
-                                theme="primary"
-                                @click="copyModId(modId.trim())"
-                            >
-                              {{ getModNameById(modId.trim()) || modId.trim() }}
-                              <file-copy-icon :style="{fontSize: '12px'}"/>
-                            </t-tag>
-                            <div class="break"></div>
-                            <t-tag
-                                @click="copyAllModIds(item.value)"
-                                class="copy-all-btn"
-                            >
-                              <file-copy-icon/>
-                              复制全部
-                            </t-tag>
-                          </div>
-                        </div>
-                        <div v-else>
-                          {{ item.value }}
+      <t-alert v-if="error" theme="error" :message="`错误: ${error}`" close/>
+      <div v-else class="config-container">
+        <!-- 服务器配置与资源监控并排布局 -->
+        <div class="config-resource-row">
+          <t-card title="服务器配置" class="config-section server-config">
+            <template #title>
+              <div class="config-card-title">
+                <span>服务器配置</span>
+                <t-button
+                    theme="primary"
+                    size="small"
+                    @click="openConfigEditModal"
+                    style="margin-left: 12px"
+                    :disabled="instanceData?.running"
+                >
+                  编辑
+                </t-button>
+              </div>
+            </template>
+            <div class="config-grid">
+              <div v-for="item in getAllConfigItems()" :key="item.label" class="config-grid-item"
+                   :class="{ 'full-width': item.label === '自定义启动参数', 'modid-item':item.label === 'Mod'}">
+                <div class="config-item">
+                  <div class="config-item-label">{{ item.label }}</div>
+                  <div class="config-item-content">
+                    <div v-if="(!item.type || item.type === 'text') && item.label === 'Mod'"
+                         class="config-item-value">
+                      <div v-if="item.value && item.value !== '-'">
+                        <div class="mod-container">
+                          <t-tag
+                              v-for="(modId, index) in item.value.split(',')" :key="modId"
+                              class="mod-tag"
+                              theme="primary"
+                              @click="copyModId(modId.trim())"
+                          >
+                            {{ getModNameById(modId.trim()) || modId.trim() }}
+                            <file-copy-icon :style="{fontSize: '12px'}"/>
+                          </t-tag>
+                          <div class="break"></div>
+                          <t-tag
+                              @click="copyAllModIds(item.value)"
+                              class="copy-all-btn"
+                          >
+                            <file-copy-icon/>
+                            复制全部
+                          </t-tag>
                         </div>
                       </div>
-                      <div v-if="(!item.type || item.type === 'text') && item.label !== 'Mod'"
-                           class="config-item-value">
+                      <div v-else>
                         {{ item.value }}
                       </div>
-                      <div v-if="item.type === 'boolean'" class="config-item-value">
-                        <t-tag :theme="item.value === '是' ? 'success' : 'default'">{{ item.value }}</t-tag>
-                      </div>
-                      <div v-if="item.type === 'password'" class="password-wrapper">
+                    </div>
+                    <div v-if="(!item.type || item.type === 'text') && item.label !== 'Mod'"
+                         class="config-item-value">
+                      {{ item.value }}
+                    </div>
+                    <div v-if="item.type === 'boolean'" class="config-item-value">
+                      <t-tag :theme="item.value === '是' ? 'success' : 'default'">{{ item.value }}</t-tag>
+                    </div>
+                    <div v-if="item.type === 'password'" class="password-wrapper">
                         <span class="config-item-value">
                           {{
                             item.label === '服务器密码' && showServerPassword ? item.value : (item.label === '管理员密码' && showAdminPassword ? item.value : (item.hasPassword ? '●●●●●●' : item.value))
                           }}
                         </span>
-                        <t-button
-                            v-if="item.hasPassword"
-                            variant="text"
-                            size="small"
-                            @click="item.label === '服务器密码' ? (showServerPassword = !showServerPassword) : (showAdminPassword = !showAdminPassword)"
-                        >
-                          <template #icon>
-                            <component
-                                :is="item.label === '服务器密码' ? (showServerPassword ? BrowseOffIcon : BrowseIcon) : (showAdminPassword ? BrowseOffIcon : BrowseIcon)"/>
-                          </template>
-                        </t-button>
-                      </div>
+                      <t-button
+                          v-if="item.hasPassword"
+                          variant="text"
+                          size="small"
+                          @click="item.label === '服务器密码' ? (showServerPassword = !showServerPassword) : (showAdminPassword = !showAdminPassword)"
+                      >
+                        <template #icon>
+                          <component
+                              :is="item.label === '服务器密码' ? (showServerPassword ? BrowseOffIcon : BrowseIcon) : (showAdminPassword ? BrowseOffIcon : BrowseIcon)"/>
+                        </template>
+                      </t-button>
                     </div>
                   </div>
+                </div>
+              </div>
+            </div>
+          </t-card>
+          <div class="info-right">
+            <!-- 资源监控组件 -->
+            <t-card class="config-section resource-monitor-card" headerBordered>
+              <template #title>
+                <div class="config-card-title">
+                  <span>资源占用</span>
+                </div>
+              </template>
+              <resource-monitor
+                  :show-title-div="false"
+                  :instance-name="instanceName"
+              />
+            </t-card>
+            <!-- 实例历史状态组件 -->
+            <t-card class="config-section status-history-card" headerBordered>
+              <template #title>
+                <div class="config-card-title">
+                  <span>实例历史状态</span>
+                </div>
+              </template>
+              <instance-status-history
+                  :instance-name="instanceName"
+              />
+            </t-card>
+          </div>
+        </div>
+
+        <!-- 配置文件区域 -->
+        <t-collapse v-model:value="activeCollapseKeys" class="config-files-collapse">
+          <t-collapse-panel value="motd" header="服务器公告">
+            <t-card title="公告" class="config-section config-file-card">
+              <template #extra>
+                <t-space>
+                  <div>
+                    消息时长：{{ motdDuration + '秒' || '-' }}
+                  </div>
+                  <t-button
+                      @click="openMotdEditModal"
+                      theme="primary"
+                      :disabled="instanceData?.running"
+                  >
+                    编辑
+                  </t-button>
+                </t-space>
+              </template>
+              <div class="config-viewer-wrapper">
+                <div style="white-space: pre-wrap; word-break: break-word;">
+                  {{ motdContent || '-' }}
                 </div>
               </div>
             </t-card>
-            <div class="info-right">
-              <!-- 资源监控组件 -->
-              <t-card class="config-section resource-monitor-card" headerBordered>
-                <template #title>
-                  <div class="config-card-title">
-                    <span>资源占用</span>
-                  </div>
-                </template>
-                <resource-monitor
-                    :show-title-div="false"
-                    :instance-name="instanceName"
-                />
-              </t-card>
-              <!-- 实例历史状态组件 -->
-              <t-card class="config-section status-history-card" headerBordered>
-                <template #title>
-                  <div class="config-card-title">
-                    <span>实例历史状态</span>
-                  </div>
-                </template>
-                <instance-status-history
-                    :instance-name="instanceName"
-                />
-              </t-card>
-            </div>
-          </div>
+          </t-collapse-panel>
+          <t-collapse-panel value="config-files" header="实例配置文件">
+            <div class="config-files-row">
+              <!-- Game.ini 配置 -->
+              <t-card title="Game.ini 配置" class="config-section config-file-card">
+                <t-space style="margin-bottom: 15px">
+                  <t-button
+                      @click="triggerGameIniUpload"
+                      theme="success"
+                      :disabled="instanceData?.running"
+                  >
+                    上传文件
+                  </t-button>
+                  <t-button
+                      @click="gameIniEditModalVisible = true"
+                      theme="primary"
+                      :disabled="instanceData?.running"
+                  >
+                    编辑文件
+                  </t-button>
+                  <t-button
+                      @click="compareGameIni"
+                      :loading="loadingDiffContent"
+                      :disabled="instanceData?.running"
+                  >
+                    对比配置
+                  </t-button>
+                </t-space>
 
-          <!-- 配置文件区域 -->
-          <t-collapse v-model:value="activeCollapseKeys" class="config-files-collapse">
-            <t-collapse-panel value="motd" header="服务器公告">
-              <t-card title="公告" class="config-section config-file-card">
-                <template #extra>
-                  <t-space>
-                    <div>
-                      消息时长：{{ motdDuration + '秒' || '-' }}
-                    </div>
-                    <t-button
-                        @click="openMotdEditModal"
-                        theme="primary"
-                        :disabled="instanceData?.running"
-                    >
-                      编辑
-                    </t-button>
-                  </t-space>
-                </template>
                 <div class="config-viewer-wrapper">
-                  <div style="white-space: pre-wrap; word-break: break-word;">
-                    {{ motdContent || '-' }}
-                  </div>
+                  <config-file-viewer
+                      :content="gameIniContent"
+                      language="ini"
+                  />
                 </div>
               </t-card>
-            </t-collapse-panel>
-            <t-collapse-panel value="config-files" header="实例配置文件">
-              <div class="config-files-row">
-                <!-- Game.ini 配置 -->
-                <t-card title="Game.ini 配置" class="config-section config-file-card">
-                  <t-space style="margin-bottom: 15px">
-                    <t-button
-                        @click="triggerGameIniUpload"
-                        theme="success"
-                        :disabled="instanceData?.running"
-                    >
-                      上传文件
-                    </t-button>
-                    <t-button
-                        @click="gameIniEditModalVisible = true"
-                        theme="primary"
-                        :disabled="instanceData?.running"
-                    >
-                      编辑文件
-                    </t-button>
-                    <t-button
-                        @click="compareGameIni"
-                        :loading="loadingDiffContent"
-                        :disabled="instanceData?.running"
-                    >
-                      对比配置
-                    </t-button>
-                  </t-space>
 
-                  <div class="config-viewer-wrapper">
-                    <config-file-viewer
-                        :content="gameIniContent"
-                        language="ini"
-                    />
-                  </div>
-                </t-card>
+              <!-- GameUserSettings.ini 配置 -->
+              <t-card title="GameUserSettings.ini 配置" class="config-section config-file-card">
+                <t-space style="margin-bottom: 15px">
+                  <t-button
+                      @click="triggerGameUserSettingsUpload"
+                      theme="success"
+                      :disabled="instanceData?.running"
+                  >
+                    上传文件
+                  </t-button>
+                  <t-button
+                      @click="gameUserSettingsEditModalVisible = true"
+                      theme="primary"
+                      :disabled="instanceData?.running"
+                  >
+                    编辑文件
+                  </t-button>
+                  <t-button
+                      @click="compareGameUserSettings"
+                      :loading="loadingDiffContent"
+                      :disabled="instanceData?.running"
+                  >
+                    对比配置
+                  </t-button>
+                </t-space>
 
-                <!-- GameUserSettings.ini 配置 -->
-                <t-card title="GameUserSettings.ini 配置" class="config-section config-file-card">
-                  <t-space style="margin-bottom: 15px">
-                    <t-button
-                        @click="triggerGameUserSettingsUpload"
-                        theme="success"
-                        :disabled="instanceData?.running"
-                    >
-                      上传文件
-                    </t-button>
-                    <t-button
-                        @click="gameUserSettingsEditModalVisible = true"
-                        theme="primary"
-                        :disabled="instanceData?.running"
-                    >
-                      编辑文件
-                    </t-button>
-                    <t-button
-                        @click="compareGameUserSettings"
-                        :loading="loadingDiffContent"
-                        :disabled="instanceData?.running"
-                    >
-                      对比配置
-                    </t-button>
-                  </t-space>
+                <div class="config-viewer-wrapper">
+                  <config-file-viewer
+                      :content="gameUserSettingsContent"
+                      language="ini"
+                  />
+                </div>
+              </t-card>
+            </div>
+          </t-collapse-panel>
+        </t-collapse>
 
-                  <div class="config-viewer-wrapper">
-                    <config-file-viewer
-                        :content="gameUserSettingsContent"
-                        language="ini"
-                    />
-                  </div>
-                </t-card>
-              </div>
-            </t-collapse-panel>
-          </t-collapse>
-
-          <t-card title="实时日志" class="config-section log-viewer-card" headerBordered>
-            <log-viewer ref="logViewerRef" :instance-name="instanceName"/>
-          </t-card>
-        </div>
-      </t-loading>
+        <t-card title="实时日志" class="config-section log-viewer-card" headerBordered>
+          <log-viewer ref="logViewerRef" :instance-name="instanceName"/>
+        </t-card>
+      </div>
     </t-card>
 
     <!-- 配置编辑弹出框 -->
@@ -1080,8 +1076,9 @@ const fetchInstances = async () => {
 }
 
 onMounted(async () => {
-  await fetchInstances()
   await fetchInstanceConfig()
+
+  await fetchInstances()
   loadGameIni()
   loadGameUserSettings()
   fetchModInfo()
@@ -1110,9 +1107,7 @@ onUnmounted(() => {
 }
 
 .status-history-card {
-  :deep(.t-card__body) {
-    height: calc(100% - 56px) !important;
-  }
+
 }
 
 .detail-card {
@@ -1147,17 +1142,16 @@ onUnmounted(() => {
   width: 100%;
 
   .resource-monitor-card {
-    flex: 0 0 auto;
+
   }
 
   .status-history-card {
-    flex: 1 1 0; /* 占剩余空间，可收缩 */
-    min-height: 0; /* 关键：允许收缩，禁止 min-content 阻止收缩 */
+
   }
 
   .info-right {
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-rows: fit-content(100%) 1fr;
     height: 100%;
     gap: 15px;
   }
@@ -1185,11 +1179,14 @@ onUnmounted(() => {
 .config-section {
   border-radius: 6px;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  display: grid;
 
   :deep(.t-card__body) {
-    height: calc(100% - 56px);
+    height: 100%;
     box-sizing: border-box;
   }
+
+  grid-template-rows: fit-content(100%) 1fr;
 }
 
 /* 配置一縎标题样式 */
@@ -1266,7 +1263,7 @@ onUnmounted(() => {
           cursor: pointer;
         }
 
-        .break{
+        .break {
           flex: 0 0 100%;
           height: 0;
         }

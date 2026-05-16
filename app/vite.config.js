@@ -1,5 +1,6 @@
 import {defineConfig, loadEnv} from 'vite'
 import vue from '@vitejs/plugin-vue'
+import jsx from '@vitejs/plugin-vue-jsx'
 import {fileURLToPath, URL} from 'node:url'
 
 // https://vitejs.dev/config/
@@ -7,7 +8,7 @@ import {fileURLToPath, URL} from 'node:url'
 export default ({mode}) => {
     const env = loadEnv(mode, process.cwd());
     return defineConfig({
-        plugins: [vue()],
+        plugins: [vue(), jsx()],
         build: {
             minify: 'terser',
             terserOptions: {

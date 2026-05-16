@@ -100,18 +100,18 @@ const createWorker = () => {
     worker = new Worker(new URL('@/workers/serverResourceWorker.js', import.meta.url))
 
     // Initialize worker with API base URL
-    worker.postMessage({ type: 'INIT', payload: { apiBaseUrl: API_BASE_URL } })
+    worker.postMessage({type: 'INIT', payload: {apiBaseUrl: API_BASE_URL}})
 
     // Handle messages from worker
     worker.onmessage = (event) => {
-      const { type, payload } = event.data
+      const {type, payload} = event.data
 
       switch (type) {
         case 'RESOURCE_UPDATE':
           resourceData.value = payload.data
           break
         case 'ERROR':
-          resourceData.value = { error: payload.error }
+          resourceData.value = {error: payload.error}
           break
       }
     }
@@ -119,11 +119,11 @@ const createWorker = () => {
     // Handle worker errors
     worker.onerror = (error) => {
       console.error('Server resource worker error:', error)
-      resourceData.value = { error: 'Worker 错误' }
+      resourceData.value = {error: 'Worker 错误'}
     }
   } catch (error) {
     console.error('Failed to create server resource worker:', error)
-    resourceData.value = { error: '创建 Worker 失败' }
+    resourceData.value = {error: '创建 Worker 失败'}
   }
 }
 
@@ -139,14 +139,14 @@ const startMonitoring = () => {
   createWorker()
 
   // Start server resource monitoring
-  worker.postMessage({ type: 'START_MONITORING' })
+  worker.postMessage({type: 'START_MONITORING'})
 }
 
 // 停止监控
 const stopMonitoring = () => {
   console.log('Stopping server resource monitoring')
   if (worker) {
-    worker.postMessage({ type: 'STOP_MONITORING' })
+    worker.postMessage({type: 'STOP_MONITORING'})
   }
   isMonitoring.value = false
   resourceData.value = null
@@ -168,7 +168,7 @@ onMounted(() => {
 onUnmounted(() => {
   stopMonitoring()
   if (worker) {
-    worker.postMessage({ type: 'CLOSE_ALL' })
+    worker.postMessage({type: 'CLOSE_ALL'})
     worker.terminate()
     worker = null
   }
@@ -220,7 +220,7 @@ const getIconColor = () => {
 .server-resource-content {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  padding: 12px;
   min-width: 350px;
 }
 

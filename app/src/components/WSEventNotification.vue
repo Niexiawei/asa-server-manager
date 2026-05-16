@@ -1,8 +1,8 @@
 <template>
   <div class="ws-notification" style="margin-left: auto; padding-right: 20px;">
-    <t-popup placement="bottom-right" trigger="click" showArrow class="ws-notification-popover">
+    <t-popup placement="bottom-right" trigger="click" showArrow overlayClassName="ws-notification-popover">
       <template #content>
-        <t-card :bordered="false" headerBordered>
+        <t-card headerBordered>
           <template #title>
             <div class="popover-header">
               <span class="popover-title">事件 ({{ wsEvents.length }})</span>
@@ -22,7 +22,7 @@
               </div>
               <t-timeline v-else>
                 <t-timeline-item v-for="(event, index) in [...wsEvents].reverse()" :key="index"
-                                 :dot-color="getEventColor(event.event_type)">
+                                 :dot="event.dot">
                   <div class="timeline-content">
                     <div class="timeline-header">
                       <span class="event-time">{{ formatTime(event.timestamp) }}</span>
@@ -49,11 +49,12 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="jsx">
 import {onMounted, onUnmounted, ref} from 'vue';
 import {onAnyServerEvent} from '@/utils/wsManager.js';
 import {ClearIcon, NotificationIcon} from 'tdesign-icons-vue-next';
 import dayjs from "dayjs";
+import Time from "tdesign-icons-vue-next/lib/components/time.js";
 
 const wsEvents = ref([])
 let unlistenEvent = null
@@ -63,7 +64,14 @@ function loadEventsFromStorage() {
   try {
     const stored = localStorage.getItem('ws_events')
     if (stored) {
-      wsEvents.value = JSON.parse(stored)
+      let tmp = JSON.parse(stored)
+      wsEvents.value = tmp.map((item) => {
+        let color = getEventColor(item.event_type)
+        return {
+          ...item,
+          dot: () => <Time size={18} strokeColor={color}/>
+        }
+      })
     }
   } catch (err) {
     console.error('Failed to load events from localStorage:', err)
@@ -88,11 +96,14 @@ function addEvent(event) {
     return
   }
 
+  let color = getEventColor(item.event_type)
+
   const eventData = {
     event_type: event.event_type,
     instance_name: event.instance_name || '',
     message: event.message || '',
-    timestamp: Date.now()
+    timestamp: Date.now(),
+    dot: () => <Time size={18} strokeColor={color}/>
   }
   wsEvents.value.push(eventData)
 
@@ -195,19 +206,8 @@ onUnmounted(() => {
   .event-list {
     flex: 1;
     width: 100%;
-    padding: 15px;
+    padding: 15px 0;
     box-sizing: border-box;
-    //
-    //:deep(.t-timeline-item__dot) {
-    //  width: 13px;
-    //
-    //  .t-timeline-item__dot-content {
-    //    width: 13px;
-    //    height: 13px;
-    //    border: 3px solid #fff;
-    //    box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
-    //  }
-    //}
 
     .empty-state {
       padding: 30px 20px;
@@ -289,7 +289,7 @@ onUnmounted(() => {
   }
 
   .t-popup__content {
-    border-radius: var(--border-radius-large);
+    border-radius: var(--td-radius-medium);
     overflow: hidden;
     margin-top: 0 !important;
   }

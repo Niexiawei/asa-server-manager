@@ -159,10 +159,10 @@
         v-model:visible="logModalVisible"
         :header="`${selectedInstanceName} - 实时日志`"
         width="1000px"
-        :body-style="{height: '600px'}"
         @close="logViewerClose"
         :footer="false"
         destroy-on-close
+        dialogClassName="server-manager-log-viewer"
     >
       <div style="height: 100%; display: flex; flex-direction: column;">
         <log-viewer
@@ -550,19 +550,6 @@ onActivated(async () => {
   await fetchInstances()
   await fetchModInfo()
 })
-
-// 组件卸载时清理
-onDeactivated(() => {
-  // WebSocket 会保持连接，其他组件可能需要它
-})
-
-// 窗口打开时， LogViewer 组件会自动根据实例状态开启/停止监听
-watch(
-    () => logModalVisible.value,
-    (visible) => {
-      // LogViewer 组件会自动处理
-    }
-)
 
 // 查看实例详情
 const viewInstanceDetail = (name) => {

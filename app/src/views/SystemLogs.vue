@@ -1,60 +1,58 @@
 <template>
-  <div class="system-logs">
-    <t-card class="logs-card layout-card" :bordered="false">
-      <template #title>
-        <div class="logs-header">
-          <span class="page-title">系统日志</span>
+  <t-card class="system-logs logs-card layout-card" :bordered="false">
+    <template #title>
+      <div class="logs-header">
+        <span class="page-title">系统日志</span>
+      </div>
+    </template>
+
+    <t-space style="margin-bottom: 15px" align="center">
+      <t-button
+          @click="startLogStream"
+          theme="primary"
+          :disabled="isStreaming"
+      >
+        {{ isStreaming ? '监听中...' : '开始监听' }}
+      </t-button>
+      <t-button
+          @click="stopLogStream"
+          theme="warning"
+          :disabled="!isStreaming"
+      >
+        停止监听
+      </t-button>
+      <t-button
+          @click="clearLogs"
+          :disabled="logs.length === 0"
+      >
+        清空日志
+      </t-button>
+      <t-divider layout="vertical" style="height: 30px"/>
+      <t-tag :color="isStreaming ? 'green' : 'gray'">
+        {{ isStreaming ? '监听中' : '已停止' }}
+      </t-tag>
+      <span style="font-size: 16px">日志行数: {{ logs.length }}</span>
+    </t-space>
+
+    <div class="log-viewer">
+      <div class="log-container" ref="logContainer">
+        <div
+            v-for="(log, index) in logs"
+            :key="index"
+            class="log-line"
+            :class="`log-level-${log.level}`"
+        >
+          <span class="log-number">{{ index + 1 }}</span>
+          <span class="log-time">{{ log.time }}</span>
+          <span class="log-level" :class="`level-${log.level}`">{{ log.level }}</span>
+          <span class="log-text">{{ log.msg }}</span>
         </div>
-      </template>
-
-      <t-space style="margin-bottom: 15px" align="center">
-        <t-button
-            @click="startLogStream"
-            theme="primary"
-            :disabled="isStreaming"
-        >
-          {{ isStreaming ? '监听中...' : '开始监听' }}
-        </t-button>
-        <t-button
-            @click="stopLogStream"
-            theme="warning"
-            :disabled="!isStreaming"
-        >
-          停止监听
-        </t-button>
-        <t-button
-            @click="clearLogs"
-            :disabled="logs.length === 0"
-        >
-          清空日志
-        </t-button>
-        <t-divider layout="vertical" style="height: 30px"/>
-        <t-tag :color="isStreaming ? 'green' : 'gray'">
-          {{ isStreaming ? '监听中' : '已停止' }}
-        </t-tag>
-        <span style="font-size: 16px">日志行数: {{ logs.length }}</span>
-      </t-space>
-
-      <div class="log-viewer">
-        <div class="log-container" ref="logContainer">
-          <div
-              v-for="(log, index) in logs"
-              :key="index"
-              class="log-line"
-              :class="`log-level-${log.level}`"
-          >
-            <span class="log-number">{{ index + 1 }}</span>
-            <span class="log-time">{{ log.time }}</span>
-            <span class="log-level" :class="`level-${log.level}`">{{ log.level }}</span>
-            <span class="log-text">{{ log.msg }}</span>
-          </div>
-          <div v-if="logs.length === 0" class="log-empty">
-            暂无日志。{{ isStreaming ? "" : '点击"开始监听"按钮开始实时查看系统日志。' }}
-          </div>
+        <div v-if="logs.length === 0" class="log-empty">
+          暂无日志。{{ isStreaming ? "" : '点击"开始监听"按钮开始实时查看系统日志。' }}
         </div>
       </div>
-    </t-card>
-  </div>
+    </div>
+  </t-card>
 </template>
 
 <script setup>

@@ -47,7 +47,7 @@
                   'SystemLogs',
                   'ServerManager'
               ]">
-            <component :is="Component"
+            <component class="layout-card-wrapper" :is="Component"
                        :key="route.name === 'InstanceDetail' ? route.fullPath : route.name">
             </component>
           </KeepAlive>

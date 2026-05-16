@@ -382,15 +382,16 @@ onBeforeUnmount(() => {
 }
 
 .frp-container {
-  display: flex;
-  flex: 1;
+  display: grid;
   gap: 20px;
   overflow: hidden;
+  height: 100%;
+  grid-template-columns: 1fr 1fr;
 }
 
 .config-panel,
 .log-panel {
-  flex: 1;
+  max-height: 100%;
   display: flex;
   flex-direction: column;
   background: white;
