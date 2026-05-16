@@ -327,7 +327,10 @@ function logViewerClose() {
 
 // 创建实例
 const createInstanceHandler = async () => {
-  if (!form.instanceName.trim()) return
+  if (!form.instanceName?.trim()) {
+    MessagePlugin.error("请输入实例名称")
+    return
+  }
   try {
     const data = await createInstance(form.instanceName)
     if (data.success) {
