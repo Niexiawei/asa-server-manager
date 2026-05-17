@@ -314,6 +314,7 @@ func GetStateManager() *StateManager {
 // CloseStateManager 关闭状态管理器
 func CloseStateManager() error {
 	if instanceStateManager != nil {
+		stateManagerOnce = sync.Once{}
 		return instanceStateManager.Close()
 	}
 	return nil
@@ -358,6 +359,7 @@ func GetLatestInstanceState(instanceName string) (InstanceState, error) {
 
 	status, err := instanceStateManager.GetLatestState(instanceName)
 	if err != nil {
+		fmt.Println(err)
 		return state, err
 	}
 	return *status, err
