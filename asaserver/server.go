@@ -563,13 +563,6 @@ func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
 		return err
 	}
 
-	// Ensure per-instance save directory exists
-	saveDir := filepath.Join(ServerFilesDir, "ShooterGame/Saved/SavedArks", config.SaveDir)
-
-	if err := os.MkdirAll(saveDir, 0755); err != nil {
-		return fmt.Errorf("failed to create save directory: %w", err)
-	}
-
 	// Build the command
 	// Quote parameters that may contain special characters to prevent parsing issues
 	mapParam := fmt.Sprintf("%s?listen?SessionName=%s?ServerPassword=%s?RCONEnabled=True?ServerAdminPassword=%s?AltSaveDirectoryName=%s",
@@ -695,41 +688,6 @@ func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
 	}
 
 	if arkAsaApiRunning {
-		//if logger.GetLogMode() == logger.CLIMode {
-		//	newArgs := []string{"/C", "start", "", arkExe}
-		//	newArgs = append(newArgs, args...)
-		//	c := exec.Command("cmd", newArgs...)
-		//	if err := c.Start(); err != nil {
-		//		startErr = fmt.Errorf("failed to start server: %w", err)
-		//		return startErr
-		//	}
-		//} else {
-		//
-		//	pp, err := pty.New()
-		//	if err != nil {
-		//		log.Fatalf("failed to open pty: %s", err)
-		//	}
-		//
-		//	logWriter := &LogWriter{
-		//		loggerFn: func(msg string) {
-		//			msg = strings.TrimRight(msg, "\n\r")
-		//			if msg != "" {
-		//				if strings.Contains(msg, "Info/GameAnalytics") {
-		//					return
-		//				}
-		//				logger.GetLogger().Infof("[%s][AsaApiLoader] %s", instanceName, msg)
-		//			}
-		//		},
-		//	}
-		//	c := pp.Command(arkExe, args...)
-		//	if err := c.Start(); err != nil {
-		//		startErr = fmt.Errorf("failed to start server: %w", err)
-		//		return startErr
-		//	}
-		//	go arkApiCleanConsoleOutput(pp, logWriter)
-		//	logger.GetLogger().Infof("[%s] Redirecting AsaApiLoader output to logger", instanceName)
-		//}
-
 		logWriter := &LogWriter{
 			loggerFn: func(msg string) {
 				msg = strings.TrimRight(msg, "\n\r")

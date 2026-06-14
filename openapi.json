@@ -1829,6 +1829,300 @@
           }
         }
       }
+    },
+    "/api/save/{instance}/players": {
+      "get": {
+        "summary": "Get players from save file",
+        "description": "Parses the ARK save file and returns player data using go-arkparser",
+        "tags": ["Save Data"],
+        "operationId": "getSavePlayers",
+        "parameters": [
+          {
+            "name": "instance",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Instance name"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Player data retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavePlayersResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Save file not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Save parser not available",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/save/{instance}/tribes": {
+      "get": {
+        "summary": "Get tribes from save file",
+        "description": "Parses the ARK save file and returns tribe data using go-arkparser",
+        "tags": ["Save Data"],
+        "operationId": "getSaveTribes",
+        "parameters": [
+          {
+            "name": "instance",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Instance name"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tribe data retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaveTribesResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Save file not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Save parser not available",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/save/{instance}/all": {
+      "get": {
+        "summary": "Get all save data (players + tribes)",
+        "description": "Returns cached snapshot data from arkmonitor. Falls back to synchronous parsing if cache is unavailable. The cached data uses arkmonitor's typed snapshot format (PlayerSnapshot/TribeSnapshot).",
+        "tags": ["Save Data"],
+        "operationId": "getSaveAll",
+        "parameters": [
+          {
+            "name": "instance",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Instance name"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Save data retrieved (cached snapshot or parsed)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaveAllResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Save file not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/save/{instance}/stream": {
+      "get": {
+        "summary": "Stream save data changes via SSE",
+        "description": "Streams real-time save file change events. arkmonitor watches the .ark file and broadcasts snapshots via SSE when changes are detected. Sends cached data immediately on connect, then streams updates.",
+        "tags": ["Save Data"],
+        "operationId": "streamSaveData",
+        "parameters": [
+          {
+            "name": "instance",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Instance name"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SSE stream of save data events",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaveSSEStream"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Save data manager not initialized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/mod-info": {
+      "get": {
+        "summary": "Get mod information",
+        "description": "Returns mod information extracted from server logs (mod ID and name mappings)",
+        "tags": ["Server Management"],
+        "operationId": "getModInfo",
+        "responses": {
+          "200": {
+            "description": "Mod info retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModInfoResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "mod_info.json not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/server/all-info": {
+      "get": {
+        "summary": "Stream all instances resource information",
+        "description": "Returns Server-Sent Events (SSE) stream with resource information for all running instances every 2 seconds. Includes CPU usage, memory usage, and process details for each instance.",
+        "tags": ["Server Management"],
+        "operationId": "streamAllInstancesInfo",
+        "responses": {
+          "200": {
+            "description": "SSE stream of all instances resource info (every 2s)",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/AllInstancesInfoSSEStream"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -2848,6 +3142,343 @@
           }
         },
         "required": ["config"]
+      },
+      "PlayerSnapshot": {
+        "type": "object",
+        "description": "Player state snapshot from arkmonitor",
+        "properties": {
+          "ID": {
+            "type": "integer",
+            "description": "Player ID"
+          },
+          "SteamID": {
+            "type": "string",
+            "description": "Steam ID"
+          },
+          "Name": {
+            "type": "string",
+            "description": "Player name"
+          },
+          "TribeID": {
+            "type": "integer",
+            "description": "Tribe ID the player belongs to"
+          },
+          "Online": {
+            "type": "boolean",
+            "description": "Whether the player is online"
+          },
+          "Location": {
+            "$ref": "#/components/schemas/LocationData"
+          },
+          "Hash": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Snapshot hash for change detection"
+          }
+        }
+      },
+      "TribeSnapshot": {
+        "type": "object",
+        "description": "Tribe state snapshot from arkmonitor",
+        "properties": {
+          "ID": {
+            "type": "integer",
+            "description": "Tribe ID"
+          },
+          "Name": {
+            "type": "string",
+            "description": "Tribe name"
+          },
+          "Members": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "description": "List of player IDs in the tribe"
+          },
+          "Level": {
+            "type": "integer",
+            "description": "Tribe level"
+          },
+          "Hash": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Snapshot hash for change detection"
+          }
+        }
+      },
+      "LocationData": {
+        "type": "object",
+        "description": "3D location coordinates",
+        "properties": {
+          "X": {
+            "type": "number",
+            "format": "double",
+            "description": "X coordinate"
+          },
+          "Y": {
+            "type": "number",
+            "format": "double",
+            "description": "Y coordinate"
+          },
+          "Z": {
+            "type": "number",
+            "format": "double",
+            "description": "Z coordinate"
+          }
+        }
+      },
+      "CachedSaveData": {
+        "type": "object",
+        "description": "Cached save snapshot data from arkmonitor (used by cache and SSE broadcast)",
+        "properties": {
+          "players": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/PlayerSnapshot"
+            },
+            "description": "Map of player ID to PlayerSnapshot"
+          },
+          "tribes": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/TribeSnapshot"
+            },
+            "description": "Map of tribe ID to TribeSnapshot"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Snapshot timestamp"
+          }
+        }
+      },
+      "SavePlayersResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/StatusResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "object",
+                "properties": {
+                  "players": {
+                    "type": "array",
+                    "items": {
+                      "type": "object"
+                    },
+                    "description": "Array of player data maps from ExportPlayers"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "SaveTribesResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/StatusResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "object",
+                "properties": {
+                  "tribes": {
+                    "type": "array",
+                    "items": {
+                      "type": "object"
+                    },
+                    "description": "Array of tribe data maps from ExportTribes"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "SaveAllResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/StatusResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/CachedSaveData"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "players": {
+                        "type": "array",
+                        "items": { "type": "object" }
+                      },
+                      "tribes": {
+                        "type": "array",
+                        "items": { "type": "object" }
+                      },
+                      "player_tribe_map": {
+                        "type": "object",
+                        "additionalProperties": { "type": "integer" }
+                      },
+                      "tribe_player_map": {
+                        "type": "object",
+                        "additionalProperties": {
+                          "type": "array",
+                          "items": { "type": "integer" }
+                        }
+                      }
+                    }
+                  }
+                ],
+                "description": "Cached snapshot (CachedSaveData) or parsed fallback (SaveData)"
+              }
+            }
+          }
+        ]
+      },
+      "SaveSSEStream": {
+        "type": "object",
+        "description": "Server-Sent Events (SSE) stream for save data changes (powered by arkmonitor)",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["cached", "start", "complete", "data", "error"],
+            "description": "Event type"
+          },
+          "instance": {
+            "type": "string",
+            "description": "Instance name"
+          },
+          "map": {
+            "type": "string",
+            "description": "Instance/map name (for start/complete/data events)"
+          },
+          "players": {
+            "type": "integer",
+            "description": "Number of players in snapshot (complete event)"
+          },
+          "tribes": {
+            "type": "integer",
+            "description": "Number of tribes in snapshot (complete event)"
+          },
+          "data": {
+            "$ref": "#/components/schemas/CachedSaveData"
+          }
+        },
+        "examples": {
+          "cached": {
+            "summary": "Initial cached data sent on connect",
+            "value": "data: {\"type\":\"cached\",\"instance\":\"my-server\",\"data\":{\"players\":{},\"tribes\":{},\"timestamp\":\"2024-01-01T00:00:00Z\"}}\n\n"
+          },
+          "start": {
+            "summary": "Save file change detected",
+            "value": "data: {\"type\":\"start\",\"map\":\"my-server\",\"timestamp\":1702123456}\n\n"
+          },
+          "complete": {
+            "summary": "Snapshot processing complete",
+            "value": "data: {\"type\":\"complete\",\"map\":\"my-server\",\"players\":42,\"tribes\":5}\n\n"
+          },
+          "data": {
+            "summary": "Full snapshot data",
+            "value": "data: {\"type\":\"data\",\"map\":\"my-server\",\"data\":{\"players\":{},\"tribes\":{},\"timestamp\":\"2024-01-01T00:00:00Z\"}}\n\n"
+          }
+        }
+      },
+      "ModInfo": {
+        "type": "object",
+        "description": "Mod information entry",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Mod ID"
+          },
+          "name": {
+            "type": "string",
+            "description": "Mod name"
+          }
+        }
+      },
+      "ModInfoResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/StatusResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ModInfo"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "AllInstancesInfoSSEStream": {
+        "type": "object",
+        "description": "Server-Sent Events (SSE) stream for all instances resource information (every 2s)",
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "timestamp": {
+                "type": "integer",
+                "format": "int64",
+                "description": "Unix timestamp"
+              },
+              "cpu": {
+                "type": "object",
+                "properties": {
+                  "core_count": {
+                    "type": "integer"
+                  },
+                  "used_percent": {
+                    "type": "number",
+                    "format": "float"
+                  }
+                }
+              },
+              "memory": {
+                "type": "object",
+                "properties": {
+                  "total": { "type": "integer", "format": "int64" },
+                  "used": { "type": "integer", "format": "int64" },
+                  "available": { "type": "integer", "format": "int64" },
+                  "used_percent": { "type": "number", "format": "float" }
+                }
+              },
+              "instances": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "instance": { "type": "string" },
+                    "running": { "type": "boolean" },
+                    "pid": { "type": "integer" },
+                    "cpu_percent": { "type": "number", "format": "float" },
+                    "cpu_total_percent": { "type": "number", "format": "float" },
+                    "memory_used": { "type": "integer", "format": "int64" },
+                    "memory_percent": { "type": "number", "format": "float" },
+                    "process_name": { "type": "string" },
+                    "memory_used_mb": { "type": "number", "format": "float" },
+                    "memory_used_gb": { "type": "number", "format": "float" }
+                  }
+                }
+              }
+            }
+          }
+        }
       }
     }
   },
@@ -2883,6 +3514,14 @@
     {
       "name": "FRP Management",
       "description": "FRP client management endpoints"
+    },
+    {
+      "name": "Save Data",
+      "description": "ARK save file parsing and monitoring endpoints"
+    },
+    {
+      "name": "WebSocket",
+      "description": "WebSocket endpoints for real-time events"
     }
   ]
 }

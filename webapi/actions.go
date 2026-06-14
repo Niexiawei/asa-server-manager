@@ -5,6 +5,7 @@ import (
 	"asa-server/asaserver"
 	"asa-server/frpmanage"
 	"asa-server/logger"
+	"asa-server/parseserver"
 	"asa-server/syncthingmanage"
 	"context"
 	"errors"
@@ -40,6 +41,7 @@ type APIServer struct {
 	serverCtx                 context.Context
 	serverCtxStop             func()
 	serverDone                chan struct{}
+	saveDataManager           *parseserver.SaveDataManager
 }
 
 var serverActionsLock sync.Mutex
@@ -55,6 +57,11 @@ func NewAPIServer() *APIServer {
 	engine := gin.Default()
 	engine.Use(cors.Default())
 	ctx, cancel := context.WithCancel(context.Background())
+	saveDataManager, err := parseserver.NewSaveDataManager()
+	if err != nil {
+		logger.GetLogger().Warnf("Failed to init save data manager: %v", err)
+	}
+
 	server := &APIServer{
 		engine:                    engine,
 		port:                      ApiServerPort,
@@ -67,6 +74,7 @@ func NewAPIServer() *APIServer {
 		serverCtx:                 ctx,
 		serverCtxStop:             cancel,
 		serverDone:                make(chan struct{}, 1),
+		saveDataManager:           saveDataManager,
 	}
 
 	// Setup routes
@@ -96,6 +104,11 @@ func (s *APIServer) Start() error {
 
 	if err := asaserver.InitStateManager(asaserver.BaseDir); err != nil {
 		panic(err)
+	}
+
+	// Start save file monitor
+	if s.saveDataManager != nil {
+		go s.saveDataManager.Start(s.serverCtx)
 	}
 
 	// Start listening on port
@@ -141,6 +154,11 @@ func (s *APIServer) Stop() error {
 		if err := syncthingMgr.Stop(); err != nil {
 			logger.GetLogger().Warnf("Error stopping syncthing: %v", err)
 		}
+	}
+
+	// Stop save data manager
+	if s.saveDataManager != nil {
+		s.saveDataManager.Stop()
 	}
 
 	if err := asaserver.CloseStateManager(); err != nil {
@@ -220,6 +238,15 @@ func (s *APIServer) setupRoutes() {
 		config.PUT("/:name/game-user-settings", s.updateGameUserSettings)
 		config.POST("/sync", s.syncGameConfig)
 		config.POST("/sync-instance", s.syncInstanceConfig)
+	}
+
+	// Save parse endpoints
+	save := s.engine.Group("/api/save")
+	{
+		save.GET("/:instance/players", s.getSavePlayers)
+		save.GET("/:instance/tribes", s.getSaveTribes)
+		save.GET("/:instance/all", s.getSaveAll)
+		save.GET("/:instance/stream", s.streamSaveData)
 	}
 
 	// Mod info endpoint
