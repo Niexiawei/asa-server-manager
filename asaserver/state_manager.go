@@ -25,6 +25,8 @@ const (
 	StatusStopFailed                         InstanceStatus = "stop_failed"
 	StatusRestartFailed                      InstanceStatus = "restart_failed"
 	StatusRestart                            InstanceStatus = "restart"
+	StatusRestarting                         InstanceStatus = "restarting"
+	StatusRestarted                          InstanceStatus = "restarted"
 )
 
 // InstanceState 表示实例状态记录

@@ -37,9 +37,7 @@
                   </div>
                   <div class="info-item">
                     <span class="label">状态:</span>
-                    <t-tag :theme="instance.running ? 'success' : 'default'">{{
-                        instance.running ? '运行中' : '已停止'
-                      }}
+                    <t-tag :theme="statusTagTheme(instance.status)">{{ statusLabel(instance.status) }}
                     </t-tag>
                   </div>
                   <div class="info-item" v-if="instance.config?.MapName">
@@ -105,16 +103,16 @@
                 <div class="server-footer">
                   <t-button
                       @click="startInstance(instance.name)"
-                      :disabled="instance.running || instanceLoadingMap.get(instance.name)"
-                      :loading="instanceLoadingMap.get(instance.name)"
+                      :disabled="instance.running || isTransitional(instance)"
+                      :loading="instance.status === 'starting'"
                       theme="primary"
                   >
                     启动
                   </t-button>
                   <t-button
                       @click="stopInstance(instance.name)"
-                      :disabled="!instance.running"
-                      :loading="operationLoadingMap.get(`${instance.name}-stop`)"
+                      :disabled="!instance.running || isTransitional(instance)"
+                      :loading="instance.status === 'stopping'"
                       theme="warning">
                     停止
                   </t-button>
@@ -132,13 +130,17 @@
                     </t-button>
                     <t-dropdown-menu>
                       <t-dropdown-item @click="restartInstance(instance.name)"
-                                       :disabled="!instance.running || operationLoadingMap.get(`${instance.name}-restart`)">
-                          <span v-if="operationLoadingMap.get(`${instance.name}-restart`)">
+                                       :disabled="!instance.running || isTransitional(instance)">
+                          <span v-if="instance.status === 'restarting'">
                             <loading-icon/> 重启中...
                           </span>
                         <span v-else>重启</span>
                       </t-dropdown-item>
-                      <t-dropdown-item @click="deleteInstanceHandler(instance.name)" :disabled="instance.running">
+                      <t-dropdown-item @click="forceStopInstance(instance.name)"
+                                       :disabled="!isTransitional(instance)">
+                        强制停止
+                      </t-dropdown-item>
+                      <t-dropdown-item @click="deleteInstanceHandler(instance.name)" :disabled="instance.running || isTransitional(instance)">
                         删除
                       </t-dropdown-item>
                       <t-dropdown-item @click="openSyncModal(instance.name)">
@@ -206,7 +208,7 @@
 import {useClipboard} from "@vueuse/core";
 import {h, inject, onActivated, onDeactivated, reactive, ref, watch} from 'vue'
 import {useRouter} from 'vue-router'
-import {createInstance, deleteInstance, getModInfo, restartServerSSE, startServer, stopServer} from '@/apis/api.js'
+import {createInstance, deleteInstance, forceStopServer, getModInfo, restartServer, startServer, stopServer} from '@/apis/api.js'
 import {MessagePlugin, DialogPlugin, NotifyPlugin} from 'tdesign-vue-next';
 import {CheckIcon, CloseIcon, FileCopyIcon, LoadingIcon, MoreIcon} from 'tdesign-icons-vue-next';
 import {initServer, serverStore} from '@/store/serverStore.js'
@@ -235,10 +237,18 @@ const form = reactive({
 const modInfo = ref([])
 const modInfoLoading = ref(false)
 
-// 实例的 loading 状态
-const instanceLoadingMap = ref(new Map())
-// 单独的操作 loading 状态
-const operationLoadingMap = ref(new Map())
+// 状态辅助函数
+const isTransitional = (inst) => ['starting', 'stopping', 'restarting'].includes(inst.status)
+const statusLabel = (status) => ({
+  starting: '启动中', started: '运行中', stopping: '停止中',
+  stopped: '已停止', restarting: '重启中', restarted: '运行中',
+  start_failed: '启动失败', stop_failed: '停止失败', restart_failed: '重启失败'
+}[status] || '已停止')
+const statusTagTheme = (status) => ({
+  starting: 'warning', started: 'success', stopping: 'warning',
+  stopped: 'default', restarting: 'warning', restarted: 'success',
+  start_failed: 'danger', stop_failed: 'danger', restart_failed: 'danger'
+}[status] || 'default')
 
 const logViewerRef = ref()
 const syncModalVisible = ref(false)
@@ -356,53 +366,20 @@ const startInstance = async (name) => {
     confirmBtn: '确定',
     cancelBtn: '取消',
     onConfirm: async () => {
-      // 设置 loading 状态
-      instanceLoadingMap.value.set(name, true)
       startDialog.hide()
-
       try {
-        // 使用 SSE 方式调用启动
-        await startServer(
-            name,
-            // onMessage 回调 - 接收实时进度消息
-            (message) => {
-              //console.log('Start progress:', message)
-            },
-            // onError 回调 - 处理错误
-            (error) => {
-              // 启动失败：设置实例状态为未启动
-              const instance = instances.value.find(inst => inst.name === name)
-              if (instance) {
-                instance.running = false
-              }
-
-              //MessagePlugin.error(error.message || `实例 "${name}" 启动失败`)
-
-
-              NotifyPlugin.error({
-                title: `实例 "${name}" 启动失败`,
-                content: error.message || `实例 "${name}" 启动失败`
-              })
-
-
-              console.error('启动实例失败:', error)
-            },
-            // onComplete 回调 - 启动完成
-            () => {
-              MessagePlugin.success(`实例 "${name}" 启动成功`)
-              // 更新本地状态
-              const instance = instances.value.find(inst => inst.name === name)
-              if (instance) {
-                instance.running = true
-              }
-            }
-        )
+        const data = await startServer(name)
+        if (data.success) {
+          MessagePlugin.success(data.message || `实例 "${name}" 正在启动`)
+        } else {
+          NotifyPlugin.error({
+            title: `实例 "${name}" 启动失败`,
+            content: data.error || `实例 "${name}" 启动失败`
+          })
+        }
       } catch (error) {
         MessagePlugin.error(`启动实例失败: ${error.message}`)
         console.error('启动实例失败:', error)
-      } finally {
-        // 清除 loading 状态
-        instanceLoadingMap.value.set(name, false)
       }
     }
   })
@@ -416,19 +393,11 @@ const stopInstance = async (name) => {
     confirmBtn: '确定',
     cancelBtn: '取消',
     onConfirm: async () => {
-      // 设置停止操作 loading 状态
-      operationLoadingMap.value.set(`${name}-stop`, true)
       stopDialog.hide()
-
       try {
         const data = await stopServer(name)
         if (data.success) {
-          MessagePlugin.success(data.message || `实例 "${name}" 停止成功`)
-          // 更新本地状态
-          const instance = instances.value.find(inst => inst.name === name)
-          if (instance) {
-            instance.running = false
-          }
+          MessagePlugin.success(data.message || `实例 "${name}" 正在停止`)
         } else {
           MessagePlugin.error(data.error || `实例 "${name}" 停止失败`)
           console.error('停止实例失败:', data.error)
@@ -436,9 +405,6 @@ const stopInstance = async (name) => {
       } catch (error) {
         MessagePlugin.error(`停止实例失败: ${error.message}`)
         console.error('停止实例失败:', error)
-      } finally {
-        // 清除停止操作 loading 状态
-        operationLoadingMap.value.set(`${name}-stop`, false)
       }
     }
   })
@@ -452,38 +418,41 @@ const restartInstance = async (name) => {
     confirmBtn: '确定',
     cancelBtn: '取消',
     onConfirm: async () => {
-      // 设置重启操作 loading 状态
-      operationLoadingMap.value.set(`${name}-restart`, true)
       restartDialog.hide()
       try {
-        // 使用 SSE 方式调用重启
-        restartServerSSE(
-            name,
-            // onMessage 回调 - 接收实时进度消息
-            (message) => {
-              console.log('Restart progress:', message)
-              // 可选：在 UI 中显示重启进度
-            },
-            // onError 回调 - 处理错误
-            (error) => {
-              console.error('重启实例失败:', error)
-              MessagePlugin.error('重启实例失败')
-              // 清除重启操作 loading 状态
-              operationLoadingMap.value.set(`${name}-restart`, false)
-            },
-            // onComplete 回调 - 重启完成
-            () => {
-              console.log('Server restart completed')
-              MessagePlugin.success('实例重启成功')
-              // 清除重启操作 loading 状态
-              operationLoadingMap.value.set(`${name}-restart`, false)
-            }
-        )
+        const data = await restartServer(name)
+        if (data.success) {
+          MessagePlugin.success(data.message || '实例正在重启')
+        } else {
+          MessagePlugin.error(data.error || '重启实例失败')
+        }
       } catch (error) {
         console.error('重启实例失败:', error)
         MessagePlugin.error('重启实例失败')
-        // 清除重启操作 loading 状态
-        operationLoadingMap.value.set(`${name}-restart`, false)
+      }
+    }
+  })
+}
+
+// 强制停止实例
+const forceStopInstance = async (name) => {
+  let dialog = DialogPlugin.confirm({
+    header: '警告',
+    body: `确定要强制停止实例 "${name}" 吗？这将直接终止进程并重置状态。`,
+    theme: 'danger',
+    confirmBtn: '确定',
+    cancelBtn: '取消',
+    onConfirm: async () => {
+      dialog.hide()
+      try {
+        const data = await forceStopServer(name)
+        if (data.success) {
+          MessagePlugin.success(data.message || `实例 "${name}" 已强制停止`)
+        } else {
+          MessagePlugin.error(data.error || '强制停止失败')
+        }
+      } catch (error) {
+        MessagePlugin.error(`强制停止失败: ${error.message}`)
       }
     }
   })

@@ -5,6 +5,7 @@ import (
 	"asa-server/logger"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -60,6 +61,22 @@ const (
 	heartbeatTimeout = 90 * time.Second
 )
 
+// wsClientSnapshot holds a snapshot of WebSocket connections and their mutexes for iteration
+type wsClientSnapshot struct {
+	Conns []*websocket.Conn
+	Mus   []*sync.Mutex
+}
+
+// wsSnapshotPool pools wsClientSnapshot to avoid repeated allocations during high-frequency broadcasts
+var wsSnapshotPool = sync.Pool{
+	New: func() any {
+		return &wsClientSnapshot{
+			Conns: make([]*websocket.Conn, 0, 64),
+			Mus:   make([]*sync.Mutex, 0, 64),
+		}
+	},
+}
+
 // handleServerEvents handles WebSocket connections for server events (global broadcast)
 func (s *APIServer) handleServerEvents(c *gin.Context) {
 	conn, err := wsUpgrader.Upgrade(c.Writer, c.Request, nil)
@@ -70,8 +87,9 @@ func (s *APIServer) handleServerEvents(c *gin.Context) {
 	defer conn.Close()
 
 	// Register client (no instance-based organization)
+	connMu := &sync.Mutex{}
 	s.mu.Lock()
-	s.clients[conn] = true
+	s.clients[conn] = connMu
 	s.mu.Unlock()
 
 	// 创建心跳超时 ticker
@@ -105,12 +123,14 @@ func (s *APIServer) handleServerEvents(c *gin.Context) {
 		var msg ClientMessage
 		err := conn.ReadJSON(&msg)
 		if err != nil {
+			connMu.Lock()
 			err2 := conn.WriteJSON(gin.H{
 				"error": err.Error(),
 			})
+			connMu.Unlock()
 
 			if err2 != nil {
-				logger.GetLogger().Debugf("Failed to send pong: %v", err)
+				logger.GetLogger().Debugf("Failed to send error response: %v", err)
 				s.mu.Lock()
 				delete(s.clients, conn)
 				s.mu.Unlock()
@@ -124,9 +144,11 @@ func (s *APIServer) handleServerEvents(c *gin.Context) {
 		// 处理客户端 ping 消息
 		if msg.Type == "ping" {
 			// 发送 pong 响应
+			connMu.Lock()
 			err = conn.WriteJSON(gin.H{
 				"type": "pong",
 			})
+			connMu.Unlock()
 
 			if err != nil {
 				logger.GetLogger().Debugf("Failed to send pong: %v", err)
@@ -139,19 +161,40 @@ func (s *APIServer) handleServerEvents(c *gin.Context) {
 	}
 }
 
-// sendEventToAll broadcasts an event to all WebSocket clients (global broadcast)
-func (s *APIServer) sendEventToAll(event ServerEvent) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	if len(s.clients) == 0 {
-		return
-	}
-
-	// Broadcast to all clients
+// closeAllClients 主动关闭所有 WebSocket 连接，使 ReadJSON 返回错误退出
+func (s *APIServer) closeAllClients() {
+	s.mu.Lock()
 	for conn := range s.clients {
-		conn.WriteJSON(event)
+		conn.Close()
 	}
+	s.clients = make(map[*websocket.Conn]*sync.Mutex)
+	s.mu.Unlock()
+}
+
+// sendEventToAll broadcasts an event to all WebSocket clients (global broadcast)
+// It uses a sync.Pool to reuse slice allocations and per-connection mutexes to prevent concurrent writes.
+func (s *APIServer) sendEventToAll(event ServerEvent) {
+	snap := wsSnapshotPool.Get().(*wsClientSnapshot)
+	snap.Conns = snap.Conns[:0]
+	snap.Mus = snap.Mus[:0]
+
+	s.mu.RLock()
+	for conn, mu := range s.clients {
+		snap.Conns = append(snap.Conns, conn)
+		snap.Mus = append(snap.Mus, mu)
+	}
+	s.mu.RUnlock()
+
+	for i, conn := range snap.Conns {
+		snap.Mus[i].Lock()
+		err := conn.WriteJSON(event)
+		snap.Mus[i].Unlock()
+		if err != nil {
+			logger.GetLogger().Debugf("WebSocket write error: %v", err)
+		}
+	}
+
+	wsSnapshotPool.Put(snap)
 }
 
 // BroadcastServerStarting notifies all WebSocket clients that server is starting
@@ -228,6 +271,28 @@ func (s *APIServer) BroadcastServerRestartFailed(instanceName string, err error)
 		Timestamp:    time.Now().Unix(),
 		Message:      fmt.Sprintf("Failed to restart server: %v", err),
 		Status:       "failed",
+	})
+}
+
+// BroadcastServerRestarting 通知客户端服务器正在重启
+func (s *APIServer) BroadcastServerRestarting(instanceName string) {
+	s.sendEventToAll(ServerEvent{
+		EventType:    "server_restarting",
+		InstanceName: instanceName,
+		Timestamp:    time.Now().Unix(),
+		Message:      fmt.Sprintf("Server '%s' is restarting", instanceName),
+		Status:       "restarting",
+	})
+}
+
+// BroadcastServerRestarted 通知客户端服务器重启完成
+func (s *APIServer) BroadcastServerRestarted(instanceName string) {
+	s.sendEventToAll(ServerEvent{
+		EventType:    "server_restarted",
+		InstanceName: instanceName,
+		Timestamp:    time.Now().Unix(),
+		Message:      fmt.Sprintf("Server '%s' restarted successfully", instanceName),
+		Status:       "restarted",
 	})
 }
 

@@ -4,6 +4,7 @@ import (
 	"asa-server/asaserver"
 	"asa-server/logger"
 	"context"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -81,6 +82,16 @@ func (s *APIServer) runStartAllServersTask() {
 	// Start each instance individually
 	var failedInstances []string
 	for _, instanceName := range instances {
+		// Smart skip: check state manager for instances already starting/started
+		state, _ := asaserver.GetLatestInstanceState(instanceName)
+		switch state.Status {
+		case asaserver.StatusStarting, asaserver.StatusStarted,
+			asaserver.StatusStartStartInitialization,
+			asaserver.StatusStartStartInitializationSuccessful:
+			s.startBroadcaster.SendMessage(fmt.Sprintf("Instance '%s' skipped (status: %s)", instanceName, state.Status))
+			continue
+		}
+
 		// Check if already running
 		running, err := asaserver.IsServerRunning(instanceName)
 		if err == nil && running {
@@ -149,6 +160,14 @@ func (s *APIServer) runStopAllServersTask() {
 	// Stop each instance individually
 	var failedInstances []string
 	for _, instanceName := range instances {
+		// Smart skip: check state manager for instances already stopping/stopped
+		state, _ := asaserver.GetLatestInstanceState(instanceName)
+		switch state.Status {
+		case asaserver.StatusStopping, asaserver.StatusStopped:
+			s.stopBroadcaster.SendMessage(fmt.Sprintf("Instance '%s' skipped (status: %s)", instanceName, state.Status))
+			continue
+		}
+
 		// Check if already running
 		running, err := asaserver.IsServerRunning(instanceName)
 		if err != nil || !running {
@@ -216,6 +235,14 @@ func (s *APIServer) runRestartAllServersTask() {
 	// Restart each instance individually
 	var failedInstances []string
 	for _, instanceName := range instances {
+		// Smart skip: check state manager for instances already restarting/stopping
+		state, _ := asaserver.GetLatestInstanceState(instanceName)
+		switch state.Status {
+		case asaserver.StatusRestart, asaserver.StatusStopping:
+			s.restartBroadcaster.SendMessage(fmt.Sprintf("Instance '%s' skipped (status: %s)", instanceName, state.Status))
+			continue
+		}
+
 		// Broadcast stopping event
 		s.BroadcastServerStopping(instanceName)
 		s.restartBroadcaster.SendMessage(fmt.Sprintf("Restarting instance '%s'...", instanceName))
@@ -243,27 +270,27 @@ func (s *APIServer) runRestartAllServersTask() {
 }
 
 // runStartServerTask monitors a single server startup process
-func (s *APIServer) runStartServerTask(name string, broadcaster *TaskBroadcaster) {
-	defer s.instanceStartBroadcasters.Cleanup(name)
+func (s *APIServer) runStartServerTask(name string) {
 	startErr := make(chan error, 2)
 	startupSuccess := make(chan bool, 1)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	go func() {
-		broadcaster.SendMessage(fmt.Sprintf("[startup] %s:%s", "starting server", name))
-		err := asaserver.StartServer(name, asaserver.WithWaitServerCompleted(),
+		err := asaserver.StartServer(name, asaserver.WithCtx(ctx), asaserver.WithWaitServerCompleted(),
 			asaserver.WithGameInitializationSuccessfulCallback(func() {
 				s.BroadcastServerStarting(name)
-				broadcaster.SendMessage(fmt.Sprintf("[initSuccessful] %s:%s", "initSuccessful server", name))
 			}))
 
 		if err != nil {
-			logger.GetLogger().Errorf("failed to start server '%s': %v", name, err)
-			broadcaster.SendMessage(fmt.Sprintf("Error: Failed to start server: %v", err))
-			// Broadcast error event
-			s.BroadcastServerStartFailed(name, err)
-			startErr <- fmt.Errorf("failed to start server '%s': %w", name, err)
+			if errors.Is(err, asaserver.ErrServerActionsLocked) {
+				logger.GetLogger().Infof("server '%s' start skipped: another operation in progress", name)
+				s.BroadcastServerStartFailed(name, fmt.Errorf("there are other services being started or stopped"))
+			} else {
+				logger.GetLogger().Errorf("failed to start server '%s': %v", name, err)
+				s.BroadcastServerStartFailed(name, err)
+			}
+			startErr <- err
 			return
 		}
 		startupSuccess <- true
@@ -274,23 +301,51 @@ func (s *APIServer) runStartServerTask(name string, broadcaster *TaskBroadcaster
 		logger.GetLogger().Errorf("start Server %s fail err: %v", name, err)
 		return
 	case <-ctx.Done():
-		broadcaster.SendMessage("[ERROR] Server startup exited")
 		logger.GetLogger().Errorf("start Server %s exited", name)
 		s.BroadcastServerStartFailed(name, fmt.Errorf("start Server %s exited", name))
 		return
 	case <-startupSuccess:
-		broadcaster.SendMessage("[COMPLETED] Server startup completed successfully")
+		// completed
 	case <-time.After(5 * time.Minute):
-		// Wait for startup to complete or timeout (5 Minute)
-		//TODO
-		//超时强制杀掉进程
+		// 超时：先取消 ctx 通知 StartServer 内部停止，再强制杀进程
+		cancel()
 		if err := asaserver.KillServer(name); err != nil {
 			logger.GetLogger().Errorf("kill server fail:%v", err)
 		}
-		broadcaster.SendMessage("[ERROR] Server startup timeout")
 		logger.GetLogger().Errorf("Server startup timeout name:%s", name)
 		s.BroadcastServerStartFailed(name, fmt.Errorf("start Server %s timeout", name))
 		return
 	}
 	s.BroadcastServerStarted(name)
+}
+
+// runStopServerTask stops a server instance asynchronously
+func (s *APIServer) runStopServerTask(name string) {
+	if err := asaserver.StopServer(name); err != nil {
+		if errors.Is(err, asaserver.ErrServerActionsLocked) {
+			logger.GetLogger().Infof("server '%s' stop skipped: another operation in progress", name)
+			s.BroadcastServerStopFailed(name, fmt.Errorf("there are other services being started or stopped"))
+		} else {
+			logger.GetLogger().Errorf("failed to stop server '%s': %v", name, err)
+			s.BroadcastServerStopFailed(name, err)
+		}
+		return
+	}
+	s.BroadcastServerStopped(name)
+}
+
+// runRestartServerTask restarts a server instance asynchronously
+func (s *APIServer) runRestartServerTask(name string) {
+	if err := asaserver.RestartServer(name); err != nil {
+		if errors.Is(err, asaserver.ErrServerActionsLocked) {
+			logger.GetLogger().Infof("server '%s' restart skipped: another operation in progress", name)
+			s.BroadcastServerRestartFailed(name, fmt.Errorf("there are other services being started or stopped"))
+		} else {
+			logger.GetLogger().Errorf("failed to restart server '%s': %v", name, err)
+			s.BroadcastServerRestartFailed(name, err)
+		}
+		return
+	}
+	_ = asaserver.WriteInstanceState(name, asaserver.StatusRestarted, "")
+	s.BroadcastServerRestarted(name)
 }

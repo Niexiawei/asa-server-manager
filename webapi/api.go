@@ -351,165 +351,94 @@ func (s *APIServer) renameInstance(c *gin.Context) {
 	})
 }
 
+// checkInstanceState 检查实例是否处于可操作状态
+// 返回非空字符串表示拒绝原因
+func checkInstanceState(instanceName string) string {
+	state, err := asaserver.GetLatestInstanceState(instanceName)
+	if err != nil {
+		return "" // 状态查询失败不拦截
+	}
+	switch state.Status {
+	case asaserver.StatusStartStartInitialization,
+		asaserver.StatusStartStartInitializationSuccessful,
+		asaserver.StatusStarting,
+		asaserver.StatusStopping,
+		asaserver.StatusRestarting:
+		return fmt.Sprintf("instance '%s' is currently in '%s' state, operation not allowed", instanceName, state.Status)
+	}
+	return ""
+}
+
 // startServer starts a server instance
 func (s *APIServer) startServer(c *gin.Context) {
 	instanceName := c.Param("name")
 
-	// Set SSE headers
-	c.Header("Content-Type", "text/event-stream")
-	c.Header("Cache-Control", "no-cache")
-	c.Header("Connection", "keep-alive")
-	c.Header("Access-Control-Allow-Origin", "*")
-	c.Header("Access-Control-Allow-Headers", "Content-Type")
-	flusher := c.Writer.(http.Flusher)
-
-	if !serverActionsLock.TryLock() {
-		response := gin.H{
-			"status":    "error",
-			"timestamp": time.Now().Format(time.RFC3339Nano),
-			"message":   "there are other services being started or stopped",
-		}
-		jsonData, _ := json.Marshal(response)
-		fmt.Fprintf(c.Writer, "data: %s\n\n", jsonData)
-		flusher.Flush()
-		return
-	}
-	defer serverActionsLock.Unlock()
-
 	// Check if server is already running first
 	running, err := asaserver.IsServerRunning(instanceName)
 	if err != nil {
-		response := gin.H{
-			"status":    "error",
-			"timestamp": time.Now().Format(time.RFC3339Nano),
-			"message":   fmt.Sprintf("Failed to check server status: %v", err),
-		}
-		jsonData, _ := json.Marshal(response)
-		fmt.Fprintf(c.Writer, "data: %s\n\n", jsonData)
-		flusher.Flush()
+		c.JSON(http.StatusInternalServerError, StatusResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to check server status: %v", err),
+		})
 		return
 	}
 
 	if running {
-		response := gin.H{
-			"status":    "error",
-			"timestamp": time.Now().Format(time.RFC3339Nano),
-			"message":   fmt.Sprintf("Server '%s' is already running", instanceName),
-		}
-		jsonData, _ := json.Marshal(response)
-		fmt.Fprintf(c.Writer, "data: %s\n\n", jsonData)
-		flusher.Flush()
+		c.JSON(http.StatusConflict, StatusResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Server '%s' is already running", instanceName),
+		})
+		return
+	}
+
+	// 状态检查
+	if reason := checkInstanceState(instanceName); reason != "" {
+		c.JSON(http.StatusConflict, StatusResponse{
+			Success: false,
+			Error:   reason,
+		})
 		return
 	}
 
 	// Check for duplicate ports
 	if err := asaserver.CheckForDuplicatePorts(); err != nil {
-		response := gin.H{
-			"status":    "error",
-			"timestamp": time.Now().Format(time.RFC3339Nano),
-			"message":   fmt.Sprintf("Port conflicts detected: %v", err),
-		}
-		jsonData, _ := json.Marshal(response)
-		fmt.Fprintf(c.Writer, "data: %s\n\n", jsonData)
-		flusher.Flush()
+		c.JSON(http.StatusConflict, StatusResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Port conflicts detected: %v", err),
+		})
 		return
 	}
 
 	// Broadcast server starting event
 	s.BroadcastServerStarting(instanceName)
 
-	// Create and start broadcaster for this instance startup
-	broadcaster := s.instanceStartBroadcasters.Get(instanceName)
+	// 异步启动（复用 runStartServerTask，锁冲突由核心层处理）
+	go s.runStartServerTask(instanceName)
 
-	if !broadcaster.IsRunning() {
-		if !broadcaster.Start() {
-			logger.GetLogger().Infof("Server '%s' is currently starting, please wait", instanceName)
-		} else {
-			// Start server asynchronously
-			go s.runStartServerTask(instanceName, broadcaster)
-		}
-	}
-	// Subscribe to startup broadcaster and stream updates
-	subscriber, unsubscribe := broadcaster.Subscribe()
-	defer unsubscribe()
-
-	c.Stream(func(w io.Writer) bool {
-		select {
-		case msg, ok := <-subscriber:
-			if !ok {
-				return false
-			}
-			// Format response with status, timestamp, and message
-
-			// Check if startup completed
-			if strings.Contains(msg, "[COMPLETED]") {
-				// Push started status
-				startedResponse := gin.H{
-					"status":    "started",
-					"timestamp": time.Now().Format(time.RFC3339Nano),
-					"message":   "[COMPLETED] Server has started successfully",
-				}
-				startedData, _ := json.Marshal(startedResponse)
-				fmt.Fprintf(w, "data: %s\n\n", startedData)
-				return false
-			}
-
-			if strings.Contains(msg, "[ERROR]") {
-				startedResponse := gin.H{
-					"status":    "start_failed",
-					"timestamp": time.Now().Format(time.RFC3339Nano),
-					"message":   msg,
-				}
-				startedData, _ := json.Marshal(startedResponse)
-				fmt.Fprintf(w, "data: %s\n\n", startedData)
-				return false
-			}
-
-			response := gin.H{
-				"status":    "starting",
-				"timestamp": time.Now().Format(time.RFC3339Nano),
-				"message":   msg,
-			}
-			jsonData, _ := json.Marshal(response)
-			fmt.Fprintf(w, "data: %s\n\n", jsonData)
-
-			return true
-		case <-c.Request.Context().Done():
-			return false
-		}
+	c.JSON(http.StatusOK, StatusResponse{
+		Success: true,
+		Message: fmt.Sprintf("Server '%s' is starting", instanceName),
 	})
 }
 
 // stopServer stops a server instance
 func (s *APIServer) stopServer(c *gin.Context) {
 	name := c.Param("name")
-	if !serverActionsLock.TryLock() {
-		c.JSON(http.StatusInternalServerError, StatusResponse{
+
+	if reason := checkInstanceState(name); reason != "" {
+		c.JSON(http.StatusConflict, StatusResponse{
 			Success: false,
-			Error:   fmt.Sprintf("there are other services being started or stopped"),
+			Error:   reason,
 		})
 		return
 	}
-	defer serverActionsLock.Unlock()
-	// Broadcast server stopping event
+
 	s.BroadcastServerStopping(name)
-
-	if err := asaserver.StopServer(name); err != nil {
-		c.JSON(http.StatusInternalServerError, StatusResponse{
-			Success: false,
-			Error:   err.Error(),
-		})
-		// Broadcast error event
-		s.BroadcastServerStopFailed(name, err)
-		return
-	}
-
-	// Broadcast server stopped event
-	s.BroadcastServerStopped(name)
+	go s.runStopServerTask(name)
 
 	c.JSON(http.StatusOK, StatusResponse{
 		Success: true,
-		Message: fmt.Sprintf("Server '%s' stopped successfully", name),
+		Message: fmt.Sprintf("Server '%s' is stopping", name),
 	})
 }
 
@@ -517,72 +446,34 @@ func (s *APIServer) stopServer(c *gin.Context) {
 func (s *APIServer) restartServer(c *gin.Context) {
 	name := c.Param("name")
 
-	// Set SSE headers
-	c.Header("Content-Type", "text/event-stream")
-	c.Header("Cache-Control", "no-cache")
-	c.Header("Connection", "keep-alive")
-	c.Header("Access-Control-Allow-Origin", "*")
-	c.Header("Access-Control-Allow-Headers", "Content-Type")
+	if reason := checkInstanceState(name); reason != "" {
+		c.JSON(http.StatusConflict, StatusResponse{
+			Success: false,
+			Error:   reason,
+		})
+		return
+	}
 
-	// Create channel to stream messages
-	msgChan := make(chan string)
-	done := make(chan struct{})
+	s.BroadcastServerRestarting(name)
+	go s.runRestartServerTask(name)
 
-	// Run restart in a goroutine
-	go func() {
-		defer close(msgChan)
-		select {
-		case msgChan <- fmt.Sprintf("Restarting server '%s'...", name):
-		case <-done:
-			return
-		}
+	c.JSON(http.StatusOK, StatusResponse{
+		Success: true,
+		Message: fmt.Sprintf("Server '%s' is restarting", name),
+	})
+}
 
-		if !serverActionsLock.TryLock() {
-			select {
-			case msgChan <- fmt.Sprintf("Error: there are other services being started or stopped"):
-			case <-done:
-			}
-			return
-		}
-
-		defer serverActionsLock.Unlock()
-
-		// Broadcast server stopping event
-		s.BroadcastServerStopping(name)
-
-		if err := asaserver.RestartServer(name); err != nil {
-			select {
-			case msgChan <- fmt.Sprintf("Error: Failed to restart server: %v", err):
-			case <-done:
-			}
-			// Broadcast error event
-			s.BroadcastServerRestartFailed(name, err)
-			return
-		}
-
-		select {
-		case msgChan <- fmt.Sprintf("Server '%s' restarted successfully", name):
-		case <-done:
-		}
-		// Broadcast server restarted event
-		s.BroadcastServerStarted(name)
-	}()
-
-	// Stream the progress
-	c.Stream(func(w io.Writer) bool {
-		select {
-		case msg, ok := <-msgChan:
-			if !ok {
-				return false
-			}
-			// Send SSE formatted data
-			fmt.Fprintf(w, "data: %s\n\n", msg)
-			return true
-		case <-c.Request.Context().Done():
-			// Client disconnected - signal goroutine to stop
-			close(done)
-			return false
-		}
+// forceStopServer force stops a server instance (bypasses state check)
+func (s *APIServer) forceStopServer(c *gin.Context) {
+	name := c.Param("name")
+	if err := asaserver.ForceStopServer(name); err != nil {
+		c.JSON(http.StatusInternalServerError, StatusResponse{Success: false, Error: err.Error()})
+		return
+	}
+	s.BroadcastServerStopped(name)
+	c.JSON(http.StatusOK, StatusResponse{
+		Success: true,
+		Message: fmt.Sprintf("Server '%s' has been force stopped", name),
 	})
 }
 

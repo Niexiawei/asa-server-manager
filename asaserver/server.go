@@ -24,7 +24,25 @@ import (
 
 // logMappingMutex protects the instance to log file mapping
 var logMappingMutex sync.RWMutex
-var serverActionsLock sync.Locker
+var serverActionsLock sync.Mutex
+
+// LockServerActions acquires the server actions lock (blocks until available)
+func LockServerActions() {
+	serverActionsLock.Lock()
+}
+
+// UnlockServerActions releases the server actions lock
+func UnlockServerActions() {
+	serverActionsLock.Unlock()
+}
+
+// TryLockServerActions tries to acquire the lock without blocking
+func TryLockServerActions() bool {
+	return serverActionsLock.TryLock()
+}
+
+// ErrServerActionsLocked is returned when another server operation is already in progress
+var ErrServerActionsLocked = fmt.Errorf("server actions are locked, another operation is in progress")
 
 // instanceLogMapping stores the mapping of instance names to their log file paths
 var instanceLogMapping = make(map[string]string)
@@ -511,6 +529,9 @@ func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
 		o(opts)
 	}
 	_ = WriteInstanceState(instanceName, StatusStartStartInitialization, "")
+	if !TryLockServerActions() {
+		return ErrServerActionsLocked
+	}
 
 	ctx, cancel := context.WithCancel(opts.ParentCtx)
 	defer cancel()
@@ -538,12 +559,14 @@ func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
 	}()
 
 	if err := removeNotRunningServerLogMapper(); err != nil {
+		UnlockServerActions()
 		startErr = err
 		return err
 	}
 
 	// Check for duplicate ports
 	if err := CheckForDuplicatePorts(); err != nil {
+		UnlockServerActions()
 		logger.GetLogger().Errorf("Port conflicts detected: %v", err)
 		startErr = err
 		return err
@@ -551,6 +574,7 @@ func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
 
 	config, err := LoadInstanceConfig(instanceName)
 	if err != nil {
+		UnlockServerActions()
 		startErr = err
 		return err
 	}
@@ -671,7 +695,9 @@ func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
 	// Get the game log file path and establish mapping
 	gameLogPath, err := GetGameLogFilePath(instanceName)
 	if err != nil {
-		return fmt.Errorf("failed to get game log file path: %w", err)
+		UnlockServerActions()
+		startErr = fmt.Errorf("failed to get game log file path: %w", err)
+		return startErr
 	}
 
 	if opts.GameLogPathCallback != nil {
@@ -739,6 +765,7 @@ func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
 	}
 
 	if ctx.Err() != nil {
+		UnlockServerActions()
 		killGameServer(pid)
 	}
 
@@ -757,8 +784,9 @@ func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
 		}
 	}, func() {
 		_ = WriteInstanceState(instanceName, StatusStartStartInitializationSuccessful, "")
-		initSuccessful <- true
 		confReset()
+		UnlockServerActions()
+		initSuccessful <- true
 
 		if opts.GameInitializationSuccessful != nil {
 			opts.GameInitializationSuccessful()
@@ -784,6 +812,7 @@ func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
 
 		select {
 		case <-WaitServerCompletedCtx.Done():
+			UnlockServerActions()
 			startErr = fmt.Errorf("start game server exited")
 			return startErr
 		case <-startupSuccess:
@@ -833,7 +862,8 @@ func GetPIDByPort(port int) (int, error) {
 // StopServer stops a server instance
 func StopServer(instanceName string) error {
 	var (
-		pid int
+		pid         int
+		gameLogPath string
 	)
 	// 使用一个变量来记录错误，以便在函数结束时检查是否需要记录失败状态
 	var stopErr error
@@ -841,14 +871,25 @@ func StopServer(instanceName string) error {
 	// 使用 defer 来在函数退出时记录失败状态（如果存在错误）
 	defer func() {
 		if stopErr != nil {
+			// 保留失败记录（历史）
 			_ = WriteInstanceState(instanceName, StatusStopFailed, stopErr.Error())
+			// 回滚到操作前状态：服务器仍在运行则为 started，已停止则为 stopped
+			rollbackStatus := StatusStopped
+			if running, err := IsServerRunning(instanceName); err == nil && running {
+				rollbackStatus = StatusStarted
+			}
+			_ = WriteInstanceState(instanceName, rollbackStatus, "")
 		}
 	}()
 
+	if !TryLockServerActions() {
+		return ErrServerActionsLocked
+	}
 	_ = WriteInstanceState(instanceName, StatusStopping, "")
 
 	running, err := IsServerRunning(instanceName)
 	if err != nil || !running {
+		UnlockServerActions()
 		logger.GetLogger().Warnf("Server for instance %s is not running.", instanceName)
 		stopErr = fmt.Errorf("server for instance %s is not running", instanceName)
 		return stopErr
@@ -859,16 +900,23 @@ func StopServer(instanceName string) error {
 
 	config, configErr := LoadInstanceConfig(instanceName)
 	if configErr != nil {
+		UnlockServerActions()
 		stopErr = fmt.Errorf("failed to load instance config: %w", configErr)
 		return stopErr
 	}
 	pid, err = GetPIDByPort(config.Port)
 	if err != nil {
+		UnlockServerActions()
 		stopErr = fmt.Errorf("failed to find process PID: %w", err)
 		return stopErr
 	}
 
+	logger.GetLogger().Infof("Stopping server for instance: %s pid: %s", instanceName, pid)
+
+	gameLogPath, _ = GetInstanceLogFile(instanceName)
+
 	if err := SaveWorldSafely(instanceName); err != nil {
+		UnlockServerActions()
 		stopErr = fmt.Errorf("failed to save world safely: %w", err)
 		return stopErr
 	}
@@ -877,34 +925,48 @@ func StopServer(instanceName string) error {
 
 	if err == nil && strings.Contains(response, "Exiting") {
 		logger.GetLogger().Infof("Server instance %s reported 'Exiting...'. Awaiting shutdown...", instanceName)
-		// Wait for process to finish using win32api.IsProcessExited
 	} else {
-		if err := exec.Command("taskkill", "/PID", fmt.Sprintf("%d", pid)).Run(); err != nil {
-			logger.GetLogger().Warnf("failed to kill process PID %d: %s", pid, err.Error())
+		if taskkillErr := exec.Command("taskkill", "/PID", fmt.Sprintf("%d", pid)).Run(); taskkillErr != nil {
+			logger.GetLogger().Warnf("failed to kill process PID %d: %s", pid, taskkillErr.Error())
 			_ = exec.Command("taskkill", "/F", "/PID", fmt.Sprintf("%d", pid)).Run()
 		}
 	}
 
-	for {
-		exited, err := win32api.IsProcessExited(uint32(pid))
-		if err != nil || exited {
-			break
-		}
-		time.Sleep(2 * time.Second)
+	// Wait for server to fully stop using waitServerStopped
+	waitCtx, waitCancel := context.WithCancel(context.Background())
+	defer waitCancel()
+
+	stopped := make(chan struct{})
+	go waitServerStopped(waitCtx, pid, gameLogPath,
+		func() {
+			logger.GetLogger().Infof("Server %s received closing request", instanceName)
+		},
+		func(complete bool) {
+			UnlockServerActions()
+			close(stopped)
+		})
+
+	// Wait for complete stop or timeout
+	select {
+	case <-stopped:
+		logger.GetLogger().Infof("Server for instance %s has exited.", instanceName)
+	case <-time.After(5 * time.Minute):
+		logger.GetLogger().Warnf("Process %d did not exit within 5min, force killing", pid)
+		_ = exec.Command("taskkill", "/F", "/PID", fmt.Sprintf("%d", pid)).Run()
+		waitCancel() // 取消 waitServerStopped goroutine 的 context
+		UnlockServerActions()
 	}
 
-	logger.GetLogger().Infof("Server for instance %s has exited.", instanceName)
-
-	if err == nil && config.EnableAsaPlugin {
-		pid2, err := GetInstancePID(instanceName)
-		if err == nil {
+	// Cleanup (lock already released at this point)
+	if config.EnableAsaPlugin {
+		if pid2, pidErr := GetInstancePID(instanceName); pidErr == nil {
 			_ = exec.Command("taskkill", "/F", "/PID", fmt.Sprintf("%d", pid2)).Run()
 		}
 	}
 
 	// Remove the log mapping for this instance (log file will be reused on next start)
-	if err := RemoveInstanceLogMapping(instanceName); err != nil {
-		logger.GetLogger().Warnf("Failed to remove log mapping for instance %s: %v", instanceName, err)
+	if rmErr := RemoveInstanceLogMapping(instanceName); rmErr != nil {
+		logger.GetLogger().Warnf("Failed to remove log mapping for instance %s: %v", instanceName, rmErr)
 	}
 
 	_ = WriteInstanceState(instanceName, StatusStopped, "")
@@ -938,11 +1000,18 @@ func RestartServer(instanceName string) error {
 	// 使用 defer 来在函数退出时记录失败状态（如果存在错误）
 	defer func() {
 		if restartErr != nil {
+			// 保留失败记录（历史）
 			_ = WriteInstanceState(instanceName, StatusRestartFailed, restartErr.Error())
+			// 回滚到操作前状态：服务器仍在运行则为 started，已停止则为 stopped
+			rollbackStatus := StatusStopped
+			if running, err := IsServerRunning(instanceName); err == nil && running {
+				rollbackStatus = StatusStarted
+			}
+			_ = WriteInstanceState(instanceName, rollbackStatus, "")
 		}
 	}()
 
-	_ = WriteInstanceState(instanceName, StatusRestart, "")
+	_ = WriteInstanceState(instanceName, StatusRestarting, "")
 
 	if err := StopServer(instanceName); err != nil {
 		restartErr = err

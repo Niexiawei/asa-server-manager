@@ -40,34 +40,6 @@ function createEventSourceAction(url, onMessage, onError, onComplete, errorCallb
     })
 }
 
-// 启动服务器实例
-export function startServer(name, onMessage, onError, onComplete) {
-    const url = buildEventSourceUrl(`/api/server/${name}/start`)
-
-    return createEventSourceAction(url, onMessage, onError, onComplete, (data) => {
-        if (data.status === 'error' || data.status === 'start_failed') {
-            return {
-                success: false,
-                error: new Error(data.message)
-            }
-        }
-        return {success: true, error: null}
-    })
-}
-
-// 重启服务器实例（SSE）
-export function restartServerSSE(name, onMessage, onError, onComplete) {
-    const url = buildEventSourceUrl(`/api/server/${name}/restart`)
-
-    return createEventSourceAction(url, onMessage, onError, onComplete, (content) => {
-        if (content.startsWith('Error:')) {
-            return {success: false, error: new Error(content)}
-        } else {
-            return {success: true, error: null}
-        }
-    })
-}
-
 // 启动所有服务器实例
 export function startAllServers(onMessage, onError, onComplete) {
     const url = buildEventSourceUrl('/api/server/start-all')

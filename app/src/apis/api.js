@@ -45,9 +45,24 @@ export function renameInstance(name, newName) {
     return apiClient.put(`/api/instances/${name}`, {new_name: newName})
 }
 
-// 停止服务器实例 (非 SSE)
+// 启动服务器实例
+export function startServer(name) {
+    return apiClient.get(`/api/server/${name}/start`)
+}
+
+// 停止服务器实例
 export function stopServer(name) {
     return apiClient.get(`/api/server/${name}/stop`)
+}
+
+// 重启服务器实例
+export function restartServer(name) {
+    return apiClient.get(`/api/server/${name}/restart`)
+}
+
+// 强制停止服务器实例
+export function forceStopServer(name) {
+    return apiClient.get(`/api/server/${name}/force-stop`)
 }
 
 // 发送 RCON 命令

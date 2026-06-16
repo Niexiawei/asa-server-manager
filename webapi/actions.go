@@ -31,17 +31,16 @@ type APIServer struct {
 	engine  *gin.Engine
 	port    int
 	mu      sync.RWMutex
-	clients map[*websocket.Conn]bool
+	clients map[*websocket.Conn]*sync.Mutex
 	// Task broadcasters for independent SSE streams
-	updateBroadcaster         *TaskBroadcaster
-	startBroadcaster          *TaskBroadcaster
-	stopBroadcaster           *TaskBroadcaster
-	restartBroadcaster        *TaskBroadcaster
-	instanceStartBroadcasters *InstanceStartBroadcasters // Per-instance startup broadcasters
-	serverCtx                 context.Context
-	serverCtxStop             func()
-	serverDone                chan struct{}
-	saveDataManager           *parseserver.SaveDataManager
+	updateBroadcaster  *TaskBroadcaster
+	startBroadcaster   *TaskBroadcaster
+	stopBroadcaster    *TaskBroadcaster
+	restartBroadcaster *TaskBroadcaster
+	serverCtx          context.Context
+	serverCtxStop      func()
+	serverDone         chan struct{}
+	saveDataManager    *parseserver.SaveDataManager
 }
 
 var serverActionsLock sync.Mutex
@@ -63,18 +62,17 @@ func NewAPIServer() *APIServer {
 	}
 
 	server := &APIServer{
-		engine:                    engine,
-		port:                      ApiServerPort,
-		clients:                   make(map[*websocket.Conn]bool),
-		updateBroadcaster:         NewTaskBroadcaster(),
-		startBroadcaster:          NewTaskBroadcaster(),
-		stopBroadcaster:           NewTaskBroadcaster(),
-		restartBroadcaster:        NewTaskBroadcaster(),
-		instanceStartBroadcasters: NewInstanceStartBroadcasters(),
-		serverCtx:                 ctx,
-		serverCtxStop:             cancel,
-		serverDone:                make(chan struct{}, 1),
-		saveDataManager:           saveDataManager,
+		engine:             engine,
+		port:               ApiServerPort,
+		clients:            make(map[*websocket.Conn]*sync.Mutex),
+		updateBroadcaster:  NewTaskBroadcaster(),
+		startBroadcaster:   NewTaskBroadcaster(),
+		stopBroadcaster:    NewTaskBroadcaster(),
+		restartBroadcaster: NewTaskBroadcaster(),
+		serverCtx:          ctx,
+		serverCtxStop:      cancel,
+		serverDone:         make(chan struct{}, 1),
+		saveDataManager:    saveDataManager,
 	}
 
 	// Setup routes
@@ -130,8 +128,8 @@ func (s *APIServer) Start() error {
 	log.Printf("Starting API server on %s \n", addr)
 	<-s.serverCtx.Done()
 	log.Println("Shutdown Server ...")
-	shutdownCtx, shutdowncancel := context.WithTimeout(context.Background(), 30*time.Second)
-	shutdowncancel()
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer shutdownCancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Println("Server Shutdown:", err)
 	}
@@ -156,17 +154,23 @@ func (s *APIServer) Stop() error {
 		}
 	}
 
-	// Stop save data manager
+	// 先关闭所有 WebSocket 长连接，避免阻塞 srv.Shutdown()
+	s.closeAllClients()
+
+	// 1. 先取消 server context，触发 HTTP server shutdown
+	s.serverCtxStop()
+	<-s.serverDone
+	log.Println("stopping saveDataManager ...")
+	// 3. 所有 in-flight 请求完成后，关闭数据层
 	if s.saveDataManager != nil {
 		s.saveDataManager.Stop()
 	}
 
+	log.Println("saveDataManager stopped")
 	if err := asaserver.CloseStateManager(); err != nil {
 		logger.GetLogger().Warnf("Error closing state manager: %v", err)
 	}
 
-	s.serverCtxStop()
-	<-s.serverDone
 	return nil
 }
 
@@ -192,6 +196,7 @@ func (s *APIServer) setupRoutes() {
 		server.GET("/:name/start", s.startServer)
 		server.GET("/:name/stop", s.stopServer)
 		server.GET("/:name/restart", s.restartServer)
+		server.GET("/:name/force-stop", s.forceStopServer)
 		server.GET("/:name/info", s.streamInstanceInfo)
 
 		server.GET("/start-all", s.startAllServers)
@@ -259,6 +264,10 @@ func (s *APIServer) setupRoutes() {
 	frpmanage.RegisterFRPRoutes(s.engine)
 	syncthingmanage.RegisterSyncthingRoutes(s.engine)
 
+	s.engine.NoRoute(func(c *gin.Context) {
+		c.JSON(404, gin.H{"error": "not found"})
+	})
+
 	distFs := app.GetDistFs()
 	fs, err := static.EmbedFolder(distFs, "dist")
 	if err != nil {
@@ -302,6 +311,7 @@ func InitializationBasicComponents() {
 func ActionAPI(ctx context.Context, cmd *cli.Command) error {
 	logger.SetLogMode(logger.HttpApiMode)
 	apiServer := NewAPIServer()
+
 	go func() {
 		if err := apiServer.Start(); err != nil {
 			log.Fatal(err)
@@ -312,5 +322,6 @@ func ActionAPI(ctx context.Context, cmd *cli.Command) error {
 	defer cancel()
 
 	<-ctx2.Done()
+	log.Printf("shutting down... \n")
 	return apiServer.Stop()
 }

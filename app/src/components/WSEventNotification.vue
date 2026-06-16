@@ -96,7 +96,7 @@ function addEvent(event) {
     return
   }
 
-  let color = getEventColor(item.event_type)
+  let color = getEventColor(event.event_type)
 
   const eventData = {
     event_type: event.event_type,

@@ -13,8 +13,8 @@
             </template>
           </t-button>
           <span class="instance-name">{{ instanceName }}</span>
-          <t-tag :theme="instanceData?.running ? 'success' : 'default'">
-            {{ instanceData?.running ? '运行中' : '已停止' }}
+          <t-tag :theme="statusTagTheme(instanceStatus)">
+            {{ statusLabel(instanceStatus) }}
           </t-tag>
         </div>
       </template>
@@ -22,24 +22,24 @@
         <t-space breakLine>
           <t-button
               @click="startInstance"
-              :disabled="instanceData?.running || instanceStartLoading"
-              :loading="instanceStartLoading"
+              :disabled="instanceData?.running || isTransitional"
+              :loading="instanceStatus === 'starting'"
               theme="primary"
           >
             启动
           </t-button>
           <t-button
               @click="stopInstance"
-              :disabled="!instanceData?.running || instanceStopLoading"
-              :loading="instanceStopLoading"
+              :disabled="!instanceData?.running || isTransitional"
+              :loading="instanceStatus === 'stopping'"
               theme="warning"
           >
             停止
           </t-button>
           <t-button
               @click="restartInstance"
-              :disabled="!instanceData?.running || instanceRestartLoading"
-              :loading="instanceRestartLoading"
+              :disabled="!instanceData?.running || isTransitional"
+              :loading="instanceStatus === 'restarting'"
               theme="success"
           >
             重启
@@ -47,10 +47,17 @@
           <t-divider layout="vertical" style="height: 100%"/>
           <t-button
               @click="rconFloatingVisible = true"
-              :disabled="!instanceData?.running"
+              :disabled="!instanceData?.running || isTransitional"
               theme="primary"
           >
             RCON 终端
+          </t-button>
+          <t-button
+              @click="forceStopInstance"
+              :disabled="!isTransitional"
+              theme="danger"
+          >
+            强制停止
           </t-button>
         </t-space>
       </template>
@@ -386,7 +393,7 @@
 </template>
 
 <script setup>
-import {onMounted, onUnmounted, ref, watch} from 'vue'
+import {computed, onMounted, onUnmounted, ref, watch} from 'vue'
 import {useRoute, useRouter} from 'vue-router'
 import ConfigEditor from '@/components/ConfigEditor.vue'
 import ConfigFileViewer from '@/components/ConfigFileViewer.vue'
@@ -402,9 +409,10 @@ import {
   getInstanceConfig,
   getModInfo,
   getServerConfigs,
-  restartServerSSE,
+  restartServer,
   startServer,
   stopServer,
+  forceStopServer,
   updateGameIni,
   updateGameUserSettings,
   updateInstanceConfig,
@@ -470,10 +478,20 @@ const motdContent = ref('')
 const motdDuration = ref('')
 const savingMotd = ref(false)
 
-// 启动、停止、重启 按预的 loading 状态
-const instanceStartLoading = ref(false)
-const instanceStopLoading = ref(false)
-const instanceRestartLoading = ref(false)
+// 状态辅助
+const instanceStatus = computed(() => getInstanceStatus(instanceName)?.status || 'stopped')
+const isTransitional = computed(() => ['starting', 'stopping', 'restarting'].includes(instanceStatus.value))
+const statusLabel = (status) => ({
+  starting: '启动中', started: '运行中', stopping: '停止中',
+  stopped: '已停止', restarting: '重启中', restarted: '运行中',
+  start_failed: '启动失败', stop_failed: '停止失败', restart_failed: '重启失败'
+}[status] || '已停止')
+const statusTagTheme = (status) => ({
+  starting: 'warning', started: 'success', stopping: 'warning',
+  stopped: 'default', restarting: 'warning', restarted: 'success',
+  start_failed: 'danger', stop_failed: 'danger', restart_failed: 'danger'
+}[status] || 'default')
+
 const baseLoadedSuccessfully = ref(false)
 
 // 日志查看器引用
@@ -496,11 +514,9 @@ const loadingDiffContent = ref(false)
 watch(
     () => getInstanceStatus(instanceName),
     (newStatus) => {
-      if (newStatus) {
-        // 实时更新实例运行状态
-        if (instanceData.value) {
-          instanceData.value.running = newStatus.running
-        }
+      if (newStatus && instanceData.value) {
+        instanceData.value.running = newStatus.running
+        instanceData.value.status = newStatus.status
       }
     }
 )
@@ -841,46 +857,19 @@ const startInstance = () => {
     confirmBtn: '确定',
     cancelBtn: '取消',
     onConfirm: async () => {
-      instanceStartLoading.value = true
       try {
-        // 使用 SSE 方式调用启动
-        await startServer(
-            instanceName,
-            // onMessage 回调 - 接收实时进度消息
-            (message) => {
-              console.log('Start progress:', message)
-              // 检查启动失败的条件
-            },
-            // onError 回调 - 处理错误
-            (error) => {
-              // 启动失败：设置实例状态为未启动
-              if (instanceData.value) {
-                instanceData.value.running = false
-              }
-
-              //MessagePlugin.error(error.message || `实例 "${instanceName}" 启动失败`)
-
-              NotifyPlugin.error({
-                title: `实例 "${name}" 启动失败`,
-                content: error.message || `实例 "${name}" 启动失败`
-              })
-
-              console.error('启动实例失败:', error)
-            },
-            // onComplete 回调 - 启动完成
-            () => {
-              MessagePlugin.success(`实例 "${instanceName}" 启动成功`)
-              // 更新实例运行状态
-              if (instanceData.value) {
-                instanceData.value.running = true
-              }
-            }
-        )
+        const data = await startServer(instanceName)
+        if (data.success) {
+          MessagePlugin.success(data.message || `实例 "${instanceName}" 正在启动`)
+        } else {
+          NotifyPlugin.error({
+            title: `实例 "${instanceName}" 启动失败`,
+            content: data.error || `实例 "${instanceName}" 启动失败`
+          })
+        }
       } catch (error) {
         MessagePlugin.error(`启动实例失败: ${error.message}`)
         console.error('启动实例失败:', error)
-      } finally {
-        instanceStartLoading.value = false
       }
     }
   })
@@ -894,15 +883,10 @@ const stopInstance = () => {
     confirmBtn: '确定',
     cancelBtn: '取消',
     onConfirm: async () => {
-      instanceStopLoading.value = true
       try {
         const data = await stopServer(instanceName)
         if (data.success) {
-          MessagePlugin.success(data.message || `实例 "${instanceName}" 停止成功`)
-          // 更新实例运行状态
-          if (instanceData.value) {
-            instanceData.value.running = false
-          }
+          MessagePlugin.success(data.message || `实例 "${instanceName}" 正在停止`)
         } else {
           MessagePlugin.error(data.error || `实例 "${instanceName}" 停止失败`)
           console.error('停止实例失败:', data.error)
@@ -910,8 +894,6 @@ const stopInstance = () => {
       } catch (error) {
         MessagePlugin.error(`停止实例失败: ${error.message}`)
         console.error('停止实例失败:', error)
-      } finally {
-        instanceStopLoading.value = false
       }
     }
   })
@@ -925,32 +907,39 @@ const restartInstance = () => {
     confirmBtn: '确定',
     cancelBtn: '取消',
     onConfirm: async () => {
-      instanceRestartLoading.value = true
       try {
-        // 使用 SSE 方式调用重启
-        await restartServerSSE(
-            instanceName,
-            // onMessage 回调 - 接收实时进度消息
-            (message) => {
-              console.log('Restart progress:', message)
-              // 可选：在 UI 中显示重启进度
-            },
-            // onError 回调 - 处理错误
-            (error) => {
-              console.error('重启实例失败:', error)
-              MessagePlugin.error('重启实例失败')
-            },
-            // onComplete 回调 - 重启完成
-            () => {
-              console.log('Server restart completed')
-              MessagePlugin.success('实例重启成功')
-            }
-        )
+        const data = await restartServer(instanceName)
+        if (data.success) {
+          MessagePlugin.success(data.message || '实例正在重启')
+        } else {
+          MessagePlugin.error(data.error || '重启实例失败')
+        }
       } catch (error) {
         console.error('重启实例失败:', error)
         MessagePlugin.error('重启实例失败')
-      } finally {
-        instanceRestartLoading.value = false
+      }
+    }
+  })
+}
+
+// 强制停止实例
+const forceStopInstance = () => {
+  DialogPlugin.confirm({
+    header: '警告',
+    body: `确定要强制停止实例 "${instanceName}" 吗？这将直接终止进程并重置状态。`,
+    theme: 'danger',
+    confirmBtn: '确定',
+    cancelBtn: '取消',
+    onConfirm: async () => {
+      try {
+        const data = await forceStopServer(instanceName)
+        if (data.success) {
+          MessagePlugin.success(data.message || `实例 "${instanceName}" 已强制停止`)
+        } else {
+          MessagePlugin.error(data.error || '强制停止失败')
+        }
+      } catch (error) {
+        MessagePlugin.error(`强制停止失败: ${error.message}`)
       }
     }
   })

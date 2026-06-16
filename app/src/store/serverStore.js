@@ -67,7 +67,7 @@ function handleServerEvent(event) {
             if (instance_name && serverStore.instances.has(instance_name)) {
                 const instance = serverStore.instances.get(instance_name)
                 instance.running = false
-                instance.status = 'failed'
+                instance.status = 'start_failed'
                 instance.error = message || '启动失败'
                 instance.message = `${instance_name} 启动失败: ${instance.error}`
                 instance.isStartingOrRunning = false // 标记为已停止
@@ -78,6 +78,7 @@ function handleServerEvent(event) {
             if (instance_name && serverStore.instances.has(instance_name)) {
                 const instance = serverStore.instances.get(instance_name)
                 instance.error = message || '停止失败'
+                instance.status = 'stop_failed'
                 instance.message = `${instance_name} 停止失败: ${instance.error}`
                 instance.isStartingOrRunning = false
             }
@@ -87,7 +88,25 @@ function handleServerEvent(event) {
             if (instance_name && serverStore.instances.has(instance_name)) {
                 const instance = serverStore.instances.get(instance_name)
                 instance.error = message || '重启失败'
+                instance.status = 'restart_failed'
                 instance.message = `${instance_name} 重启失败: ${instance.error}`
+            }
+            break
+
+        case 'server_restarting':
+            if (instance_name && serverStore.instances.has(instance_name)) {
+                const instance = serverStore.instances.get(instance_name)
+                instance.status = 'restarting'
+                instance.isStartingOrRunning = true
+            }
+            break
+
+        case 'server_restarted':
+            if (instance_name && serverStore.instances.has(instance_name)) {
+                const instance = serverStore.instances.get(instance_name)
+                instance.running = true
+                instance.status = 'restarted'
+                instance.isStartingOrRunning = true
             }
             break
 

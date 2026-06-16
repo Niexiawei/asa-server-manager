@@ -163,7 +163,7 @@ func (m *SaveDataManager) Start(_ context.Context) {
 
 		dirMapName := config.MapName
 		if dirMapName == "BobsMissions_WP" {
-			dirMapName = "BobsMissions"
+			continue
 		}
 
 		arkPath := filepath.Join(asaserver.ServerFilesDir, "ShooterGame/Saved",

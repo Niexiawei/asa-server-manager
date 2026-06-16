@@ -163,7 +163,7 @@ watch(
     (newVal) => {
       // 判断是否应该监听日志
       const shouldMonitor = newVal.isStartingOrRunning === true ||
-          ['starting', 'started', 'stopping', 'started'].includes(newVal.status)
+          ['starting', 'started', 'stopping', 'restarting', 'restarted'].includes(newVal.status)
 
       if (shouldMonitor && !isStreaming.value) {
         startLogStream()

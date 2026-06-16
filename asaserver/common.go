@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -337,7 +338,7 @@ func WaitGamePidExit(ctx context.Context, pid int) bool {
 		case <-ctx.Done():
 			return false
 			// Startup completed successfully via log detection
-		case <-time.After(2 * time.Second):
+		case <-time.After(500 * time.Millisecond):
 			// Check if process is still running before timing out
 			if exited, _ := win32api.IsProcessExited(uint32(pid)); exited {
 				// Process is still running, consider it a success
@@ -386,8 +387,8 @@ func WaitArkApiRunServer(ctx context.Context, port int) (uint32, error) {
 		return pid, nil
 	case <-ctx.Done():
 		return 0, ctx.Err()
-	case <-time.After(10 * time.Second):
-		return 0, fmt.Errorf("ARK API loading server error")
+	case <-time.After(30 * time.Second):
+		return 0, fmt.Errorf("ARK API loading server error: ArkAscendedServer.exe did not appear within 30 seconds")
 	}
 }
 
@@ -521,7 +522,6 @@ func SaveWorldSafely(instanceName string) error {
 	}
 
 	if config.MapName == "BobsMissions_WP" {
-		time.Sleep(2 * time.Second)
 		return nil
 	}
 
@@ -556,6 +556,7 @@ func SaveWorldSafely(instanceName string) error {
 				// Check if the file's modification time is greater than or equal to the start time
 				// Add a small buffer (1 second) to account for timing precision
 				fileModTime := fileInfo.ModTime()
+				fmt.Println(fileModTime)
 				if fileModTime.After(startTime) || fileModTime.Equal(startTime) {
 					diffMilli := fileModTime.UnixMilli() - startTime.UnixMilli()
 					logger.GetLogger().Infof("World saved successfully for instance %s. Save file: %s. saved Milliseconds %d",
@@ -575,18 +576,75 @@ func SaveWorldSafely(instanceName string) error {
 
 type waitServerStartupFunc func(startup bool, err string)
 
+type waitServerStoppedFunc func(stopComplete bool)
+
+// waitServerStopped monitors the server shutdown process:
+// 1. "Closing by request" -> closingCallback (server received shutdown request)
+// 2. "Log file closed" + PID exit -> stoppedCallback(true) (server fully stopped)
+func waitServerStopped(ctx context.Context, pid int, gameLogPath string,
+	closingCallback func(), stoppedCallback waitServerStoppedFunc) {
+
+	ctxLocal, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	var (
+		closingReceived bool
+		logFileClosed   bool
+		processExited   bool
+		stopped         = make(chan struct{})
+		mu              sync.Mutex
+		stoppedClosed   bool
+	)
+
+	checkComplete := func() {
+		mu.Lock()
+		defer mu.Unlock()
+		if logFileClosed && processExited && !stoppedClosed {
+			stoppedClosed = true
+			stoppedCallback(true)
+			close(stopped)
+		}
+	}
+
+	// Monitor process exit
+	go func() {
+		if exited := WaitGamePidExit(ctxLocal, pid); exited {
+			mu.Lock()
+			processExited = true
+			mu.Unlock()
+			checkComplete()
+		}
+	}()
+
+	// Monitor log file for shutdown markers
+	TailLogFileWithLinesContext(ctxLocal, gameLogPath, 0, func(line string) {
+		if strings.Contains(line, "Closing by request") && !closingReceived {
+			closingReceived = true
+			closingCallback()
+		}
+		if strings.Contains(line, "Log file closed") {
+			mu.Lock()
+			logFileClosed = true
+			mu.Unlock()
+			checkComplete()
+		}
+	})
+
+	<-stopped
+}
+
 func waitServerStartup(pid int, gameLogPath string, callback waitServerStartupFunc, successfullyCallback func()) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	latestLogLine := ""
 	var (
-		startup = make(chan struct{}, 1)
+		startup = make(chan struct{}) // 无缓冲，使用 close() 通知
 	)
 
 	go func() {
 		if exited := WaitGamePidExit(ctx, pid); exited {
 			callback(false, latestLogLine)
-			cancel()
+			close(startup) // 进程退出时解除阻塞
 		}
 	}()
 
@@ -595,10 +653,10 @@ func waitServerStartup(pid int, gameLogPath string, callback waitServerStartupFu
 		// Check for successful startup message
 		if strings.Contains(line, "Server has completed startup and is now advertising for join") {
 			callback(true, "")
-			startup <- struct{}{}
+			close(startup)
 			cancel()
 		}
-		if strings.Contains(line, "has successfully started") {
+		if strings.Contains(line, "Initialize Primal Game Data Override") {
 			successfullyCallback()
 		}
 	})
@@ -649,4 +707,41 @@ func steamcmdCleanConsoleOutput(r io.Reader, w io.Writer) error {
 		}
 	}
 	return scanner.Err()
+}
+
+// findServerPIDByPort 通过 WMI 查询 ArkAscendedServer.exe 进程命令行中的端口来查找 PID
+// 不依赖端口是否被监听，适用于启动中等过渡状态
+func findServerPIDByPort(port int) (int, error) {
+	processes, err := common.QueryProcess("ArkAscendedServer.exe", fmt.Sprintf("Port=%d", port))
+	if err != nil {
+		return 0, fmt.Errorf("WMI query failed: %w", err)
+	}
+	if len(processes) == 0 {
+		return 0, fmt.Errorf("no ArkAscendedServer process found with Port=%d", port)
+	}
+	return int(processes[0].ProcessId), nil
+}
+
+// ForceStopServer 强制停止实例：杀死进程 + 释放锁 + 重置状态
+func ForceStopServer(instanceName string) error {
+	// 1. 通过 WMI 查找进程（best effort，端口未监听时也能找到）
+	cfg, err := LoadInstanceConfig(instanceName)
+	if err == nil {
+		if pid, pidErr := findServerPIDByPort(cfg.Port); pidErr == nil && pid > 0 {
+			killGameServer(pid)
+		}
+	}
+	// 2. 尝试杀死已保存的 PID（插件进程，best effort）
+	if pid2, pidErr := GetInstancePID(instanceName); pidErr == nil && pid2 > 0 {
+		killGameServer(pid2)
+	}
+	// 3. 安全释放锁（仅在持有锁时释放）
+	if TryLockServerActions() {
+		UnlockServerActions()
+	}
+	// 4. 清理日志映射
+	_ = RemoveInstanceLogMapping(instanceName)
+	// 5. 重置状态为 stopped
+	_ = WriteInstanceState(instanceName, StatusStopped, "")
+	return nil
 }

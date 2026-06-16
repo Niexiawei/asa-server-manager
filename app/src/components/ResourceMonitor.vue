@@ -222,7 +222,7 @@ watch(
     (newVal, oldValue) => {
       // 判断是否应该监听资源占用
       const shouldMonitor = newVal.isStartingOrRunning === true ||
-          ['starting', 'started', 'stopping', 'started'].includes(newVal.status)
+          ['starting', 'started', 'stopping', 'restarting', 'restarted'].includes(newVal.status)
 
       console.log(props.instanceName)
       console.log(newVal.status)
