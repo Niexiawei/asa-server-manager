@@ -3,13 +3,17 @@ package asaserverv2
 import (
 	"asa-server/asaserver"
 	"asa-server/logger"
+	"crypto/md5"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
-	"syscall"
+	"sync"
+
+	"golang.org/x/sys/windows"
+	"znkr.io/diff"
 )
 
 const mirrorDirPrefix = "server-files-tmp-"
@@ -20,43 +24,110 @@ var exeFiles = map[string]bool{
 	"AsaApiLoader.exe":      true,
 }
 
+// mirrorEntryType 条目类型
+const (
+	EntryTypeDirectory = iota
+	EntryTypeSymlink
+	EntryTypeFile
+)
+
+// mirrorEntry 镜像目录中的一个条目
+type mirrorEntry struct {
+	RelPath   string // 相对路径 (forward slash)
+	EntryType int    // EntryTypeDirectory / EntryTypeSymlink / EntryTypeFile
+}
+
+var (
+	elevated    bool
+	elevatedErr error
+	once        sync.Once
+)
+
+func IsElevated() bool {
+	once.Do(func() {
+		var token windows.Token
+		err := windows.OpenProcessToken(
+			windows.CurrentProcess(),
+			windows.TOKEN_QUERY,
+			&token,
+		)
+		if err != nil {
+			elevated = false
+			elevatedErr = err
+			return
+		}
+		defer token.Close()
+
+		elevated = token.IsElevated()
+	})
+
+	return elevated
+}
+
 // InstanceMirrorDir 返回实例镜像目录路径
 func InstanceMirrorDir(instanceName string) string {
 	return filepath.Join(asaserver.BaseDir, mirrorDirPrefix+instanceName)
 }
 
-// SetupInstanceMirror 创建实例镜像目录
-// 通过 filepath.Walk 扫描 server-files，自动为目录创建 junction
-// 仅复制 exe 文件，Config/Logs/Save 指向实例本地目录
-func SetupInstanceMirror(instanceName string, cfg *asaserver.InstanceConfig) (string, error) {
+// SyncInstanceMirror 同步实例镜像目录
+// 如果镜像不存在则创建，存在则增量同步
+func SyncInstanceMirror(instanceName string, cfg *asaserver.InstanceConfig) (string, error) {
 	mirrorDir := InstanceMirrorDir(instanceName)
 
-	// 清理已有镜像
-	if _, err := os.Stat(mirrorDir); err == nil {
-		logger.GetLogger().Infof("Cleaning up existing mirror for instance '%s'", instanceName)
-		if err := CleanupInstanceMirror(instanceName); err != nil {
-			return "", fmt.Errorf("failed to cleanup existing mirror: %w", err)
-		}
+	// 检查实例 Config 目录是否存在且非空
+	if err := validateInstanceConfig(instanceName); err != nil {
+		return "", err
 	}
 
-	// 检查实例 Config 目录是否存在且非空
-	instanceConfigDir := filepath.Join(asaserver.InstancesDir, instanceName, "Config")
-	instanceLogsDir := filepath.Join(asaserver.InstancesDir, instanceName, "Logs")
-	instanceSaveDir := filepath.Join(asaserver.InstancesDir, instanceName, "Save")
+	// 确保 Logs 和 Save 目录存在
+	if err := ensureInstanceDirs(instanceName); err != nil {
+		return "", err
+	}
 
-	// Config 目录必须已存在且非空，否则报错
+	exceptionTargets := buildExceptionTargets(instanceName, cfg)
+
+	// 检查镜像是否已存在
+	if _, err := os.Stat(mirrorDir); os.IsNotExist(err) {
+		// 镜像不存在，从头创建
+		return createInstanceMirror(instanceName, mirrorDir, exceptionTargets)
+	}
+
+	// 镜像已存在，增量同步
+	logger.GetLogger().Infof("Syncing existing mirror for instance '%s'", instanceName)
+	if err := syncMirrorEntries(instanceName, mirrorDir, exceptionTargets); err != nil {
+		// 同步失败，尝试重建
+		logger.GetLogger().Warnf("Mirror sync failed, recreating: %v", err)
+		if err := CleanupInstanceMirror(instanceName); err != nil {
+			return "", fmt.Errorf("failed to cleanup mirror before recreate: %w", err)
+		}
+		return createInstanceMirror(instanceName, mirrorDir, exceptionTargets)
+	}
+
+	logger.GetLogger().Infof("Mirror synced successfully at %s", mirrorDir)
+	return mirrorDir, nil
+}
+
+// validateInstanceConfig 验证实例 Config 目录
+func validateInstanceConfig(instanceName string) error {
+	instanceConfigDir := filepath.Join(asaserver.InstancesDir, instanceName, "Config")
 	if _, err := os.Stat(instanceConfigDir); os.IsNotExist(err) {
-		return "", fmt.Errorf("instance config directory does not exist: %s, please create the instance first", instanceConfigDir)
+		return fmt.Errorf("instance config directory does not exist: %s, please create the instance first", instanceConfigDir)
 	}
 	entries, _ := os.ReadDir(instanceConfigDir)
 	if len(entries) == 0 {
-		return "", fmt.Errorf("instance config directory is empty: %s, please configure the instance first", instanceConfigDir)
+		return fmt.Errorf("instance config directory is empty: %s, please configure the instance first", instanceConfigDir)
 	}
+	return nil
+}
 
-	// Logs 和 Save 目录可以自动创建
+// ensureInstanceDirs 确保 Logs 和 Save 目录存在
+func ensureInstanceDirs(instanceName string) error {
+	instanceLogsDir := filepath.Join(asaserver.InstancesDir, instanceName, "Logs")
+	instanceSaveDir := filepath.Join(asaserver.InstancesDir, instanceName, "Save")
+
 	for _, dir := range []string{instanceLogsDir, instanceSaveDir} {
 		if err := os.MkdirAll(dir, 0755); err != nil {
-			return "", fmt.Errorf("failed to create instance directory %s: %w", dir, err)
+			return fmt.Errorf("failed to create instance directory %s: %w", dir, err)
 		}
 	}
 
@@ -64,14 +135,14 @@ func SetupInstanceMirror(instanceName string, cfg *asaserver.InstanceConfig) (st
 	logFile := filepath.Join(instanceLogsDir, "ShooterGame.log")
 	if _, err := os.Stat(logFile); os.IsNotExist(err) {
 		if err := os.WriteFile(logFile, []byte(""), 0644); err != nil {
-			return "", fmt.Errorf("failed to create log file: %w", err)
+			return fmt.Errorf("failed to create log file: %w", err)
 		}
 	}
+	return nil
+}
 
-	// 构建例外路径映射
-	// key: server-files 内的相对路径，value: junction 目标
-	exceptionTargets := buildExceptionTargets(instanceName, cfg)
-
+// createInstanceMirror 从头创建实例镜像目录
+func createInstanceMirror(instanceName string, mirrorDir string, exceptionTargets map[string]string) (string, error) {
 	logger.GetLogger().Infof("Creating instance mirror at %s", mirrorDir)
 
 	// Walk server-files 目录树
@@ -110,23 +181,18 @@ func SetupInstanceMirror(instanceName string, cfg *asaserver.InstanceConfig) (st
 	})
 
 	if err != nil {
-		// 清理失败的镜像
 		_ = CleanupInstanceMirror(instanceName)
 		return "", fmt.Errorf("failed to walk server files: %w", err)
 	}
 
 	// Walk 完成后，补充缺失的 exception targets
-	// SaveDir 目录在源中可能不存在（服务器启动后才生成），需要预先创建
 	for relPath, target := range exceptionTargets {
 		mirrorPath := filepath.Join(mirrorDir, filepath.FromSlash(relPath))
 		if _, statErr := os.Stat(mirrorPath); os.IsNotExist(statErr) {
-			// 源目录不存在，Walk 未访问 → junction 未创建
-			// 预先在源目录创建该目录
 			srcPath := filepath.Join(asaserver.ServerFilesDir, filepath.FromSlash(relPath))
 			if mkErr := os.MkdirAll(srcPath, 0755); mkErr != nil {
 				logger.GetLogger().Warnf("Failed to pre-create source dir %s: %v", srcPath, mkErr)
 			}
-			// 在镜像中创建 junction
 			if jErr := createJunction(mirrorPath, target); jErr != nil {
 				_ = CleanupInstanceMirror(instanceName)
 				return "", fmt.Errorf("failed to create exception junction for %s: %w", relPath, jErr)
@@ -158,7 +224,7 @@ func buildExceptionTargets(instanceName string, cfg *asaserver.InstanceConfig) m
 
 // processDirectory 处理目录条目
 // 返回 (skip bool, err error) - skip=true 表示跳过该目录的子目录遍历
-func processDirectory(srcPath, mirrorPath, relPath string, info os.FileInfo, exceptionTargets map[string]string) (bool, error) {
+func processDirectory(srcPath, mirrorPath, relPath string, _ os.FileInfo, exceptionTargets map[string]string) (bool, error) {
 	// 检查是否是精确的例外路径
 	if target, ok := exceptionTargets[relPath]; ok {
 		// 创建 junction 指向实例本地目录，不需要遍历子目录
@@ -209,7 +275,7 @@ func containsExeFiles(dirPath string) bool {
 }
 
 // processFile 处理文件条目
-func processFile(srcPath, mirrorPath, relPath string, info os.FileInfo) error {
+func processFile(srcPath, mirrorPath, _ string, info os.FileInfo) error {
 	// 检查父目录是否已经是 junction
 	// 如果是，文件通过 junction 即可访问，无需处理
 	parentDir := filepath.Dir(mirrorPath)
@@ -258,25 +324,21 @@ func isWindowsReparsePoint(path string) bool {
 	return false
 }
 
-// createJunction 创建 NTFS junction
+// createJunction 创建目录 junction
+// Go 1.21+ 的 os.Symlink 在 Windows 上对目录目标自动创建 junction（无需管理员权限）
 func createJunction(linkPath, targetPath string) error {
-	// 确保目标路径是绝对路径
 	absTarget, err := filepath.Abs(targetPath)
 	if err != nil {
 		return fmt.Errorf("failed to get absolute path for %s: %w", targetPath, err)
 	}
 
-	// 确保链接的父目录存在
 	parentDir := filepath.Dir(linkPath)
 	if err := os.MkdirAll(parentDir, 0755); err != nil {
 		return fmt.Errorf("failed to create parent directory %s: %w", parentDir, err)
 	}
 
-	cmd := exec.Command("cmd", "/c", "mklink", "/J", linkPath, absTarget)
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("failed to create junction %s -> %s: %s: %w", linkPath, absTarget, string(output), err)
+	if err := os.Symlink(absTarget, linkPath); err != nil {
+		return fmt.Errorf("failed to create junction %s -> %s: %w", linkPath, absTarget, err)
 	}
 
 	logger.GetLogger().Debugf("Created junction: %s -> %s", linkPath, absTarget)
@@ -284,7 +346,8 @@ func createJunction(linkPath, targetPath string) error {
 }
 
 // createFileSymlink 创建文件符号链接
-// 如果创建失败且不是 exe 文件，跳过（不回退到复制，避免复制大量非必要文件如 .pdb）
+// 失败时一律回退到复制（跳过文件会导致游戏缺文件无法启动）
+// 管理员检测仅影响日志级别
 func createFileSymlink(linkPath, targetPath string) error {
 	absTarget, err := filepath.Abs(targetPath)
 	if err != nil {
@@ -296,19 +359,13 @@ func createFileSymlink(linkPath, targetPath string) error {
 		return fmt.Errorf("failed to create parent directory %s: %w", parentDir, err)
 	}
 
-	// 尝试使用 os.Symlink（需要管理员权限或开发者模式）
 	if err := os.Symlink(absTarget, linkPath); err != nil {
-		// 回退：使用 mklink 命令
-		cmd := exec.Command("cmd", "/c", "mklink", linkPath, absTarget)
-		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-		output, cmdErr := cmd.CombinedOutput()
-		if cmdErr != nil {
-			// 文件符号链接失败（无权限），跳过该文件
-			// 目录内的非 exe 文件可通过其他方式访问
-			logger.GetLogger().Debugf("Skipped file symlink (no permission): %s", linkPath)
-			return nil
+		if IsElevated() {
+			logger.GetLogger().Warnf("Symlink failed even with admin, fallback copy: %s: %v", linkPath, err)
+		} else {
+			logger.GetLogger().Debugf("No admin, fallback copy: %s", linkPath)
 		}
-		_ = output
+		return copyFile(targetPath, linkPath)
 	}
 
 	logger.GetLogger().Debugf("Created file symlink: %s -> %s", linkPath, absTarget)
@@ -452,7 +509,7 @@ func sortByDepthDescending(entries []struct {
 	depth int
 	isDir bool
 }) {
-	for i := 0; i < len(entries); i++ {
+	for i := range len(entries) {
 		for j := i + 1; j < len(entries); j++ {
 			if entries[j].depth > entries[i].depth {
 				entries[i], entries[j] = entries[j], entries[i]
@@ -461,54 +518,383 @@ func sortByDepthDescending(entries []struct {
 	}
 }
 
-// CleanupStaleMirrors 启动时清理非运行实例的残留镜像目录
-func CleanupStaleMirrors() error {
-	baseDir := asaserver.BaseDir
-	entries, err := os.ReadDir(baseDir)
+// CleanupMirrorCache 清理指定实例的启动缓存（镜像目录）
+// 对外暴露的方法，供用户手动清理
+func CleanupMirrorCache(instanceName string) error {
+	return CleanupInstanceMirror(instanceName)
+}
+
+// ==================== 增量同步相关 ====================
+
+// syncMirrorEntries 增量同步镜像目录
+// 使用 diff 对比源目录和镜像目录，只处理差异
+func syncMirrorEntries(_, mirrorDir string, exceptionTargets map[string]string) error {
+	srcDir := asaserver.ServerFilesDir
+
+	// 收集源目录条目
+	sourceEntries, err := collectSourceEntries(srcDir, exceptionTargets)
 	if err != nil {
-		return fmt.Errorf("failed to read base directory: %w", err)
+		return fmt.Errorf("failed to collect source entries: %w", err)
 	}
 
-	cleaned := 0
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
+	// 收集镜像目录条目
+	mirrorEntries, err := collectMirrorEntries(mirrorDir)
+	if err != nil {
+		return fmt.Errorf("failed to collect mirror entries: %w", err)
+	}
 
-		name := entry.Name()
-		if !strings.HasPrefix(name, mirrorDirPrefix) {
-			continue
-		}
+	logger.GetLogger().Infof("Syncing mirror: %d source entries, %d mirror entries", len(sourceEntries), len(mirrorEntries))
 
-		instanceName := strings.TrimPrefix(name, mirrorDirPrefix)
-		if instanceName == "" {
-			continue
-		}
+	// 使用 diff 对比
+	edits := diff.EditsFunc(sourceEntries, mirrorEntries,
+		func(a, b mirrorEntry) bool {
+			return a.RelPath == b.RelPath
+		},
+	)
 
-		// 检查实例是否正在运行
-		running, err := asaserver.IsServerRunning(instanceName)
+	added := 0
+	removed := 0
+	updated := 0
+
+	for _, edit := range edits {
+		switch edit.Op {
+		case diff.Insert:
+			// 源有、镜像无 → 创建
+			if err := syncEntry(srcDir, mirrorDir, edit.X, exceptionTargets); err != nil {
+				logger.GetLogger().Warnf("Failed to sync entry %s: %v", edit.X.RelPath, err)
+			} else {
+				added++
+			}
+		case diff.Delete:
+			// 镜像有、源无 → 删除
+			if err := removeMirrorEntry(mirrorDir, edit.Y); err != nil {
+				logger.GetLogger().Warnf("Failed to remove mirror entry %s: %v", edit.Y.RelPath, err)
+			} else {
+				removed++
+			}
+		case diff.Match:
+			// 两边都有 → 检查是否需要更新
+			if err := reconcileEntry(srcDir, mirrorDir, edit.X, edit.Y, exceptionTargets); err != nil {
+				logger.GetLogger().Warnf("Failed to reconcile entry %s: %v", edit.X.RelPath, err)
+			} else {
+				updated++
+			}
+		}
+	}
+
+	// 补充缺失的 exception targets
+	for relPath, target := range exceptionTargets {
+		mirrorPath := filepath.Join(mirrorDir, filepath.FromSlash(relPath))
+		if _, statErr := os.Stat(mirrorPath); os.IsNotExist(statErr) {
+			srcPath := filepath.Join(srcDir, filepath.FromSlash(relPath))
+			if mkErr := os.MkdirAll(srcPath, 0755); mkErr != nil {
+				logger.GetLogger().Warnf("Failed to pre-create source dir %s: %v", srcPath, mkErr)
+			}
+			if jErr := createJunction(mirrorPath, target); jErr != nil {
+				return fmt.Errorf("failed to create exception junction for %s: %w", relPath, jErr)
+			}
+			logger.GetLogger().Infof("Pre-created exception junction: %s -> %s", relPath, target)
+			added++
+		}
+	}
+
+	logger.GetLogger().Infof("Mirror sync completed: %d added, %d removed, %d checked", added, removed, updated)
+	return nil
+}
+
+// collectSourceEntries 收集源目录的所有条目
+// 对 exception targets 和 exeFiles 目录做特殊处理
+func collectSourceEntries(srcDir string, exceptionTargets map[string]string) ([]mirrorEntry, error) {
+	var entries []mirrorEntry
+
+	err := filepath.Walk(srcDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			logger.GetLogger().Warnf("Failed to check if instance %s is running: %v", instanceName, err)
-			// 保守处理：也检查 PID
-			running, _ = asaserver.IsServerRunningByPID(instanceName)
+			return err
 		}
 
-		if running {
-			logger.GetLogger().Infof("Instance '%s' is running, keeping mirror directory", instanceName)
-			continue
+		relPath, err := filepath.Rel(srcDir, path)
+		if err != nil {
+			return err
+		}
+		if relPath == "." {
+			return nil
 		}
 
-		logger.GetLogger().Infof("Cleaning up stale mirror for non-running instance '%s'", instanceName)
-		if err := CleanupInstanceMirror(instanceName); err != nil {
-			logger.GetLogger().Warnf("Failed to cleanup stale mirror for instance '%s': %v", instanceName, err)
-		} else {
-			cleaned++
+		relPath = filepath.ToSlash(relPath)
+
+		if info.IsDir() {
+			// 精确匹配 exception target → 记录为 symlink（junction），不递归
+			if _, ok := exceptionTargets[relPath]; ok {
+				entries = append(entries, mirrorEntry{RelPath: relPath, EntryType: EntryTypeSymlink})
+				return filepath.SkipDir
+			}
+
+			// 检查是否有 exception 子路径
+			hasExceptionChild := false
+			for exPath := range exceptionTargets {
+				if strings.HasPrefix(exPath, relPath+"/") {
+					hasExceptionChild = true
+					break
+				}
+			}
+
+			if hasExceptionChild {
+				// 需要递归的中间目录
+				entries = append(entries, mirrorEntry{RelPath: relPath, EntryType: EntryTypeDirectory})
+				return nil
+			}
+
+			// 检查是否包含 exe 文件
+			if containsExeFiles(path) {
+				entries = append(entries, mirrorEntry{RelPath: relPath, EntryType: EntryTypeDirectory})
+				return nil
+			}
+
+			// 普通目录 → junction，不递归
+			entries = append(entries, mirrorEntry{RelPath: relPath, EntryType: EntryTypeDirectory})
+			return filepath.SkipDir
+		}
+
+		// 文件
+		parentDir := filepath.Dir(path)
+		parentRel := filepath.ToSlash(parentDir)
+		if parentRel == "." {
+			parentRel = ""
+		}
+
+		// 如果父目录是 junction（非 exception、非 exe 目录），文件不会在 mirror 中出现
+		// 但 Walk 还是会访问到，我们需要跳过
+		// 通过检查父目录是否会被 junction 来判断
+		parentIsJunction := false
+		if !isExceptionOrIntermediateDir(parentRel, exceptionTargets) && !containsExeFiles(parentDir) {
+			parentIsJunction = true
+		}
+		if parentIsJunction {
+			// 父目录会被 junction，文件自动包含，不需要单独记录
+			return nil
+		}
+
+		// 文件在真实目录中（exe 目录或 exception 中间目录下的文件）
+		entries = append(entries, mirrorEntry{RelPath: relPath, EntryType: EntryTypeFile})
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	// 按 RelPath 排序
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].RelPath < entries[j].RelPath
+	})
+
+	return entries, nil
+}
+
+// isExceptionOrIntermediateDir 检查路径是否是 exception target 或其中间路径
+func isExceptionOrIntermediateDir(relPath string, exceptionTargets map[string]string) bool {
+	if _, ok := exceptionTargets[relPath]; ok {
+		return true
+	}
+	for exPath := range exceptionTargets {
+		if strings.HasPrefix(exPath, relPath+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// collectMirrorEntries 收集镜像目录的所有条目
+func collectMirrorEntries(mirrorDir string) ([]mirrorEntry, error) {
+	var entries []mirrorEntry
+
+	err := filepath.Walk(mirrorDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil // 跳过无法访问的条目
+		}
+
+		relPath, err := filepath.Rel(mirrorDir, path)
+		if err != nil {
+			return nil
+		}
+		if relPath == "." {
+			return nil
+		}
+
+		relPath = filepath.ToSlash(relPath)
+
+		// 判断条目类型
+		if isJunctionOrSymlink(path) {
+			if info.IsDir() {
+				// junction 或目录符号链接
+				entries = append(entries, mirrorEntry{RelPath: relPath, EntryType: EntryTypeSymlink})
+				return filepath.SkipDir // 不递归进入
+			}
+			// 文件符号链接
+			entries = append(entries, mirrorEntry{RelPath: relPath, EntryType: EntryTypeSymlink})
+			return nil
+		}
+
+		if info.IsDir() {
+			entries = append(entries, mirrorEntry{RelPath: relPath, EntryType: EntryTypeDirectory})
+			return nil
+		}
+
+		// 真实文件
+		entries = append(entries, mirrorEntry{RelPath: relPath, EntryType: EntryTypeFile})
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	// 按 RelPath 排序
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].RelPath < entries[j].RelPath
+	})
+
+	return entries, nil
+}
+
+// syncEntry 创建单个镜像条目
+func syncEntry(srcDir, mirrorDir string, entry mirrorEntry, exceptionTargets map[string]string) error {
+	srcPath := filepath.Join(srcDir, filepath.FromSlash(entry.RelPath))
+	mirrorPath := filepath.Join(mirrorDir, filepath.FromSlash(entry.RelPath))
+
+	// 检查是否是 exception target
+	if target, ok := exceptionTargets[entry.RelPath]; ok {
+		return createJunction(mirrorPath, target)
+	}
+
+	if entry.EntryType == EntryTypeDirectory {
+		// 检查是否是 exception 中间路径
+		if isExceptionOrIntermediateDir(entry.RelPath, exceptionTargets) {
+			return os.MkdirAll(mirrorPath, 0755)
+		}
+		// 检查是否包含 exe 文件
+		if containsExeFiles(srcPath) {
+			return os.MkdirAll(mirrorPath, 0755)
+		}
+		// 普通目录 → junction
+		return createJunction(mirrorPath, srcPath)
+	}
+
+	// 文件
+	fileName := filepath.Base(entry.RelPath)
+	if exeFiles[fileName] {
+		return copyFile(srcPath, mirrorPath)
+	}
+
+	return createFileSymlink(mirrorPath, srcPath)
+}
+
+// removeMirrorEntry 安全移除镜像条目
+func removeMirrorEntry(mirrorDir string, entry mirrorEntry) error {
+	mirrorPath := filepath.Join(mirrorDir, filepath.FromSlash(entry.RelPath))
+
+	if isJunctionOrSymlink(mirrorPath) {
+		return os.Remove(mirrorPath)
+	}
+
+	if entry.EntryType == EntryTypeFile {
+		return os.Remove(mirrorPath)
+	}
+
+	// 目录：尝试删除（仅空目录成功）
+	return os.Remove(mirrorPath)
+}
+
+// reconcileEntry 检查并修复已有条目
+func reconcileEntry(srcDir, mirrorDir string, srcEntry, mirrorEntryItem mirrorEntry, exceptionTargets map[string]string) error {
+	srcPath := filepath.Join(srcDir, filepath.FromSlash(srcEntry.RelPath))
+	mirrorPath := filepath.Join(mirrorDir, filepath.FromSlash(mirrorEntryItem.RelPath))
+
+	// 检查类型是否匹配
+	if srcEntry.EntryType != mirrorEntryItem.EntryType {
+		// 类型变化，删除旧的，创建新的
+		logger.GetLogger().Infof("Entry type changed for %s, recreating", srcEntry.RelPath)
+		_ = removeMirrorEntry(mirrorDir, mirrorEntryItem)
+		return syncEntry(srcDir, mirrorDir, srcEntry, exceptionTargets)
+	}
+
+	// 对于真实文件（非 symlink），检查 MD5
+	if mirrorEntryItem.EntryType == EntryTypeFile {
+		if !isJunctionOrSymlink(mirrorPath) {
+			// 真实文件，比较 MD5
+			srcMD5, err := fileMD5(srcPath)
+			if err != nil {
+				return fmt.Errorf("failed to compute source MD5 for %s: %w", srcPath, err)
+			}
+			dstMD5, err := fileMD5(mirrorPath)
+			if err != nil {
+				return fmt.Errorf("failed to compute mirror MD5 for %s: %w", mirrorPath, err)
+			}
+			if srcMD5 != dstMD5 {
+				logger.GetLogger().Infof("File changed (MD5 mismatch): %s, recopying", srcEntry.RelPath)
+				return copyFile(srcPath, mirrorPath)
+			}
 		}
 	}
 
-	if cleaned > 0 {
-		logger.GetLogger().Infof("Cleaned up %d stale mirror directories", cleaned)
+	// 对于 symlink/junction，检查是否仍然有效且目标正确
+	if mirrorEntryItem.EntryType == EntryTypeSymlink {
+		// 检查是否是 exception target — 验证目标路径是否正确
+		if target, ok := exceptionTargets[srcEntry.RelPath]; ok {
+			absTarget, _ := filepath.Abs(target)
+			readTarget, err := os.Readlink(mirrorPath)
+			if err != nil {
+				// 无法读取链接目标，重建
+				logger.GetLogger().Infof("Cannot read symlink target: %s, recreating", mirrorEntryItem.RelPath)
+				_ = os.Remove(mirrorPath)
+				return syncEntry(srcDir, mirrorDir, srcEntry, exceptionTargets)
+			}
+			absReadTarget, _ := filepath.Abs(readTarget)
+			if absReadTarget != absTarget {
+				// 目标不正确，重建
+				logger.GetLogger().Infof("Symlink target mismatch for %s: got %s, want %s, recreating",
+					mirrorEntryItem.RelPath, absReadTarget, absTarget)
+				_ = os.Remove(mirrorPath)
+				return syncEntry(srcDir, mirrorDir, srcEntry, exceptionTargets)
+			}
+			return nil
+		}
+
+		// 非 exception symlink，检查是否仍然有效
+		if _, err := os.Stat(mirrorPath); err != nil {
+			// 链接失效，重新创建
+			logger.GetLogger().Infof("Broken symlink detected: %s, recreating", mirrorEntryItem.RelPath)
+			_ = os.Remove(mirrorPath)
+			return syncEntry(srcDir, mirrorDir, srcEntry, exceptionTargets)
+		}
 	}
 
 	return nil
+}
+
+// fileMD5 计算文件的 MD5 哈希
+func fileMD5(path string) ([md5.Size]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return [md5.Size]byte{}, err
+	}
+	defer f.Close()
+
+	h := md5.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return [md5.Size]byte{}, err
+	}
+
+	var result [md5.Size]byte
+	copy(result[:], h.Sum(nil))
+	return result, nil
+}
+
+// isRealFile 检查路径是否是真实文件（非 symlink/junction）
+func isRealFile(path string) bool {
+	if isJunctionOrSymlink(path) {
+		return false
+	}
+	fi, err := os.Stat(path)
+	return err == nil && !fi.IsDir()
 }

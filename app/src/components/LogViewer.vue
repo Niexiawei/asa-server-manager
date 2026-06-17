@@ -109,6 +109,11 @@ const scrollToBottom = () => {
   if (!autoScroll.value) {
     return
   }
+
+  if (logs.value?.length - 1 < 0) {
+    return
+  }
+
   listRef.value?.scrollTo({
     index: logs.value?.length - 1,
     behavior: 'smooth',
@@ -238,10 +243,11 @@ defineExpose({
   height: 100%;
   box-sizing: border-box;
 
-  &::-webkit-scrollbar-thumb{
-    background-color: rgba(255,255,255,0.7);
-    &:hover{
-      background-color: rgba(255,255,255,0.7);
+  &::-webkit-scrollbar-thumb {
+    background-color: rgba(255, 255, 255, 0.7);
+
+    &:hover {
+      background-color: rgba(255, 255, 255, 0.7);
     }
   }
 

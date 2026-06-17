@@ -65,7 +65,7 @@
       <div v-else class="config-container">
         <!-- 服务器配置与资源监控并排布局 -->
         <div class="config-resource-row">
-          <t-card title="服务器配置" headerBordered class="config-section server-config">
+          <t-card headerBordered class="config-section server-config">
             <template #title>
               <div class="config-card-title">
                 <span>服务器配置</span>

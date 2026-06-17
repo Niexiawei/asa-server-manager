@@ -36,6 +36,7 @@ func StartServer(instanceName string, options ...asaserver.StartServerOptionsFun
 	var (
 		startupSuccess = make(chan bool, 1)
 		initSuccessful = make(chan bool, 1)
+		initFailed     = make(chan error, 1)
 		pid            int
 		mirrorDir      string
 	)
@@ -43,6 +44,7 @@ func StartServer(instanceName string, options ...asaserver.StartServerOptionsFun
 	defer func() {
 		close(startupSuccess)
 		close(initSuccessful)
+		close(initFailed)
 	}()
 
 	var startErr error
@@ -76,8 +78,8 @@ func StartServer(instanceName string, options ...asaserver.StartServerOptionsFun
 
 	logger.GetLogger().Infof("Starting server for instance: %s (v2)", instanceName)
 
-	// 创建实例镜像目录
-	mirrorDir, err = SetupInstanceMirror(instanceName, config)
+	// 同步实例镜像目录（增量）
+	mirrorDir, err = SyncInstanceMirror(instanceName, config)
 	if err != nil {
 		asaserver.UnlockServerActions()
 		startErr = fmt.Errorf("failed to setup instance mirror: %w", err)
@@ -251,23 +253,19 @@ func StartServer(instanceName string, options ...asaserver.StartServerOptionsFun
 	logger.GetLogger().Infof("Server started for instance: %s (v2). It should be fully operational in approximately 60 seconds.", instanceName)
 	logger.GetLogger().Infof("Game log file: %s", gameLogPath)
 
-	if ctx.Err() != nil {
-		asaserver.UnlockServerActions()
-		killGameServer(pid)
-	}
-
-	if opts.PidCallback != nil {
-		opts.PidCallback(pid)
-	}
-
 	// Monitor for mod information
 	go asaserver.MonitorAndExtractModInfo(ctx, gameLogPath, instanceName)
 
 	go waitServerStartup(pid, gameLogPath, func(startup bool, err string) {
 		if startup {
 			_ = asaserver.WriteInstanceState(instanceName, asaserver.StatusStarted, "")
+			if opts.WaitServerCompleted {
+				startupSuccess <- true
+			}
 		} else {
 			_ = asaserver.WriteInstanceState(instanceName, asaserver.StatusStartFailed, err)
+			startErr = fmt.Errorf("start game server exited")
+			initFailed <- startErr
 		}
 	}, func() {
 		_ = asaserver.WriteInstanceState(instanceName, asaserver.StatusStartStartInitializationSuccessful, "")
@@ -280,34 +278,25 @@ func StartServer(instanceName string, options ...asaserver.StartServerOptionsFun
 		}
 	})
 
-	if opts.WaitServerCompleted {
-		WaitServerCompletedCtx, WaitServerCompletedCancel := context.WithCancel(ctx)
-		defer WaitServerCompletedCancel()
-
-		go func() {
-			if exited := asaserver.WaitGamePidExit(WaitServerCompletedCtx, pid); exited {
-				WaitServerCompletedCancel()
-			}
-		}()
-
-		asaserver.TailLogFileWithLinesContext(WaitServerCompletedCtx, gameLogPath, 0, func(line string) {
-			if strings.Contains(line, "Server has completed startup and is now advertising for join") {
-				startupSuccess <- true
-			}
-		})
-
-		select {
-		case <-WaitServerCompletedCtx.Done():
-			asaserver.UnlockServerActions()
-			startErr = fmt.Errorf("start game server exited")
-			return startErr
-		case <-startupSuccess:
-			return nil
-		}
-	} else {
-		<-initSuccessful
+	if ctx.Err() != nil {
+		asaserver.UnlockServerActions()
+		killGameServer(pid)
 	}
 
+	if opts.PidCallback != nil {
+		opts.PidCallback(pid)
+	}
+
+	select {
+	case err := <-initFailed:
+		return err
+	case <-initSuccessful:
+
+	}
+
+	if opts.WaitServerCompleted {
+		<-startupSuccess
+	}
 	return nil
 }
 
@@ -363,7 +352,7 @@ func StopServer(instanceName string) error {
 	// 日志路径使用实例本地目录
 	gameLogPath, _ = GetGameLogFilePath(instanceName)
 
-	if err := asaserver.SaveWorldSafely(instanceName); err != nil {
+	if err := SaveWorldSafely(instanceName); err != nil {
 		asaserver.UnlockServerActions()
 		stopErr = fmt.Errorf("failed to save world safely: %w", err)
 		return stopErr
@@ -414,11 +403,6 @@ func StopServer(instanceName string) error {
 
 	_ = asaserver.WriteInstanceState(instanceName, asaserver.StatusStopped, "")
 
-	// 清理镜像目录
-	if err := CleanupInstanceMirror(instanceName); err != nil {
-		logger.GetLogger().Warnf("Failed to cleanup instance mirror for %s: %v", instanceName, err)
-	}
-
 	return nil
 }
 
@@ -438,11 +422,6 @@ func KillServer(instanceName string) error {
 		return err
 	}
 	_ = asaserver.WriteInstanceState(instanceName, asaserver.StatusStopped, "")
-
-	// 清理镜像目录
-	if err := CleanupInstanceMirror(instanceName); err != nil {
-		logger.GetLogger().Warnf("Failed to cleanup instance mirror for %s: %v", instanceName, err)
-	}
 
 	return nil
 }
@@ -624,4 +603,3 @@ func syncConfigFile(sourcePath, destPath string) error {
 
 	return nil
 }
-

@@ -5,6 +5,7 @@ import (
 	"asa-server/logger"
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"testing"
@@ -41,8 +42,8 @@ func setupTestEnv(t *testing.T) {
 	t.Logf("ServerFilesDir: %s", asaserver.ServerFilesDir)
 }
 
-// TestSetupInstanceMirror 测试镜像目录创建和清理
-func TestSetupInstanceMirror(t *testing.T) {
+// TestSyncInstanceMirror 测试镜像目录创建和清理
+func TestSyncInstanceMirror(t *testing.T) {
 	setupTestEnv(t)
 
 	// 加载实例配置
@@ -53,7 +54,7 @@ func TestSetupInstanceMirror(t *testing.T) {
 	t.Logf("Instance config loaded: ServerName=%s, Port=%d, RCONPort=%d", cfg.ServerName, cfg.Port, cfg.RCONPort)
 
 	// 创建镜像目录
-	mirrorDir, err := SetupInstanceMirror(testInstanceName, cfg)
+	mirrorDir, err := SyncInstanceMirror(testInstanceName, cfg)
 	if err != nil {
 		t.Fatalf("Failed to setup instance mirror: %v", err)
 	}
@@ -102,7 +103,7 @@ func TestMirrorStructure(t *testing.T) {
 		t.Fatalf("Failed to load instance config: %v", err)
 	}
 
-	mirrorDir, err := SetupInstanceMirror(testInstanceName, cfg)
+	mirrorDir, err := SyncInstanceMirror(testInstanceName, cfg)
 	if err != nil {
 		t.Fatalf("Failed to setup mirror: %v", err)
 	}
@@ -154,7 +155,7 @@ func TestMirrorRequiresConfig(t *testing.T) {
 	}
 
 	// 使用一个不存在的实例名，Config 目录不存在
-	_, err := SetupInstanceMirror("nonexistent_instance_12345", cfg)
+	_, err := SyncInstanceMirror("nonexistent_instance_12345", cfg)
 	if err == nil {
 		t.Fatal("Expected error when Config directory does not exist, got nil")
 	}
@@ -186,6 +187,7 @@ func TestStartAndStopServer(t *testing.T) {
 	startErr := make(chan error, 1)
 	go func() {
 		startErr <- StartServer(testInstanceName, asaserver.WithCtx(ctx))
+		log.Println("Started server")
 	}()
 
 	// 等待启动完成或超时
@@ -228,13 +230,18 @@ func TestStartAndStopServer(t *testing.T) {
 		t.Fatal("Server should not be running after stop")
 	}
 
-	// 验证镜像目录已清理
+	// 验证镜像目录在停止后保留（持久化）
 	mirrorDir := InstanceMirrorDir(testInstanceName)
-	if _, err := os.Stat(mirrorDir); !os.IsNotExist(err) {
-		t.Errorf("Mirror directory should be cleaned up after stop: %s", mirrorDir)
+	if _, err := os.Stat(mirrorDir); os.IsNotExist(err) {
+		t.Errorf("Mirror directory should persist after stop: %s", mirrorDir)
 	}
 
-	t.Log("Server stopped and cleaned up successfully")
+	// 手动清理镜像（模拟 CleanupMirrorCache）
+	if err := CleanupMirrorCache(testInstanceName); err != nil {
+		t.Errorf("Failed to cleanup mirror cache: %v", err)
+	}
+
+	t.Log("Server stopped successfully, mirror preserved then cleaned up")
 }
 
 // TestStartServerWithContextCancellation 测试通过取消 context 停止启动

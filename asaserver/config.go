@@ -390,6 +390,7 @@ func GetAvailableInstances() ([]string, error) {
 
 // CreateDefaultInstanceConfig creates a default instance configuration
 func CreateDefaultInstanceConfig(instanceName string) *InstanceConfig {
+	
 	return &InstanceConfig{
 		ServerName:            fmt.Sprintf("ARK Server %s", instanceName),
 		ServerPassword:        "",

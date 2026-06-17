@@ -25,6 +25,7 @@ func TailLogFileWithLinesContext(ctx context.Context, logPath string, lastNLines
 	if ctx.Err() != nil {
 		return
 	}
+
 	var (
 		stop func()
 	)
@@ -43,7 +44,7 @@ func TailLogFileWithLinesContext(ctx context.Context, logPath string, lastNLines
 // Returns a stop function to terminate monitoring
 // The printFunc closure is called with each log line (historical lines + new lines)
 func TailLogFileWithLines(logPath string, lastNLines int, printFunc func(string)) func() {
-	stopChan := make(chan struct{})
+	ctx, cancel := context.WithCancel(context.Background())
 
 	go func() {
 		// Open file once in read-only mode
@@ -52,24 +53,18 @@ func TailLogFileWithLines(logPath string, lastNLines int, printFunc func(string)
 			printFunc("Failed to open log file: " + fmt.Sprintf("%v", err))
 			return
 		}
-		defer file.Close()
 
+		defer file.Close()
 		// First, read and send the last N lines from the file
 		lastLines, err := readLastNLines(logPath, lastNLines)
 		if err != nil {
 			printFunc("Failed to read last " + fmt.Sprintf("%d", lastNLines) + " lines: " + fmt.Sprintf("%v", err))
 			return
 		}
-
 		// Send the last N lines
 		for _, line := range lastLines {
-			select {
-			case <-stopChan:
-				return
-			default:
-				if line != "" {
-					printFunc(line)
-				}
+			if line != "" {
+				printFunc(line)
 			}
 		}
 
@@ -92,6 +87,7 @@ func TailLogFileWithLines(logPath string, lastNLines int, printFunc func(string)
 
 		// Watch the logs directory for changes
 		//logsDir := filepath.Dir(logPath)
+
 		if err := watcher.Add(logPath); err != nil {
 			printFunc("Failed to watch logs directory: " + fmt.Sprintf("%v", err))
 			return
@@ -99,24 +95,18 @@ func TailLogFileWithLines(logPath string, lastNLines int, printFunc func(string)
 
 		for {
 			select {
-			case <-stopChan:
+			case <-ctx.Done():
 				// Stop signal received
 				return
 			default:
 			}
-
 			// Read available content from the log file
 			if content, newPos, _, found := readNewLogContent(file, lastPosition); found {
 				if content != "" {
 					// Call the closure function to print each line
 					for _, line := range strings.Split(strings.TrimSuffix(content, "\n"), "\n") {
 						if line != "" {
-							select {
-							case <-stopChan:
-								return
-							default:
-								printFunc(line)
-							}
+							printFunc(line)
 						}
 					}
 				}
@@ -125,7 +115,7 @@ func TailLogFileWithLines(logPath string, lastNLines int, printFunc func(string)
 
 			// Wait for file system events or timeout
 			select {
-			case <-stopChan:
+			case <-ctx.Done():
 				return
 			case event, ok := <-watcher.Events:
 				if !ok {
@@ -142,7 +132,7 @@ func TailLogFileWithLines(logPath string, lastNLines int, printFunc func(string)
 				}
 				printFunc("Watcher error: " + fmt.Sprintf("%v", err))
 				return
-			case <-time.After(100 * time.Millisecond):
+			case <-time.After(2000 * time.Millisecond):
 				// Periodic check for file updates
 				continue
 			}
@@ -151,7 +141,7 @@ func TailLogFileWithLines(logPath string, lastNLines int, printFunc func(string)
 
 	// Return the stop function
 	return func() {
-		close(stopChan)
+		cancel()
 	}
 }
 
