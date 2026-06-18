@@ -2,12 +2,10 @@
   <t-dialog
       v-model:visible="modalVisible"
       :header="diffType === 'game-ini' ? 'Game.ini 对比' : 'GameUserSettings.ini 对比'"
-      :width="1600"
-      :body-style="{ height: '900px' }"
       :modal="true"
       destroy-on-close
-      :footer="false"
       class="diff-modal"
+      mode="full-screen"
   >
     <div class="diff-modal-wrapper">
       <div class="diff-modal-toolbar" v-if="!toolbarCollapsed">
@@ -286,7 +284,7 @@ onUnmounted(() => {
 
 .diff-editor-container {
   width: 100%;
-  height: 65vh;
+  height: 100%;
   border: 1px solid #d9d9d9;
   border-radius: 4px;
   overflow: hidden;

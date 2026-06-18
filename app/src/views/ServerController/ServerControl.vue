@@ -2,14 +2,7 @@
   <div class="server-control">
     <t-card title="服务器控制面板" :bordered="false" class="main-card layout-card">
       <div class="server-control-body scrollbar">
-        <GlobalServerControl
-            :instances="instances"
-            @refresh="fetchInstances"
-        />
         <BackupManagement
-            :instances="instances"
-        />
-        <RconCommand
             :instances="instances"
         />
         <GameConfigSync
@@ -27,9 +20,7 @@
 import {ref, onMounted} from 'vue'
 import {listInstances} from '@/apis/api.js'
 import {MessagePlugin} from 'tdesign-vue-next'
-import GlobalServerControl from '@/views/ServerController/components/GlobalServerControl.vue'
 import BackupManagement from '@/views/ServerController/components/BackupManagement.vue'
-import RconCommand from '@/views/ServerController/components/RconCommand.vue'
 import GameConfigSync from '@/views/ServerController/components/GameConfigSync.vue'
 import SyncConfigManagement from '@/views/ServerController/components/SyncConfigManagement.vue'
 

@@ -1,19 +1,18 @@
 <template>
   <t-dialog
-    :visible="visible"
-    :header="title"
-    @confirm="handleConfirm"
-    @close="handleCancel"
-    :confirm-loading="saving"
-    width="90%"
-    :body-style="{ height: '70vh', padding: '0', overflow: 'hidden' }"
+      :visible="visible"
+      :header="title"
+      @confirm="handleConfirm"
+      @close="handleCancel"
+      :confirm-loading="saving"
+      mode="full-screen"
   >
     <div ref="editorContainer" style="width: 100%; height: 100%"></div>
   </t-dialog>
 </template>
 
 <script setup>
-import { ref, watch, nextTick, onUnmounted } from 'vue'
+import {ref, watch, nextTick, onUnmounted} from 'vue'
 import * as monaco from 'monaco-editor'
 
 const props = defineProps({
@@ -63,7 +62,7 @@ const initEditor = () => {
       language: props.language,
       theme: 'vs-dark',
       automaticLayout: true,
-      minimap: { enabled: true },
+      minimap: {enabled: true},
       fontSize: 13,
       lineNumbers: 'on',
       scrollBeyondLastLine: false,

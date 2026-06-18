@@ -134,12 +134,13 @@ const handleSyncConfig = async () => {
     return
   }
 
-  DialogPlugin.confirm({
+  let syncDialog = DialogPlugin.confirm({
     header: '确认',
     body: `确定要将 "${syncForm.sourceInstance}" 的配置同步到 ${syncForm.targetInstances.length} 个目标实例吗？`,
     confirmBtn: '确定',
     cancelBtn: '取消',
     onConfirm: async () => {
+      syncDialog.hide()
       await executeSyncConfig()
     }
   })

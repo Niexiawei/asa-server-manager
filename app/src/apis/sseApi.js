@@ -40,43 +40,38 @@ function createEventSourceAction(url, onMessage, onError, onComplete, errorCallb
     })
 }
 
-// 启动所有服务器实例
-export function startAllServers(onMessage, onError, onComplete) {
-    const url = buildEventSourceUrl('/api/server/start-all')
+// 订阅当前批量操作日志流
+export function streamBatchLogs(onLog, onError, onClose) {
+    const eventSource = new EventSource(buildEventSourceUrl('/api/server/batch/logs'))
 
-    return createEventSourceAction(url, onMessage, onError, onComplete, (content) => {
-        if (content.startsWith('Error:')) {
-            return {success: false, error: new Error(content)}
-        } else {
-            return {success: true, error: null}
+    eventSource.onmessage = (event) => {
+        if (onLog) {
+            try {
+                const entry = JSON.parse(event.data)
+                onLog(entry)
+            } catch (e) {
+                onLog({level: 'info', message: event.data})
+            }
         }
-    })
-}
+    }
 
-// 停止所有服务器实例
-export function stopAllServers(onMessage, onError, onComplete) {
-    const url = buildEventSourceUrl('/api/server/stop-all')
-
-    return createEventSourceAction(url, onMessage, onError, onComplete, (content, setError, setSuccess) => {
-        if (content.startsWith('Error:')) {
-            return {success: false, error: new Error(content)}
-        } else {
-            return {success: true, error: null}
+    eventSource.onerror = (error) => {
+        console.error('Batch log SSE error:', error)
+        if (onError) {
+            onError(error)
         }
-    })
-}
-
-// 重启所有服务器实例
-export function restartAllServers(onMessage, onError, onComplete) {
-    const url = buildEventSourceUrl('/api/server/restart-all')
-
-    return createEventSourceAction(url, onMessage, onError, onComplete, (content, setError, setSuccess) => {
-        if (content.startsWith('Error:')) {
-            return {success: false, error: new Error(content)}
-        } else {
-            return {success: true, error: null}
+        eventSource.close()
+        if (onClose) {
+            onClose()
         }
-    })
+    }
+
+    return () => {
+        eventSource.close()
+        if (onClose) {
+            onClose()
+        }
+    }
 }
 
 // 更新服务器

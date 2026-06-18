@@ -192,7 +192,7 @@ const confirmRestore = async () => {
   const componentsList = components.map((c, i) => `${i + 1}. ${c}`).join('\n')
 
   // 二次确认
-  DialogPlugin.confirm({
+  let restoreDialog = DialogPlugin.confirm({
     header: '确认恢复备份',
     body: `确定要将以下内容从备份 "${restoreModal.backupFile}" 恢复到实例 "${restoreModal.instanceName}" 吗？
 
@@ -203,6 +203,7 @@ ${componentsList}
     confirmBtn: { content: '确认恢复', theme: 'danger' },
     cancelBtn: '取消',
     onConfirm: async () => {
+      restoreDialog.setConfirmLoading(true)
       loading.value = true
       restoreModal.confirmLoading = true
 
@@ -226,6 +227,8 @@ ${componentsList}
       } finally {
         loading.value = false
         restoreModal.confirmLoading = false
+        restoreDialog.setConfirmLoading(false)
+        restoreDialog.hide()
       }
     }
   })

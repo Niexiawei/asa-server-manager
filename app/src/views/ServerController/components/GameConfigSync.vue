@@ -90,12 +90,13 @@ const handleSyncGameConfig = async () => {
     return
   }
 
-  DialogPlugin.confirm({
+  let syncDialog = DialogPlugin.confirm({
     header: '确认覆盖配置',
     body: `确定要将基础服务器的配置文件同步到 ${syncForm.targetInstances.length} 个实例吗？这将覆盖现有的 Game.ini 和 GameUserSettings.ini 文件。`,
     confirmBtn: '确定',
     cancelBtn: '取消',
     onConfirm: async () => {
+      syncDialog.hide()
       await executeSyncGameConfig()
     }
   })

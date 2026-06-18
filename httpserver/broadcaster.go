@@ -1,4 +1,4 @@
-package webapi
+package httpserver
 
 import (
 	"sync"
@@ -6,11 +6,11 @@ import (
 
 // UpdateProgressWriter writes progress messages to a broadcaster
 type UpdateProgressWriter struct {
-	broadcaster *TaskBroadcaster
+	Broadcaster *TaskBroadcaster
 }
 
 func (w *UpdateProgressWriter) Write(p []byte) (n int, err error) {
-	w.broadcaster.SendMessage(string(p))
+	w.Broadcaster.SendMessage(string(p))
 	return len(p), nil
 }
 

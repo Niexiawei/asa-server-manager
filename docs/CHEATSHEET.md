@@ -1,432 +1,195 @@
-# ASA Server Manager - 速查表 (Cheat Sheet)
+# 速查表
 
-## 命令速查
-
-### 🎮 实例管理
-
-| 命令 | 说明 | 示例 |
-|-----|------|------|
-| `create` | 创建新实例 | `asa-manager create` |
-| `list` | 列出所有实例 | `asa-manager list` |
-| `delete` | 删除实例 | `asa-manager delete my-server` |
-| `rename` | 重命名实例 | `asa-manager rename old-name` |
-| `manage` | 交互式管理 | `asa-manager manage my-server` |
-
-### 🚀 服务器控制
-
-| 命令 | 说明 | 示例 |
-|-----|------|------|
-| `start` | 启动服务器 | `asa-manager start my-server` |
-| `stop` | 停止服务器 | `asa-manager stop my-server` |
-| `restart` | 重启服务器 | `asa-manager restart my-server` |
-| `status` | 检查状态 | `asa-manager status [instance]` |
-| `start-all` | 启动所有实例 | `asa-manager start-all` |
-| `stop-all` | 停止所有实例 | `asa-manager stop-all` |
-
-### 💾 备份和恢复
-
-| 命令 | 说明 | 示例 |
-|-----|------|------|
-| `backup` | 创建备份 | `asa-manager backup my-server TheIsland_WP` |
-| `restore` | 恢复备份 | `asa-manager restore my-server` |
-
-### 🔌 高级操作
-
-| 命令 | 说明 | 示例 |
-|-----|------|------|
-| `rcon` | 发送 RCON 命令 | `asa-manager rcon my-server "SaveWorld"` |
-| `update` | 更新服务器 | `asa-manager update` |
-| `config-restart` | 配置重启管理 | `asa-manager config-restart` |
-
-### 📖 帮助和信息
-
-| 命令 | 说明 | 示例 |
-|-----|------|------|
-| `--help` | 查看帮助 | `asa-manager --help` |
-| `--version` | 查看版本 | `asa-manager --version` |
-| `<cmd> --help` | 命令帮助 | `asa-manager start --help` |
+ASA Server Manager 命令、配置、常用操作速查。
 
 ---
 
-## 常见命令组合
+## CLI 命令
 
-### 创建和启动新服务器
+### 基本用法
 
-```bash
-# 步骤 1：创建实例
-asa-manager create
-# 输入：my-server
+```powershell
+# GUI 模式（默认）
+.\asa-server.exe
 
-# 步骤 2：启动服务器
-asa-manager start my-server
+# API 服务器
+.\asa-server.exe api
+.\asa-server.exe api --port 19193
 
-# 步骤 3：检查状态
-asa-manager status my-server
+# 安装/更新 ARK 服务器
+.\asa-server.exe update
+.\asa-server.exe update --force-server   # 强制重新验证
 ```
 
-### 备份和恢复
+### Windows 服务
 
-```bash
-# 步骤 1：创建备份
-asa-manager backup my-server TheIsland_WP
+```powershell
+# 安装为 Windows 服务
+.\asa-server.exe service install
 
-# 步骤 2：列出备份
-ls backups/
-
-# 步骤 3：恢复备份
-asa-manager restore my-server
+# 启动/停止/卸载服务
+.\asa-server.exe service start
+.\asa-server.exe service stop
+.\asa-server.exe service remove
 ```
 
-### 批量启动所有服务器
+### 全局参数
 
-```bash
-# 启动所有实例
-asa-manager start-all
-
-# 等待并检查
-asa-manager status
-```
-
-### 优雅重启
-
-```bash
-asa-manager restart my-server
-```
-
-### 强制停止和重启
-
-```bash
-# 停止
-asa-manager stop my-server
-
-# 等待日志确认已停止
-# 然后启动
-asa-manager start my-server
-```
+| 参数 | 别名 | 默认值 | 说明 |
+|------|------|--------|------|
+| `--api-port` | `--port` | 19193 | HTTP API 端口 |
 
 ---
 
-## 配置文件速查
+## 实例配置 (instance_config.ini)
 
-### 配置文件位置
-
-```
-instances/<instance_name>/instance_config.ini
-```
-
-### 重要配置项
-
-```ini
-# 服务器基本信息
-ServerName=My ARK Server        # 服务器名称
-ServerPassword=                 # 服务器密码
-ServerAdminPassword=secret123   # 管理员密码
-
-# 服务器设置
-MaxPlayers=70                   # 最大玩家数
-MapName=TheIsland_WP            # 地图名称
-
-# 端口配置
-Port=7777                       # 游戏端口
-RCONPort=27020                  # RCON 端口
-QueryPort=27015                 # 查询端口
-
-# 其他设置
-ModIDs=                         # MOD IDs
-SaveDir=<instance_name>         # 保存目录
-ClusterID=                      # 集群 ID
-```
-
-### 常见修改
-
-```ini
-# 改变最大玩家数
-MaxPlayers=50
-
-# 设置服务器密码
-ServerPassword=MyPassword123
-
-# 改变端口（确保不冲突）
-Port=7778
-RCONPort=27021
-QueryPort=27016
-
-# 添加 MOD
-ModIDs=123456789,987654321
-```
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `ServerName` | string | 服务器名称 |
+| `ServerPassword` | string | 服务器密码 |
+| `ServerAdminPassword` | string | 管理员密码 |
+| `MaxPlayers` | int | 最大玩家数 |
+| `MapName` | string | 地图名称 |
+| `RCONPort` | int | RCON 端口 |
+| `QueryPort` | int | 查询端口 |
+| `Port` | int | 游戏端口 |
+| `ModIDs` | string | Mod ID 列表（逗号分隔） |
+| `SaveDir` | string | 存档目录 |
+| `ClusterID` | string | 集群 ID |
+| `CustomStartParameters` | string | 自定义启动参数 |
+| `EnableAsaPlugin` | bool | 是否启用 ASA 插件 |
+| `BindDomain` | string | 绑定域名 |
+| `MessageOfTheDay` | string | 每日消息（MOTD） |
+| `MessageOfTheDayDuration` | int | MOTD 显示时长 |
 
 ---
 
-## 目录结构速查
+## 目录结构
 
 ```
-./
-├── instances/                  # 实例配置
-│   └── my-server/
-│       ├── instance_config.ini # 配置文件
-│       ├── Config/
+{BaseDir}/
+├── instances/                         # 实例目录
+│   └── {instance_name}/
+│       ├── instance_config.ini        # 实例配置
+│       ├── Config/                    # NTFS junction
 │       │   ├── Game.ini
 │       │   └── GameUserSettings.ini
-│       └── server.log          # 服务器日志
-├── server-files/               # 游戏文件
-├── steamcmd/                   # SteamCMD
-├── GE-Proton10-4/             # Proton 兼容层
-└── backups/                    # 备份存储
-    └── my-server_world_2024-01-15_10-30-00.tar.gz
+│       └── server.log
+├── server-files/                      # ARK 服务器安装
+├── steamcmd/                          # SteamCMD
+├── backups/                           # 备份（.tar.zstd）
+├── frp/                               # frpc.exe + 配置
+├── syncthing/                         # syncthing.exe + 配置
+├── database_file/                     # BadgerDB 状态数据
+│   └── state_db/
+├── logs/                              # 应用日志
+│   ├── asaServer.log
+│   └── arkApiLog.log
+└── log_mapping.json                   # 实例→日志映射
 ```
 
 ---
 
-## 故障排查快速参考
+## 实例状态
 
-### 问题：实例无法启动
-
-**检查清单**：
-```bash
-1. 检查日志：cat instances/my-server/server.log
-2. 检查端口：netstat -an | findstr LISTEN
-3. 检查文件：dir server-files\ShooterGame
-4. 重启尝试：asa-manager start my-server
-```
-
-### 问题：端口冲突
-
-**解决方案**：
-```bash
-# 编辑配置
-notepad instances/my-server/instance_config.ini
-
-# 修改端口（确保唯一）
-Port=7778        # 改为 7778
-RCONPort=27021   # 改为 27021
-QueryPort=27016  # 改为 27016
-
-# 重启服务器
-asa-manager restart my-server
-```
-
-### 问题：备份失败
-
-**原因和解决**：
-```bash
-1. 服务器还在运行 → 运行 asa-manager stop my-server
-2. 磁盘满 → 检查磁盘空间：dir | measure
-3. 路径错误 → 验证世界文件夹名称
-```
-
-### 问题：服务器崩溃
-
-**恢复步骤**：
-```bash
-1. 检查状态：asa-manager status my-server
-2. 查看日志：cat instances/my-server/server.log
-3. 强制停止：asa-manager stop my-server
-4. 恢复备份：asa-manager restore my-server
-5. 重启服务器：asa-manager start my-server
-```
-
----
-
-## 性能优化速查
-
-### 低配置服务器
-
-```ini
-MaxPlayers=10
-CustomStartParameters=-NoBattlEye -crossplay -NoHangDetection
-```
-
-### 中等配置服务器
-
-```ini
-MaxPlayers=50
-```
-
-### 高性能服务器
-
-```ini
-MaxPlayers=70
-# 可考虑增加 MOD，但保持稳定性
-```
+| 状态 | 说明 | 可执行操作 |
+|------|------|-----------|
+| `stopped` | 已停止 | 启动 |
+| `started` | 运行中 | 停止、重启、强制停止 |
+| `start_initialization` | 启动初始化中 | 强制停止 |
+| `start_initialization_successful` | 初始化成功 | 强制停止 |
+| `starting` | 启动中 | 强制停止 |
+| `stopping` | 停止中 | 强制停止 |
+| `restarting` | 重启中 | 强制停止 |
+| `start_failed` | 启动失败 | 启动、强制停止 |
+| `stop_failed` | 停止失败 | 启动、强制停止 |
+| `restart_failed` | 重启失败 | 启动、强制停止 |
 
 ---
 
 ## RCON 常用命令
 
-```bash
-# 保存世界
-asa-manager rcon my-server "SaveWorld"
-
-# 广播消息
-asa-manager rcon my-server "broadcast This is a message"
-
-# 检查服务器
-asa-manager rcon my-server "status"
-
-# 停止服务器
-asa-manager rcon my-server "DoExit"
-
-# 更改难度
-asa-manager rcon my-server "cheat SetDifficulty 5"
-
-# 踢出玩家
-asa-manager rcon my-server "kick PlayerName"
+```powershell
+# 通过 API 发送 RCON 命令
+Invoke-RestMethod -Method Post http://localhost:19193/api/rcon/server1/command `
+  -Body '{"command":"broadcast Hello"}' -ContentType "application/json"
 ```
+
+| RCON 命令 | 说明 |
+|-----------|------|
+| `broadcast <msg>` | 广播消息 |
+| `saveworld` | 保存世界 |
+| `DoExit` | 关闭服务器 |
+| `ListPlayers` | 列出在线玩家 |
+| `KickPlayer <id>` | 踢出玩家 |
+| `BanPlayer <id>` | 封禁玩家 |
+| `serverchat <msg>` | 服务器聊天 |
+| `SetMessageOfTheDay <msg>` | 设置 MOTD |
 
 ---
 
-## 文件查找速查
+## 常见问题排查
 
-| 内容 | 位置 |
-|-----|------|
-| 实例配置 | `instances/<instance>/instance_config.ini` |
-| 游戏配置 | `instances/<instance>/Config/Game.ini` |
-| 玩家设置 | `instances/<instance>/Config/GameUserSettings.ini` |
-| 服务器日志 | `instances/<instance>/server.log` |
-| 备份文件 | `backups/*.tar.gz` |
-| 游戏文件 | `server-files/ShooterGame/` |
-| 保存文件 | `server-files/ShooterGame/Saved/` |
+### 端口冲突
+
+```powershell
+# 检查端口占用
+netstat -ano | findstr :27015
+
+# 检查所有实例配置的端口
+Get-ChildItem instances\*\instance_config.ini | Select-String "Port|RCONPort|QueryPort"
+```
+
+### 服务器无法启动
+
+1. 检查 `server-files/` 目录是否完整
+2. 检查端口是否被占用
+3. 检查实例状态是否卡在中间状态（等待自动恢复或重启程序）
+4. 查看日志：`logs/asaServer.log`
+
+### 日志位置
+
+| 日志 | 路径 |
+|------|------|
+| 应用日志 | `{BaseDir}/logs/asaServer.log` |
+| ARK API 日志 | `{BaseDir}/logs/arkApiLog.log` |
+| 实例日志 | `{BaseDir}/instances/{name}/server.log` |
+| 日志映射 | `{BaseDir}/log_mapping.json` |
+
+### 备份格式
+
+备份文件使用 `.tar.zstd` 格式（tar + zstd 压缩），存放在 `{BaseDir}/backups/` 目录。
 
 ---
 
-## 快速启动脚本
+## API 速查
 
-### Windows Batch (.bat)
+完整的 API 端点文档请参阅 [API_REFERENCE.md](API_REFERENCE.md)。
 
-```batch
-@echo off
-REM 启动服务器脚本
-cd d:\golang\asa-server
-.\asa-server.exe start my-server
-pause
+### 常用 curl 示例
+
+```powershell
+# 健康检查
+curl http://localhost:19193/health
+
+# 列出实例
+curl http://localhost:19193/api/instances
+
+# 创建实例
+curl -X POST http://localhost:19193/api/instances -d '{"name":"server1"}'
+
+# 启动实例
+curl http://localhost:19193/api/server/server1/start
+
+# 停止实例
+curl http://localhost:19193/api/server/server1/stop
+
+# 获取实例配置
+curl http://localhost:19193/api/instances/server1/config
+
+# 创建备份
+curl -X POST http://localhost:19193/api/backup/server1
+
+# 更新服务器
+curl http://localhost:19193/api/server/update
 ```
-
-### Linux/Mac Bash (.sh)
-
-```bash
-#!/bin/bash
-# 启动服务器脚本
-cd /path/to/asa-server
-./asa-manager start my-server
-```
-
-### 定时备份脚本 (Windows)
-
-```batch
-@echo off
-REM 每天执行一次备份
-cd d:\golang\asa-server
-FOR /f "tokens=2-4 delims=/ " %%a in ('date /t') do (set mydate=%%c-%%a-%%b)
-.\asa-server.exe backup my-server TheIsland_WP
-echo Backup completed at %mydate%
-```
-
----
-
-## 常见错误信息
-
-| 错误 | 原因 | 解决方案 |
-|-----|------|---------|
-| "No instances found" | 还没有创建实例 | 运行 `asa-manager create` |
-| "Port conflict" | 端口已被使用 | 编辑 `instance_config.ini` 改变端口 |
-| "Server is running" | 试图启动正在运行的服务器 | 运行 `asa-manager stop <instance>` |
-| "Server is not running" | 试图停止未运行的服务器 | 忽略或首先启动服务器 |
-| "Failed to start server" | 启动失败 | 检查日志和磁盘空间 |
-
----
-
-## 键盘快捷键
-
-### 交互式菜单
-
-| 快捷键 | 功能 |
-|--------|------|
-| `1-9` | 选择菜单项 |
-| `0` | 返回上级菜单 |
-| `↑↓` | 导航菜单（如果支持） |
-| `Enter` | 确认选择 |
-| `Ctrl+C` | 退出程序 |
-
----
-
-## 环境变量（高级用户）
-
-```bash
-# Windows
-set GOOS=windows
-set GOARCH=amd64
-
-# Linux
-export GOOS=linux
-export GOARCH=amd64
-
-# 然后构建
-go build
-```
-
----
-
-## 一行命令速查
-
-```bash
-# 列出所有实例并显示状态
-asa-manager list && asa-manager status
-
-# 创建、启动、检查状态
-asa-manager create && asa-manager start new-server && asa-manager status
-
-# 创建备份并列出
-asa-manager backup my-server TheIsland_WP && dir backups\
-
-# 停止并删除实例
-asa-manager stop my-server && asa-manager delete my-server
-
-# 更新所有内容
-asa-manager stop-all && asa-manager update && asa-manager start-all
-```
-
----
-
-## 进阶技巧
-
-### 批量管理多个实例
-
-```bash
-# 为每个实例创建日期标记备份
-for instance in server1 server2 server3; do
-  asa-manager backup $instance TheIsland_WP
-done
-```
-
-### 监控服务器状态
-
-```bash
-# Windows - 每 30 秒刷新一次状态
-powershell -Command "while($true) { Clear-Host; asa-manager status; Start-Sleep -Seconds 30 }"
-```
-
-### 获取所有实例列表
-
-```bash
-# 仅显示实例名称
-asa-manager list | grep -E "^  [✅❌]" | awk '{print $2}'
-```
-
----
-
-## 参考文档
-
-| 文档 | 用途 |
-|-----|------|
-| [README.md](README.md) | 完整参考 |
-| [QUICKSTART.md](QUICKSTART.md) | 快速开始 |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | 系统设计 |
-| [MIGRATION.md](MIGRATION.md) | 版本迁移 |
-| [PROJECT.md](PROJECT.md) | 项目信息 |
-
----
-
-## 更新日期：2025-11-16
-## 版本：1.0.0
-
-**Tip**：保存此文件方便快速查阅！

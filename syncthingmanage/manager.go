@@ -154,7 +154,6 @@ func (m *SyncthingManager) asyncStart() {
 
 	go func() {
 		if exited := common.WaitGamePidExit(ctx, m.cmdPid); exited {
-			fmt.Println("syncthing process exited")
 			cancel()
 			job.Close()
 		}

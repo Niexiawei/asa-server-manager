@@ -19,15 +19,27 @@ import (
 // StartServer 启动服务器实例
 // v2 版本：使用 per-instance 镜像目录替代 setupInstanceConfig
 func StartServer(instanceName string, options ...asaserver.StartServerOptionsFunc) error {
+	// CAS: 原子检查状态并转换到 start_initialization
+	ok, err := asaserver.CompareAndSwapInstanceState(instanceName,
+		[]asaserver.InstanceStatus{asaserver.StatusStopped, asaserver.StatusStartFailed, asaserver.StatusStopFailed, asaserver.StatusRestartFailed, ""},
+		asaserver.StatusStartStartInitialization)
+	if err != nil {
+		return fmt.Errorf("failed to check instance state: %w", err)
+	}
+	if !ok {
+		return asaserver.ErrOperationNotAllowed
+	}
+
+	return startServerInternal(instanceName, options...)
+}
+
+// startServerInternal 启动服务器实例（内部版本，无 CAS）
+func startServerInternal(instanceName string, options ...asaserver.StartServerOptionsFunc) error {
 	opts := new(asaserver.StartServerOptions)
 	opts.WaitServerCompleted = false
 	opts.ParentCtx = context.Background()
 	for _, o := range options {
 		o(opts)
-	}
-	_ = asaserver.WriteInstanceState(instanceName, asaserver.StatusStartStartInitialization, "")
-	if !asaserver.TryLockServerActions() {
-		return asaserver.ErrServerActionsLocked
 	}
 
 	ctx, cancel := context.WithCancel(opts.ParentCtx)
@@ -63,7 +75,6 @@ func StartServer(instanceName string, options ...asaserver.StartServerOptionsFun
 
 	// 检查端口冲突
 	if err := asaserver.CheckForDuplicatePorts(); err != nil {
-		asaserver.UnlockServerActions()
 		logger.GetLogger().Errorf("Port conflicts detected: %v", err)
 		startErr = err
 		return err
@@ -71,7 +82,6 @@ func StartServer(instanceName string, options ...asaserver.StartServerOptionsFun
 
 	config, err := asaserver.LoadInstanceConfig(instanceName)
 	if err != nil {
-		asaserver.UnlockServerActions()
 		startErr = err
 		return err
 	}
@@ -81,7 +91,6 @@ func StartServer(instanceName string, options ...asaserver.StartServerOptionsFun
 	// 同步实例镜像目录（增量）
 	mirrorDir, err = SyncInstanceMirror(instanceName, config)
 	if err != nil {
-		asaserver.UnlockServerActions()
 		startErr = fmt.Errorf("failed to setup instance mirror: %w", err)
 		return startErr
 	}
@@ -181,7 +190,6 @@ func StartServer(instanceName string, options ...asaserver.StartServerOptionsFun
 	// 日志路径使用实例本地目录
 	gameLogPath, err := GetGameLogFilePath(instanceName)
 	if err != nil {
-		asaserver.UnlockServerActions()
 		startErr = fmt.Errorf("failed to get game log file path: %w", err)
 		return startErr
 	}
@@ -248,8 +256,6 @@ func StartServer(instanceName string, options ...asaserver.StartServerOptionsFun
 		logger.GetLogger().Warnf("Failed to save PID for instance %s: %v", instanceName, err)
 	}
 
-	_ = asaserver.WriteInstanceState(instanceName, asaserver.StatusStarting, "")
-
 	logger.GetLogger().Infof("Server started for instance: %s (v2). It should be fully operational in approximately 60 seconds.", instanceName)
 	logger.GetLogger().Infof("Game log file: %s", gameLogPath)
 
@@ -270,7 +276,7 @@ func StartServer(instanceName string, options ...asaserver.StartServerOptionsFun
 	}, func() {
 		_ = asaserver.WriteInstanceState(instanceName, asaserver.StatusStartStartInitializationSuccessful, "")
 		// v2: 不调用 confReset（镜像目录独立，无需恢复原始 Config）
-		asaserver.UnlockServerActions()
+		_ = asaserver.WriteInstanceState(instanceName, asaserver.StatusStarting, "")
 		initSuccessful <- true
 
 		if opts.GameInitializationSuccessful != nil {
@@ -279,7 +285,6 @@ func StartServer(instanceName string, options ...asaserver.StartServerOptionsFun
 	})
 
 	if ctx.Err() != nil {
-		asaserver.UnlockServerActions()
 		killGameServer(pid)
 	}
 
@@ -302,6 +307,22 @@ func StartServer(instanceName string, options ...asaserver.StartServerOptionsFun
 
 // StopServer 停止服务器实例
 func StopServer(instanceName string) error {
+	// CAS: 原子检查状态并转换到 stopping
+	ok, err := asaserver.CompareAndSwapInstanceState(instanceName,
+		[]asaserver.InstanceStatus{asaserver.StatusStarted},
+		asaserver.StatusStopping)
+	if err != nil {
+		return fmt.Errorf("failed to check instance state: %w", err)
+	}
+	if !ok {
+		return asaserver.ErrOperationNotAllowed
+	}
+
+	return stopServerInternal(instanceName)
+}
+
+// stopServerInternal 停止服务器实例（内部版本，无 CAS）
+func stopServerInternal(instanceName string) error {
 	var (
 		pid         int
 		gameLogPath string
@@ -319,14 +340,8 @@ func StopServer(instanceName string) error {
 		}
 	}()
 
-	if !asaserver.TryLockServerActions() {
-		return asaserver.ErrServerActionsLocked
-	}
-	_ = asaserver.WriteInstanceState(instanceName, asaserver.StatusStopping, "")
-
 	running, err := asaserver.IsServerRunning(instanceName)
 	if err != nil || !running {
-		asaserver.UnlockServerActions()
 		logger.GetLogger().Warnf("Server for instance %s is not running.", instanceName)
 		stopErr = fmt.Errorf("server for instance %s is not running", instanceName)
 		return stopErr
@@ -336,13 +351,11 @@ func StopServer(instanceName string) error {
 
 	config, configErr := asaserver.LoadInstanceConfig(instanceName)
 	if configErr != nil {
-		asaserver.UnlockServerActions()
 		stopErr = fmt.Errorf("failed to load instance config: %w", configErr)
 		return stopErr
 	}
 	pid, err = asaserver.GetPIDByPort(config.Port)
 	if err != nil {
-		asaserver.UnlockServerActions()
 		stopErr = fmt.Errorf("failed to find process PID: %w", err)
 		return stopErr
 	}
@@ -353,7 +366,6 @@ func StopServer(instanceName string) error {
 	gameLogPath, _ = GetGameLogFilePath(instanceName)
 
 	if err := SaveWorldSafely(instanceName); err != nil {
-		asaserver.UnlockServerActions()
 		stopErr = fmt.Errorf("failed to save world safely: %w", err)
 		return stopErr
 	}
@@ -379,7 +391,6 @@ func StopServer(instanceName string) error {
 			logger.GetLogger().Infof("Server %s received closing request", instanceName)
 		},
 		func(complete bool) {
-			asaserver.UnlockServerActions()
 			close(stopped)
 		})
 
@@ -391,7 +402,6 @@ func StopServer(instanceName string) error {
 		logger.GetLogger().Warnf("Process %d did not exit within 5min, force killing", pid)
 		_ = exec.Command("taskkill", "/F", "/PID", fmt.Sprintf("%d", pid)).Run()
 		waitCancel()
-		asaserver.UnlockServerActions()
 	}
 
 	// Cleanup AsaApiLoader process if applicable
@@ -428,6 +438,17 @@ func KillServer(instanceName string) error {
 
 // RestartServer 重启服务器实例
 func RestartServer(instanceName string) error {
+	// CAS: 原子检查状态并转换到 restarting
+	ok, err := asaserver.CompareAndSwapInstanceState(instanceName,
+		[]asaserver.InstanceStatus{asaserver.StatusStarted},
+		asaserver.StatusRestarting)
+	if err != nil {
+		return fmt.Errorf("failed to check instance state: %w", err)
+	}
+	if !ok {
+		return asaserver.ErrOperationNotAllowed
+	}
+
 	var restartErr error
 
 	defer func() {
@@ -441,16 +462,14 @@ func RestartServer(instanceName string) error {
 		}
 	}()
 
-	_ = asaserver.WriteInstanceState(instanceName, asaserver.StatusRestarting, "")
-
-	if err := StopServer(instanceName); err != nil {
+	// 使用内部版本（跳过 CAS）
+	if err := stopServerInternal(instanceName); err != nil {
 		restartErr = err
 		return err
 	}
 	time.Sleep(10 * time.Second)
 
-	err := StartServer(instanceName)
-	if err != nil {
+	if err := startServerInternal(instanceName); err != nil {
 		restartErr = err
 		return err
 	}
@@ -463,9 +482,6 @@ func StartAllInstances() error {
 	if err != nil {
 		return err
 	}
-
-	fmt.Println("Starting all server instances...")
-
 	for _, instanceName := range instances {
 		running, err := asaserver.IsServerRunning(instanceName)
 		if err == nil && running {

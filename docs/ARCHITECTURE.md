@@ -1,503 +1,336 @@
-# ASA Server Manager - Go 版本 架构文档
+# 系统架构
 
-## 项目概述
+ASA Server Manager 系统架构文档。
 
-ASA Server Manager 是一个用 Go 语言编写的命令行工具，用于管理 ARK: Survival Ascended 游戏服务器实例。本文档描述了应用的整体架构、组件设计和数据流。
+---
 
-## 高层架构
+## 整体架构
 
 ```
-┌─────────────────────────────────────────┐
-│         CLI Interface (main.go)         │
-│     (github.com/urfave/cli/v3)          │
-└──────────────────┬──────────────────────┘
-                   │
-        ┌──────────┴──────────┐
-        │                     │
-┌───────▼───────────┐  ┌─────▼──────────────┐
-│  Actions (...)    │  │  Actions (...).    │
-│  actionStart      │  │  actionStop        │
-│  actionStop       │  │  actionRestart     │
-│  actionBackup     │  │  etc.              │
-└────────┬──────────┘  └────────┬───────────┘
-         │                      │
-         └──────────┬───────────┘
-                    │
-        ┌───────────┴────────────┐
-        │                        │
-┌───────▼─────────────┐  ┌──────▼──────────────┐
-│  Config (config.go) │  │  Server (server.go) │
-│  ────────────────── │  │  ──────────────────  │
-│  LoadConfig         │  │  StartServer        │
-│  SaveConfig         │  │  StopServer         │
-│  GetInstances       │  │  IsServerRunning    │
-│  CheckPortConflicts │  │  SendRCONCommand    │
-└─────────────────────┘  └──────────────────────┘
-                            │
-        ┌───────────────────┴──────────────────┐
-        │                                      │
-┌───────▼─────────────────┐         ┌─────────▼──────────┐
-│ Backup (backup.go)      │         │ OS/File Operations  │
-│ ──────────────────────  │         │ ─────────────────   │
-│ BackupInstanceWorld     │         │ os.Exec (Proton)    │
-│ RestoreBackupToInstance │         │ os.Rename           │
-│ GetAvailableBackups     │         │ tar/gzip            │
-└─────────────────────────┘         └─────────────────────┘
+┌─────────────────────────────────────────────────────────┐
+│                    用户交互层                              │
+├──────────┬──────────┬──────────────┬─────────────────────┤
+│  GUI     │  CLI     │  HTTP API    │  Windows Service    │
+│  (Fyne)  │ (urfave) │  (Gin+SPA)   │  (kardianos)        │
+└────┬─────┴────┬─────┴──────┬───────┴──────────┬──────────┘
+     │          │            │                  │
+     │          │            │                  │
+     ▼          ▼            ▼                  ▼
+┌─────────────────────────────────────────────────────────┐
+│                    webapi 层                              │
+│  APIServer · 路由 · SSE TaskBroadcaster · WebSocket      │
+└────────────────────────┬────────────────────────────────┘
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────────┐
+│                   asaserver 核心层                        │
+├──────────┬──────────┬──────────┬────────────────────────┤
+│ server.go│ config.go│common.go │ state_manager.go       │
+│ 启动/停止 │ 配置管理  │ 日志/进程 │ BadgerDB 状态持久化     │
+├──────────┴──────────┴──────────┴────────────────────────┤
+│ asaserverv2（重构中）: mirror · force_stop               │
+└────┬─────┴────┬─────┴────┬─────┴──────────┬─────────────┘
+     │          │          │                │
+     ▼          ▼          ▼                ▼
+┌────────┐ ┌────────┐ ┌──────────┐ ┌──────────────┐
+│win32api│ │common  │ │processjob│ │database_file │
+│Win API │ │WMI/DNS │ │Job Object│ │ BadgerDB     │
+└────────┘ └────────┘ └──────────┘ └──────────────┘
+
+┌─────────────────────────────────────────────────────────┐
+│                   辅助服务层                              │
+├──────────┬──────────────┬───────────────────────────────┤
+│frpmanage │syncthingmanage│ backup · installer · logger  │
+│FRP 反代   │Syncthing 同步 │ 备份 · SteamCMD · 日志       │
+├──────────┴──────────────┼───────────────────────────────┤
+│      parseserver        │  存档解析（go-arkparser）       │
+└─────────────────────────┴───────────────────────────────┘
 ```
 
-## 模块说明
+---
 
-### 1. main.go - 应用入口
+## 包职责
 
-**职责**：
-- 定义 CLI 应用结构
-- 注册所有可用命令
-- 初始化目录结构
+### 入口与交互
 
-**关键函数**：
+| 包 | 职责 | 关键文件 |
+|---|---|---|
+| `main` | 程序入口，CLI 命令定义，Windows 服务检测，GUI/CLI/API 模式选择 | `main.go` |
+| `webapi` | HTTP API 服务器（Gin），路由注册，SSE 流式推送，WebSocket 事件广播 | `actions.go`, `api.go`, `ws.go`, `task.go`, `broadcast.go` |
+| `gui` | Fyne 桌面 GUI，系统托盘，服务管理，日志查看器 | 包内多个文件 |
+| `winservice` | Windows 服务安装/卸载/启动/停止，使用 `kardianos/service` | 包内文件 |
+| `actions` | CLI 命令处理器（如 `update` 命令） | 包内文件 |
+
+### 核心逻辑
+
+| 包 | 职责 | 关键文件 |
+|---|---|---|
+| `asaserver` | **核心包** — 实例生命周期管理、配置读写、RCON 通信、SteamCMD 安装、状态管理 | `server.go`, `config.go`, `common.go`, `state_manager.go`, `installer.go` |
+| `asaserverv2` | 核心包 v2（重构中） — 实例管理新实现，含 mirror、force_stop 等 | `server.go`, `common.go`, `force_stop.go`, `mirror.go` |
+| `backup` | tar+zstd 备份/恢复，函数选项模式（`WithRestoreWorldfile()`, `WithRestoreInstanceConfig()` 等） | 包内文件 |
+
+### 系统集成
+
+| 包 | 职责 |
+|---|---|
+| `win32api` | Windows API 互操作（user32/kernel32），进程检查 |
+| `common` | 共享工具 — DNS 解析、WMI 查询 |
+| `processjob` | Windows Job Object，`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` 确保进程树清理 |
+| `serverinfo` | 系统指标采集（gopsutil） — CPU、内存、进程信息 |
+
+### 辅助服务
+
+| 包 | 职责 |
+|---|---|
+| `frpmanage` | FRP 反向代理管理 — 内嵌 `frpc.exe`，MD5 校验避免重复提取，子进程生命周期管理 |
+| `syncthingmanage` | Syncthing 文件同步管理 — 内嵌 `syncthing.exe`，使用 Job Object 管理进程树 |
+| `githubreleases` | GitHub Releases API 客户端，带下载进度回调 |
+| `parseserver` | ARK 存档解析（基于 go-arkparser），save_monitor 实时监控 |
+| `logger` | Zap + lumberjack 结构化日志，带文件轮转 |
+
+### 前端
+
+| 包 | 职责 |
+|---|---|
+| `app` (嵌入) | Vue.js SPA，通过 `//go:embed dist` 嵌入，Gin 静态文件服务 |
+| `app/src` | Vue.js 源码，使用 TDesign 组件库 |
+
+---
+
+## 关键数据流
+
+### 启动服务器实例
+
+```
+HTTP: POST /api/server/:name/start
+  │
+  ▼
+webapi.startServer()
+  │ 检查端口冲突 (asaserver.CheckForDuplicatePorts)
+  │ 检查操作是否允许 (asaserver.IsOperationAllowed)
+  ▼
+asaserver.StartServer(instanceName)
+  │ CAS 状态转换: stopped → start_initialization
+  │ 构建命令行参数
+  │ 创建 NTFS junction（实例 Config 目录）
+  │ 启动进程 (ArkAscendedServer.exe 或 AsaApiLoader.exe)
+  │ CAS: start_initialization → starting
+  │ 等待端口监听 (WaitForCondition)
+  │ CAS: starting → started
+  ▼
+webapi 广播 WebSocket 事件: server_started
+```
+
+### 停止服务器实例
+
+```
+HTTP: POST /api/server/:name/stop
+  │
+  ▼
+webapi.stopServer()
+  ▼
+asaserver.StopServer(instanceName)
+  │ CAS: started → stopping
+  │ RCON: saveworld
+  │ RCON: DoExit
+  │ 等待进程退出（5 分钟超时）
+  │ CAS: stopping → stopped
+  ▼
+webapi 广播 WebSocket 事件: server_stopped
+```
+
+### SSE 流式推送
+
+```
+客户端连接 GET /api/server/info
+  │
+  ▼
+webapi 创建 TaskBroadcaster 订阅
+  │
+  ▼
+后台 goroutine:
+  │ 每 2 秒采集 gopsutil 指标
+  │ 写入 broadcaster
+  │
+  ▼
+SSE 推送到客户端:
+  data: {"cpu_usage":35.0, "memory_used":8589934592}
+```
+
+---
+
+## 状态机
+
+实例状态使用 CAS（Compare-And-Swap）原子转换，持久化在 BadgerDB 中。
+
+```
+                    ┌──────────────────────────────────┐
+                    │         中间状态（自动恢复）         │
+                    │                                  │
+ ┌──────┐  start   │  start_initialization             │
+ │stopped├────────►│       │                          │
+ └──▲───┘          │       ▼                          │
+    │              │  start_initialization_successful  │
+    │ stop         │       │                          │
+    │              │       ▼                          │
+ ┌──┴───┐          │    starting ──────► started      │
+ │started│◄────────┤                                  │
+ └──┬───┘  完成     │  stopping ──────► stopped       │
+    │              │                                  │
+    │              │  restarting                      │
+    │              │    ├──► restart ──► restarted     │
+    │              │    └──► restart_failed            │
+    │              │                                  │
+    │              │  start_failed / stop_failed       │
+    │              └──────────────────────────────────┘
+    │
+    │ force-stop
+    ▼
+ ┌──────┐
+ │stopped│  (直接终止进程，重置状态)
+ └──────┘
+```
+
+**全局互斥规则**: 当任何实例处于 `start_initialization` 状态时，所有其他操作（启动/停止/重启）均被阻塞。
+
+**卡死自动恢复**: 后台每 30 秒检查一次，中间状态超过 10 分钟自动重置为 `stopped`。
+
+详细状态控制文档参见 [STATE_CONTROL.md](STATE_CONTROL.md)。
+
+---
+
+## 设计模式
+
+### 1. CAS 原子状态转换
+
 ```go
-func main() {
-    // 初始化目录
-    // 创建 CLI 应用
-    // 运行应用
+// compareAndSwapState — 仅在当前状态匹配允许列表时才转换
+ok, err := stateManager.CompareAndSwapInstanceState(
+    instanceName,
+    []InstanceStatus{StatusStopped, StatusStartFailed},
+    StatusStartStartInitialization,
+)
+```
+
+防止并发操作导致状态混乱。
+
+### 2. 函数选项模式
+
+```go
+// StartServer 支持多种可选配置
+func StartServer(name string, options ...StartServerOptionsFunc) error
+
+// 使用方式
+StartServer("server1",
+    WithGameLogPathCallback(func(path string) { ... }),
+    WithGameInitializationSuccessfulCallback(func() { ... }),
+    WithCtx(ctx),
+    WithPidCallback(func(pid int) { ... }),
+    WithWaitServerCompleted(),
+)
+```
+
+### 3. 广播等待机制
+
+```go
+// 无轮询等待，基于条件变量广播
+stateManager.WaitForCondition(
+    func() bool { return isPortListening(port) },
+    5*time.Minute,
+)
+```
+
+### 4. TaskBroadcaster（SSE 发布/订阅）
+
+```go
+broadcaster := NewTaskBroadcaster()
+go func() {
+    broadcaster.Publish(TaskProgress{Message: "启动中...", Progress: 50})
+}()
+// HTTP handler 订阅并 SSE 推送
+for event := range broadcaster.Subscribe() {
+    c.SSEvent("progress", event)
 }
 ```
 
-**命令列表**：
-- `update` - 更新基础服务器
-- `list` - 列出实例
-- `create` - 创建实例
-- `start` - 启动实例
-- `stop` - 停止实例
-- `restart` - 重启实例
-- `status` - 检查状态
-- `delete` - 删除实例
-- `backup` - 创建备份
-- `restore` - 恢复备份
-- 等等...
-
-### 2. config.go - 配置管理
-
-**职责**：
-- 加载和保存实例配置
-- 管理目录结构
-- 检查端口冲突
-
-**关键数据结构**：
+### 5. 内嵌二进制 + MD5 校验
 
 ```go
-type InstanceConfig struct {
-    ServerName            string
-    ServerPassword        string
-    ServerAdminPassword   string
-    MaxPlayers            int
-    MapName               string
-    RCONPort              int
-    QueryPort             int
-    Port                  int
-    ModIDs                string
-    SaveDir               string
-    ClusterID             string
-    CustomStartParameters string
+//go:embed frpc.exe
+var frpcBinary []byte
+
+// 运行时提取，MD5 校验避免重复提取
+if md5Match(targetPath, expectedMD5) {
+    return // 已存在且正确
 }
+os.WriteFile(targetPath, frpcBinary, 0755)
 ```
 
-**关键函数**：
-
-| 函数 | 功能 |
-|------|------|
-| `ensureDirectories()` | 创建必要的目录 |
-| `LoadInstanceConfig()` | 从 INI 文件加载配置 |
-| `SaveInstanceConfig()` | 保存配置到 INI 文件 |
-| `GetAvailableInstances()` | 获取所有实例列表 |
-| `CheckForDuplicatePorts()` | 检查端口冲突 |
-
-### 3. server.go - 服务器操作
-
-**职责**：
-- 启动/停止/重启服务器
-- 检查服务器运行状态
-- 发送 RCON 命令
-- 管理多个实例
-
-**关键函数**：
-
-| 函数 | 功能 |
-|------|------|
-| `IsServerRunning()` | 检查服务器是否运行 |
-| `StartServer()` | 启动服务器 |
-| `StopServer()` | 停止服务器（优雅关闭） |
-| `RestartServer()` | 重启服务器 |
-| `SendRCONCommand()` | 发送 RCON 命令 |
-| `StartAllInstances()` | 启动所有实例 |
-| `StopAllInstances()` | 停止所有实例 |
-
-**启动流程**：
-
-```
-StartServer()
-├── 检查端口冲突
-├── 加载实例配置
-├── 创建 Config 目录
-├── 设置 Proton 环境变量
-├── 构建启动命令
-└── 执行 Proton 运行 ARK 服务器
-```
-
-### 4. backup.go - 备份和恢复
-
-**职责**：
-- 创建压缩备份
-- 恢复备份数据
-- 管理备份文件
-
-**关键函数**：
-
-| 函数 | 功能 |
-|------|------|
-| `BackupInstanceWorld()` | 创建世界备份 |
-| `RestoreBackupToInstance()` | 恢复备份 |
-| `GetAvailableBackups()` | 列出所有备份 |
-
-**备份格式**：
-- 格式：tar.gz（gzip 压缩的 tar 归档）
-- 命名：`<instance>_<world>_<timestamp>.tar.gz`
-- 存储：`backups/` 目录
-
-### 5. actions.go - CLI 命令处理
-
-**职责**：
-- 实现所有 CLI 命令的处理逻辑
-- 处理用户交互
-- 调用核心功能模块
-
-**命令处理函数命名约定**：`action<Command>`
-
-示例：
-```go
-func actionStart(ctx context.Context, cmd *cli.Command) error
-func actionStop(ctx context.Context, cmd *cli.Command) error
-func actionList(ctx context.Context, cmd *cli.Command) error
-```
-
-## 数据流示例
-
-### 启动服务器流程
-
-```
-用户输入: asa-manager start server1
-        │
-        ▼
-main.go: 解析命令
-        │
-        ▼
-actions.go: actionStart()
-        │
-        ├─► config.go: LoadInstanceConfig("server1")
-        │
-        ├─► server.go: CheckForDuplicatePorts()
-        │
-        ├─► server.go: IsServerRunning()
-        │
-        └─► server.go: StartServer()
-            ├─► 设置环境变量
-            ├─► 构建命令参数
-            └─► exec.Command() 执行 Proton
-                └─► 运行 ArkAscendedServer.exe
-```
-
-### 创建备份流程
-
-```
-用户输入: asa-manager backup server1 TheIsland_WP
-        │
-        ▼
-main.go: 解析命令
-        │
-        ▼
-actions.go: actionBackup()
-        │
-        ├─► server.go: IsServerRunning() [检查服务器已停止]
-        │
-        └─► backup.go: BackupInstanceWorld()
-            ├─► 验证世界文件夹
-            ├─► 创建备份目录
-            ├─► tar: 创建归档
-            ├─► gzip: 压缩数据
-            └─► 生成备份文件: instance_world_timestamp.tar.gz
-```
-
-## 目录结构详解
-
-```
-d:\golang\asa-server\
-├── main.go                    # CLI 应用入口
-├── config.go                  # 配置管理
-├── server.go                  # 服务器操作
-├── backup.go                  # 备份和恢复
-├── actions.go                 # 命令处理
-├── go.mod                      # Go 模块定义
-├── go.sum                      # 依赖版本锁定
-├── asa-server.exe             # 编译后的可执行文件
-├── README.md                   # 用户文档
-├── MIGRATION.md                # 迁移指南
-├── ARCHITECTURE.md             # 本文件
-└── examples.sh                 # 使用示例
-```
-
-### 运行时目录结构
-
-```
-.
-├── instances/                 # 实例配置和日志
-│   ├── server1/
-│   │   ├── instance_config.ini
-│   │   ├── Config/
-│   │   │   ├── Game.ini
-│   │   │   └── GameUserSettings.ini
-│   │   └── server.log
-│   └── server2/
-│       └── ...
-├── server-files/              # ARK 服务器文件
-│   └── ShooterGame/
-│       ├── Binaries/
-│       ├── Saved/
-│       └── ...
-├── steamcmd/                  # SteamCMD 工具
-│   └── steamcmd.sh
-├── GE-Proton10-4/            # Proton 兼容层
-│   ├── proton
-│   └── files/
-├── backups/                   # 世界备份
-│   ├── server1_TheIsland_WP_2024-01-15_10-30-00.tar.gz
-│   └── server2_Ragnarok_WP_2024-01-15_11-30-00.tar.gz
-└── clusters/                  # 集群数据（如果配置）
-    └── cluster1/
-```
-
-## 配置文件格式
-
-### instance_config.ini
-
-```ini
-[ServerSettings]
-ServerName=ARK Server Instance Name
-ServerPassword=
-ServerAdminPassword=adminpassword
-MaxPlayers=70
-MapName=TheIsland_WP
-RCONPort=27020
-QueryPort=27015
-Port=7777
-ModIDs=
-CustomStartParameters=-NoBattlEye -crossplay -NoHangDetection
-SaveDir=instance_name
-ClusterID=
-```
-
-## 错误处理策略
-
-### 错误分类
-
-1. **配置错误**
-   - 缺少配置文件
-   - 无效的配置值
-   - 端口冲突
-
-2. **操作错误**
-   - 服务器已运行
-   - 服务器未运行
-   - 启动失败
-
-3. **文件操作错误**
-   - 目录创建失败
-   - 文件读写失败
-   - 备份失败
-
-### 错误处理模式
+### 6. Windows Job Object
 
 ```go
-if err != nil {
-    return fmt.Errorf("operation failed: %w", err)
-}
+// JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE — 进程组关闭时自动终止所有子进程
+job, _ := processjob.CreateJobObject()
+processjob.AssignProcessToJob(job, process)
 ```
 
-## 并发和并行处理
+确保 FRP/Syncthing 等子进程在父进程退出时被可靠清理。
 
-当前版本：
-- ✅ 顺序启动多个实例（带 30 秒延迟）
-- ✅ 顺序停止所有实例
-- ❌ 并发操作（保留作为未来改进）
+---
 
-## 依赖关系
+## 并发模型
 
-### 外部依赖
+| 组件 | 并发策略 |
+|------|---------|
+| 实例状态管理 | `sync.RWMutex` + CAS 原子操作 |
+| API 请求串行化 | `serverActionsLock` 互斥锁防止并发 start/stop |
+| SSE 推送 | 每个连接一个 goroutine，通过 TaskBroadcaster 解耦 |
+| WebSocket | 每个连接一个 goroutine，Ping/Pong 90 秒超时 |
+| 日志 tail | 每个实例一个 goroutine，fsnotify 监听文件变更 |
+| 状态恢复检查 | 后台 goroutine 每 30 秒扫描卡死状态 |
+
+---
+
+## 目录布局（运行时）
 
 ```
-github.com/urfave/cli/v3 v3.0.0-beta1
+{BaseDir}/
+├── instances/              # 实例目录
+│   └── {name}/
+│       ├── instance_config.ini    # 实例配置（端口、密码、地图等）
+│       ├── Config/                # NTFS junction → server-files/Config
+│       │   ├── Game.ini
+│       │   └── GameUserSettings.ini
+│       └── server.log             # 实例日志
+├── server-files/           # ARK 服务器安装目录（SteamCMD App ID 2430930）
+├── steamcmd/               # SteamCMD 安装目录
+├── backups/                # 备份文件（.tar.zstd）
+├── frp/                    # 提取的 frpc.exe + 配置
+├── syncthing/              # 提取的 syncthing.exe + 配置
+├── database_file/          # BadgerDB 状态数据库
+│   └── state_db/
+├── logs/                   # 应用日志
+│   ├── asaServer.log
+│   └── arkApiLog.log
+└── log_mapping.json        # 实例到日志文件的映射
 ```
 
-### 标准库依赖
+---
 
-```
-- archive/tar
-- compress/gzip
-- bufio
-- context
-- fmt
-- os
-- path/filepath
-- strconv
-- strings
-- time
-```
+## 技术栈
 
-## 安全考虑
-
-1. **权限管理**
-   - 配置文件权限：600（仅所有者可读写）
-   - 日志文件可由任何用户读取
-
-2. **输入验证**
-   - 实例名称验证
-   - 端口号范围检查
-   - 文件路径安全性
-
-3. **密码处理**
-   - 密码存储在配置文件中
-   - 建议使用强密码
-   - 配置文件应受保护
-
-## 性能特征
-
-### 时间复杂度
-
-| 操作 | 时间复杂度 |
-|------|-----------|
-| 列出实例 | O(n) - n 为实例数 |
-| 启动实例 | O(1) |
-| 停止实例 | O(1) |
-| 检查端口冲突 | O(n) |
-| 创建备份 | O(m) - m 为文件总大小 |
-
-### 内存使用
-
-- 基线：~2MB
-- 每个实例配置：~5KB
-- 运行列表操作：~1MB 峰值
-
-## 扩展点
-
-### 添加新命令
-
-1. 在 `main.go` 中的 `app.Commands` 数组中添加新的 `cli.Command`
-2. 在 `actions.go` 中实现 `action<CommandName>` 函数
-3. 实现相关的核心功能（在 config.go/server.go/backup.go 等中）
-
-### 示例：添加新的"List Backups"命令
-
-```go
-// main.go
-{
-    Name: "list-backups",
-    Usage: "List all available backups",
-    Action: actionListBackups,
-},
-
-// actions.go
-func actionListBackups(ctx context.Context, cmd *cli.Command) error {
-    backups, err := GetAvailableBackups()
-    if err != nil {
-        return err
-    }
-    for _, backup := range backups {
-        fmt.Println(backup)
-    }
-    return nil
-}
-```
-
-## 测试策略
-
-### 单元测试（待实现）
-
-```go
-// 配置测试
-TestLoadInstanceConfig()
-TestSaveInstanceConfig()
-TestCheckForDuplicatePorts()
-
-// 服务器操作测试
-TestIsServerRunning()
-TestStartServer()
-TestStopServer()
-
-// 备份测试
-TestBackupInstanceWorld()
-TestRestoreBackupToInstance()
-```
-
-### 集成测试（待实现）
-
-1. 创建实例
-2. 启动/停止实例
-3. 创建备份
-4. 恢复备份
-5. 清理
-
-## 部署和打包
-
-### Windows 构建
-
-```bash
-go build -o asa-manager.exe
-```
-
-### Linux/Mac 构建
-
-```bash
-GOOS=linux GOARCH=amd64 go build -o asa-manager
-```
-
-### 创建发布包
-
-包含：
-- 编译后的可执行文件
-- README.md
-- MIGRATION.md
-- ARCHITECTURE.md
-- examples.sh
-
-## 维护和演进
-
-### 版本管理
-
-- 当前版本：1.0.0
-- 遵循 Semantic Versioning
-- 更新日志在单独的 CHANGELOG 中维护（待创建）
-
-### 未来路线图
-
-1. **0.1 版本（当前）**
-   - ✅ 基本实例管理
-   - ✅ 服务器控制
-   - ✅ 备份和恢复
-
-2. **0.2 版本**
-   - ⏳ SteamCMD 集成
-   - ⏳ 完整 RCON 实现
-   - ⏳ 单元测试
-
-3. **0.3 版本**
-   - ⏳ Web API
-   - ⏳ 数据库支持
-   - ⏳ 高级监控
-
-4. **1.0 版本**
-   - ⏳ Web UI
-   - ⏳ 集群管理
-   - ⏳ 云部署支持
-
-## 总结
-
-ASA Server Manager 采用模块化设计，将不同的关注点分离到不同的包中，使代码易于维护和扩展。CLI 框架通过 urfave/cli 提供，提供了强大的命令行接口。核心业务逻辑独立于 UI 层，便于未来添加 Web 界面或 API。
+| 层 | 技术 |
+|---|---|
+| HTTP 框架 | Gin |
+| 桌面 GUI | Fyne v2 |
+| 前端 | Vue.js + TDesign（嵌入式 SPA） |
+| 实时通信 | WebSocket (gorilla/websocket) + SSE |
+| 状态持久化 | BadgerDB |
+| 日志 | Zap + lumberjack（结构化、轮转） |
+| 系统监控 | gopsutil |
+| RCON | gorcon/rcon（3 次重试） |
+| 文件通知 | fsnotify |
+| 压缩 | klauspost/compress (zstd) |
+| 进程管理 | Windows Job Object + WMI |
+| Windows 服务 | kardianos/service |
+| CLI | urfave/cli/v3 |

@@ -14,12 +14,12 @@ func ActionUpdate(ctx context.Context, cmd *cli.Command) error {
 
 	stdoutFmt := os.Stdout
 	// Download and extract SteamCMD
-	if err := asaserver.DownloadAndExtractSteamCmd(stdoutFmt); err != nil {
+	if err := asaserver.DownloadAndExtractSteamCmd(ctx, stdoutFmt); err != nil {
 		return err
 	}
 
 	// Download and update ARK server
-	if err := asaserver.DownloadAndUpdateArkServer(stdoutFmt); err != nil {
+	if err := asaserver.DownloadAndUpdateArkServer(ctx, stdoutFmt); err != nil {
 		return err
 	}
 
@@ -27,7 +27,7 @@ func ActionUpdate(ctx context.Context, cmd *cli.Command) error {
 	forceServer := cmd.Bool("force-server")
 
 	// Verify server installation by running it to generate config files
-	if err := asaserver.VerifyServerInstallation(forceServer); err != nil {
+	if err := asaserver.VerifyServerInstallation(ctx, forceServer); err != nil {
 		return err
 	}
 

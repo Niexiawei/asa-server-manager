@@ -7,6 +7,7 @@ import (
 
 // ForceStopServer 强制停止服务器实例
 // 不等待优雅关闭，直接杀死进程并清理资源
+// v2 架构使用独立镜像目录，不需要等待其他实例的 junction 释放
 func ForceStopServer(instanceName string) error {
 	// 1. 通过端口查找进程并杀死
 	cfg, err := asaserver.LoadInstanceConfig(instanceName)
@@ -19,13 +20,9 @@ func ForceStopServer(instanceName string) error {
 	if pid2, pidErr := asaserver.GetInstancePID(instanceName); pidErr == nil && pid2 > 0 {
 		killGameServer(pid2)
 	}
-	// 3. 安全释放锁（仅在持有锁时释放）
-	if asaserver.TryLockServerActions() {
-		asaserver.UnlockServerActions()
-	}
-	// 4. 重置状态为 stopped
+	// 3. 重置状态为 stopped
 	_ = asaserver.WriteInstanceState(instanceName, asaserver.StatusStopped, "")
-	// 5. 清理镜像目录
+	// 4. 清理镜像目录
 	if err := CleanupInstanceMirror(instanceName); err != nil {
 		logger.GetLogger().Warnf("Failed to cleanup instance mirror for %s: %v", instanceName, err)
 	}

@@ -37,6 +37,10 @@ func setupTestEnv(t *testing.T) {
 		t.Fatalf("Failed to initialize log mapping: %v", err)
 	}
 
+	if err := asaserver.InitStateManager(asaserver.BaseDir); err != nil {
+		t.Fatalf("Failed to initialize state manager: %v", err)
+	}
+
 	t.Logf("BaseDir: %s", asaserver.BaseDir)
 	t.Logf("InstancesDir: %s", asaserver.InstancesDir)
 	t.Logf("ServerFilesDir: %s", asaserver.ServerFilesDir)

@@ -65,11 +65,6 @@ export function forceStopServer(name) {
     return apiClient.get(`/api/server/${name}/force-stop`)
 }
 
-// 发送 RCON 命令
-export function sendRCONCommand(name, command) {
-    return apiClient.post(`/api/rcon/${name}/command`, {command})
-}
-
 // 创建备份
 export function createBackup(name) {
     return apiClient.post(`/api/backup/${name}`, {})
@@ -224,4 +219,55 @@ export function restartSyncthing() {
 
 export function getModInfo() {
     return apiClient.get('/api/mod-info')
+}
+
+// ========== 批量操作 API ==========
+
+// 批量启动服务器
+export function batchStartServers(instances, delaySeconds) {
+    return apiClient.post('/api/server/batch/start', {
+        instances: instances || [],
+        delay_seconds: delaySeconds || 0
+    })
+}
+
+// 批量停止服务器
+export function batchStopServers(instances, delaySeconds) {
+    return apiClient.post('/api/server/batch/stop', {
+        instances: instances || [],
+        delay_seconds: delaySeconds || 0
+    })
+}
+
+// 批量重启服务器
+export function batchRestartServers(instances, delaySeconds) {
+    return apiClient.post('/api/server/batch/restart', {
+        instances: instances || [],
+        delay_seconds: delaySeconds || 0
+    })
+}
+
+// 获取批量操作状态
+export function getBatchStatus() {
+    return apiClient.get('/api/server/batch/status')
+}
+
+// 取消当前批量操作
+export function cancelBatch() {
+    return apiClient.post('/api/server/batch/cancel')
+}
+
+// 跳过批量操作中的指定实例
+export function skipBatchInstance(instanceName) {
+    return apiClient.post('/api/server/batch/skip', {instance_name: instanceName})
+}
+
+// 获取服务器更新状态
+export function getUpdateStatus() {
+    return apiClient.get('/api/server/update/status')
+}
+
+// 取消服务器更新
+export function cancelUpdate() {
+    return apiClient.post('/api/server/update/cancel')
 }

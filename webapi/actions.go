@@ -3,7 +3,9 @@ package webapi
 import (
 	"asa-server/app"
 	"asa-server/asaserver"
+	"asa-server/batchmanage"
 	"asa-server/frpmanage"
+	"asa-server/httpserver"
 	"asa-server/logger"
 	"asa-server/parseserver"
 	"asa-server/syncthingmanage"
@@ -22,35 +24,30 @@ import (
 	"github.com/gin-contrib/cors"
 	"github.com/gin-contrib/static"
 	"github.com/gin-gonic/gin"
-	"github.com/gorilla/websocket"
 	"github.com/urfave/cli/v3"
 )
 
 // APIServer represents the HTTP API server for ARK Server Ascended Instance Management
 type APIServer struct {
-	engine  *gin.Engine
-	port    int
-	mu      sync.RWMutex
-	clients map[*websocket.Conn]*sync.Mutex
+	engine *gin.Engine
+	port   int
 	// Task broadcasters for independent SSE streams
-	updateBroadcaster  *TaskBroadcaster
-	startBroadcaster   *TaskBroadcaster
-	stopBroadcaster    *TaskBroadcaster
-	restartBroadcaster *TaskBroadcaster
-	serverCtx          context.Context
-	serverCtxStop      func()
-	serverDone         chan struct{}
-	saveDataManager    *parseserver.SaveDataManager
+	updateBroadcaster *httpserver.TaskBroadcaster
+	updateCtx         context.Context    // 当前更新任务的 context
+	updateCancel      context.CancelFunc // 取消函数
+	updateMu          sync.Mutex         // 保护 updateCtx/updateCancel
+	serverCtx         context.Context
+	serverCtxStop     func()
+	serverDone        chan struct{}
+	saveDataManager   *parseserver.SaveDataManager
 }
-
-var serverActionsLock sync.Mutex
 
 var ApiServerPort = 19193
 
-var globalAPIServer *APIServer
-
 // NewAPIServer creates a new API server instance
 func NewAPIServer() *APIServer {
+	hub := httpserver.NewHub()
+	httpserver.SetGlobalHub(hub)
 	InitializationBasicComponents()
 	gin.SetMode(gin.ReleaseMode)
 	engine := gin.Default()
@@ -62,23 +59,17 @@ func NewAPIServer() *APIServer {
 	}
 
 	server := &APIServer{
-		engine:             engine,
-		port:               ApiServerPort,
-		clients:            make(map[*websocket.Conn]*sync.Mutex),
-		updateBroadcaster:  NewTaskBroadcaster(),
-		startBroadcaster:   NewTaskBroadcaster(),
-		stopBroadcaster:    NewTaskBroadcaster(),
-		restartBroadcaster: NewTaskBroadcaster(),
-		serverCtx:          ctx,
-		serverCtxStop:      cancel,
-		serverDone:         make(chan struct{}, 1),
-		saveDataManager:    saveDataManager,
+		engine:            engine,
+		port:              ApiServerPort,
+		updateBroadcaster: httpserver.NewTaskBroadcaster(),
+		serverCtx:         ctx,
+		serverCtxStop:     cancel,
+		serverDone:        make(chan struct{}, 1),
+		saveDataManager:   saveDataManager,
 	}
 
 	// Setup routes
 	server.setupRoutes()
-	// Set global API server instance
-	globalAPIServer = server
 
 	return server
 }
@@ -154,8 +145,13 @@ func (s *APIServer) Stop() error {
 		}
 	}
 
+	// Stop batch manager
+	if mgr := batchmanage.GetGlobalManager(); mgr != nil {
+		mgr.Shutdown()
+	}
+
 	// 先关闭所有 WebSocket 长连接，避免阻塞 srv.Shutdown()
-	s.closeAllClients()
+	httpserver.GetGlobalHub().CloseAllClients()
 
 	// 1. 先取消 server context，触发 HTTP server shutdown
 	s.serverCtxStop()
@@ -199,20 +195,14 @@ func (s *APIServer) setupRoutes() {
 		server.GET("/:name/force-stop", s.forceStopServer)
 		server.GET("/:name/info", s.streamInstanceInfo)
 
-		server.GET("/start-all", s.startAllServers)
-		server.GET("/stop-all", s.stopAllServers)
-		server.GET("/restart-all", s.restartAllServers)
+		// Batch operations (registered via batchmanage package)
 		// Server update endpoints
 		server.GET("/update", s.handleServerUpdate)
+		server.GET("/update/status", s.getUpdateStatus)
+		server.POST("/update/cancel", s.cancelUpdate)
 		// Server info endpoints
 		server.GET("/info", s.streamServerInfo)
 		server.GET("/all-info", s.streamAllInstancesInfo)
-	}
-
-	// RCON endpoints
-	rcon := s.engine.Group("/api/rcon")
-	{
-		rcon.POST("/:name/command", s.sendRCONCommand)
 	}
 
 	// Backup/Restore endpoints
@@ -257,12 +247,15 @@ func (s *APIServer) setupRoutes() {
 	// Mod info endpoint
 	s.engine.GET("/api/mod-info", s.getModInfo)
 	// WebSocket endpoints
-	s.engine.GET("/api/ws/events", s.handleServerEvents)
-	s.engine.GET("/api/ws/rcon", s.handleRCONEvents)
+	s.engine.GET("/api/ws/events", httpserver.HandleServerEvents)
+	s.engine.GET("/api/ws/rcon", httpserver.HandleRCONEvents)
 
 	// FRP endpoints
 	frpmanage.RegisterFRPRoutes(s.engine)
 	syncthingmanage.RegisterSyncthingRoutes(s.engine)
+
+	// Batch operation endpoints
+	batchmanage.RegisterBatchRoutes(s.engine)
 
 	s.engine.NoRoute(func(c *gin.Context) {
 		c.JSON(404, gin.H{"error": "not found"})
@@ -305,6 +298,8 @@ func InitializationBasicComponents() {
 	if _, err := syncthingmanage.Initialize(asaserver.BaseDir); err != nil {
 		log.Fatal(err)
 	}
+	// Initialize batch manager
+	batchmanage.Initialize()
 }
 
 // ActionAPI starts the HTTP API server

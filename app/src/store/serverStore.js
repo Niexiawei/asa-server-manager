@@ -15,7 +15,10 @@ export const serverStore = reactive({
     connectionError: null,
     isReconnecting: false,
     resourceInfo: new Map(), // 存储每个实例的资源占用信息
-    gameLogPathEvent: new Map() // 存储游戏日志路径事件，用于自动开启日志监听
+    gameLogPathEvent: new Map(), // 存储游戏日志路径事件，用于自动开启日志监听
+    batchRunning: false,  // 是否有批量操作在运行
+    batchOpType: '',      // 当前批量操作类型
+    batchCallbacks: []    // 批量状态变更回调
 })
 
 // WebSocket 事件处理函数
@@ -25,6 +28,26 @@ function handleServerEvent(event) {
     const {event_type, instance_name, status, message} = event
 
     switch (event_type) {
+        case 'server_start_initialization':
+            if (instance_name && serverStore.instances.has(instance_name)) {
+                const instance = serverStore.instances.get(instance_name)
+                instance.status = 'start_initialization'
+                instance.running = false
+                instance.message = `${instance_name} 初始化中...`
+                instance.isStartingOrRunning = false
+            }
+            break
+
+        case 'server_start_initialization_successful':
+            if (instance_name && serverStore.instances.has(instance_name)) {
+                const instance = serverStore.instances.get(instance_name)
+                instance.status = 'start_initialization_successful'
+                instance.running = false
+                instance.message = `${instance_name} 初始化完成，等待启动...`
+                instance.isStartingOrRunning = false
+            }
+            break
+
         case 'server_starting':
             if (instance_name && serverStore.instances.has(instance_name)) {
                 const instance = serverStore.instances.get(instance_name)
@@ -124,6 +147,18 @@ function handleServerEvent(event) {
             console.log('WebSocket connected')
             serverStore.connected = true
             serverStore.connectionError = null
+            break
+
+        case 'batch_started':
+            serverStore.batchRunning = true
+            serverStore.batchOpType = message.status || ''
+            serverStore.batchCallbacks.forEach(cb => cb('batch_started', event))
+            break
+
+        case 'batch_completed':
+            serverStore.batchRunning = false
+            serverStore.batchOpType = ''
+            serverStore.batchCallbacks.forEach(cb => cb('batch_completed', event))
             break
 
         default:

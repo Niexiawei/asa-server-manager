@@ -24,25 +24,9 @@ import (
 
 // logMappingMutex protects the instance to log file mapping
 var logMappingMutex sync.RWMutex
-var serverActionsLock sync.Mutex
 
-// LockServerActions acquires the server actions lock (blocks until available)
-func LockServerActions() {
-	serverActionsLock.Lock()
-}
-
-// UnlockServerActions releases the server actions lock
-func UnlockServerActions() {
-	serverActionsLock.Unlock()
-}
-
-// TryLockServerActions tries to acquire the lock without blocking
-func TryLockServerActions() bool {
-	return serverActionsLock.TryLock()
-}
-
-// ErrServerActionsLocked is returned when another server operation is already in progress
-var ErrServerActionsLocked = fmt.Errorf("server actions are locked, another operation is in progress")
+// ErrOperationNotAllowed is returned when an operation is not allowed in the current instance state
+var ErrOperationNotAllowed = fmt.Errorf("operation not allowed in current state")
 
 // instanceLogMapping stores the mapping of instance names to their log file paths
 var instanceLogMapping = make(map[string]string)
@@ -520,17 +504,29 @@ func WithPidCallback(callback func(pid int)) StartServerOptionsFunc {
 	}
 }
 
-// StartServer starts a server instance
+// StartServer starts a server instance (public version with CAS check)
 func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
+	// CAS: 原子检查状态并转换到 start_initialization
+	ok, err := CompareAndSwapInstanceState(instanceName,
+		[]InstanceStatus{StatusStopped, StatusStartFailed, StatusStopFailed, StatusRestartFailed, ""},
+		StatusStartStartInitialization)
+	if err != nil {
+		return fmt.Errorf("failed to check instance state: %w", err)
+	}
+	if !ok {
+		return ErrOperationNotAllowed
+	}
+
+	return startServerInternal(instanceName, options...)
+}
+
+// startServerInternal starts a server instance (internal version without CAS, for RestartServer)
+func startServerInternal(instanceName string, options ...StartServerOptionsFunc) error {
 	opts := new(StartServerOptions)
 	opts.WaitServerCompleted = false
 	opts.ParentCtx = context.Background()
 	for _, o := range options {
 		o(opts)
-	}
-	_ = WriteInstanceState(instanceName, StatusStartStartInitialization, "")
-	if !TryLockServerActions() {
-		return ErrServerActionsLocked
 	}
 
 	ctx, cancel := context.WithCancel(opts.ParentCtx)
@@ -559,14 +555,12 @@ func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
 	}()
 
 	if err := removeNotRunningServerLogMapper(); err != nil {
-		UnlockServerActions()
 		startErr = err
 		return err
 	}
 
 	// Check for duplicate ports
 	if err := CheckForDuplicatePorts(); err != nil {
-		UnlockServerActions()
 		logger.GetLogger().Errorf("Port conflicts detected: %v", err)
 		startErr = err
 		return err
@@ -574,7 +568,6 @@ func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
 
 	config, err := LoadInstanceConfig(instanceName)
 	if err != nil {
-		UnlockServerActions()
 		startErr = err
 		return err
 	}
@@ -695,7 +688,6 @@ func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
 	// Get the game log file path and establish mapping
 	gameLogPath, err := GetGameLogFilePath(instanceName)
 	if err != nil {
-		UnlockServerActions()
 		startErr = fmt.Errorf("failed to get game log file path: %w", err)
 		return startErr
 	}
@@ -755,8 +747,6 @@ func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
 		logger.GetLogger().Warnf("Failed to save PID for instance %s: %v", instanceName, err)
 	}
 
-	_ = WriteInstanceState(instanceName, StatusStarting, "")
-
 	logger.GetLogger().Infof("Server started for instance: %s. It should be fully operational in approximately 60 seconds.", instanceName)
 	logger.GetLogger().Infof("Game log file: %s", gameLogPath)
 	// Persist the log mapping for future restarts
@@ -765,7 +755,6 @@ func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
 	}
 
 	if ctx.Err() != nil {
-		UnlockServerActions()
 		killGameServer(pid)
 	}
 
@@ -784,8 +773,8 @@ func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
 		}
 	}, func() {
 		_ = WriteInstanceState(instanceName, StatusStartStartInitializationSuccessful, "")
-		confReset()
-		UnlockServerActions()
+		confReset() // junction 释放
+		_ = WriteInstanceState(instanceName, StatusStarting, "")
 		initSuccessful <- true
 
 		if opts.GameInitializationSuccessful != nil {
@@ -812,7 +801,6 @@ func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
 
 		select {
 		case <-WaitServerCompletedCtx.Done():
-			UnlockServerActions()
 			startErr = fmt.Errorf("start game server exited")
 			return startErr
 		case <-startupSuccess:
@@ -825,42 +813,24 @@ func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
 	return nil
 }
 
-// GetPIDByPort finds the PID of the process listening on a specific port
-func GetPIDByPort(port int) (int, error) {
-	cmd := exec.Command("netstat", "-ano")
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-
-	output, err := cmd.Output()
+// StopServer stops a server instance (public version with CAS check)
+func StopServer(instanceName string) error {
+	// CAS: 原子检查状态并转换到 stopping
+	ok, err := CompareAndSwapInstanceState(instanceName,
+		[]InstanceStatus{StatusStarted},
+		StatusStopping)
 	if err != nil {
-		return 0, fmt.Errorf("failed to execute netstat: %w", err)
+		return fmt.Errorf("failed to check instance state: %w", err)
+	}
+	if !ok {
+		return ErrOperationNotAllowed
 	}
 
-	netstatOutput := string(output)
-	portStr := fmt.Sprintf(":%d", port)
-
-	// Split output into lines and search for the port
-	lines := strings.Split(netstatOutput, "\n")
-	for _, line := range lines {
-		if strings.Contains(line, portStr) {
-			// The last field in the line is the PID
-			fields := strings.Fields(line)
-			if len(fields) > 2 {
-				if !strings.Contains(fields[1], portStr) {
-					continue
-				}
-				pid, err := strconv.Atoi(fields[len(fields)-1])
-				if err == nil && pid > 0 {
-					return pid, nil
-				}
-			}
-		}
-	}
-
-	return 0, fmt.Errorf("no process found listening on port %d", port)
+	return stopServerInternal(instanceName)
 }
 
-// StopServer stops a server instance
-func StopServer(instanceName string) error {
+// stopServerInternal stops a server instance (internal version without CAS, for RestartServer)
+func stopServerInternal(instanceName string) error {
 	var (
 		pid         int
 		gameLogPath string
@@ -882,14 +852,8 @@ func StopServer(instanceName string) error {
 		}
 	}()
 
-	if !TryLockServerActions() {
-		return ErrServerActionsLocked
-	}
-	_ = WriteInstanceState(instanceName, StatusStopping, "")
-
 	running, err := IsServerRunning(instanceName)
 	if err != nil || !running {
-		UnlockServerActions()
 		logger.GetLogger().Warnf("Server for instance %s is not running.", instanceName)
 		stopErr = fmt.Errorf("server for instance %s is not running", instanceName)
 		return stopErr
@@ -900,23 +864,20 @@ func StopServer(instanceName string) error {
 
 	config, configErr := LoadInstanceConfig(instanceName)
 	if configErr != nil {
-		UnlockServerActions()
 		stopErr = fmt.Errorf("failed to load instance config: %w", configErr)
 		return stopErr
 	}
 	pid, err = GetPIDByPort(config.Port)
 	if err != nil {
-		UnlockServerActions()
 		stopErr = fmt.Errorf("failed to find process PID: %w", err)
 		return stopErr
 	}
 
-	logger.GetLogger().Infof("Stopping server for instance: %s pid: %s", instanceName, pid)
+	logger.GetLogger().Infof("Stopping server for instance: %s pid: %d", instanceName, pid)
 
 	gameLogPath, _ = GetInstanceLogFile(instanceName)
 
 	if err := SaveWorldSafely(instanceName); err != nil {
-		UnlockServerActions()
 		stopErr = fmt.Errorf("failed to save world safely: %w", err)
 		return stopErr
 	}
@@ -942,7 +903,6 @@ func StopServer(instanceName string) error {
 			logger.GetLogger().Infof("Server %s received closing request", instanceName)
 		},
 		func(complete bool) {
-			UnlockServerActions()
 			close(stopped)
 		})
 
@@ -954,10 +914,9 @@ func StopServer(instanceName string) error {
 		logger.GetLogger().Warnf("Process %d did not exit within 5min, force killing", pid)
 		_ = exec.Command("taskkill", "/F", "/PID", fmt.Sprintf("%d", pid)).Run()
 		waitCancel() // 取消 waitServerStopped goroutine 的 context
-		UnlockServerActions()
 	}
 
-	// Cleanup (lock already released at this point)
+	// Cleanup
 	if config.EnableAsaPlugin {
 		if pid2, pidErr := GetInstancePID(instanceName); pidErr == nil {
 			_ = exec.Command("taskkill", "/F", "/PID", fmt.Sprintf("%d", pid2)).Run()
@@ -969,6 +928,32 @@ func StopServer(instanceName string) error {
 		logger.GetLogger().Warnf("Failed to remove log mapping for instance %s: %v", instanceName, rmErr)
 	}
 
+	_ = WriteInstanceState(instanceName, StatusStopped, "")
+	return nil
+}
+
+// ForceStopServer 强制停止实例：杀死进程 + 重置状态
+// 受全局互斥约束：如果有实例在 start_initialization 状态，需等待完成后才能执行
+func ForceStopServer(instanceName string) error {
+	// 全局互斥检查：如果有实例在 start_initialization，等待完成
+	if err := WaitForNoInitializing(2 * time.Minute); err != nil {
+		return fmt.Errorf("cannot force stop: %w", err)
+	}
+
+	// 1. 通过 WMI 查找进程（best effort，端口未监听时也能找到）
+	cfg, err := LoadInstanceConfig(instanceName)
+	if err == nil {
+		if pid, pidErr := findServerPIDByPort(cfg.Port); pidErr == nil && pid > 0 {
+			killGameServer(pid)
+		}
+	}
+	// 2. 尝试杀死已保存的 PID（插件进程，best effort）
+	if pid2, pidErr := GetInstancePID(instanceName); pidErr == nil && pid2 > 0 {
+		killGameServer(pid2)
+	}
+	// 3. 清理日志映射
+	_ = RemoveInstanceLogMapping(instanceName)
+	// 4. 重置状态为 stopped
 	_ = WriteInstanceState(instanceName, StatusStopped, "")
 	return nil
 }
@@ -994,6 +979,17 @@ func KillServer(instanceName string) error {
 
 // RestartServer restarts a server instance
 func RestartServer(instanceName string) error {
+	// CAS: 原子检查状态并转换到 restarting
+	ok, err := CompareAndSwapInstanceState(instanceName,
+		[]InstanceStatus{StatusStarted},
+		StatusRestarting)
+	if err != nil {
+		return fmt.Errorf("failed to check instance state: %w", err)
+	}
+	if !ok {
+		return ErrOperationNotAllowed
+	}
+
 	// 使用一个变量来记录错误，以便在函数结束时检查是否需要记录失败状态
 	var restartErr error
 
@@ -1011,16 +1007,14 @@ func RestartServer(instanceName string) error {
 		}
 	}()
 
-	_ = WriteInstanceState(instanceName, StatusRestarting, "")
-
-	if err := StopServer(instanceName); err != nil {
+	// 使用内部版本（跳过 CAS），因为 RestartServer 已经做了 CAS
+	if err := stopServerInternal(instanceName); err != nil {
 		restartErr = err
 		return err
 	}
 	time.Sleep(10 * time.Second)
 
-	err := StartServer(instanceName)
-	if err != nil {
+	if err := StartServer(instanceName); err != nil {
 		restartErr = err
 		return err
 	}
@@ -1081,57 +1075,6 @@ func SendRCONCommand(instanceName string, command string) (string, error) {
 
 	logger.GetLogger().Infof("RCON response: %s", response)
 	return response, nil
-}
-
-// StartAllInstances starts all instances with delay between each
-func StartAllInstances() error {
-	instances, err := GetAvailableInstances()
-	if err != nil {
-		return err
-	}
-
-	fmt.Println("Starting all server instances...")
-
-	for _, instanceName := range instances {
-		running, err := IsServerRunning(instanceName)
-		if err == nil && running {
-			logger.GetLogger().Warnf("Instance %s is already running. Skipping...", instanceName)
-			continue
-		}
-
-		if err := StartServer(instanceName); err != nil {
-			logger.GetLogger().Errorf("Failed to start instance %s: %v", instanceName, err)
-			continue
-		}
-
-		logger.GetLogger().Info("Waiting 30 seconds before starting the next instance...")
-		time.Sleep(30 * time.Second)
-	}
-
-	logger.GetLogger().Info("All instances have been processed.")
-	return nil
-}
-
-// StopAllInstances stops all instances
-func StopAllInstances() error {
-	instances, err := GetAvailableInstances()
-	if err != nil {
-		return err
-	}
-	for _, instanceName := range instances {
-		running, err := IsServerRunning(instanceName)
-		if err == nil && !running {
-			logger.GetLogger().Warnf("Instance %s is not running. Skipping...", instanceName)
-			continue
-		}
-
-		if err := StopServer(instanceName); err != nil {
-			logger.GetLogger().Errorf("Failed to stop instance %s: %v", instanceName, err)
-		}
-	}
-
-	logger.GetLogger().Info("All instances have been stopped.")
-	return nil
 }
 
 // GetRunningInstances returns a list of running instances

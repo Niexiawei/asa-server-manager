@@ -6,6 +6,8 @@
     >
       <template #actions>
         <t-button theme="primary" @click="showCreateModal = true">新建实例</t-button>
+        <t-button theme="warning" @click="batchDialogVisible = true">批量操作</t-button>
+        <t-button theme="default" @click="updateDialogVisible = true">更新服务器</t-button>
       </template>
       <t-empty v-if="instances.length === 0" description="暂无实例，请创建新实例"/>
       <div v-else class="instance-list">
@@ -103,15 +105,15 @@
                 <div class="server-footer">
                   <t-button
                       @click="startInstance(instance.name)"
-                      :disabled="instance.running || isTransitional(instance)"
-                      :loading="instance.status === 'starting'"
+                      :disabled="!isCleanStopped(instance)"
+                      :loading="instance.status === 'starting' || instance.status === 'start_initialization'"
                       theme="primary"
                   >
                     启动
                   </t-button>
                   <t-button
                       @click="stopInstance(instance.name)"
-                      :disabled="!instance.running || isTransitional(instance)"
+                      :disabled="instance.status !== 'started'"
                       :loading="instance.status === 'stopping'"
                       theme="warning">
                     停止
@@ -130,17 +132,17 @@
                     </t-button>
                     <t-dropdown-menu>
                       <t-dropdown-item @click="restartInstance(instance.name)"
-                                       :disabled="!instance.running || isTransitional(instance)">
+                                       :disabled="instance.status !== 'started'">
                           <span v-if="instance.status === 'restarting'">
                             <loading-icon/> 重启中...
                           </span>
                         <span v-else>重启</span>
                       </t-dropdown-item>
                       <t-dropdown-item @click="forceStopInstance(instance.name)"
-                                       :disabled="!isTransitional(instance)">
+                                       :disabled="instance.status === 'stopped' || instance.status === ''">
                         强制停止
                       </t-dropdown-item>
-                      <t-dropdown-item @click="deleteInstanceHandler(instance.name)" :disabled="instance.running || isTransitional(instance)">
+                      <t-dropdown-item @click="deleteInstanceHandler(instance.name)" :disabled="!isCleanStopped(instance)">
                         删除
                       </t-dropdown-item>
                       <t-dropdown-item @click="openSyncModal(instance.name)">
@@ -155,6 +157,21 @@
         </masonry-wall>
       </div>
     </t-card>
+
+    <!-- 批量操作弹窗 -->
+    <BatchOperationDialog
+      v-model:visible="batchDialogVisible"
+      :instances="instances"
+      :mod-info="modInfo"
+      @refresh="fetchInstances"
+    />
+
+    <!-- 更新服务器弹窗 -->
+    <ServerUpdateDialog
+      v-model:visible="updateDialogVisible"
+      :instances="instances"
+      @refresh="fetchInstances"
+    />
 
     <!-- 日志查看弹窗 -->
     <t-dialog
@@ -209,6 +226,8 @@ import {useClipboard} from "@vueuse/core";
 import {h, inject, onActivated, onDeactivated, reactive, ref, watch} from 'vue'
 import {useRouter} from 'vue-router'
 import {createInstance, deleteInstance, forceStopServer, getModInfo, restartServer, startServer, stopServer} from '@/apis/api.js'
+import BatchOperationDialog from '@/components/BatchOperationDialog.vue'
+import ServerUpdateDialog from '@/components/ServerUpdateDialog.vue'
 import {MessagePlugin, DialogPlugin, NotifyPlugin} from 'tdesign-vue-next';
 import {CheckIcon, CloseIcon, FileCopyIcon, LoadingIcon, MoreIcon} from 'tdesign-icons-vue-next';
 import {initServer, serverStore} from '@/store/serverStore.js'
@@ -232,19 +251,31 @@ const selectedInstanceName = ref('')
 const form = reactive({
   instanceName: ''
 })
+const batchDialogVisible = ref(false)
+const updateDialogVisible = ref(false)
 
 // Mod信息
 const modInfo = ref([])
 const modInfoLoading = ref(false)
 
 // 状态辅助函数
-const isTransitional = (inst) => ['starting', 'stopping', 'restarting'].includes(inst.status)
+const isTransitional = (inst) =>
+  ['start_initialization', 'start_initialization_successful',
+   'starting', 'stopping', 'restarting'].includes(inst.status)
+const isFailed = (inst) =>
+  ['start_failed', 'stop_failed', 'restart_failed'].includes(inst.status)
+const isCleanStopped = (inst) =>
+  ['stopped', 'start_failed', 'stop_failed', 'restart_failed', ''].includes(inst.status)
 const statusLabel = (status) => ({
+  start_initialization: '初始化中',
+  start_initialization_successful: '初始化完成',
   starting: '启动中', started: '运行中', stopping: '停止中',
   stopped: '已停止', restarting: '重启中', restarted: '运行中',
   start_failed: '启动失败', stop_failed: '停止失败', restart_failed: '重启失败'
 }[status] || '已停止')
 const statusTagTheme = (status) => ({
+  start_initialization: 'primary',
+  start_initialization_successful: 'primary',
   starting: 'warning', started: 'success', stopping: 'warning',
   stopped: 'default', restarting: 'warning', restarted: 'success',
   start_failed: 'danger', stop_failed: 'danger', restart_failed: 'danger'

@@ -5,6 +5,7 @@ import (
 	"asa-server/logger"
 	"bufio"
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -19,7 +20,7 @@ import (
 
 // DownloadAndExtractSteamCmd downloads and extracts SteamCMD to the steamcmd folder
 // outputCallback is an optional callback for streaming console output (implements os.Writer interface)
-func DownloadAndExtractSteamCmd(outputCallback ...io.Writer) error {
+func DownloadAndExtractSteamCmd(ctx context.Context, outputCallback ...io.Writer) error {
 	// Get the output writer if provided
 	var outputWriter io.Writer
 	if len(outputCallback) > 0 && outputCallback[0] != nil {
@@ -34,7 +35,7 @@ func DownloadAndExtractSteamCmd(outputCallback ...io.Writer) error {
 		if outputWriter != nil {
 			outputWriter.Write([]byte(logMsg + "\n"))
 		}
-		if err := initializeSteamCmd(outputWriter); err != nil {
+		if err := initializeSteamCmd(ctx, outputWriter); err != nil {
 			return fmt.Errorf("failed to initialize SteamCMD: %w", err)
 		}
 
@@ -80,7 +81,7 @@ func DownloadAndExtractSteamCmd(outputCallback ...io.Writer) error {
 		outputWriter.Write([]byte(logMsg + "\n"))
 	}
 
-	if err := initializeSteamCmd(outputWriter); err != nil {
+	if err := initializeSteamCmd(ctx, outputWriter); err != nil {
 		return fmt.Errorf("failed to initialize SteamCMD: %w", err)
 	}
 
@@ -177,7 +178,7 @@ func extractZip(zipPath string, destDir string) error {
 // initializeSteamCmd runs SteamCMD to initialize it
 // outputWriter is an optional io.Writer for streaming console output
 // This hides the cmd window and redirects output via the callback
-func initializeSteamCmd(outputWriter ...io.Writer) error {
+func initializeSteamCmd(ctx context.Context, outputWriter ...io.Writer) error {
 	steamCmdExe := filepath.Join(SteamCmdDir, "steamcmd.exe")
 
 	// Redirect stdout and stderr based on callback
@@ -190,6 +191,7 @@ func initializeSteamCmd(outputWriter ...io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("failed to open pty: %w", err)
 	}
+	defer pp.Close()
 
 	// Create command with +quit argument to exit immediately after initialization
 	cmd := pp.Command(steamCmdExe, "+quit")
@@ -205,8 +207,26 @@ func initializeSteamCmd(outputWriter ...io.Writer) error {
 		go steamcmdCleanConsoleOutput(pp, writer)
 	}
 
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("SteamCMD initialization/updating failed: %w", err)
+	// Start and wait with context cancellation support
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start SteamCMD: %w", err)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			return fmt.Errorf("SteamCMD initialization/updating failed: %w", err)
+		}
+	case <-ctx.Done():
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+		return ctx.Err()
 	}
 
 	logMsg = "SteamCMD initialized/updating successfully."
@@ -219,7 +239,7 @@ func initializeSteamCmd(outputWriter ...io.Writer) error {
 
 // DownloadAndUpdateArkServer downloads and updates the ARK server files using SteamCMD
 // outputCallback is an optional callback for streaming console output (implements os.Writer interface)
-func DownloadAndUpdateArkServer(outputCallback ...io.Writer) error {
+func DownloadAndUpdateArkServer(ctx context.Context, outputCallback ...io.Writer) error {
 	// Get the output writer if provided
 	var outputWriter io.Writer
 	if len(outputCallback) > 0 && outputCallback[0] != nil {
@@ -286,7 +306,7 @@ func DownloadAndUpdateArkServer(outputCallback ...io.Writer) error {
 		return scanner.Err()
 	}
 
-	// Run SteamCMD
+	// Start SteamCMD with context cancellation support
 	logMsg = "Running SteamCMD update..."
 	logger.GetLogger().Info(logMsg)
 	if outputWriter != nil {
@@ -301,9 +321,24 @@ func DownloadAndUpdateArkServer(outputCallback ...io.Writer) error {
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start SteamCMD: %w", err)
 	}
-	if err := cmd.Wait(); err != nil {
-		return fmt.Errorf("SteamCMD update failed: %w", err)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			return fmt.Errorf("SteamCMD update failed: %w", err)
+		}
+	case <-ctx.Done():
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+		return ctx.Err()
 	}
+
 	logMsg = "ARK server installation/update completed successfully."
 	logger.GetLogger().Info(logMsg)
 	if outputWriter != nil {
@@ -315,7 +350,7 @@ func DownloadAndUpdateArkServer(outputCallback ...io.Writer) error {
 // VerifyServerInstallation checks if server configuration directory exists
 // If not, it runs the server to generate initial configuration files
 // force parameter: if true, will re-run server verification even if config exists
-func VerifyServerInstallation(force bool) error {
+func VerifyServerInstallation(ctx context.Context, force bool) error {
 	configDir := filepath.Join(ServerFilesDir, "ShooterGame/Saved/Config/WindowsServer")
 
 	// Check if configuration directory already exists
@@ -376,8 +411,14 @@ func VerifyServerInstallation(force bool) error {
 		logger.GetLogger().Infof("Monitoring log file: %s", filepath.Base(logFilePath))
 	}
 
-	// Wait for server to generate config files
-	time.Sleep(60 * time.Second)
+	// Wait for server to generate config files (with context cancellation)
+	select {
+	case <-time.After(60 * time.Second):
+	case <-ctx.Done():
+		logger.GetLogger().Info("Stopping server for verification (cancelled)...")
+		exec.Command("taskkill", "/PID", fmt.Sprintf("%d", pid), "/F").Run()
+		return ctx.Err()
+	}
 	// Kill the server process
 
 	logger.GetLogger().Info("Stopping server for verification...")

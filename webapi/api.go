@@ -3,10 +3,12 @@ package webapi
 import (
 	"asa-server/asaserver"
 	"asa-server/backup"
+	"asa-server/httpserver"
 	"asa-server/logger"
 	"asa-server/parseserver"
 	"asa-server/serverinfo"
 	"asa-server/win32api"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -351,20 +353,12 @@ func (s *APIServer) renameInstance(c *gin.Context) {
 	})
 }
 
-// checkInstanceState 检查实例是否处于可操作状态
+// checkInstanceState 检查实例是否可执行指定操作
 // 返回非空字符串表示拒绝原因
-func checkInstanceState(instanceName string) string {
-	state, err := asaserver.GetLatestInstanceState(instanceName)
-	if err != nil {
-		return "" // 状态查询失败不拦截
-	}
-	switch state.Status {
-	case asaserver.StatusStartStartInitialization,
-		asaserver.StatusStartStartInitializationSuccessful,
-		asaserver.StatusStarting,
-		asaserver.StatusStopping,
-		asaserver.StatusRestarting:
-		return fmt.Sprintf("instance '%s' is currently in '%s' state, operation not allowed", instanceName, state.Status)
+func checkInstanceState(instanceName string, op asaserver.OperationType) string {
+	allowed, reason := asaserver.IsOperationAllowed(instanceName, op)
+	if !allowed {
+		return reason
 	}
 	return ""
 }
@@ -392,7 +386,7 @@ func (s *APIServer) startServer(c *gin.Context) {
 	}
 
 	// 状态检查
-	if reason := checkInstanceState(instanceName); reason != "" {
+	if reason := checkInstanceState(instanceName, asaserver.OpStart); reason != "" {
 		c.JSON(http.StatusConflict, StatusResponse{
 			Success: false,
 			Error:   reason,
@@ -410,7 +404,7 @@ func (s *APIServer) startServer(c *gin.Context) {
 	}
 
 	// Broadcast server starting event
-	s.BroadcastServerStarting(instanceName)
+	httpserver.BroadcastServerStartingEvent(instanceName)
 
 	// 异步启动（复用 runStartServerTask，锁冲突由核心层处理）
 	go s.runStartServerTask(instanceName)
@@ -425,7 +419,7 @@ func (s *APIServer) startServer(c *gin.Context) {
 func (s *APIServer) stopServer(c *gin.Context) {
 	name := c.Param("name")
 
-	if reason := checkInstanceState(name); reason != "" {
+	if reason := checkInstanceState(name, asaserver.OpStop); reason != "" {
 		c.JSON(http.StatusConflict, StatusResponse{
 			Success: false,
 			Error:   reason,
@@ -433,7 +427,7 @@ func (s *APIServer) stopServer(c *gin.Context) {
 		return
 	}
 
-	s.BroadcastServerStopping(name)
+	httpserver.BroadcastServerStoppingEvent(name)
 	go s.runStopServerTask(name)
 
 	c.JSON(http.StatusOK, StatusResponse{
@@ -446,7 +440,7 @@ func (s *APIServer) stopServer(c *gin.Context) {
 func (s *APIServer) restartServer(c *gin.Context) {
 	name := c.Param("name")
 
-	if reason := checkInstanceState(name); reason != "" {
+	if reason := checkInstanceState(name, asaserver.OpRestart); reason != "" {
 		c.JSON(http.StatusConflict, StatusResponse{
 			Success: false,
 			Error:   reason,
@@ -454,7 +448,7 @@ func (s *APIServer) restartServer(c *gin.Context) {
 		return
 	}
 
-	s.BroadcastServerRestarting(name)
+	httpserver.BroadcastServerRestartingEvent(name)
 	go s.runRestartServerTask(name)
 
 	c.JSON(http.StatusOK, StatusResponse{
@@ -470,161 +464,10 @@ func (s *APIServer) forceStopServer(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, StatusResponse{Success: false, Error: err.Error()})
 		return
 	}
-	s.BroadcastServerStopped(name)
+	httpserver.BroadcastServerStoppedEvent(name)
 	c.JSON(http.StatusOK, StatusResponse{
 		Success: true,
 		Message: fmt.Sprintf("Server '%s' has been force stopped", name),
-	})
-}
-
-// startAllServers starts all server instances with SSE progress streaming
-func (s *APIServer) startAllServers(c *gin.Context) {
-	// Set SSE headers
-	c.Header("Content-Type", "text/event-stream")
-	c.Header("Cache-Control", "no-cache")
-	c.Header("Connection", "keep-alive")
-	c.Header("Access-Control-Allow-Origin", "*")
-	c.Header("Access-Control-Allow-Headers", "Content-Type")
-
-	// Check if task is already running and start if needed
-	if !s.startBroadcaster.IsRunning() {
-		if !s.startBroadcaster.Start() {
-			logger.GetLogger().Infof("Start all servers task already started by another request")
-		} else {
-			// Started successfully, run task in background
-			go s.runStartAllServersTask()
-		}
-	}
-
-	// Subscribe to start progress after ensuring task is properly started
-	subscriber, unsubscribe := s.startBroadcaster.Subscribe()
-	defer unsubscribe()
-
-	// Stream progress
-	c.Stream(func(w io.Writer) bool {
-		select {
-		case msg, ok := <-subscriber:
-			if !ok {
-				return false
-			}
-			// Send SSE formatted data
-			fmt.Fprintf(w, "data: %s\n\n", msg)
-			return true
-		case <-c.Request.Context().Done():
-			// Client disconnected but task continues
-			return false
-		}
-	})
-}
-
-// stopAllServers stops all server instances with SSE progress streaming
-func (s *APIServer) stopAllServers(c *gin.Context) {
-	// Set SSE headers
-	c.Header("Content-Type", "text/event-stream")
-	c.Header("Cache-Control", "no-cache")
-	c.Header("Connection", "keep-alive")
-	c.Header("Access-Control-Allow-Origin", "*")
-	c.Header("Access-Control-Allow-Headers", "Content-Type")
-
-	// Check if task is already running and start if needed
-	if !s.stopBroadcaster.IsRunning() {
-		if !s.stopBroadcaster.Start() {
-			logger.GetLogger().Infof("Stop all servers task already started by another request")
-		} else {
-			// Started successfully, run task in background
-			go s.runStopAllServersTask()
-		}
-	}
-
-	// Subscribe to stop progress after ensuring task is properly started
-	subscriber, unsubscribe := s.stopBroadcaster.Subscribe()
-	defer unsubscribe()
-
-	// Stream progress
-	c.Stream(func(w io.Writer) bool {
-		select {
-		case msg, ok := <-subscriber:
-			if !ok {
-				return false
-			}
-			// Send SSE formatted data
-			fmt.Fprintf(w, "data: %s\n\n", msg)
-			return true
-		case <-c.Request.Context().Done():
-			// Client disconnected but task continues
-			return false
-		}
-	})
-}
-
-// restartAllServers restarts all server instances with SSE progress streaming
-func (s *APIServer) restartAllServers(c *gin.Context) {
-	// Set SSE headers
-	c.Header("Content-Type", "text/event-stream")
-	c.Header("Cache-Control", "no-cache")
-	c.Header("Connection", "keep-alive")
-	c.Header("Access-Control-Allow-Origin", "*")
-	c.Header("Access-Control-Allow-Headers", "Content-Type")
-
-	// Check if task is already running and start if needed
-	if !s.restartBroadcaster.IsRunning() {
-		if !s.restartBroadcaster.Start() {
-			logger.GetLogger().Infof("Restart all servers task already started by another request")
-		} else {
-			// Started successfully, run task in background
-			go s.runRestartAllServersTask()
-		}
-	}
-
-	// Subscribe to restart progress after ensuring task is properly started
-	subscriber, unsubscribe := s.restartBroadcaster.Subscribe()
-	defer unsubscribe()
-
-	// Stream progress
-	c.Stream(func(w io.Writer) bool {
-		select {
-		case msg, ok := <-subscriber:
-			if !ok {
-				return false
-			}
-			// Send SSE formatted data
-			fmt.Fprintf(w, "data: %s\n\n", msg)
-			return true
-		case <-c.Request.Context().Done():
-			// Client disconnected but task continues
-			return false
-		}
-	})
-}
-
-// sendRCONCommand sends an RCON command to a server
-func (s *APIServer) sendRCONCommand(c *gin.Context) {
-	name := c.Param("name")
-
-	var req RCONCommandRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, StatusResponse{
-			Success: false,
-			Error:   err.Error(),
-		})
-		return
-	}
-
-	response, err := asaserver.SendRCONCommand(name, req.Command)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, StatusResponse{
-			Success: false,
-			Error:   err.Error(),
-		})
-		return
-	}
-
-	c.JSON(http.StatusOK, StatusResponse{
-		Success: true,
-		Message: "RCON command executed successfully",
-		Data: gin.H{
-			"response": response,
-		},
 	})
 }
 
@@ -742,14 +585,34 @@ func (s *APIServer) handleServerUpdate(c *gin.Context) {
 	c.Header("Access-Control-Allow-Headers", "Content-Type")
 
 	// Check if update task is already running
-	if !s.updateBroadcaster.IsRunning() {
-		if !s.updateBroadcaster.Start() {
-			logger.GetLogger().Infof("Server update already started by another request")
-		} else {
-			// Started successfully, run update in background
-			go s.runUpdateTask()
-		}
+	if s.updateBroadcaster.IsRunning() {
+		c.JSON(http.StatusConflict, StatusResponse{
+			Success: false,
+			Error:   "更新已在运行中",
+		})
+		return
 	}
+
+	// Start broadcaster
+	if !s.updateBroadcaster.Start() {
+		logger.GetLogger().Infof("Server update already started by another request")
+		c.JSON(http.StatusConflict, StatusResponse{
+			Success: false,
+			Error:   "更新已在运行中",
+		})
+		return
+	}
+
+	// Create context for this update task
+	s.updateMu.Lock()
+	ctx, cancel := context.WithCancel(context.Background())
+	s.updateCtx = ctx
+	s.updateCancel = cancel
+	s.updateMu.Unlock()
+
+	// Run update in background
+	go s.runUpdateTask(ctx)
+
 	// Subscribe to update progress
 	subscriber, unsubscribe := s.updateBroadcaster.Subscribe()
 	defer unsubscribe()
@@ -768,6 +631,37 @@ func (s *APIServer) handleServerUpdate(c *gin.Context) {
 			// Client disconnected but task continues
 			return false
 		}
+	})
+}
+
+// getUpdateStatus returns whether an update is currently running
+func (s *APIServer) getUpdateStatus(c *gin.Context) {
+	c.JSON(http.StatusOK, StatusResponse{
+		Success: true,
+		Data: gin.H{
+			"running": s.updateBroadcaster.IsRunning(),
+		},
+	})
+}
+
+// cancelUpdate cancels the currently running update task
+func (s *APIServer) cancelUpdate(c *gin.Context) {
+	s.updateMu.Lock()
+	cancel := s.updateCancel
+	s.updateMu.Unlock()
+
+	if cancel == nil || !s.updateBroadcaster.IsRunning() {
+		c.JSON(http.StatusNotFound, StatusResponse{
+			Success: false,
+			Error:   "没有正在进行的更新",
+		})
+		return
+	}
+
+	cancel()
+	c.JSON(http.StatusOK, StatusResponse{
+		Success: true,
+		Message: "已发送取消指令",
 	})
 }
 

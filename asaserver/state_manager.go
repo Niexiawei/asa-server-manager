@@ -1,12 +1,16 @@
 package asaserver
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
+
+	"asa-server/logger"
+	"asa-server/win32api"
 
 	"github.com/dgraph-io/badger/v4"
 )
@@ -41,8 +45,10 @@ type InstanceState struct {
 type StateManager struct {
 	db                *badger.DB
 	mu                sync.RWMutex
+	stateChange       *sync.Cond // 状态变更广播，替代轮询
 	path              string
-	maxHistoryRecords int // 每个实例的最大历史记录数
+	maxHistoryRecords int                // 每个实例的最大历史记录数
+	cancelFunc        context.CancelFunc // watcher 关闭
 }
 
 const DefaultMaxHistoryRecords = 500 // 每个实例的最大历史记录数
@@ -67,6 +73,12 @@ func NewStateManager(baseDir string) (*StateManager, error) {
 		path:              dbPath,
 		maxHistoryRecords: DefaultMaxHistoryRecords,
 	}
+	sm.stateChange = sync.NewCond(&sm.mu)
+
+	// 自动启动卡住状态恢复 watcher
+	ctx, cancel := context.WithCancel(context.Background())
+	sm.cancelFunc = cancel
+	sm.startStuckStateWatcher(ctx)
 
 	return sm, nil
 }
@@ -76,6 +88,9 @@ func (sm *StateManager) Close() error {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
+	if sm.cancelFunc != nil {
+		sm.cancelFunc()
+	}
 	if sm.db != nil {
 		return sm.db.Close()
 	}
@@ -149,6 +164,9 @@ func (sm *StateManager) WriteState(state InstanceState) error {
 	if err != nil {
 		return err
 	}
+
+	// 广播状态变更，唤醒所有等待者
+	sm.stateChange.Broadcast()
 
 	// 检查并清理超出最大记录数的历史记录
 	return sm.cleanupOldRecords(state.InstanceName)
@@ -361,7 +379,6 @@ func GetLatestInstanceState(instanceName string) (InstanceState, error) {
 
 	status, err := instanceStateManager.GetLatestState(instanceName)
 	if err != nil {
-		fmt.Println(err)
 		return state, err
 	}
 	return *status, err
@@ -385,4 +402,399 @@ func GetAllInstanceNames() ([]string, error) {
 	}
 
 	return instanceStateManager.GetAllInstances()
+}
+
+// ========== 操作类型定义 ==========
+
+// OperationType 操作类型
+type OperationType string
+
+const (
+	OpStart   OperationType = "start"
+	OpStop    OperationType = "stop"
+	OpRestart OperationType = "restart"
+)
+
+// ========== 内部无锁方法（假设 sm.mu 已被持有） ==========
+
+// getLatestStateLocked 获取实例最新状态（无锁版本，调用方需持有 sm.mu）
+func (sm *StateManager) getLatestStateLocked(instanceName string) (*InstanceState, error) {
+	var latestState *InstanceState
+	var latestTime time.Time
+
+	err := sm.db.View(func(txn *badger.Txn) error {
+		prefix := []byte(fmt.Sprintf("state:%s:", instanceName))
+		it := txn.NewIterator(badger.DefaultIteratorOptions)
+		defer it.Close()
+
+		for it.Seek(prefix); it.ValidForPrefix(prefix); it.Next() {
+			item := it.Item()
+			err := item.Value(func(val []byte) error {
+				var state InstanceState
+				if err := json.Unmarshal(val, &state); err != nil {
+					return fmt.Errorf("failed to unmarshal state: %w", err)
+				}
+				if state.OperationTime.After(latestTime) {
+					latestTime = state.OperationTime
+					latestState = &state
+				}
+				return nil
+			})
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+	if latestState == nil {
+		return nil, fmt.Errorf("no state found for instance: %s", instanceName)
+	}
+	return latestState, nil
+}
+
+// getLatestStateOrDefaultLocked 获取实例最新状态，如果无记录则返回默认 stopped 状态（无锁版本）
+func (sm *StateManager) getLatestStateOrDefaultLocked(instanceName string) InstanceState {
+	state, err := sm.getLatestStateLocked(instanceName)
+	if err != nil {
+		// 无记录，视为 stopped
+		return InstanceState{
+			InstanceName:  instanceName,
+			OperationTime: time.Now(),
+			Status:        StatusStopped,
+		}
+	}
+	return *state
+}
+
+// isAnyInstanceInitializingLocked 检查是否有任何实例处于 start_initialization（无锁版本）
+func (sm *StateManager) isAnyInstanceInitializingLocked() bool {
+	instances, err := sm.getAllInstancesLocked()
+	if err != nil {
+		return false
+	}
+	for _, name := range instances {
+		state, err := sm.getLatestStateLocked(name)
+		if err != nil {
+			continue
+		}
+		if state.Status == StatusStartStartInitialization {
+			return true
+		}
+	}
+	return false
+}
+
+// getInitializingInstanceLocked 返回当前处于 start_initialization 的实例名（无锁版本）
+func (sm *StateManager) getInitializingInstanceLocked() string {
+	instances, err := sm.getAllInstancesLocked()
+	if err != nil {
+		return ""
+	}
+	for _, name := range instances {
+		state, err := sm.getLatestStateLocked(name)
+		if err != nil {
+			continue
+		}
+		if state.Status == StatusStartStartInitialization {
+			return name
+		}
+	}
+	return ""
+}
+
+// getAllInstancesLocked 获取所有有状态记录的实例名称（无锁版本）
+func (sm *StateManager) getAllInstancesLocked() ([]string, error) {
+	instances := make(map[string]bool)
+	var result []string
+
+	err := sm.db.View(func(txn *badger.Txn) error {
+		it := txn.NewIterator(badger.DefaultIteratorOptions)
+		defer it.Close()
+
+		prefix := []byte("state:")
+		for it.Seek(prefix); it.ValidForPrefix(prefix); it.Next() {
+			key := string(it.Item().Key())
+			if len(key) > len("state:") {
+				afterPrefix := key[len("state:"):]
+				colonIndex := -1
+				for i, ch := range afterPrefix {
+					if ch == ':' {
+						colonIndex = i
+						break
+					}
+				}
+				if colonIndex != -1 {
+					instanceName := afterPrefix[:colonIndex]
+					if !instances[instanceName] {
+						instances[instanceName] = true
+						result = append(result, instanceName)
+					}
+				}
+			}
+		}
+		return nil
+	})
+
+	return result, err
+}
+
+// writeStateLocked 写入状态（无锁版本，调用方需持有 sm.mu）
+func (sm *StateManager) writeStateLocked(state InstanceState) error {
+	key := fmt.Sprintf("state:%s:%d", state.InstanceName, state.OperationTime.UnixNano())
+
+	stateBytes, err := json.Marshal(state)
+	if err != nil {
+		return fmt.Errorf("failed to marshal state: %w", err)
+	}
+
+	err = sm.db.Update(func(txn *badger.Txn) error {
+		return txn.Set([]byte(key), stateBytes)
+	})
+	if err != nil {
+		return err
+	}
+
+	sm.stateChange.Broadcast()
+	return sm.cleanupOldRecords(state.InstanceName)
+}
+
+// ========== 广播等待机制 ==========
+
+// WaitForCondition 等待条件满足（基于 sync.Cond 广播，不轮询）
+// condition 函数在 sm.mu.Lock() 持有期间执行，禁止调用任何会获取 sm.mu 的公共方法
+func (sm *StateManager) WaitForCondition(condition func() bool, timeout time.Duration) error {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	deadline := time.Now().Add(timeout)
+	for !condition() {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return fmt.Errorf("timeout waiting for condition")
+		}
+		timer := time.AfterFunc(remaining, func() {
+			sm.stateChange.Broadcast()
+		})
+		sm.stateChange.Wait()
+		timer.Stop()
+	}
+	return nil
+}
+
+// ========== 原子状态转换（CAS） ==========
+
+// compareAndSwapState 原子状态转换（内部方法）
+// 检查当前状态是否在 allowedStates 中，如果是则转换到 newStatus
+// allowedStates 为空切片表示只允许无记录（默认 stopped）状态
+func (sm *StateManager) compareAndSwapState(instanceName string, allowedStates []InstanceStatus, newStatus InstanceStatus) (bool, error) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	currentState := sm.getLatestStateOrDefaultLocked(instanceName)
+
+	// 检查当前状态是否在允许列表中
+	allowed := false
+	for _, s := range allowedStates {
+		if currentState.Status == s {
+			allowed = true
+			break
+		}
+	}
+
+	if !allowed {
+		return false, nil
+	}
+
+	// 写入新状态
+	newState := InstanceState{
+		InstanceName:  instanceName,
+		OperationTime: time.Now(),
+		Status:        newStatus,
+	}
+	if err := sm.writeStateLocked(newState); err != nil {
+		return false, err
+	}
+
+	return true, nil
+}
+
+// ========== 操作权限检查 ==========
+
+// isOperationAllowed 检查操作是否允许（内部方法）
+// 规则 1：任何实例在 start_initialization 则全部阻塞
+// 规则 2：根据目标实例当前状态判断操作是否允许
+func (sm *StateManager) isOperationAllowed(instanceName string, op OperationType) (bool, string) {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+
+	// 规则 1：全局互斥 - 检查是否有实例在 start_initialization
+	if initInstance := sm.getInitializingInstanceLocked(); initInstance != "" {
+		return false, fmt.Sprintf("instance '%s' is in start_initialization state, all operations are blocked", initInstance)
+	}
+
+	// 规则 2：检查目标实例当前状态
+	currentState := sm.getLatestStateOrDefaultLocked(instanceName)
+
+	switch op {
+	case OpStart:
+		switch currentState.Status {
+		case StatusStopped, StatusStartFailed, StatusStopFailed, StatusRestartFailed, "":
+			return true, ""
+		}
+		return false, fmt.Sprintf("instance '%s' is in '%s' state, start not allowed", instanceName, currentState.Status)
+
+	case OpStop:
+		switch currentState.Status {
+		case StatusStarted:
+			return true, ""
+		}
+		return false, fmt.Sprintf("instance '%s' is in '%s' state, stop not allowed (use ForceStop)", instanceName, currentState.Status)
+
+	case OpRestart:
+		switch currentState.Status {
+		case StatusStarted:
+			return true, ""
+		}
+		return false, fmt.Sprintf("instance '%s' is in '%s' state, restart not allowed", instanceName, currentState.Status)
+	}
+
+	return false, fmt.Sprintf("unknown operation type: %s", op)
+}
+
+// ========== 对外包级便捷函数 ==========
+
+// CompareAndSwapInstanceState 原子状态转换（包级函数）
+func CompareAndSwapInstanceState(instanceName string, allowedStates []InstanceStatus, newStatus InstanceStatus) (bool, error) {
+	if instanceStateManager == nil {
+		return false, fmt.Errorf("state manager not initialized")
+	}
+	return instanceStateManager.compareAndSwapState(instanceName, allowedStates, newStatus)
+}
+
+// IsOperationAllowed 检查操作是否允许（包级函数）
+func IsOperationAllowed(instanceName string, op OperationType) (bool, string) {
+	if instanceStateManager == nil {
+		return false, "state manager not initialized"
+	}
+	return instanceStateManager.isOperationAllowed(instanceName, op)
+}
+
+// IsAnyInstanceInitializing 检查是否有任何实例处于 start_initialization（包级函数）
+func IsAnyInstanceInitializing() bool {
+	if instanceStateManager == nil {
+		return false
+	}
+	instanceStateManager.mu.RLock()
+	defer instanceStateManager.mu.RUnlock()
+	return instanceStateManager.isAnyInstanceInitializingLocked()
+}
+
+// WaitForNoInitializing 等待所有 start_initialization 实例完成（包级函数，基于广播不轮询）
+func WaitForNoInitializing(timeout time.Duration) error {
+	if instanceStateManager == nil {
+		return fmt.Errorf("state manager not initialized")
+	}
+	return instanceStateManager.WaitForCondition(func() bool {
+		return !instanceStateManager.isAnyInstanceInitializingLocked()
+	}, timeout)
+}
+
+// ========== 卡住状态自动恢复 ==========
+
+const stuckThreshold = 10 * time.Minute
+
+// startStuckStateWatcher 启动卡住状态自动恢复 watcher（私有方法，仅由 NewStateManager 调用）
+func (sm *StateManager) startStuckStateWatcher(ctx context.Context) {
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				sm.recoverStuckStates()
+			}
+		}
+	}()
+}
+
+// recoverStuckStates 扫描所有实例，恢复卡住的中间态为 stopped
+func (sm *StateManager) recoverStuckStates() {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	instances, err := sm.getAllInstancesLocked()
+	if err != nil {
+		return
+	}
+
+	for _, name := range instances {
+		state, err := sm.getLatestStateLocked(name)
+		if err != nil || state == nil {
+			continue
+		}
+
+		if time.Since(state.OperationTime) < stuckThreshold {
+			continue
+		}
+
+		switch state.Status {
+		case StatusStartStartInitialization, StatusStarting,
+			StatusStartStartInitializationSuccessful, StatusStopping:
+			if !isInstanceProcessAlive(name) {
+				logger.GetLogger().Warnf(
+					"Recovering stuck instance '%s' (state: %s, age: %v)",
+					name, state.Status, time.Since(state.OperationTime))
+				_ = sm.writeStateLocked(InstanceState{
+					InstanceName:  name,
+					OperationTime: time.Now(),
+					Status:        StatusStopped,
+					ErrorMessage:  fmt.Sprintf("auto-recovered from stuck state: %s", state.Status),
+				})
+			}
+		}
+	}
+}
+
+// isInstanceProcessAlive 检查实例进程是否存活
+// 使用端口检测 + PID 检测双重验证，这些函数不依赖 sm.mu，在锁内调用安全
+func isInstanceProcessAlive(instanceName string) bool {
+	// 方法 1：检查端口是否被监听
+	running, err := IsServerRunning(instanceName)
+	if err == nil && running {
+		return true
+	}
+
+	// 方法 2：检查进程是否存在
+	pid, err := GetInstancePID(instanceName)
+	if err != nil || pid <= 0 {
+		return false
+	}
+
+	exited, err := win32api.IsProcessExited(uint32(pid))
+	if err != nil {
+		return false
+	}
+	return !exited
+}
+
+// WaitForInstanceState 等待实例离开指定状态（包级函数，基于广播不轮询）
+func WaitForInstanceState(instanceName string, notInStates []InstanceStatus, timeout time.Duration) error {
+	if instanceStateManager == nil {
+		return fmt.Errorf("state manager not initialized")
+	}
+	return instanceStateManager.WaitForCondition(func() bool {
+		currentState := instanceStateManager.getLatestStateOrDefaultLocked(instanceName)
+		for _, s := range notInStates {
+			if currentState.Status == s {
+				return false
+			}
+		}
+		return true
+	}, timeout)
 }

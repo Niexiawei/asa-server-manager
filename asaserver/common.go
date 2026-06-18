@@ -14,12 +14,48 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
 )
+
+// GetPIDByPort finds the PID of the process listening on a specific port
+func GetPIDByPort(port int) (int, error) {
+	cmd := exec.Command("netstat", "-ano")
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+
+	output, err := cmd.Output()
+	if err != nil {
+		return 0, fmt.Errorf("failed to execute netstat: %w", err)
+	}
+
+	netstatOutput := string(output)
+	portStr := fmt.Sprintf(":%d", port)
+
+	// Split output into lines and search for the port
+	lines := strings.Split(netstatOutput, "\n")
+	for _, line := range lines {
+		if strings.Contains(line, portStr) {
+			// The last field in the line is the PID
+			fields := strings.Fields(line)
+			if len(fields) > 2 {
+				if !strings.Contains(fields[1], portStr) {
+					continue
+				}
+				pid, err := strconv.Atoi(fields[len(fields)-1])
+				if err == nil && pid > 0 {
+					return pid, nil
+				}
+			}
+		}
+	}
+
+	return 0, fmt.Errorf("no process found listening on port %d", port)
+}
 
 func TailLogFileWithLinesContext(ctx context.Context, logPath string, lastNLines int, printFunc func(string)) {
 	if ctx.Err() != nil {
@@ -546,7 +582,6 @@ func SaveWorldSafely(instanceName string) error {
 				// Check if the file's modification time is greater than or equal to the start time
 				// Add a small buffer (1 second) to account for timing precision
 				fileModTime := fileInfo.ModTime()
-				fmt.Println(fileModTime)
 				if fileModTime.After(startTime) || fileModTime.Equal(startTime) {
 					diffMilli := fileModTime.UnixMilli() - startTime.UnixMilli()
 					logger.GetLogger().Infof("World saved successfully for instance %s. Save file: %s. saved Milliseconds %d",
@@ -710,28 +745,4 @@ func findServerPIDByPort(port int) (int, error) {
 		return 0, fmt.Errorf("no ArkAscendedServer process found with Port=%d", port)
 	}
 	return int(processes[0].ProcessId), nil
-}
-
-// ForceStopServer 强制停止实例：杀死进程 + 释放锁 + 重置状态
-func ForceStopServer(instanceName string) error {
-	// 1. 通过 WMI 查找进程（best effort，端口未监听时也能找到）
-	cfg, err := LoadInstanceConfig(instanceName)
-	if err == nil {
-		if pid, pidErr := findServerPIDByPort(cfg.Port); pidErr == nil && pid > 0 {
-			killGameServer(pid)
-		}
-	}
-	// 2. 尝试杀死已保存的 PID（插件进程，best effort）
-	if pid2, pidErr := GetInstancePID(instanceName); pidErr == nil && pid2 > 0 {
-		killGameServer(pid2)
-	}
-	// 3. 安全释放锁（仅在持有锁时释放）
-	if TryLockServerActions() {
-		UnlockServerActions()
-	}
-	// 4. 清理日志映射
-	_ = RemoveInstanceLogMapping(instanceName)
-	// 5. 重置状态为 stopped
-	_ = WriteInstanceState(instanceName, StatusStopped, "")
-	return nil
 }

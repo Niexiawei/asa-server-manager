@@ -22,15 +22,15 @@
         <t-space breakLine>
           <t-button
               @click="startInstance"
-              :disabled="instanceData?.running || isTransitional"
-              :loading="instanceStatus === 'starting'"
+              :disabled="!isCleanStopped"
+              :loading="instanceStatus === 'starting' || instanceStatus === 'start_initialization'"
               theme="primary"
           >
             启动
           </t-button>
           <t-button
               @click="stopInstance"
-              :disabled="!instanceData?.running || isTransitional"
+              :disabled="instanceStatus !== 'started'"
               :loading="instanceStatus === 'stopping'"
               theme="warning"
           >
@@ -38,7 +38,7 @@
           </t-button>
           <t-button
               @click="restartInstance"
-              :disabled="!instanceData?.running || isTransitional"
+              :disabled="instanceStatus !== 'started'"
               :loading="instanceStatus === 'restarting'"
               theme="success"
           >
@@ -47,14 +47,14 @@
           <t-divider layout="vertical" style="height: 100%"/>
           <t-button
               @click="rconFloatingVisible = true"
-              :disabled="!instanceData?.running || isTransitional"
+              :disabled="instanceStatus !== 'started'"
               theme="primary"
           >
             RCON 终端
           </t-button>
           <t-button
               @click="forceStopInstance"
-              :disabled="!isTransitional"
+              :disabled="instanceStatus === 'stopped' || instanceStatus === ''"
               theme="danger"
           >
             强制停止
@@ -69,16 +69,18 @@
             <template #title>
               <div class="config-card-title">
                 <span>服务器配置</span>
-                <t-button
-                    theme="primary"
-                    size="small"
-                    @click="openConfigEditModal"
-                    style="margin-left: 12px"
-                    :disabled="instanceData?.running"
-                >
-                  编辑
-                </t-button>
               </div>
+            </template>
+            <template #actions>
+              <t-button
+                  theme="primary"
+                  size="small"
+                  @click="openConfigEditModal"
+                  style="margin-left: 12px"
+                  :disabled="instanceData?.running"
+              >
+                编辑
+              </t-button>
             </template>
             <div class="config-grid">
               <div v-for="item in getAllConfigItems()" :key="item.label" class="config-grid-item"
@@ -480,13 +482,23 @@ const savingMotd = ref(false)
 
 // 状态辅助
 const instanceStatus = computed(() => getInstanceStatus(instanceName)?.status || 'stopped')
-const isTransitional = computed(() => ['starting', 'stopping', 'restarting'].includes(instanceStatus.value))
+const isTransitional = computed(() =>
+  ['start_initialization', 'start_initialization_successful',
+   'starting', 'stopping', 'restarting'].includes(instanceStatus.value))
+const isFailed = computed(() =>
+  ['start_failed', 'stop_failed', 'restart_failed'].includes(instanceStatus.value))
+const isCleanStopped = computed(() =>
+  ['stopped', 'start_failed', 'stop_failed', 'restart_failed', ''].includes(instanceStatus.value))
 const statusLabel = (status) => ({
+  start_initialization: '初始化中',
+  start_initialization_successful: '初始化完成',
   starting: '启动中', started: '运行中', stopping: '停止中',
   stopped: '已停止', restarting: '重启中', restarted: '运行中',
   start_failed: '启动失败', stop_failed: '停止失败', restart_failed: '重启失败'
 }[status] || '已停止')
 const statusTagTheme = (status) => ({
+  start_initialization: 'primary',
+  start_initialization_successful: 'primary',
   starting: 'warning', started: 'success', stopping: 'warning',
   stopped: 'default', restarting: 'warning', restarted: 'success',
   start_failed: 'danger', stop_failed: 'danger', restart_failed: 'danger'
@@ -851,12 +863,13 @@ const saveMotd = async () => {
 
 // 启动实例
 const startInstance = () => {
-  DialogPlugin.confirm({
+  let startDialog = DialogPlugin.confirm({
     header: '提示',
     body: `确定要启动实例 "${instanceName}" 吗？`,
     confirmBtn: '确定',
     cancelBtn: '取消',
     onConfirm: async () => {
+      startDialog.hide()
       try {
         const data = await startServer(instanceName)
         if (data.success) {
@@ -877,12 +890,13 @@ const startInstance = () => {
 
 // 停止实例
 const stopInstance = () => {
-  DialogPlugin.confirm({
+  let stopDialog = DialogPlugin.confirm({
     header: '提示',
     body: `确定要停止实例 "${instanceName}" 吗？`,
     confirmBtn: '确定',
     cancelBtn: '取消',
     onConfirm: async () => {
+      stopDialog.hide()
       try {
         const data = await stopServer(instanceName)
         if (data.success) {
@@ -901,12 +915,13 @@ const stopInstance = () => {
 
 // 重启实例
 const restartInstance = () => {
-  DialogPlugin.confirm({
+  let restartDialog = DialogPlugin.confirm({
     header: '提示',
     body: `确定要重启实例 "${instanceName}" 吗？`,
     confirmBtn: '确定',
     cancelBtn: '取消',
     onConfirm: async () => {
+      restartDialog.hide()
       try {
         const data = await restartServer(instanceName)
         if (data.success) {
@@ -924,13 +939,14 @@ const restartInstance = () => {
 
 // 强制停止实例
 const forceStopInstance = () => {
-  DialogPlugin.confirm({
+  let dialog = DialogPlugin.confirm({
     header: '警告',
     body: `确定要强制停止实例 "${instanceName}" 吗？这将直接终止进程并重置状态。`,
     theme: 'danger',
     confirmBtn: '确定',
     cancelBtn: '取消',
     onConfirm: async () => {
+      dialog.hide()
       try {
         const data = await forceStopServer(instanceName)
         if (data.success) {
