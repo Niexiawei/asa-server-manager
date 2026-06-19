@@ -4,8 +4,8 @@
     :visible="visible"
     header="服务器更新"
     :width="800"
-    :close-on-overlay-click="!updating"
-    :close-btn="!updating"
+    :close-on-overlay-click="footerMode !== 'exit'"
+    :close-btn="footerMode !== 'exit'"
     @close="onDialogClose"
     @opened="onDialogOpened"
     destroy-on-close
@@ -13,14 +13,15 @@
     draggable
   >
     <!-- 更新状态提示 -->
-    <t-alert v-if="updating" theme="info" message="服务器更新进行中，请勿关闭页面..." class="mb-3" />
+    <t-alert v-if="footerMode === 'exit'" theme="info" message="服务器更新进行中，请勿关闭页面..." class="mb-3" />
     <t-alert v-if="updateCompleted" theme="success" message="服务器更新已完成" class="mb-3" />
     <t-alert v-if="updateCancelled" theme="warning" message="服务器更新已取消" class="mb-3" />
+    <t-alert v-if="updateFailed" theme="error" message="服务器更新失败" class="mb-3" />
 
     <!-- 日志区域 -->
     <div class="update-log-container">
       <div id="updateLogContainer" class="update-log">
-        <div v-if="updateLogs.length === 0 && !updating" class="log-placeholder">
+        <div v-if="updateLogs.length === 0 && footerMode === 'start'" class="log-placeholder">
           点击"开始更新"按钮启动服务器文件更新
         </div>
         <div
@@ -41,11 +42,16 @@
     <template #footer>
       <div class="action-bar">
         <t-button
-          v-if="updating"
+          v-if="footerMode === 'exit'"
           theme="danger"
           variant="outline"
           @click="handleCancelUpdate"
-        >取消更新</t-button>
+        >退出</t-button>
+        <t-button
+          v-else-if="footerMode === 'close'"
+          theme="primary"
+          @click="handleCloseDialog"
+        >关闭</t-button>
         <t-button
           v-else
           theme="primary"
@@ -58,10 +64,11 @@
 </template>
 
 <script setup>
-import {ref, onMounted, onBeforeUnmount, nextTick, watch} from 'vue'
+import {ref, computed, onMounted, onBeforeUnmount, nextTick} from 'vue'
 import {getUpdateStatus, cancelUpdate, listInstances} from '@/apis/api.js'
 import {updateServer as updateServerSSE} from '@/apis/sseApi.js'
 import {MessagePlugin, DialogPlugin} from 'tdesign-vue-next'
+import {serverStore} from '@/store/serverStore.js'
 
 const props = defineProps({
   visible: {
@@ -82,48 +89,73 @@ const updateLogs = ref([])
 const startingUpdate = ref(false)
 const updateCompleted = ref(false)
 const updateCancelled = ref(false)
-let statusPollTimer = null
+const updateFailed = ref(false)
+let sseCloseFn = null
+let updateCallbackUnreg = null
+
+const footerMode = computed(() => {
+  if (updateCompleted.value || updateCancelled.value || updateFailed.value) return 'close'
+  if (updating.value) return 'exit'
+  return 'start'
+})
 
 // ========== 弹窗关闭 ==========
 function onDialogClose() {
-  if (!updating.value) {
+  if (footerMode.value !== 'exit') {
     emits('update:visible', false)
   }
 }
 
-// ========== 弹窗打开时检查状态 ==========
-async function onDialogOpened() {
+function handleCloseDialog() {
+  emits('update:visible', false)
+  emits('refresh')
+  updateLogs.value = []
   updateCompleted.value = false
   updateCancelled.value = false
-  await pollUpdateStatus()
-  // 启动轮询
-  if (!statusPollTimer) {
-    statusPollTimer = setInterval(pollUpdateStatus, 5000)
+  updateFailed.value = false
+}
+
+// ========== 弹窗打开时重置 UI 标记 ==========
+function onDialogOpened() {
+  if (!updating.value) {
+    updateCompleted.value = false
+    updateCancelled.value = false
+    updateFailed.value = false
   }
 }
 
-// ========== 轮询更新状态 ==========
-async function pollUpdateStatus() {
-  try {
-    const res = await getUpdateStatus()
-    const running = res.data?.running
-    if (running && !updating.value) {
-      // 后端正在更新但前端不知道（如刷新页面后）
-      updating.value = true
-      updateLogs.value = []
-      startSSESubscription()
-    } else if (!running && updating.value) {
-      // 更新完成
-      onUpdatingFinished()
+function scrollLogToBottom() {
+  nextTick(() => {
+    const logContainer = document.getElementById('updateLogContainer')
+    if (logContainer) {
+      logContainer.scrollTop = logContainer.scrollHeight
     }
-  } catch (e) {
-    // ignore
+  })
+}
+
+function handleUpdateLogMessage(message) {
+  updateLogs.value.push(message)
+  if (message.includes('[COMPLETED]')) {
+    updateCompleted.value = true
+    updateCancelled.value = false
+    updateFailed.value = false
+    updating.value = false
+  } else if (message.includes('[CANCELLED]')) {
+    updateCancelled.value = true
+    updateCompleted.value = false
+    updateFailed.value = false
+    updating.value = false
+  } else if (message.startsWith('Error:') || message.startsWith('错误:')) {
+    updateFailed.value = true
+    updateCompleted.value = false
+    updateCancelled.value = false
+    updating.value = false
   }
+  scrollLogToBottom()
 }
 
 // ========== 开始更新 ==========
 async function handleStartUpdate() {
-  // 检查是否有运行中的实例
   try {
     const {data: {instances}} = await listInstances()
     const runningInstances = instances?.filter(i => i.running) || []
@@ -146,28 +178,21 @@ async function handleStartUpdate() {
       startingUpdate.value = true
       updateCompleted.value = false
       updateCancelled.value = false
+      updateFailed.value = false
       updateLogs.value = []
-
-      // 调用 SSE 接口启动更新
-      startSSESubscription()
+      updating.value = true
 
       await updateServerSSE(
-        (message) => {
-          updateLogs.value.push(message)
-          nextTick(() => {
-            const logContainer = document.getElementById('updateLogContainer')
-            if (logContainer) {
-              logContainer.scrollTop = logContainer.scrollHeight
-            }
-          })
-        },
+        handleUpdateLogMessage,
         (error) => {
           console.error('更新日志错误:', error)
-          updateLogs.value.push(`错误: ${error}`)
+          handleUpdateLogMessage(error.startsWith('Error:') || error.startsWith('错误:') ? error : `错误: ${error}`)
         },
         () => {
           onUpdatingFinished()
-          MessagePlugin.success('服务器更新流程已结束')
+          if (updateCompleted.value) {
+            MessagePlugin.success('服务器更新已完成')
+          }
           emits('refresh')
         }
       )
@@ -177,8 +202,40 @@ async function handleStartUpdate() {
   })
 }
 
-// ========== SSE 订阅（当后端已在运行时） ==========
-let sseCloseFn = null
+// ========== 状态恢复 ==========
+async function hydrateUpdateStatus() {
+  try {
+    const res = await getUpdateStatus()
+    if (res.data?.running) {
+      updating.value = true
+      if (updateLogs.value.length === 0) {
+        startSSESubscription()
+      }
+    } else if (serverStore.updateRunning) {
+      updating.value = true
+      if (updateLogs.value.length === 0) {
+        startSSESubscription()
+      }
+    }
+  } catch (e) {
+    // ignore
+  }
+}
+
+function handleUpdateStoreEvent(eventType) {
+  if (eventType === 'update_started') {
+    updating.value = true
+    updateCompleted.value = false
+    updateCancelled.value = false
+    updateFailed.value = false
+  } else if (eventType === 'update_completed') {
+    onUpdatingFinished(false)
+    emits('refresh')
+  } else if (eventType === 'update_cancelled') {
+    onUpdatingFinished(true)
+    emits('refresh')
+  }
+}
 
 function startSSESubscription() {
   if (sseCloseFn) {
@@ -189,17 +246,10 @@ function startSSESubscription() {
   updating.value = true
 
   sseCloseFn = updateServerSSE(
-    (message) => {
-      updateLogs.value.push(message)
-      nextTick(() => {
-        const logContainer = document.getElementById('updateLogContainer')
-        if (logContainer) {
-          logContainer.scrollTop = logContainer.scrollHeight
-        }
-      })
-    },
+    handleUpdateLogMessage,
     (error) => {
       console.error('更新日志 SSE 错误:', error)
+      handleUpdateLogMessage(error.startsWith('Error:') || error.startsWith('错误:') ? error : `错误: ${error}`)
     },
     () => {
       onUpdatingFinished()
@@ -208,36 +258,54 @@ function startSSESubscription() {
 }
 
 // ========== 更新结束处理 ==========
-function onUpdatingFinished() {
-  const wasUpdating = updating.value
+function onUpdatingFinished(cancelled = null) {
   updating.value = false
 
-  if (sseCloseFn) {
+  if (typeof sseCloseFn === 'function') {
     sseCloseFn()
     sseCloseFn = null
   }
 
-  // 检查最后一条日志判断是完成还是取消
+  if (updateCompleted.value || updateCancelled.value || updateFailed.value) {
+    return
+  }
+
+  if (cancelled === true) {
+    updateCancelled.value = true
+    updateCompleted.value = false
+    updateFailed.value = false
+    return
+  }
+  if (cancelled === false) {
+    updateCompleted.value = true
+    updateCancelled.value = false
+    updateFailed.value = false
+    return
+  }
+
   const lastLog = updateLogs.value[updateLogs.value.length - 1] || ''
   if (lastLog.includes('[COMPLETED]')) {
     updateCompleted.value = true
     updateCancelled.value = false
+    updateFailed.value = false
   } else if (lastLog.includes('[CANCELLED]')) {
     updateCancelled.value = true
     updateCompleted.value = false
-  } else if (wasUpdating) {
-    // 没有明确标记，默认为完成
-    updateCompleted.value = true
+    updateFailed.value = false
+  } else if (lastLog.startsWith('Error:') || lastLog.startsWith('错误:')) {
+    updateFailed.value = true
+    updateCompleted.value = false
+    updateCancelled.value = false
   }
 }
 
-// ========== 取消更新 ==========
+// ========== 退出并取消更新 ==========
 function handleCancelUpdate() {
   let confirmDialog = DialogPlugin.confirm({
-    header: '确认取消',
-    body: '确定要取消服务器文件更新吗？取消后可能需要重新更新才能使用服务器。',
+    header: '确认退出',
+    body: '确定要退出并取消服务器更新吗？取消后可能需要重新更新才能使用服务器。',
     theme: 'danger',
-    confirmBtn: '确定取消',
+    confirmBtn: '确定退出',
     cancelBtn: '返回',
     onConfirm: async () => {
       confirmDialog.hide()
@@ -253,17 +321,24 @@ function handleCancelUpdate() {
 
 // ========== 生命周期 ==========
 onMounted(() => {
-  // 初始状态检查在 onDialogOpened 中执行
+  hydrateUpdateStatus()
+  updateCallbackUnreg = (eventType) => handleUpdateStoreEvent(eventType)
+  serverStore.updateCallbacks.push(updateCallbackUnreg)
+  if (serverStore.updateRunning) {
+    updating.value = true
+  }
 })
 
 onBeforeUnmount(() => {
-  if (statusPollTimer) {
-    clearInterval(statusPollTimer)
-    statusPollTimer = null
-  }
-  if (sseCloseFn) {
+  if (typeof sseCloseFn === 'function') {
     sseCloseFn()
     sseCloseFn = null
+  }
+  if (updateCallbackUnreg) {
+    const idx = serverStore.updateCallbacks.indexOf(updateCallbackUnreg)
+    if (idx > -1) {
+      serverStore.updateCallbacks.splice(idx, 1)
+    }
   }
 })
 </script>

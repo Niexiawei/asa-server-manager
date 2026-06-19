@@ -446,6 +446,9 @@ func (bm *BatchManager) runBatchOperation(op *BatchOperation) {
 			failed++
 		}
 
+		done := succeeded + failed
+		httpserver.BroadcastBatchProgress(opTypeStr, done, totalInstances, instanceName)
+
 		// 延迟等待（非最后一个）
 		if op.DelayBetween > 0 && i < len(op.Instances)-1 {
 			op.sendLog("info", fmt.Sprintf("Waiting %d seconds before next instance...", int(op.DelayBetween.Seconds())), "")

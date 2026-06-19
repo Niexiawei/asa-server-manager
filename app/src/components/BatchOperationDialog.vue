@@ -206,7 +206,6 @@ const batchOpType = ref('')
 const delaySeconds = ref(0)
 const selectedInstances = ref([])
 let batchLogCloseFn = null
-let statusPollTimer = null
 let batchCallbackUnreg = null
 
 // ========== 计算属性 ==========
@@ -400,8 +399,8 @@ async function handleSkipInstance(instanceName) {
   }
 }
 
-// ========== 轮询批量状态 ==========
-async function pollBatchStatus() {
+// ========== 批量状态恢复 ==========
+async function hydrateBatchStatus() {
   try {
     const res = await getBatchStatus()
     if (res.data?.active) {
@@ -410,14 +409,36 @@ async function pollBatchStatus() {
       if (res.data.progress) {
         batchProgress.value = res.data.progress
       }
-    } else {
-      if (batchRunning.value) {
-        batchRunning.value = false
-        emits('refresh')
+      if (!batchLogCloseFn) {
+        startLogSubscription()
+      }
+    } else if (serverStore.batchRunning) {
+      batchRunning.value = true
+      batchOpType.value = serverStore.batchOpType
+      if (serverStore.batchProgress) {
+        batchProgress.value = {...serverStore.batchProgress}
       }
     }
   } catch (e) {
     // ignore
+  }
+}
+
+function handleBatchStoreEvent(eventType, event) {
+  if (eventType === 'batch_started') {
+    batchRunning.value = true
+    batchOpType.value = event.data?.type || event.status || ''
+    if (event.data?.total != null) {
+      batchProgress.value = {done: 0, total: event.data.total}
+    }
+  } else if (eventType === 'batch_progress') {
+    if (event.data?.done != null && event.data?.total != null) {
+      batchProgress.value = {done: event.data.done, total: event.data.total}
+    }
+  } else if (eventType === 'batch_completed') {
+    batchRunning.value = false
+    batchProgress.value = null
+    emits('refresh')
   }
 }
 
@@ -430,27 +451,19 @@ function formatLogTime(ts) {
 
 // ========== 生命周期 ==========
 onMounted(() => {
-  pollBatchStatus()
-  statusPollTimer = setInterval(pollBatchStatus, 5000)
-  batchCallbackUnreg = (eventType) => {
-    if (eventType === 'batch_started') {
-      batchRunning.value = true
-    } else if (eventType === 'batch_completed') {
-      batchRunning.value = false
-      emits('refresh')
-    }
-  }
+  hydrateBatchStatus()
+  batchCallbackUnreg = (eventType, event) => handleBatchStoreEvent(eventType, event)
   serverStore.batchCallbacks.push(batchCallbackUnreg)
   if (serverStore.batchRunning) {
     batchRunning.value = true
     batchOpType.value = serverStore.batchOpType
+    if (serverStore.batchProgress) {
+      batchProgress.value = {...serverStore.batchProgress}
+    }
   }
 })
 
 onBeforeUnmount(() => {
-  if (statusPollTimer) {
-    clearInterval(statusPollTimer)
-  }
   if (batchLogCloseFn) {
     batchLogCloseFn()
   }

@@ -12,11 +12,12 @@ import (
 
 // ServerEvent represents a server event message sent via WebSocket
 type ServerEvent struct {
-	EventType    string `json:"event_type"`
-	InstanceName string `json:"instance_name"`
-	Timestamp    int64  `json:"timestamp"`
-	Message      string `json:"message"`
-	Status       string `json:"status,omitempty"`
+	EventType    string         `json:"event_type"`
+	InstanceName string         `json:"instance_name"`
+	Timestamp    int64          `json:"timestamp"`
+	Message      string         `json:"message"`
+	Status       string         `json:"status,omitempty"`
+	Data         map[string]any `json:"data,omitempty"`
 }
 
 // ClientMessage represents a message from WebSocket client
@@ -239,6 +240,11 @@ func GetGlobalHub() *Hub {
 
 // BroadcastServerEvent broadcasts a server event to all connected clients
 func BroadcastServerEvent(eventType, instanceName, message, status string) {
+	BroadcastServerEventWithData(eventType, instanceName, message, status, nil)
+}
+
+// BroadcastServerEventWithData broadcasts a server event with optional structured data
+func BroadcastServerEventWithData(eventType, instanceName, message, status string, data map[string]any) {
 	if globalHub == nil {
 		return
 	}
@@ -249,6 +255,7 @@ func BroadcastServerEvent(eventType, instanceName, message, status string) {
 		Timestamp:    time.Now().Unix(),
 		Message:      message,
 		Status:       status,
+		Data:         data,
 	})
 }
 
@@ -284,13 +291,53 @@ func BroadcastServerRestartedEvent(instanceName string) {
 
 // BroadcastBatchOperationStarted broadcasts batch operation started event
 func BroadcastBatchOperationStarted(opType string, totalInstances int) {
-	BroadcastServerEvent("batch_started", "",
-		fmt.Sprintf("Batch %s started with %d instances", opType, totalInstances), "running")
+	BroadcastServerEventWithData("batch_started", "",
+		fmt.Sprintf("Batch %s started with %d instances", opType, totalInstances), opType,
+		map[string]any{
+			"type":  opType,
+			"total": totalInstances,
+		})
+}
+
+// BroadcastBatchProgress broadcasts batch operation progress after each instance completes
+func BroadcastBatchProgress(opType string, done, total int, instanceName string) {
+	BroadcastServerEventWithData("batch_progress", instanceName,
+		fmt.Sprintf("Batch %s progress: %d/%d", opType, done, total), opType,
+		map[string]any{
+			"type":          opType,
+			"done":          done,
+			"total":         total,
+			"instance_name": instanceName,
+		})
 }
 
 // BroadcastBatchOperationCompleted broadcasts batch operation completed event
 func BroadcastBatchOperationCompleted(opType string, succeeded, failed, total int) {
-	BroadcastServerEvent("batch_completed", "",
+	BroadcastServerEventWithData("batch_completed", "",
 		fmt.Sprintf("Batch %s completed: %d succeeded, %d failed of %d", opType, succeeded, failed, total),
-		"completed")
+		opType,
+		map[string]any{
+			"type":      opType,
+			"succeeded": succeeded,
+			"failed":    failed,
+			"total":     total,
+		})
+}
+
+// BroadcastUpdateStarted broadcasts server update started event
+func BroadcastUpdateStarted() {
+	BroadcastServerEventWithData("update_started", "",
+		"Server update started", "running", nil)
+}
+
+// BroadcastUpdateCompleted broadcasts server update completed event
+func BroadcastUpdateCompleted() {
+	BroadcastServerEventWithData("update_completed", "",
+		"Server update completed", "completed", nil)
+}
+
+// BroadcastUpdateCancelled broadcasts server update cancelled event
+func BroadcastUpdateCancelled() {
+	BroadcastServerEventWithData("update_cancelled", "",
+		"Server update cancelled", "cancelled", nil)
 }

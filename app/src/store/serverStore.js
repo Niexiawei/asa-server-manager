@@ -18,14 +18,17 @@ export const serverStore = reactive({
     gameLogPathEvent: new Map(), // 存储游戏日志路径事件，用于自动开启日志监听
     batchRunning: false,  // 是否有批量操作在运行
     batchOpType: '',      // 当前批量操作类型
-    batchCallbacks: []    // 批量状态变更回调
+    batchProgress: null,  // { done, total }
+    batchCallbacks: [],   // 批量状态变更回调
+    updateRunning: false, // 是否有服务器更新在运行
+    updateCallbacks: []   // 更新状态变更回调
 })
 
 // WebSocket 事件处理函数
 function handleServerEvent(event) {
     console.log('Handling server event:', event)
 
-    const {event_type, instance_name, status, message} = event
+    const {event_type, instance_name, status, message, data} = event
 
     switch (event_type) {
         case 'server_start_initialization':
@@ -151,14 +154,40 @@ function handleServerEvent(event) {
 
         case 'batch_started':
             serverStore.batchRunning = true
-            serverStore.batchOpType = message.status || ''
+            serverStore.batchOpType = data?.type || status || ''
+            if (data?.total != null) {
+                serverStore.batchProgress = {done: 0, total: data.total}
+            }
             serverStore.batchCallbacks.forEach(cb => cb('batch_started', event))
+            break
+
+        case 'batch_progress':
+            if (data?.done != null && data?.total != null) {
+                serverStore.batchProgress = {done: data.done, total: data.total}
+            }
+            serverStore.batchCallbacks.forEach(cb => cb('batch_progress', event))
             break
 
         case 'batch_completed':
             serverStore.batchRunning = false
             serverStore.batchOpType = ''
+            serverStore.batchProgress = null
             serverStore.batchCallbacks.forEach(cb => cb('batch_completed', event))
+            break
+
+        case 'update_started':
+            serverStore.updateRunning = true
+            serverStore.updateCallbacks.forEach(cb => cb('update_started', event))
+            break
+
+        case 'update_completed':
+            serverStore.updateRunning = false
+            serverStore.updateCallbacks.forEach(cb => cb('update_completed', event))
+            break
+
+        case 'update_cancelled':
+            serverStore.updateRunning = false
+            serverStore.updateCallbacks.forEach(cb => cb('update_cancelled', event))
             break
 
         default:

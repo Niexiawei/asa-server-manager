@@ -36,6 +36,17 @@ func waitForGlobalReady(broadcaster *httpserver.TaskBroadcaster, timeout time.Du
 func (s *APIServer) runUpdateTask(ctx context.Context) {
 	defer s.updateBroadcaster.Stop()
 
+	httpserver.BroadcastUpdateStarted()
+
+	cancelled := false
+	defer func() {
+		if cancelled {
+			httpserver.BroadcastUpdateCancelled()
+		} else {
+			httpserver.BroadcastUpdateCompleted()
+		}
+	}()
+
 	// Clean up update context on exit
 	defer func() {
 		s.updateMu.Lock()
@@ -59,6 +70,7 @@ func (s *APIServer) runUpdateTask(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			s.updateBroadcaster.SendMessage("[CANCELLED] 更新已取消")
+			cancelled = true
 			return true
 		default:
 			return false
@@ -72,6 +84,7 @@ func (s *APIServer) runUpdateTask(ctx context.Context) {
 	s.updateBroadcaster.SendMessage("Downloading and extracting SteamCMD...")
 	if err := asaserver.DownloadAndExtractSteamCmd(ctx, writer); err != nil {
 		if ctx.Err() != nil {
+			cancelled = true
 			return // cancelled
 		}
 		s.updateBroadcaster.SendMessage(fmt.Sprintf("Error: Failed to download SteamCMD: %v", err))
@@ -85,6 +98,7 @@ func (s *APIServer) runUpdateTask(ctx context.Context) {
 	s.updateBroadcaster.SendMessage("Downloading and updating ARK server files...")
 	if err := asaserver.DownloadAndUpdateArkServer(ctx, writer); err != nil {
 		if ctx.Err() != nil {
+			cancelled = true
 			return // cancelled
 		}
 		s.updateBroadcaster.SendMessage(fmt.Sprintf("Error: Failed to update ARK server: %v", err))
@@ -98,6 +112,7 @@ func (s *APIServer) runUpdateTask(ctx context.Context) {
 	s.updateBroadcaster.SendMessage("Verifying server installation...")
 	if err := asaserver.VerifyServerInstallation(ctx, false); err != nil {
 		if ctx.Err() != nil {
+			cancelled = true
 			return // cancelled
 		}
 		s.updateBroadcaster.SendMessage(fmt.Sprintf("Error: Server verification failed: %v", err))

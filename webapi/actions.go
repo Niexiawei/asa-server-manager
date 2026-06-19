@@ -150,11 +150,12 @@ func (s *APIServer) Stop() error {
 		mgr.Shutdown()
 	}
 
-	// 先关闭所有 WebSocket 长连接，避免阻塞 srv.Shutdown()
+	// 1. 先取消 server context，触发 SSE handler 退出
+	s.serverCtxStop()
+
+	// 2. 关闭所有 WebSocket 长连接
 	httpserver.GetGlobalHub().CloseAllClients()
 
-	// 1. 先取消 server context，触发 HTTP server shutdown
-	s.serverCtxStop()
 	<-s.serverDone
 	log.Println("stopping saveDataManager ...")
 	// 3. 所有 in-flight 请求完成后，关闭数据层

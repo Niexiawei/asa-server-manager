@@ -18,10 +18,13 @@ func (w *UpdateProgressWriter) Write(p []byte) (n int, err error) {
 type TaskBroadcaster struct {
 	msgChan     chan string
 	subscribers map[chan<- string]bool
+	history     []string
 	mu          sync.RWMutex
 	running     bool
 	wg          sync.WaitGroup
 }
+
+const maxTaskBroadcasterHistory = 200
 
 // NewTaskBroadcaster creates a new task broadcaster
 func NewTaskBroadcaster() *TaskBroadcaster {
@@ -57,6 +60,7 @@ func (tb *TaskBroadcaster) Start() bool {
 		}
 	}
 
+	tb.history = nil
 	tb.running = true
 	// Start the broadcaster goroutine
 	tb.wg.Add(1)
@@ -66,17 +70,28 @@ func (tb *TaskBroadcaster) Start() bool {
 
 // SendMessage sends a message to all subscribers
 func (tb *TaskBroadcaster) SendMessage(msg string) {
+	tb.mu.Lock()
+	if !tb.running {
+		tb.mu.Unlock()
+		return
+	}
+	if len(tb.history) >= maxTaskBroadcasterHistory {
+		tb.history = tb.history[1:]
+	}
+	tb.history = append(tb.history, msg)
+	tb.mu.Unlock()
+
+	// Use non-blocking send to avoid panics on closed channel
 	tb.mu.RLock()
-	running := tb.running
+	msgChan := tb.msgChan
 	tb.mu.RUnlock()
 
-	if !running {
+	if msgChan == nil {
 		return
 	}
 
-	// Use non-blocking send to avoid panics on closed channel
 	select {
-	case tb.msgChan <- msg:
+	case msgChan <- msg:
 
 	default:
 		// Channel is full or closed, skip
@@ -143,7 +158,15 @@ func (tb *TaskBroadcaster) Stop() {
 // broadcast distributes messages to all subscribers
 func (tb *TaskBroadcaster) broadcast() {
 	defer tb.wg.Done()
-	for msg := range tb.msgChan {
+
+	tb.mu.RLock()
+	ch := tb.msgChan
+	tb.mu.RUnlock()
+	if ch == nil {
+		return
+	}
+
+	for msg := range ch {
 		tb.mu.RLock()
 		// Create a copy of subscribers to avoid issues if map changes during iteration
 		subscribers := make([]chan<- string, 0, len(tb.subscribers))
@@ -168,4 +191,16 @@ func (tb *TaskBroadcaster) IsRunning() bool {
 	tb.mu.RLock()
 	defer tb.mu.RUnlock()
 	return tb.running
+}
+
+// GetHistory returns a copy of message history for late SSE subscribers
+func (tb *TaskBroadcaster) GetHistory() []string {
+	tb.mu.RLock()
+	defer tb.mu.RUnlock()
+	if len(tb.history) == 0 {
+		return nil
+	}
+	out := make([]string, len(tb.history))
+	copy(out, tb.history)
+	return out
 }

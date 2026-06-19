@@ -583,35 +583,29 @@ func (s *APIServer) handleServerUpdate(c *gin.Context) {
 	c.Header("Connection", "keep-alive")
 	c.Header("Access-Control-Allow-Origin", "*")
 	c.Header("Access-Control-Allow-Headers", "Content-Type")
+	c.Header("X-Accel-Buffering", "no")
 
-	// Check if update task is already running
-	if s.updateBroadcaster.IsRunning() {
-		c.JSON(http.StatusConflict, StatusResponse{
-			Success: false,
-			Error:   "更新已在运行中",
-		})
-		return
-	}
-
-	// Start broadcaster
-	if !s.updateBroadcaster.Start() {
-		logger.GetLogger().Infof("Server update already started by another request")
-		c.JSON(http.StatusConflict, StatusResponse{
-			Success: false,
-			Error:   "更新已在运行中",
-		})
-		return
-	}
-
-	// Create context for this update task
+	// Only start a new update task when none is running; reconnecting clients subscribe only
 	s.updateMu.Lock()
-	ctx, cancel := context.WithCancel(context.Background())
-	s.updateCtx = ctx
-	s.updateCancel = cancel
-	s.updateMu.Unlock()
+	if !s.updateBroadcaster.IsRunning() {
+		if s.updateBroadcaster.Start() {
+			ctx, cancel := context.WithCancel(context.Background())
+			s.updateCtx = ctx
+			s.updateCancel = cancel
+			s.updateMu.Unlock()
+			go s.runUpdateTask(ctx)
+		} else {
+			s.updateMu.Unlock()
+		}
+	} else {
+		s.updateMu.Unlock()
+	}
 
-	// Run update in background
-	go s.runUpdateTask(ctx)
+	// Replay history for late subscribers (e.g. page refresh)
+	for _, msg := range s.updateBroadcaster.GetHistory() {
+		fmt.Fprintf(c.Writer, "data: %s\n\n", msg)
+	}
+	c.Writer.Flush()
 
 	// Subscribe to update progress
 	subscriber, unsubscribe := s.updateBroadcaster.Subscribe()
@@ -629,6 +623,8 @@ func (s *APIServer) handleServerUpdate(c *gin.Context) {
 			return true
 		case <-c.Request.Context().Done():
 			// Client disconnected but task continues
+			return false
+		case <-s.serverCtx.Done():
 			return false
 		}
 	})
@@ -727,6 +723,8 @@ func (s *APIServer) streamServerInfo(c *gin.Context) {
 
 		case <-c.Request.Context().Done():
 			// Client disconnected
+			return false
+		case <-s.serverCtx.Done():
 			return false
 		}
 	})
@@ -827,6 +825,8 @@ func (s *APIServer) streamInstanceInfo(c *gin.Context) {
 
 		case <-c.Request.Context().Done():
 			// Client disconnected
+			return false
+		case <-s.serverCtx.Done():
 			return false
 		}
 	})
@@ -950,6 +950,8 @@ func (s *APIServer) streamAllInstancesInfo(c *gin.Context) {
 		case <-c.Request.Context().Done():
 			// Client disconnected
 			return false
+		case <-s.serverCtx.Done():
+			return false
 		}
 	})
 }
@@ -1020,6 +1022,8 @@ func (s *APIServer) streamInstanceLogs(c *gin.Context) {
 			c.Writer.Flush()
 		case <-c.Request.Context().Done():
 			return
+		case <-s.serverCtx.Done():
+			return
 		}
 	}
 }
@@ -1073,6 +1077,8 @@ func (s *APIServer) streamSystemLogs(c *gin.Context) {
 			fmt.Fprintf(c.Writer, "data: %s\n\n", line)
 			c.Writer.Flush()
 		case <-c.Request.Context().Done():
+			return
+		case <-s.serverCtx.Done():
 			return
 		}
 	}
@@ -1773,6 +1779,8 @@ func (s *APIServer) streamSaveData(c *gin.Context) {
 	for {
 		select {
 		case <-ctx.Done():
+			return
+		case <-s.serverCtx.Done():
 			return
 		case msg, ok := <-ch:
 			if !ok {
