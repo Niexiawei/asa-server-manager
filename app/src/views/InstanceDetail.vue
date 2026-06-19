@@ -180,29 +180,6 @@
 
         <!-- 配置文件区域 -->
         <t-collapse v-model:value="activeCollapseKeys" class="config-files-collapse">
-          <t-collapse-panel value="motd" header="服务器公告">
-            <t-card title="公告" class="config-section config-file-card">
-              <template #extra>
-                <t-space>
-                  <div>
-                    消息时长：{{ motdDuration + '秒' || '-' }}
-                  </div>
-                  <t-button
-                      @click="openMotdEditModal"
-                      theme="primary"
-                      :disabled="instanceData?.running"
-                  >
-                    编辑
-                  </t-button>
-                </t-space>
-              </template>
-              <div class="config-viewer-wrapper">
-                <div style="white-space: pre-wrap; word-break: break-word;">
-                  {{ motdContent || '-' }}
-                </div>
-              </div>
-            </t-card>
-          </t-collapse-panel>
           <t-collapse-panel value="config-files" header="实例配置文件">
             <div class="config-files-row">
               <!-- Game.ini 配置 -->
@@ -290,37 +267,6 @@
         @update:visible="configEditModalVisible = $event"
         @save="saveConfig"
     />
-
-    <t-dialog
-        v-model:visible="motdEditModalVisible"
-        header="编辑 Message Of The Day"
-        width="500px"
-        :confirm-btn="{ content: '保存', loading: savingMotd }"
-        :cancel-btn="'取消'"
-        @confirm="saveMotd"
-        @close="motdEditModalVisible = false"
-    >
-      <t-form layout="vertical">
-        <t-form-item name="MessageOfTheDayDuration" label="消息时长">
-          <t-input-number
-              v-model="motdDuration"
-              :min="1"
-              placeholder="输入消息时长"
-          >
-            <template #suffix>
-              秒
-            </template>
-          </t-input-number>
-        </t-form-item>
-        <t-form-item name="MessageOfTheDay" label="公告">
-          <t-textarea
-              v-model="motdContent"
-              placeholder="输入公告"
-              :rows="5"
-          />
-        </t-form-item>
-      </t-form>
-    </t-dialog>
 
     <!-- Game.ini 编辑模态框 -->
     <config-editor
@@ -474,11 +420,6 @@ const gameUserSettingsFileInput = ref(null)
 // 配置编辑弹出框相关
 const configEditModalVisible = ref(false)
 const savingConfig = ref(false)
-
-const motdEditModalVisible = ref(false)
-const motdContent = ref('')
-const motdDuration = ref('')
-const savingMotd = ref(false)
 
 // 状态辅助
 const instanceStatus = computed(() => getInstanceStatus(instanceName)?.status || 'stopped')
@@ -698,8 +639,6 @@ const fetchInstanceConfig = async () => {
       instanceData.value = instance
 
       const config = instance.config || {}
-      motdContent.value = config.MessageOfTheDay || ''
-      motdDuration.value = config.MessageOfTheDayDuration ?? ''
 
       // 基本信息
       basicInfo.value = [
@@ -809,13 +748,6 @@ const openConfigEditModal = () => {
   configEditModalVisible.value = true
 }
 
-const openMotdEditModal = () => {
-  const config = instanceData.value?.config || instanceData.value || {}
-  motdContent.value = config.MessageOfTheDay || ''
-  motdDuration.value = config.MessageOfTheDayDuration ?? ''
-  motdEditModalVisible.value = true
-}
-
 // 保存配置
 const saveConfig = async (config) => {
   savingConfig.value = true
@@ -824,8 +756,8 @@ const saveConfig = async (config) => {
     if (data.success) {
       MessagePlugin.success('配置已保存')
       configEditModalVisible.value = false
-      // 刷新实例配置
       await fetchInstanceConfig()
+      await loadGameUserSettings()
     } else {
       MessagePlugin.error(data.error || '保存配置失败')
     }
@@ -833,31 +765,6 @@ const saveConfig = async (config) => {
     MessagePlugin.error(err.message || '保存配置失败')
   } finally {
     savingConfig.value = false
-  }
-}
-
-const saveMotd = async () => {
-  savingMotd.value = true
-  try {
-    const payload = {
-      MessageOfTheDay: motdContent.value
-    }
-    if (motdDuration.value !== '' && motdDuration.value !== null && motdDuration.value !== undefined) {
-      payload.MessageOfTheDayDuration = Number(motdDuration.value)
-    }
-    const data = await updateInstanceConfig(instanceName, payload)
-    if (data.success) {
-      MessagePlugin.success('Message Of The Day 已保存')
-      motdEditModalVisible.value = false
-      await fetchInstanceConfig()
-      await loadGameUserSettings()
-    } else {
-      MessagePlugin.error(data.error || '保存 Message Of The Day 失败')
-    }
-  } catch (err) {
-    MessagePlugin.error(err.message || '保存 Message Of The Day 失败')
-  } finally {
-    savingMotd.value = false
   }
 }
 

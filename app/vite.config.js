@@ -36,8 +36,7 @@ export default ({mode}) => {
                         }
                         // 4️⃣ 其他第三方
                         if (
-                            id.includes('dayjs') ||
-                            id.includes('vue-masonry-wall')
+                            id.includes('dayjs')
                         ) {
                             return 'vendor'
                         }

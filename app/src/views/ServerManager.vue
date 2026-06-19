@@ -3,6 +3,7 @@
     <!-- 实例列表 -->
     <t-card :bordered="false" class="main-card layout-card" :loading="loading"
             title="实例列表"
+            ref="mainCarRef"
     >
       <template #actions>
         <t-button theme="primary" @click="showCreateModal = true">新建实例</t-button>
@@ -10,12 +11,20 @@
         <t-button theme="default" @click="updateDialogVisible = true">更新服务器</t-button>
       </template>
       <t-empty v-if="instances.length === 0" description="暂无实例，请创建新实例"/>
-      <div v-else class="instance-list">
-        <masonry-wall
+      <div v-else class="instance-list"
+        :style="{
+          height: `calc(${mainCarHeight}px - 80px)`,
+        }"
+      >
+        <MasonryVirtualGrid
+            ref="masonryRef"
             :items="instances"
-            :ssr-columns="2"
-            :column-width="800"
+            key-field="name"
+            :columns="2"
             :gap="10"
+            :virtual-threshold="20"
+            :remember-scroll="true"
+            scroll-storage-key="server-manager-list"
         >
           <template #default="{ item: instance }">
             <t-card
@@ -142,7 +151,8 @@
                                        :disabled="instance.status === 'stopped' || instance.status === ''">
                         强制停止
                       </t-dropdown-item>
-                      <t-dropdown-item @click="deleteInstanceHandler(instance.name)" :disabled="!isCleanStopped(instance)">
+                      <t-dropdown-item @click="deleteInstanceHandler(instance.name)"
+                                       :disabled="!isCleanStopped(instance)">
                         删除
                       </t-dropdown-item>
                       <t-dropdown-item @click="openSyncModal(instance.name)">
@@ -154,23 +164,23 @@
               </template>
             </t-card>
           </template>
-        </masonry-wall>
+        </MasonryVirtualGrid>
       </div>
     </t-card>
 
     <!-- 批量操作弹窗 -->
     <BatchOperationDialog
-      v-model:visible="batchDialogVisible"
-      :instances="instances"
-      :mod-info="modInfo"
-      @refresh="fetchInstances"
+        v-model:visible="batchDialogVisible"
+        :instances="instances"
+        :mod-info="modInfo"
+        @refresh="fetchInstances"
     />
 
     <!-- 更新服务器弹窗 -->
     <ServerUpdateDialog
-      v-model:visible="updateDialogVisible"
-      :instances="instances"
-      @refresh="fetchInstances"
+        v-model:visible="updateDialogVisible"
+        :instances="instances"
+        @refresh="fetchInstances"
     />
 
     <!-- 日志查看弹窗 -->
@@ -222,10 +232,18 @@
 
 <script setup>
 
-import {useClipboard} from "@vueuse/core";
+import {useClipboard, useElementBounding} from "@vueuse/core";
 import {h, inject, onActivated, onDeactivated, reactive, ref, watch} from 'vue'
 import {useRouter} from 'vue-router'
-import {createInstance, deleteInstance, forceStopServer, getModInfo, restartServer, startServer, stopServer} from '@/apis/api.js'
+import {
+  createInstance,
+  deleteInstance,
+  forceStopServer,
+  getModInfo,
+  restartServer,
+  startServer,
+  stopServer
+} from '@/apis/api.js'
 import BatchOperationDialog from '@/components/BatchOperationDialog.vue'
 import ServerUpdateDialog from '@/components/ServerUpdateDialog.vue'
 import {MessagePlugin, DialogPlugin, NotifyPlugin} from 'tdesign-vue-next';
@@ -234,7 +252,7 @@ import {initServer, serverStore} from '@/store/serverStore.js'
 import LogViewer from '@/components/LogViewer.vue'
 import SyncConfigModal from '@/components/SyncConfigModal.vue'
 import ResourceMonitor from '@/components/ResourceMonitor.vue'
-import MasonryWall from '@yeger/vue-masonry-wall'
+import MasonryVirtualGrid from '@/components/MasonryVirtualGrid.vue'
 
 defineOptions({
   name: 'ServerManager'
@@ -258,14 +276,18 @@ const updateDialogVisible = ref(false)
 const modInfo = ref([])
 const modInfoLoading = ref(false)
 
+const mainCarRef = ref()
+const {height:mainCarHeight} = useElementBounding(mainCarRef)
+
+
 // 状态辅助函数
 const isTransitional = (inst) =>
-  ['start_initialization', 'start_initialization_successful',
-   'starting', 'stopping', 'restarting'].includes(inst.status)
+    ['start_initialization', 'start_initialization_successful',
+      'starting', 'stopping', 'restarting'].includes(inst.status)
 const isFailed = (inst) =>
-  ['start_failed', 'stop_failed', 'restart_failed'].includes(inst.status)
+    ['start_failed', 'stop_failed', 'restart_failed'].includes(inst.status)
 const isCleanStopped = (inst) =>
-  ['stopped', 'start_failed', 'stop_failed', 'restart_failed', ''].includes(inst.status)
+    ['stopped', 'start_failed', 'stop_failed', 'restart_failed', ''].includes(inst.status)
 const statusLabel = (status) => ({
   start_initialization: '初始化中',
   start_initialization_successful: '初始化完成',
@@ -282,6 +304,7 @@ const statusTagTheme = (status) => ({
 }[status] || 'default')
 
 const logViewerRef = ref()
+const masonryRef = ref()
 const syncModalVisible = ref(false)
 const selectedSourceInstance = ref('')
 
@@ -604,6 +627,11 @@ const handleSyncComplete = (result) => {
 }
 
 .instance-list {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 
   :deep(.t-card__title) {
     font-size: 24px !important;
@@ -633,7 +661,10 @@ const handleSyncComplete = (result) => {
 
 .server-manager {
   height: 100%;
-  overflow-y: auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 
   :deep(.t-card__body) {
     --td-comp-paddingTB-l: 12px;
@@ -651,8 +682,32 @@ const handleSyncComplete = (result) => {
 
 .main-card {
   flex: 1;
+  min-height: 0;
+  height: 0;
   border-radius: 8px;
-  //overflow: hidden;
+  display: flex;
+  flex-direction: column;
+
+  :deep(> .t-card__header) {
+    flex: 0 0 auto;
+  }
+
+  // 仅作用于主卡片自身的 body（直接子级），不影响嵌套的实例卡片
+  :deep(> .t-card__body) {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  // loading 状态下 body 外层包裹 t-loading__parent
+  :deep(> .t-card__body > .t-loading__parent) {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
 }
 
 .instance-card {

@@ -10,7 +10,6 @@
   },
   "dependencies": {
     "@vueuse/core": "^14.1.0",
-    "@yeger/vue-masonry-wall": "^5.1.4",
     "axios": "^1.13.2",
     "dayjs": "^1.11.19",
     "monaco-editor": "^0.44.0",
