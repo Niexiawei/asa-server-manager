@@ -179,6 +179,7 @@ import {
 import {streamBatchLogs as streamBatchLogsSSE} from '@/apis/sseApi.js'
 import {MessagePlugin, DialogPlugin} from 'tdesign-vue-next'
 import {serverStore} from '@/store/serverStore.js'
+import {statusLabel, statusTagTheme} from '@/composables/useInstanceState.js'
 
 const props = defineProps({
   visible: {
@@ -231,23 +232,6 @@ const batchLogHeader = computed(() => {
   const text = typeMap[batchOpType.value] || batchOpType.value
   return batchRunning.value ? `批量${text}中...` : `批量${text}完成`
 })
-
-// ========== 状态中文映射 ==========
-const statusLabel = (status) => ({
-  start_initialization: '初始化中',
-  start_initialization_successful: '初始化完成',
-  starting: '启动中', started: '运行中', stopping: '停止中',
-  stopped: '已停止', restarting: '重启中', restarted: '运行中',
-  start_failed: '启动失败', stop_failed: '停止失败', restart_failed: '重启失败'
-}[status] || '已停止')
-
-const statusTagTheme = (status) => ({
-  start_initialization: 'primary',
-  start_initialization_successful: 'primary',
-  starting: 'warning', started: 'success', stopping: 'warning',
-  stopped: 'default', restarting: 'warning', restarted: 'success',
-  start_failed: 'danger', stop_failed: 'danger', restart_failed: 'danger'
-}[status] || 'default')
 
 // ========== Mod 名称映射 ==========
 function getModName(modId) {

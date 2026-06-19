@@ -151,7 +151,7 @@ func (sm *StateManager) WriteState(state InstanceState) error {
 	defer sm.mu.Unlock()
 
 	// 生成键值，使用实例名+时间戳确保唯一性
-	key := fmt.Sprintf("state:%s:%d", state.InstanceName, state.OperationTime.UnixNano())
+	key := fmt.Sprintf("state:%s:%s:%d", state.InstanceName, state.Status, state.OperationTime.UnixNano())
 
 	stateBytes, err := json.Marshal(state)
 	if err != nil {
@@ -544,7 +544,7 @@ func (sm *StateManager) getAllInstancesLocked() ([]string, error) {
 
 // writeStateLocked 写入状态（无锁版本，调用方需持有 sm.mu）
 func (sm *StateManager) writeStateLocked(state InstanceState) error {
-	key := fmt.Sprintf("state:%s:%d", state.InstanceName, state.OperationTime.UnixNano())
+	key := fmt.Sprintf("state:%s:%s:%d", state.InstanceName, state.Status, state.OperationTime.UnixNano())
 
 	stateBytes, err := json.Marshal(state)
 	if err != nil {

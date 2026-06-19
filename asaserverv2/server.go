@@ -270,7 +270,7 @@ func startServerInternal(instanceName string, options ...asaserver.StartServerOp
 			}
 		} else {
 			_ = asaserver.WriteInstanceState(instanceName, asaserver.StatusStartFailed, err)
-			startErr = fmt.Errorf("start game server exited")
+			startErr = fmt.Errorf(err)
 			initFailed <- startErr
 		}
 	}, func() {

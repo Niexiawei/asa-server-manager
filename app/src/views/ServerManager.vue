@@ -114,16 +114,16 @@
                 <div class="server-footer">
                   <t-button
                       @click="startInstance(instance.name)"
-                      :disabled="!isCleanStopped(instance)"
-                      :loading="instance.status === 'starting' || instance.status === 'start_initialization'"
+                      :disabled="!canStart(instance.status, globalInitBlocked)"
+                      :loading="isStartLoading(instance.name, instance.status)"
                       theme="primary"
                   >
                     启动
                   </t-button>
                   <t-button
                       @click="stopInstance(instance.name)"
-                      :disabled="instance.status !== 'started'"
-                      :loading="instance.status === 'stopping'"
+                      :disabled="!canStop(instance.status, globalInitBlocked)"
+                      :loading="isStopLoading(instance.status)"
                       theme="warning">
                     停止
                   </t-button>
@@ -141,18 +141,18 @@
                     </t-button>
                     <t-dropdown-menu>
                       <t-dropdown-item @click="restartInstance(instance.name)"
-                                       :disabled="instance.status !== 'started'">
-                          <span v-if="instance.status === 'restarting'">
+                                       :disabled="!canRestart(instance.status, globalInitBlocked)">
+                          <span v-if="isRestartLoading(instance.name, instance.status)">
                             <loading-icon/> 重启中...
                           </span>
                         <span v-else>重启</span>
                       </t-dropdown-item>
                       <t-dropdown-item @click="forceStopInstance(instance.name)"
-                                       :disabled="instance.status === 'stopped' || instance.status === ''">
+                                       :disabled="!canForceStop(instance.status)">
                         强制停止
                       </t-dropdown-item>
                       <t-dropdown-item @click="deleteInstanceHandler(instance.name)"
-                                       :disabled="!isCleanStopped(instance)">
+                                       :disabled="!isCleanStoppedStatus(instance.status)">
                         删除
                       </t-dropdown-item>
                       <t-dropdown-item @click="openSyncModal(instance.name)">
@@ -233,7 +233,7 @@
 <script setup>
 
 import {useClipboard, useElementBounding} from "@vueuse/core";
-import {h, inject, onActivated, onDeactivated, reactive, ref, watch} from 'vue'
+import {h, inject, onActivated, onDeactivated, reactive, ref, watch, computed} from 'vue'
 import {useRouter} from 'vue-router'
 import {
   createInstance,
@@ -248,7 +248,19 @@ import BatchOperationDialog from '@/components/BatchOperationDialog.vue'
 import ServerUpdateDialog from '@/components/ServerUpdateDialog.vue'
 import {MessagePlugin, DialogPlugin, NotifyPlugin} from 'tdesign-vue-next';
 import {CheckIcon, CloseIcon, FileCopyIcon, LoadingIcon, MoreIcon} from 'tdesign-icons-vue-next';
-import {initServer, serverStore} from '@/store/serverStore.js'
+import {initServer, serverStore, addRestartPending, isAnyInstanceInitializing} from '@/store/serverStore.js'
+import {
+  canForceStop,
+  canStart,
+  canStop,
+  canRestart,
+  isStartLoading,
+  isStopLoading,
+  isRestartLoading,
+  isCleanStoppedStatus,
+  statusLabel,
+  statusTagTheme,
+} from '@/composables/useInstanceState.js'
 import LogViewer from '@/components/LogViewer.vue'
 import SyncConfigModal from '@/components/SyncConfigModal.vue'
 import ResourceMonitor from '@/components/ResourceMonitor.vue'
@@ -279,36 +291,13 @@ const modInfoLoading = ref(false)
 const mainCarRef = ref()
 const {height:mainCarHeight} = useElementBounding(mainCarRef)
 
-
-// 状态辅助函数
-const isTransitional = (inst) =>
-    ['start_initialization', 'start_initialization_successful',
-      'starting', 'stopping', 'restarting'].includes(inst.status)
-const isFailed = (inst) =>
-    ['start_failed', 'stop_failed', 'restart_failed'].includes(inst.status)
-const isCleanStopped = (inst) =>
-    ['stopped', 'start_failed', 'stop_failed', 'restart_failed', ''].includes(inst.status)
-const statusLabel = (status) => ({
-  start_initialization: '初始化中',
-  start_initialization_successful: '初始化完成',
-  starting: '启动中', started: '运行中', stopping: '停止中',
-  stopped: '已停止', restarting: '重启中', restarted: '运行中',
-  start_failed: '启动失败', stop_failed: '停止失败', restart_failed: '重启失败'
-}[status] || '已停止')
-const statusTagTheme = (status) => ({
-  start_initialization: 'primary',
-  start_initialization_successful: 'primary',
-  starting: 'warning', started: 'success', stopping: 'warning',
-  stopped: 'default', restarting: 'warning', restarted: 'success',
-  start_failed: 'danger', stop_failed: 'danger', restart_failed: 'danger'
-}[status] || 'default')
-
 const logViewerRef = ref()
 const masonryRef = ref()
 const syncModalVisible = ref(false)
 const selectedSourceInstance = ref('')
+const globalInitBlocked = computed(() => isAnyInstanceInitializing())
 
-// 渲染实例标题，在名称前添加状态图标
+// 状态辅助函数（标签展示）
 const renderInstanceTitle = (instance) => {
   return h('div', {style: {display: 'flex', alignItems: 'center', gap: '8px'}}, [
     h(instance.running ? CheckIcon : CloseIcon, {style: {color: instance.running ? '#00b42a' : '#f53f3f'}}),
@@ -473,6 +462,7 @@ const restartInstance = async (name) => {
     cancelBtn: '取消',
     onConfirm: async () => {
       restartDialog.hide()
+      addRestartPending(name)
       try {
         const data = await restartServer(name)
         if (data.success) {

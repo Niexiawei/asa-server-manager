@@ -485,9 +485,13 @@ func (op *BatchOperation) executeInstance(instanceName string, opType BatchOpera
 
 	case BatchRestart:
 		actionVerb = "restarting"
-		httpserver.BroadcastServerStoppingEvent(instanceName)
+		httpserver.BroadcastServerRestartingEvent(instanceName)
 		op.sendLog("info", fmt.Sprintf("Restarting instance '%s'...", instanceName), instanceName)
-		err = asaserver.RestartServer(instanceName)
+		err = asaserver.RestartServer(instanceName,
+			asaserver.WithRestartStartupCompletion(func(name string) {
+				httpserver.BroadcastServerRestartedEvent(name)
+			}),
+		)
 	}
 
 	if err != nil {
@@ -513,7 +517,6 @@ func (op *BatchOperation) executeInstance(instanceName string, opType BatchOpera
 	case BatchStop:
 		httpserver.BroadcastServerStoppedEvent(instanceName)
 	case BatchRestart:
-		httpserver.BroadcastServerStoppedEvent(instanceName)
 		httpserver.BroadcastServerStartedEvent(instanceName)
 	}
 }

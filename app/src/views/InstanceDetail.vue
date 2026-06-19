@@ -22,24 +22,24 @@
         <t-space breakLine>
           <t-button
               @click="startInstance"
-              :disabled="!isCleanStopped"
-              :loading="instanceStatus === 'starting' || instanceStatus === 'start_initialization'"
+              :disabled="!canStart(instanceStatus, globalInitBlocked)"
+              :loading="isStartLoading(instanceName, instanceStatus)"
               theme="primary"
           >
             启动
           </t-button>
           <t-button
               @click="stopInstance"
-              :disabled="instanceStatus !== 'started'"
-              :loading="instanceStatus === 'stopping'"
+              :disabled="!canStop(instanceStatus, globalInitBlocked)"
+              :loading="isStopLoading(instanceStatus)"
               theme="warning"
           >
             停止
           </t-button>
           <t-button
               @click="restartInstance"
-              :disabled="instanceStatus !== 'started'"
-              :loading="instanceStatus === 'restarting'"
+              :disabled="!canRestart(instanceStatus, globalInitBlocked)"
+              :loading="isRestartLoading(instanceName, instanceStatus)"
               theme="success"
           >
             重启
@@ -47,14 +47,14 @@
           <t-divider layout="vertical" style="height: 100%"/>
           <t-button
               @click="rconFloatingVisible = true"
-              :disabled="instanceStatus !== 'started'"
+              :disabled="!canStop(instanceStatus, globalInitBlocked)"
               theme="primary"
           >
             RCON 终端
           </t-button>
           <t-button
               @click="forceStopInstance"
-              :disabled="instanceStatus === 'stopped' || instanceStatus === ''"
+              :disabled="!canForceStop(instanceStatus)"
               theme="danger"
           >
             强制停止
@@ -367,7 +367,18 @@ import {
   uploadGameIniFile,
   uploadGameUserSettingsFile
 } from '@/apis/api.js'
-import {getInstanceStatus, initServer} from '@/store/serverStore.js'
+import {getInstanceStatus, initServer, addRestartPending, isAnyInstanceInitializing} from '@/store/serverStore.js'
+import {
+  canForceStop,
+  canStart,
+  canStop,
+  canRestart,
+  isStartLoading,
+  isStopLoading,
+  isRestartLoading,
+  statusLabel,
+  statusTagTheme,
+} from '@/composables/useInstanceState.js'
 import {FileCopyIcon, BrowseIcon, BrowseOffIcon, ChevronLeftIcon} from 'tdesign-icons-vue-next'
 import {MessagePlugin, DialogPlugin, NotifyPlugin} from 'tdesign-vue-next'
 import {useClipboard} from "@vueuse/core";
@@ -421,29 +432,9 @@ const gameUserSettingsFileInput = ref(null)
 const configEditModalVisible = ref(false)
 const savingConfig = ref(false)
 
-// 状态辅助
+// 状态
 const instanceStatus = computed(() => getInstanceStatus(instanceName)?.status || 'stopped')
-const isTransitional = computed(() =>
-  ['start_initialization', 'start_initialization_successful',
-   'starting', 'stopping', 'restarting'].includes(instanceStatus.value))
-const isFailed = computed(() =>
-  ['start_failed', 'stop_failed', 'restart_failed'].includes(instanceStatus.value))
-const isCleanStopped = computed(() =>
-  ['stopped', 'start_failed', 'stop_failed', 'restart_failed', ''].includes(instanceStatus.value))
-const statusLabel = (status) => ({
-  start_initialization: '初始化中',
-  start_initialization_successful: '初始化完成',
-  starting: '启动中', started: '运行中', stopping: '停止中',
-  stopped: '已停止', restarting: '重启中', restarted: '运行中',
-  start_failed: '启动失败', stop_failed: '停止失败', restart_failed: '重启失败'
-}[status] || '已停止')
-const statusTagTheme = (status) => ({
-  start_initialization: 'primary',
-  start_initialization_successful: 'primary',
-  starting: 'warning', started: 'success', stopping: 'warning',
-  stopped: 'default', restarting: 'warning', restarted: 'success',
-  start_failed: 'danger', stop_failed: 'danger', restart_failed: 'danger'
-}[status] || 'default')
+const globalInitBlocked = computed(() => isAnyInstanceInitializing())
 
 const baseLoadedSuccessfully = ref(false)
 
@@ -829,6 +820,7 @@ const restartInstance = () => {
     cancelBtn: '取消',
     onConfirm: async () => {
       restartDialog.hide()
+      addRestartPending(instanceName)
       try {
         const data = await restartServer(instanceName)
         if (data.success) {

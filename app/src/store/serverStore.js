@@ -21,7 +21,8 @@ export const serverStore = reactive({
     batchProgress: null,  // { done, total }
     batchCallbacks: [],   // 批量状态变更回调
     updateRunning: false, // 是否有服务器更新在运行
-    updateCallbacks: []   // 更新状态变更回调
+    updateCallbacks: [],   // 更新状态变更回调
+    restartPending: new Set(), // 重启进行中（等待 server_restarted / server_restart_failed）
 })
 
 // WebSocket 事件处理函数
@@ -116,6 +117,7 @@ function handleServerEvent(event) {
                 instance.error = message || '重启失败'
                 instance.status = 'restart_failed'
                 instance.message = `${instance_name} 重启失败: ${instance.error}`
+                serverStore.restartPending.delete(instance_name)
             }
             break
 
@@ -124,15 +126,13 @@ function handleServerEvent(event) {
                 const instance = serverStore.instances.get(instance_name)
                 instance.status = 'restarting'
                 instance.isStartingOrRunning = true
+                serverStore.restartPending.add(instance_name)
             }
             break
 
         case 'server_restarted':
-            if (instance_name && serverStore.instances.has(instance_name)) {
-                const instance = serverStore.instances.get(instance_name)
-                instance.running = true
-                instance.status = 'restarted'
-                instance.isStartingOrRunning = true
+            if (instance_name) {
+                serverStore.restartPending.delete(instance_name)
             }
             break
 
@@ -301,4 +301,21 @@ export function manualReconnect() {
     startReconnect(() => {
         initializeWebSocket()
     })
+}
+
+export function isAnyInstanceInitializing() {
+    for (const instance of serverStore.instances.values()) {
+        if (instance.status === 'start_initialization') {
+            return true
+        }
+    }
+    return false
+}
+
+export function addRestartPending(instanceName) {
+    serverStore.restartPending.add(instanceName)
+}
+
+export function removeRestartPending(instanceName) {
+    serverStore.restartPending.delete(instanceName)
 }

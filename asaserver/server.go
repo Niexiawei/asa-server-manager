@@ -472,6 +472,7 @@ type StartServerOptions struct {
 	WaitServerCompleted          bool
 	ParentCtx                    context.Context
 	PidCallback                  func(pid int)
+	OnRestartStartupComplete     func(instanceName string)
 }
 
 type StartServerOptionsFunc func(options *StartServerOptions)
@@ -501,6 +502,14 @@ func WithCtx(ctx context.Context) StartServerOptionsFunc {
 func WithPidCallback(callback func(pid int)) StartServerOptionsFunc {
 	return func(options *StartServerOptions) {
 		options.PidCallback = callback
+	}
+}
+
+// WithRestartStartupCompletion marks restart startup success: writes restarted history,
+// invokes callback, then the existing started write runs in waitServerStartup.
+func WithRestartStartupCompletion(callback func(instanceName string)) StartServerOptionsFunc {
+	return func(options *StartServerOptions) {
+		options.OnRestartStartupComplete = callback
 	}
 }
 
@@ -767,6 +776,10 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 
 	go waitServerStartup(pid, gameLogPath, func(startup bool, err string) {
 		if startup {
+			if opts.OnRestartStartupComplete != nil {
+				_ = WriteInstanceState(instanceName, StatusRestarted, "")
+				opts.OnRestartStartupComplete(instanceName)
+			}
 			_ = WriteInstanceState(instanceName, StatusStarted, "")
 		} else {
 			_ = WriteInstanceState(instanceName, StatusStartFailed, err)
@@ -978,7 +991,7 @@ func KillServer(instanceName string) error {
 }
 
 // RestartServer restarts a server instance
-func RestartServer(instanceName string) error {
+func RestartServer(instanceName string, options ...StartServerOptionsFunc) error {
 	// CAS: 原子检查状态并转换到 restarting
 	ok, err := CompareAndSwapInstanceState(instanceName,
 		[]InstanceStatus{StatusStarted},
@@ -1014,7 +1027,8 @@ func RestartServer(instanceName string) error {
 	}
 	time.Sleep(10 * time.Second)
 
-	if err := StartServer(instanceName); err != nil {
+	startOpts := append([]StartServerOptionsFunc{WithWaitServerCompleted()}, options...)
+	if err := StartServer(instanceName, startOpts...); err != nil {
 		restartErr = err
 		return err
 	}
