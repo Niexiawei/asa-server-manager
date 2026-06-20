@@ -51,10 +51,14 @@ func HandleServerEvents(c *gin.Context) {
 
 	// 启动心跳超时检测 goroutine
 	go func() {
-		<-heartbeatTicker.C
-		logger.GetLogger().Warnf("Server events WebSocket: Client heartbeat timeout, closing connection")
-		conn.Close()
-		globalHub.RemoveClient(conn)
+		select {
+		case <-heartbeatTicker.C:
+			logger.GetLogger().Warnf("Server events WebSocket: Client heartbeat timeout, closing connection")
+			conn.Close()
+			globalHub.RemoveClient(conn)
+		case <-done:
+			// Connection closed normally, exit goroutine
+		}
 	}()
 
 	// Send initial connection message
@@ -113,6 +117,11 @@ func HandleRCONEvents(c *gin.Context) {
 	}
 	defer conn.Close()
 
+	// L4 fix: Register RCON connection to hub for CloseAllClients
+	connMu := &sync.Mutex{}
+	globalHub.RegisterClient(conn, connMu)
+	defer globalHub.RemoveClient(conn)
+
 	// 创建心跳超时 ticker
 	heartbeatTicker := time.NewTicker(HeartbeatTimeout)
 	defer heartbeatTicker.Stop()
@@ -122,10 +131,15 @@ func HandleRCONEvents(c *gin.Context) {
 	defer close(done)
 
 	// 启动心跳超时检测 goroutine
+	// C10 fix: select on done channel to exit when connection closes
 	go func() {
-		<-heartbeatTicker.C
-		logger.GetLogger().Warnf("RCON WebSocket: Client heartbeat timeout, closing connection")
-		conn.Close()
+		select {
+		case <-heartbeatTicker.C:
+			logger.GetLogger().Warnf("RCON WebSocket: Client heartbeat timeout, closing connection")
+			conn.Close()
+		case <-done:
+			// Connection closed normally, exit goroutine
+		}
 	}()
 
 	// Keep connection open and listen for RCON commands
@@ -144,9 +158,11 @@ func HandleRCONEvents(c *gin.Context) {
 
 		// 处理客户端 ping 消息
 		if msg.Action == "ping" {
+			connMu.Lock()
 			err = conn.WriteJSON(gin.H{
 				"action": "pong",
 			})
+			connMu.Unlock()
 			if err != nil {
 				logger.GetLogger().Debugf("Failed to send pong to RCON: %v", err)
 				break
@@ -156,7 +172,9 @@ func HandleRCONEvents(c *gin.Context) {
 
 		// Handle RCON command
 		response := handleRCONMessage(&msg)
+		connMu.Lock()
 		err = conn.WriteJSON(response)
+		connMu.Unlock()
 		if err != nil {
 			logger.GetLogger().Warnf("Failed to write RCON response: %v", err)
 			break

@@ -79,22 +79,22 @@ func (tb *TaskBroadcaster) SendMessage(msg string) {
 		tb.history = tb.history[1:]
 	}
 	tb.history = append(tb.history, msg)
-	tb.mu.Unlock()
-
-	// Use non-blocking send to avoid panics on closed channel
-	tb.mu.RLock()
 	msgChan := tb.msgChan
-	tb.mu.RUnlock()
+	tb.mu.Unlock()
 
 	if msgChan == nil {
 		return
 	}
 
+	// C9 fix: recover from send-on-closed-channel panic.
+	// Between releasing the lock above and the send below, Stop() could
+	// close msgChan. A select/default does NOT protect against closed channels.
+	defer func() { recover() }()
+
 	select {
 	case msgChan <- msg:
-
 	default:
-		// Channel is full or closed, skip
+		// Channel is full, skip
 	}
 }
 

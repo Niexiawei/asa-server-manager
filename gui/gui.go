@@ -66,6 +66,7 @@ type GUIApp struct {
 	memUsedLabel     *widget.Label
 	resourceError    *widget.Label
 	stopResourceChan chan struct{}
+	stopResourceOnce sync.Once
 	// Instance list
 	instances    []InstanceInfo
 	instanceList *widget.List
@@ -77,6 +78,7 @@ type GUIApp struct {
 	isLogStreaming bool
 	autoScroll     bool
 	stopLogFunc    func()
+	logMu          sync.Mutex // H14: protects isLogStreaming, stopLogFunc
 	// API server management
 	apiServer      *webapi.APIServer
 	apiServerMu    sync.Mutex
@@ -188,12 +190,10 @@ func (g *GUIApp) startResourceMonitoring() {
 
 // stopResourceMonitoring stops the resource monitoring
 func (g *GUIApp) stopResourceMonitoring() {
-	select {
-	case <-g.stopResourceChan:
-		// Already closed
-	default:
+	// H15 fix: use sync.Once to prevent double-close panic
+	g.stopResourceOnce.Do(func() {
 		close(g.stopResourceChan)
-	}
+	})
 }
 
 // fetchInstances fetches the list of game server instances
@@ -833,7 +833,10 @@ func (g *GUIApp) createMainWindow() {
 
 	refreshLogBtn := widget.NewButtonWithIcon("刷新", theme.ViewRefreshIcon(), func() {
 		g.clearLogs()
-		if g.isLogStreaming {
+		g.logMu.Lock()
+		streaming := g.isLogStreaming
+		g.logMu.Unlock()
+		if streaming {
 			g.stopLogStreaming()
 			g.startLogStreaming()
 		}
@@ -1012,13 +1015,16 @@ func (g *GUIApp) updateLogButtonsState() {
 	if logButtons == nil {
 		return
 	}
+	g.logMu.Lock()
+	streaming := g.isLogStreaming
+	g.logMu.Unlock()
 	fyne.Do(func() {
 		logButtons.startBtn.Disable()
 		logButtons.stopBtn.Disable()
 		logButtons.clearBtn.Disable()
 		logButtons.refreshBtn.Disable()
 
-		if g.isLogStreaming {
+		if streaming {
 			logButtons.stopBtn.Enable()
 			logButtons.refreshBtn.Enable()
 		} else {
@@ -1031,6 +1037,8 @@ func (g *GUIApp) updateLogButtonsState() {
 
 // startLogStreaming starts the log streaming using asaserver.TailLogFileWithLines
 func (g *GUIApp) startLogStreaming() {
+	g.logMu.Lock()
+	defer g.logMu.Unlock()
 	if g.isLogStreaming {
 		return
 	}
@@ -1074,6 +1082,8 @@ func (g *GUIApp) startLogStreaming() {
 
 // stopLogStreaming stops the log streaming
 func (g *GUIApp) stopLogStreaming() {
+	g.logMu.Lock()
+	defer g.logMu.Unlock()
 	if !g.isLogStreaming {
 		return
 	}
@@ -1108,9 +1118,7 @@ func (g *GUIApp) openLogViewer() {
 		g.logWindow.Show()
 		g.logWindow.RequestFocus()
 		// Auto start streaming if not already streaming
-		if !g.isLogStreaming {
-			g.startLogStreaming()
-		}
+		g.startLogStreaming()
 		return
 	}
 
@@ -1160,7 +1168,10 @@ func (g *GUIApp) openLogViewer() {
 
 	refreshBtn := widget.NewButtonWithIcon("刷新", theme.ViewRefreshIcon(), func() {
 		g.clearLogs()
-		if g.isLogStreaming {
+		g.logMu.Lock()
+		streaming := g.isLogStreaming
+		g.logMu.Unlock()
+		if streaming {
 			g.stopLogStreaming()
 			g.startLogStreaming()
 		}

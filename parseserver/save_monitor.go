@@ -16,8 +16,7 @@ import (
 )
 
 const (
-	saveKeyPrefix = "save:"
-	saveKeyAll    = "save:%s:all"
+	saveKeyAll = "save:%s:all"
 )
 
 // SaveDataManager manages BadgerDB cache and arkmonitor-based file monitoring for ARK save files

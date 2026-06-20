@@ -114,6 +114,10 @@ func (m *FrpcManager) Start() error {
 	// Clear previous error
 	m.startErr = nil
 
+	// H12 fix: Optimistically set running=true to prevent TOCTOU window
+	// where a second Start() call could succeed during the 500ms detection period
+	m.running = true
+
 	// Launch process startup in background goroutine
 	go m.asyncStart(configPath)
 
@@ -136,6 +140,7 @@ func (m *FrpcManager) asyncStart(configPath string) {
 	if err := m.cmd.Start(); err != nil {
 		m.startErr = err
 		m.cmd = nil
+		m.running = false // H12 fix: reset running flag on start failure
 		m.mu.Unlock()
 		return
 	}
@@ -159,10 +164,7 @@ func (m *FrpcManager) asyncStart(configPath string) {
 		logger.GetLogger().Infof("frpc process exited err: %v", err)
 		m.mu.Unlock()
 	case <-time.After(500 * time.Millisecond):
-		// Process is still running
-		m.mu.Lock()
-		m.running = true
-		m.mu.Unlock()
+		// Process is still running (already set to true optimistically in Start)
 	}
 }
 
@@ -187,7 +189,7 @@ func (m *FrpcManager) Stop() error {
 func (m *FrpcManager) Restart() error {
 	if err := m.Stop(); err != nil {
 		// If not running, just start it
-		if m.running {
+		if m.IsRunning() {
 			return err
 		}
 	}
@@ -239,12 +241,15 @@ func (m *FrpcManager) CheckStatus() bool {
 
 // Cleanup removes the temp directory and files
 func (m *FrpcManager) Cleanup() error {
+	// C2 fix: Call Stop() before acquiring lock to avoid deadlock
+	// (Stop() acquires mu internally, so we must not hold it here)
+	if err := m.Stop(); err != nil {
+		// M11 fix: Log warning but continue cleanup even if Stop fails
+		logger.GetLogger().Warnf("frpc Cleanup: Stop failed (continuing cleanup): %v", err)
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
-	if err := m.Stop(); err != nil {
-		return err
-	}
 
 	if m.runDir != "" {
 		if err := os.RemoveAll(m.runDir); err != nil {
@@ -262,6 +267,8 @@ func GetGlobalManager() *FrpcManager {
 	return globalManager
 }
 
+var ansiRegex = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
 // LogWriter is an adapter that writes log messages to logger
 type LogWriter struct {
 	tag     string
@@ -271,7 +278,6 @@ type LogWriter struct {
 func (w *LogWriter) Write(p []byte) (n int, err error) {
 	text := string(p)
 	// Remove ANSI color codes
-	ansiRegex := regexp.MustCompile(`\x1b\[[0-9;]*m`)
 	text = ansiRegex.ReplaceAllString(text, "")
 
 	// Split by newline and log each line

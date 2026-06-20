@@ -113,6 +113,17 @@ func main() {
 				Usage:  "Start GUI mode",
 				Action: actionGUI,
 			},
+			{
+				Name:  "state",
+				Usage: "State database management",
+				Commands: []*cli.Command{
+					{
+						Name:   "clear",
+						Usage:  "Clear all state history data (required after key format change)",
+						Action: actions.ActionStateClear,
+					},
+				},
+			},
 		},
 	}
 

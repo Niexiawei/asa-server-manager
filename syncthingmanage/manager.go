@@ -205,7 +205,7 @@ func (m *SyncthingManager) Stop() error {
 func (m *SyncthingManager) Restart() error {
 	if err := m.Stop(); err != nil {
 		// If not running, just start it
-		if m.running {
+		if m.IsRunning() {
 			return err
 		}
 	}
@@ -218,17 +218,24 @@ func (m *SyncthingManager) Restart() error {
 
 // IsRunning checks if syncthing is running
 func (m *SyncthingManager) IsRunning() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	return m.running
 }
 
 // GetStartErr returns the last start error
 func (m *SyncthingManager) GetStartErr() error {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	return m.startErr
 }
 
 // CheckStatus checks the actual running status of syncthing process
 // Updates running flag if process has exited or failed to start
 func (m *SyncthingManager) CheckStatus() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	if !m.running || m.cmd == nil {
 		return false
 	}
@@ -238,12 +245,14 @@ func (m *SyncthingManager) CheckStatus() bool {
 
 // Cleanup removes the temp directory and files
 func (m *SyncthingManager) Cleanup() error {
+	// C3 fix: Call Stop() before acquiring lock to avoid deadlock
+	if err := m.Stop(); err != nil {
+		// M11 fix: Log warning but continue cleanup even if Stop fails
+		logger.GetLogger().Warnf("syncthing Cleanup: Stop failed (continuing cleanup): %v", err)
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
-	if err := m.Stop(); err != nil {
-		return err
-	}
 
 	if m.runDir != "" {
 		if err := os.RemoveAll(m.runDir); err != nil {
@@ -261,6 +270,8 @@ func GetGlobalManager() *SyncthingManager {
 	return globalManager
 }
 
+var ansiRegex = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
 // LogWriter is an adapter that writes log messages to logger
 type LogWriter struct {
 	tag     string
@@ -270,7 +281,6 @@ type LogWriter struct {
 func (w *LogWriter) Write(p []byte) (n int, err error) {
 	text := string(p)
 	// Remove ANSI color codes
-	ansiRegex := regexp.MustCompile(`\x1b\[[0-9;]*m`)
 	text = ansiRegex.ReplaceAllString(text, "")
 
 	// Split by newline and log each line

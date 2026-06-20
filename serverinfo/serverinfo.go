@@ -57,7 +57,7 @@ func GetCPUInfo() (*CPUInfo, error) {
 		return nil, fmt.Errorf("获取CPU核心数失败: %w", err)
 	}
 
-	// 获取CPU使用率（采样时间1秒）
+	// 获取CPU使用率（采样时间200毫秒）
 	percentages, err := cpu.Percent(200*time.Millisecond, false)
 	if err != nil {
 		return nil, fmt.Errorf("获取CPU使用率失败: %w", err)

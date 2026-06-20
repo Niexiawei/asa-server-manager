@@ -221,6 +221,14 @@ func TestStartAndStopServer(t *testing.T) {
 
 	// 停止服务器
 	t.Log("Stopping server...")
+
+	state, err := asaserver.GetLatestInstanceState(testInstanceName)
+	if err != nil {
+		t.Error(err)
+	}
+
+	fmt.Println(state)
+
 	if err := StopServer(testInstanceName); err != nil {
 		t.Fatalf("Failed to stop server: %v", err)
 	}

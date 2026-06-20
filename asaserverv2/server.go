@@ -53,11 +53,9 @@ func startServerInternal(instanceName string, options ...asaserver.StartServerOp
 		mirrorDir      string
 	)
 
-	defer func() {
-		close(startupSuccess)
-		close(initSuccessful)
-		close(initFailed)
-	}()
+	// H7 fix: Removed defer close(channels) to prevent send-on-closed-channel
+	// panic when goroutines send after this function returns.
+	// Buffered channels will be garbage collected when no longer referenced.
 
 	var startErr error
 
@@ -91,8 +89,9 @@ func startServerInternal(instanceName string, options ...asaserver.StartServerOp
 	// 同步实例镜像目录（增量）
 	mirrorDir, err = SyncInstanceMirror(instanceName, config)
 	if err != nil {
-		startErr = fmt.Errorf("failed to setup instance mirror: %w", err)
-		return startErr
+		wrappedErr := fmt.Errorf("failed to setup instance mirror: %w", err)
+		startErr = wrappedErr
+		return wrappedErr
 	}
 
 	// 构建命令行参数
@@ -270,7 +269,7 @@ func startServerInternal(instanceName string, options ...asaserver.StartServerOp
 			}
 		} else {
 			_ = asaserver.WriteInstanceState(instanceName, asaserver.StatusStartFailed, err)
-			startErr = fmt.Errorf(err)
+			startErr = fmt.Errorf("%s", err)
 			initFailed <- startErr
 		}
 	}, func() {

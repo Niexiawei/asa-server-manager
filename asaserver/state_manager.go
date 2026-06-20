@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"asa-server/logger"
@@ -49,6 +50,7 @@ type StateManager struct {
 	path              string
 	maxHistoryRecords int                // 每个实例的最大历史记录数
 	cancelFunc        context.CancelFunc // watcher 关闭
+	seq               atomic.Uint64      // 进程内单调递增序列号，保证 key 有序
 }
 
 const DefaultMaxHistoryRecords = 500 // 每个实例的最大历史记录数
@@ -74,6 +76,7 @@ func NewStateManager(baseDir string) (*StateManager, error) {
 		maxHistoryRecords: DefaultMaxHistoryRecords,
 	}
 	sm.stateChange = sync.NewCond(&sm.mu)
+	sm.seq.Store(1) // 序列号从 1 开始
 
 	// 自动启动卡住状态恢复 watcher
 	ctx, cancel := context.WithCancel(context.Background())
@@ -149,27 +152,7 @@ func (sm *StateManager) getAllRecordsForInstance(instanceName string) ([]string,
 func (sm *StateManager) WriteState(state InstanceState) error {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
-
-	// 生成键值，使用实例名+时间戳确保唯一性
-	key := fmt.Sprintf("state:%s:%s:%d", state.InstanceName, state.Status, state.OperationTime.UnixNano())
-
-	stateBytes, err := json.Marshal(state)
-	if err != nil {
-		return fmt.Errorf("failed to marshal state: %w", err)
-	}
-
-	err = sm.db.Update(func(txn *badger.Txn) error {
-		return txn.Set([]byte(key), stateBytes)
-	})
-	if err != nil {
-		return err
-	}
-
-	// 广播状态变更，唤醒所有等待者
-	sm.stateChange.Broadcast()
-
-	// 检查并清理超出最大记录数的历史记录
-	return sm.cleanupOldRecords(state.InstanceName)
+	return sm.writeStateLocked(state)
 }
 
 // GetStateHistory 获取实例状态变更历史记录
@@ -226,46 +209,7 @@ func (sm *StateManager) GetStateHistory(instanceName string, limit int) ([]Insta
 func (sm *StateManager) GetLatestState(instanceName string) (*InstanceState, error) {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
-
-	var latestState *InstanceState
-	var latestTime time.Time
-
-	err := sm.db.View(func(txn *badger.Txn) error {
-		prefix := []byte(fmt.Sprintf("state:%s:", instanceName))
-
-		it := txn.NewIterator(badger.DefaultIteratorOptions)
-		defer it.Close()
-
-		for it.Seek(prefix); it.ValidForPrefix(prefix); it.Next() {
-			item := it.Item()
-			err := item.Value(func(val []byte) error {
-				var state InstanceState
-				if err := json.Unmarshal(val, &state); err != nil {
-					return fmt.Errorf("failed to unmarshal state: %w", err)
-				}
-
-				if state.OperationTime.After(latestTime) {
-					latestTime = state.OperationTime
-					latestState = &state
-				}
-				return nil
-			})
-			if err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	if latestState == nil {
-		return nil, fmt.Errorf("no state found for instance: %s", instanceName)
-	}
-
-	return latestState, nil
+	return sm.getLatestStateLocked(instanceName)
 }
 
 // GetAllInstances 获取所有有状态记录的实例名称
@@ -315,10 +259,13 @@ func (sm *StateManager) GetAllInstances() ([]string, error) {
 var (
 	instanceStateManager *StateManager
 	stateManagerOnce     sync.Once
+	stateManagerMu       sync.Mutex // H18: protects Once reset in Close/Init
 )
 
 // InitStateManager 初始化状态管理器
 func InitStateManager(baseDir string) error {
+	stateManagerMu.Lock()
+	defer stateManagerMu.Unlock()
 	var err error
 	stateManagerOnce.Do(func() {
 		instanceStateManager, err = NewStateManager(baseDir)
@@ -333,9 +280,13 @@ func GetStateManager() *StateManager {
 
 // CloseStateManager 关闭状态管理器
 func CloseStateManager() error {
+	stateManagerMu.Lock()
+	defer stateManagerMu.Unlock()
 	if instanceStateManager != nil {
-		stateManagerOnce = sync.Once{}
-		return instanceStateManager.Close()
+		err := instanceStateManager.Close()
+		instanceStateManager = nil
+		stateManagerOnce = sync.Once{} // H18 fix: reset under mutex
+		return err
 	}
 	return nil
 }
@@ -420,29 +371,30 @@ const (
 // getLatestStateLocked 获取实例最新状态（无锁版本，调用方需持有 sm.mu）
 func (sm *StateManager) getLatestStateLocked(instanceName string) (*InstanceState, error) {
 	var latestState *InstanceState
-	var latestTime time.Time
 
 	err := sm.db.View(func(txn *badger.Txn) error {
 		prefix := []byte(fmt.Sprintf("state:%s:", instanceName))
-		it := txn.NewIterator(badger.DefaultIteratorOptions)
+
+		// M17 fix: 使用反向迭代器直接获取最新记录
+		opts := badger.DefaultIteratorOptions
+		opts.Reverse = true
+		it := txn.NewIterator(opts)
 		defer it.Close()
 
-		for it.Seek(prefix); it.ValidForPrefix(prefix); it.Next() {
+		seekKey := []byte(fmt.Sprintf("state:%s;", instanceName))
+		it.Seek(seekKey)
+
+		if it.ValidForPrefix(prefix) {
 			item := it.Item()
 			err := item.Value(func(val []byte) error {
 				var state InstanceState
 				if err := json.Unmarshal(val, &state); err != nil {
 					return fmt.Errorf("failed to unmarshal state: %w", err)
 				}
-				if state.OperationTime.After(latestTime) {
-					latestTime = state.OperationTime
-					latestState = &state
-				}
+				latestState = &state
 				return nil
 			})
-			if err != nil {
-				return err
-			}
+			return err
 		}
 		return nil
 	})
@@ -544,7 +496,8 @@ func (sm *StateManager) getAllInstancesLocked() ([]string, error) {
 
 // writeStateLocked 写入状态（无锁版本，调用方需持有 sm.mu）
 func (sm *StateManager) writeStateLocked(state InstanceState) error {
-	key := fmt.Sprintf("state:%s:%s:%d", state.InstanceName, state.Status, state.OperationTime.UnixNano())
+	seq := sm.seq.Add(1)
+	key := fmt.Sprintf("state:%s:%020d:%020d:%s", state.InstanceName, state.OperationTime.UnixNano(), seq, state.Status)
 
 	stateBytes, err := json.Marshal(state)
 	if err != nil {
@@ -797,4 +750,16 @@ func WaitForInstanceState(instanceName string, notInStates []InstanceStatus, tim
 		}
 		return true
 	}, timeout)
+}
+
+// ClearStateDatabase 删除状态数据库目录（用于 key 格式变更后清空旧数据）
+func ClearStateDatabase() error {
+	if instanceStateManager != nil {
+		return fmt.Errorf("cannot clear state database while state manager is running")
+	}
+	dbPath := filepath.Join(BaseDir, "database_file", "state_db")
+	if err := os.RemoveAll(dbPath); err != nil {
+		return fmt.Errorf("failed to remove state database: %w", err)
+	}
+	return nil
 }

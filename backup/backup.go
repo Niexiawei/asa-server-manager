@@ -33,7 +33,7 @@ func BackupInstanceWorld(instanceName string) error {
 		return fmt.Errorf("SaveDir not configured for instance '%s'", instanceName)
 	}
 
-	savePath := filepath.Join(asaserver.ServerFilesDir, "ShooterGame/Saved", instanceName)
+	savePath := filepath.Join(asaserver.ServerFilesDir, "ShooterGame/Saved", config.SaveDir)
 
 	if _, err := os.Stat(savePath); err != nil {
 		return fmt.Errorf("SaveDir '%s' not found in instance '%s'", saveDir, instanceName)
@@ -378,13 +378,18 @@ func addFilesToTar(tw *tar.Writer, basePath string, prefix string) error {
 		}
 
 		if !info.IsDir() {
-			file, err := os.Open(path)
-			if err != nil {
-				return err
-			}
-			defer file.Close()
+			if err := func() error {
+				file, err := os.Open(path)
+				if err != nil {
+					return err
+				}
+				defer file.Close()
 
-			if _, err := io.Copy(tw, file); err != nil {
+				if _, err := io.Copy(tw, file); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
 				return err
 			}
 		}

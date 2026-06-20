@@ -60,7 +60,8 @@ func (p *program) Stop(s service.Service) error {
 		p.cancel()
 	}
 	if err := p.apiServer.Stop(); err != nil {
-		log.Fatal(err)
+		log.Printf("Error stopping API server: %v\n", err)
+		return err
 	}
 	// Give it a moment to shut down gracefully
 	time.Sleep(1 * time.Second)
@@ -184,12 +185,14 @@ func RunService(isDebug bool) error {
 		Description: ServiceDescription,
 	})
 	if err != nil {
-		log.Fatal(err)
+		log.Printf("Failed to create service: %v\n", err)
+		return err
 	}
 
 	err = s.Run()
 	if err != nil {
-		log.Fatal(err)
+		log.Printf("Failed to run service: %v\n", err)
+		return err
 	}
 	return nil
 }

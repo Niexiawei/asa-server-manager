@@ -23,6 +23,17 @@ import (
 
 // ========== Response types ==========
 
+// H16 fix: validateInstanceName checks for path traversal attacks
+func validateInstanceName(name string) error {
+	if name == "" {
+		return fmt.Errorf("instance name is required")
+	}
+	if strings.Contains(name, "..") || strings.ContainsAny(name, `/\`) || strings.ContainsAny(name, "\x00") {
+		return fmt.Errorf("invalid instance name")
+	}
+	return nil
+}
+
 type InstanceInfo struct {
 	Name          string                    `json:"name"`
 	Running       bool                      `json:"running"`
@@ -150,6 +161,14 @@ func (s *APIServer) createInstance(c *gin.Context) {
 		return
 	}
 
+	if err := validateInstanceName(req.Name); err != nil {
+		c.JSON(http.StatusBadRequest, StatusResponse{
+			Success: false,
+			Error:   err.Error(),
+		})
+		return
+	}
+
 	// Create instance directory
 	instanceDir := filepath.Join(asaserver.InstancesDir, req.Name, "Config")
 	if err := os.MkdirAll(instanceDir, 0755); err != nil {
@@ -218,6 +237,7 @@ func (s *APIServer) getInstanceStatus(c *gin.Context) {
 			Success: false,
 			Error:   "Instance not found",
 		})
+		return
 	}
 	running, err := asaserver.IsServerRunning(name)
 	config, cfgErr := asaserver.LoadInstanceConfig(name)
@@ -252,6 +272,10 @@ func (s *APIServer) getInstanceStatus(c *gin.Context) {
 // deleteInstance deletes an instance
 func (s *APIServer) deleteInstance(c *gin.Context) {
 	name := c.Param("name")
+	if err := validateInstanceName(name); err != nil {
+		c.JSON(http.StatusBadRequest, StatusResponse{Success: false, Error: err.Error()})
+		return
+	}
 
 	// Stop instance if running
 	if running, _ := asaserver.IsServerRunning(name); running {
@@ -290,6 +314,10 @@ func (s *APIServer) deleteInstance(c *gin.Context) {
 // renameInstance renames an instance
 func (s *APIServer) renameInstance(c *gin.Context) {
 	oldName := c.Param("name")
+	if err := validateInstanceName(oldName); err != nil {
+		c.JSON(http.StatusBadRequest, StatusResponse{Success: false, Error: err.Error()})
+		return
+	}
 
 	var req RenameInstanceRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -300,10 +328,10 @@ func (s *APIServer) renameInstance(c *gin.Context) {
 		return
 	}
 
-	if req.NewName == "" {
+	if err := validateInstanceName(req.NewName); err != nil {
 		c.JSON(http.StatusBadRequest, StatusResponse{
 			Success: false,
-			Error:   "New name cannot be empty",
+			Error:   err.Error(),
 		})
 		return
 	}
@@ -334,11 +362,15 @@ func (s *APIServer) renameInstance(c *gin.Context) {
 	// Rename save directories
 	oldSavePath := filepath.Join(asaserver.ServerFilesDir, "ShooterGame/Saved", oldName)
 	newSavePath := filepath.Join(asaserver.ServerFilesDir, "ShooterGame/Saved", req.NewName)
-	os.Rename(oldSavePath, newSavePath)
+	if err := os.Rename(oldSavePath, newSavePath); err != nil {
+		logger.GetLogger().Warnf("Failed to rename save directory for instance %s: %v", oldName, err)
+	}
 
 	oldArksPath := filepath.Join(asaserver.ServerFilesDir, "ShooterGame/Saved/SavedArks", oldName)
 	newArksPath := filepath.Join(asaserver.ServerFilesDir, "ShooterGame/Saved/SavedArks", req.NewName)
-	os.Rename(oldArksPath, newArksPath)
+	if err := os.Rename(oldArksPath, newArksPath); err != nil {
+		logger.GetLogger().Warnf("Failed to rename arks directory for instance %s: %v", oldName, err)
+	}
 
 	// Update SaveDir in configuration
 	config, err := asaserver.LoadInstanceConfig(req.NewName)
@@ -585,6 +617,10 @@ func (s *APIServer) handleServerUpdate(c *gin.Context) {
 	c.Header("Access-Control-Allow-Headers", "Content-Type")
 	c.Header("X-Accel-Buffering", "no")
 
+	// H8 fix: Subscribe FIRST to avoid TOCTOU race (missing events between check and subscribe)
+	subscriber, unsubscribe := s.updateBroadcaster.Subscribe()
+	defer unsubscribe()
+
 	// Only start a new update task when none is running; reconnecting clients subscribe only
 	s.updateMu.Lock()
 	if !s.updateBroadcaster.IsRunning() {
@@ -606,10 +642,6 @@ func (s *APIServer) handleServerUpdate(c *gin.Context) {
 		fmt.Fprintf(c.Writer, "data: %s\n\n", msg)
 	}
 	c.Writer.Flush()
-
-	// Subscribe to update progress
-	subscriber, unsubscribe := s.updateBroadcaster.Subscribe()
-	defer unsubscribe()
 
 	// Stream update progress
 	c.Stream(func(w io.Writer) bool {
@@ -661,7 +693,7 @@ func (s *APIServer) cancelUpdate(c *gin.Context) {
 	})
 }
 
-// streamServerInfo streams server resource information (CPU, Memory) via SSE every 200ms
+// streamServerInfo streams server resource information (CPU, Memory) via SSE every 2000ms
 func (s *APIServer) streamServerInfo(c *gin.Context) {
 	// Set SSE headers
 	c.Header("Content-Type", "text/event-stream")
@@ -670,7 +702,7 @@ func (s *APIServer) streamServerInfo(c *gin.Context) {
 	c.Header("Access-Control-Allow-Origin", "*")
 	c.Header("Access-Control-Allow-Headers", "Content-Type")
 
-	// Create ticker for 200ms interval
+	// Create ticker for 2000ms interval
 	ticker := time.NewTicker(2000 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -730,7 +762,7 @@ func (s *APIServer) streamServerInfo(c *gin.Context) {
 	})
 }
 
-// streamInstanceInfo streams instance resource information (CPU, Memory) via SSE every 200ms
+// streamInstanceInfo streams instance resource information (CPU, Memory) via SSE every 2000ms
 func (s *APIServer) streamInstanceInfo(c *gin.Context) {
 	instanceName := c.Param("name")
 
@@ -741,7 +773,7 @@ func (s *APIServer) streamInstanceInfo(c *gin.Context) {
 	c.Header("Access-Control-Allow-Origin", "*")
 	c.Header("Access-Control-Allow-Headers", "Content-Type")
 
-	// Create ticker for 200ms interval
+	// Create ticker for 2000ms interval
 	ticker := time.NewTicker(2000 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -759,10 +791,7 @@ func (s *APIServer) streamInstanceInfo(c *gin.Context) {
 			// Load instance configuration to get port
 			pid, err := asaserver.GetInstancePID(instanceName)
 			if err != nil {
-				c.JSON(500, gin.H{
-					"success": false,
-					"error":   fmt.Sprintf("Failed to load instance config: %v", err),
-				})
+				fmt.Fprintf(w, "data: {\"error\":\"Failed to load instance config: %v\"}\n\n", err)
 				return true
 			}
 
@@ -832,7 +861,7 @@ func (s *APIServer) streamInstanceInfo(c *gin.Context) {
 	})
 }
 
-// streamAllInstancesInfo streams resource information for all running servers via SSE every 200ms
+// streamAllInstancesInfo streams resource information for all running servers via SSE every 2000ms
 func (s *APIServer) streamAllInstancesInfo(c *gin.Context) {
 	// Set SSE headers
 	c.Header("Content-Type", "text/event-stream")
@@ -841,7 +870,7 @@ func (s *APIServer) streamAllInstancesInfo(c *gin.Context) {
 	c.Header("Access-Control-Allow-Origin", "*")
 	c.Header("Access-Control-Allow-Headers", "Content-Type")
 
-	// Create ticker for 200ms interval
+	// Create ticker for 2000ms interval
 	ticker := time.NewTicker(2000 * time.Millisecond)
 	defer ticker.Stop()
 	immediate := make(chan struct{}, 1)
@@ -994,7 +1023,7 @@ func (s *APIServer) streamInstanceLogs(c *gin.Context) {
 	}
 
 	// Create a channel to receive log lines with larger buffer to prevent message loss
-	logChan := make(chan string)
+	logChan := make(chan string, 100)
 	done := make(chan struct{})
 
 	// Start tailing the log file, reading the last 500 lines first
@@ -1050,7 +1079,7 @@ func (s *APIServer) streamSystemLogs(c *gin.Context) {
 	c.Header("Access-Control-Allow-Headers", "Content-Type")
 
 	// Create a channel to receive log lines with larger buffer to prevent message loss
-	logChan := make(chan string)
+	logChan := make(chan string, 100)
 	done := make(chan struct{})
 
 	// Start tailing the log file, reading the last 500 lines first
@@ -1749,6 +1778,12 @@ func (s *APIServer) streamSaveData(c *gin.Context) {
 		return
 	}
 
+	// Set SSE headers once
+	c.Writer.Header().Set("Content-Type", "text/event-stream")
+	c.Writer.Header().Set("Cache-Control", "no-cache")
+	c.Writer.Header().Set("Connection", "keep-alive")
+	c.Writer.Header().Set("X-Accel-Buffering", "no")
+
 	// Send cached data immediately if available
 	cached, err := s.saveDataManager.GetCached(instanceName)
 	if err == nil && cached != nil {
@@ -1757,22 +1792,14 @@ func (s *APIServer) streamSaveData(c *gin.Context) {
 			"instance": instanceName,
 			"data":     cached,
 		})
-		c.Writer.Header().Set("Content-Type", "text/event-stream")
-		c.Writer.Header().Set("Cache-Control", "no-cache")
-		c.Writer.Header().Set("Connection", "keep-alive")
-		c.Writer.Header().Set("X-Accel-Buffering", "no")
-		c.Writer.Flush()
 		fmt.Fprintf(c.Writer, "data: %s\n\n", data)
+		c.Writer.Flush()
 	}
 
 	broadcaster := s.saveDataManager.GetBroadcaster(instanceName)
 	ch, unsubscribe := broadcaster.Subscribe()
 	defer unsubscribe()
 
-	c.Writer.Header().Set("Content-Type", "text/event-stream")
-	c.Writer.Header().Set("Cache-Control", "no-cache")
-	c.Writer.Header().Set("Connection", "keep-alive")
-	c.Writer.Header().Set("X-Accel-Buffering", "no")
 	c.Writer.Flush()
 
 	ctx := c.Request.Context()

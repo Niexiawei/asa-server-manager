@@ -4,6 +4,7 @@ import (
 	"asa-server/logger"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -31,8 +32,25 @@ type ClientMessage struct {
 var WSUpgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
+	// M1 fix: Validate origin to prevent CSRF attacks
 	CheckOrigin: func(r *http.Request) bool {
-		return true
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			return true // Allow same-origin and non-browser clients
+		}
+		// Allow localhost origins for development
+		if strings.HasPrefix(origin, "http://localhost") ||
+			strings.HasPrefix(origin, "http://127.0.0.1") ||
+			strings.HasPrefix(origin, "https://localhost") ||
+			strings.HasPrefix(origin, "https://127.0.0.1") {
+			return true
+		}
+		// In production, restrict to same origin
+		host := r.Host
+		if host == "" {
+			return false
+		}
+		return strings.Contains(origin, host)
 	},
 }
 
@@ -90,8 +108,12 @@ func (h *Hub) RemoveClient(conn *websocket.Conn) {
 // CloseAllClients 主动关闭所有 WebSocket 连接，使 ReadJSON 返回错误退出
 func (h *Hub) CloseAllClients() {
 	h.mu.Lock()
-	for conn := range h.clients {
+	for conn, connMu := range h.clients {
+		// H9 fix: Acquire per-connection mutex before closing to prevent
+		// concurrent WriteJSON from panicking on a closed connection
+		connMu.Lock()
 		conn.Close()
+		connMu.Unlock()
 	}
 	h.clients = make(map[*websocket.Conn]*sync.Mutex)
 	h.mu.Unlock()

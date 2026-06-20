@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/aymanbagabas/go-pty"
@@ -137,6 +138,11 @@ func extractZip(zipPath string, destDir string) error {
 	for _, file := range reader.File {
 		// Construct the full path to the extracted file
 		fpath := filepath.Join(destDir, file.Name)
+
+		// Zip Slip protection: ensure the path is within destDir
+		if !strings.HasPrefix(filepath.Clean(fpath), filepath.Clean(destDir)+string(os.PathSeparator)) {
+			return fmt.Errorf("illegal file path in zip: %s", file.Name)
+		}
 
 		// Create directories if needed
 		if file.FileInfo().IsDir() {

@@ -258,10 +258,6 @@ func (s *APIServer) setupRoutes() {
 	// Batch operation endpoints
 	batchmanage.RegisterBatchRoutes(s.engine)
 
-	s.engine.NoRoute(func(c *gin.Context) {
-		c.JSON(404, gin.H{"error": "not found"})
-	})
-
 	distFs := app.GetDistFs()
 	fs, err := static.EmbedFolder(distFs, "dist")
 	if err != nil {

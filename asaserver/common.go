@@ -386,8 +386,10 @@ func WaitArkApiRunServer(ctx context.Context, port int) (uint32, error) {
 		processPid = make(chan uint32, 1)
 	)
 
-	defer close(processPid)
-	defer close(processErr)
+	// H4 fix: Removed defer close(processPid) and defer close(processErr)
+	// to prevent send-on-closed-channel panic when the goroutine is still
+	// running after the select returns via ctx.Done() or timeout.
+	// The buffered channels will be garbage collected.
 
 	go func() {
 		for {
@@ -396,14 +398,24 @@ func WaitArkApiRunServer(ctx context.Context, port int) (uint32, error) {
 			}
 			process, err := common.QueryProcess("ArkAscendedServer.exe", fmt.Sprintf("Port=%d", port))
 			if err != nil {
-				processErr <- err
+				select {
+				case processErr <- err:
+				default:
+				}
 				return
 			}
 			if len(process) > 0 {
-				processPid <- process[0].ProcessId
+				select {
+				case processPid <- process[0].ProcessId:
+				default:
+				}
 				return
 			}
-			<-time.After(200 * time.Millisecond)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(200 * time.Millisecond):
+			}
 		}
 	}()
 	select {
@@ -540,7 +552,7 @@ func SaveWorldSafely(instanceName string) error {
 	}
 
 	// Check if response contains "World Saved" to confirm server is saving
-	if err == nil && strings.Contains(response, "World Saved") {
+	if strings.Contains(response, "World Saved") {
 		logger.GetLogger().Infof("Server instance %s is saving world...", instanceName)
 	} else {
 		logger.GetLogger().Errorf("server instance %s is saving world error: %v", instanceName, err)
@@ -643,16 +655,20 @@ func waitServerStopped(ctx context.Context, pid int, gameLogPath string,
 
 	// Monitor log file for shutdown markers
 	TailLogFileWithLinesContext(ctxLocal, gameLogPath, 0, func(line string) {
+		mu.Lock()
 		if strings.Contains(line, "Closing by request") && !closingReceived {
 			closingReceived = true
+			mu.Unlock()
 			closingCallback()
+			return
 		}
 		if strings.Contains(line, "Log file closed") {
-			mu.Lock()
 			logFileClosed = true
 			mu.Unlock()
 			checkComplete()
+			return
 		}
+		mu.Unlock()
 	})
 
 	<-stopped
@@ -661,24 +677,35 @@ func waitServerStopped(ctx context.Context, pid int, gameLogPath string,
 func waitServerStartup(pid int, gameLogPath string, callback waitServerStartupFunc, successfullyCallback func()) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	latestLogLine := ""
+	var latestLogLineMu sync.Mutex
+	var latestLogLine string
 	var (
-		startup = make(chan struct{}) // 无缓冲，使用 close() 通知
+		startup    = make(chan struct{}) // 无缓冲，使用 close() 通知
+		closeOnce  sync.Once             // C5 fix: protect close(startup) from double-close
 	)
+
+	safeCloseStartup := func() {
+		closeOnce.Do(func() { close(startup) })
+	}
 
 	go func() {
 		if exited := WaitGamePidExit(ctx, pid); exited {
-			callback(false, latestLogLine)
-			close(startup) // 进程退出时解除阻塞
+			latestLogLineMu.Lock()
+			logLine := latestLogLine
+			latestLogLineMu.Unlock()
+			callback(false, logLine)
+			safeCloseStartup() // C5 fix: process exit path
 		}
 	}()
 
 	TailLogFileWithLinesContext(ctx, gameLogPath, 0, func(line string) {
-		latestLogLine = line
+		latestLogLineMu.Lock()
+		latestLogLine = line // H6 fix: protected by mutex
+		latestLogLineMu.Unlock()
 		// Check for successful startup message
 		if strings.Contains(line, "Server has completed startup and is now advertising for join") {
 			callback(true, "")
-			close(startup)
+			safeCloseStartup() // C5 fix: successful startup path
 			cancel()
 		}
 		if strings.Contains(line, "Initialize Primal Game Data Override") {

@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"strings"
 	"time"
 
 	"github.com/microsoft/wmi/pkg/base/instance"
@@ -83,6 +84,15 @@ type Win32Process struct {
 	CommandLine string // 可能为 nil
 }
 
+// escapeWQL escapes special characters in WQL LIKE patterns
+func escapeWQL(s string) string {
+	// Escape single quotes and WQL LIKE wildcards
+	s = strings.ReplaceAll(s, "'", "''")
+	s = strings.ReplaceAll(s, `%`, `\%`)
+	s = strings.ReplaceAll(s, `_`, `\_`)
+	return s
+}
+
 // QueryProcess queries Windows processes by name and optional command line
 func QueryProcess(name, commandLine string) ([]Win32Process, error) {
 	im, err := instance.GetWmiInstanceManager("", `root\cimv2`, "", "", "")
@@ -90,14 +100,14 @@ func QueryProcess(name, commandLine string) ([]Win32Process, error) {
 		return nil, err
 	}
 	args := []any{
-		name,
+		escapeWQL(name), // H10 fix: escape WQL injection
 	}
 
 	// WQL：查询进程名和 PID、命令行
 	query := `SELECT Name, ProcessId, CommandLine FROM Win32_Process where Name like '%%%s%%'`
 	if commandLine != "" {
 		query += ` and CommandLine like '%%%s%%'`
-		args = append(args, commandLine)
+		args = append(args, escapeWQL(commandLine)) // H10/M15 fix: escape WQL injection
 	}
 	query = fmt.Sprintf(query, args...)
 	res, err := im.QueryInstances(query)
@@ -107,13 +117,19 @@ func QueryProcess(name, commandLine string) ([]Win32Process, error) {
 	result := make([]Win32Process, 0, len(res))
 	// res 是 *[]Instance（接口），逐个读取属性
 	for _, inst := range res {
-		name, _ := inst.GetProperty("Name")
-		pid, _ := inst.GetProperty("ProcessId")
-		cmd, _ := inst.GetProperty("CommandLine")
+		nameVal, _ := inst.GetProperty("Name")
+		pidVal, _ := inst.GetProperty("ProcessId")
+		cmdVal, _ := inst.GetProperty("CommandLine")
+
+		// H11 fix: Use comma-ok pattern to prevent nil type assertion panic
+		nameStr, _ := nameVal.(string)
+		pidInt, _ := pidVal.(int32)
+		cmdStr, _ := cmdVal.(string)
+
 		result = append(result, Win32Process{
-			Name:        name.(string),
-			ProcessId:   uint32(pid.(int32)),
-			CommandLine: cmd.(string),
+			Name:        nameStr,
+			ProcessId:   uint32(pidInt),
+			CommandLine: cmdStr,
 		})
 	}
 	return result, nil

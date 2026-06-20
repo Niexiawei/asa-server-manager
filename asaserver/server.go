@@ -335,6 +335,24 @@ func IsServerRunningByPID(instanceName string) (bool, error) {
 	return true, nil
 }
 
+// copyFile copies a single file from src to dst
+func copyFile(src, dst string) error {
+	srcFile, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer srcFile.Close()
+
+	dstFile, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer dstFile.Close()
+
+	_, err = io.Copy(dstFile, srcFile)
+	return err
+}
+
 // CopyDir copies a directory recursively
 func CopyDir(src, dst string) error {
 	entries, err := os.ReadDir(src)
@@ -355,19 +373,7 @@ func CopyDir(src, dst string) error {
 				return err
 			}
 		} else {
-			srcFile, err := os.Open(srcPath)
-			if err != nil {
-				return err
-			}
-			defer srcFile.Close()
-
-			dstFile, err := os.Create(dstPath)
-			if err != nil {
-				return err
-			}
-			defer dstFile.Close()
-
-			if _, err := io.Copy(dstFile, srcFile); err != nil {
+			if err := copyFile(srcPath, dstPath); err != nil {
 				return err
 			}
 		}
@@ -728,6 +734,11 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 		}
 
 		pp, err := pty.New()
+		if err != nil {
+			startErr = fmt.Errorf("failed to create pty: %w", err)
+			return startErr
+		}
+		defer pp.Close()
 		c := pp.Command(arkExe, args...)
 		if err := c.Start(); err != nil {
 			startErr = fmt.Errorf("failed to start server: %w", err)

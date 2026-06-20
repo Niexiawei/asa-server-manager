@@ -4,6 +4,7 @@ import (
 	"asa-server/asaserver"
 	"asa-server/logger"
 	"context"
+	"fmt"
 	"os"
 
 	"github.com/urfave/cli/v3"
@@ -32,5 +33,15 @@ func ActionUpdate(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	logger.GetLogger().Info("Base server installation/update completed.")
+	return nil
+}
+
+// ActionStateClear 清空状态数据库
+func ActionStateClear(ctx context.Context, cmd *cli.Command) error {
+	fmt.Println("Clearing state database...")
+	if err := asaserver.ClearStateDatabase(); err != nil {
+		return fmt.Errorf("failed to clear state database: %w", err)
+	}
+	fmt.Println("State database cleared successfully.")
 	return nil
 }
