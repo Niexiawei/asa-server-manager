@@ -33,7 +33,7 @@ func BackupInstanceWorld(instanceName string) error {
 		return fmt.Errorf("SaveDir not configured for instance '%s'", instanceName)
 	}
 
-	savePath := filepath.Join(asaserver.ServerFilesDir, "ShooterGame/Saved", config.SaveDir)
+	savePath := filepath.Join(asaserver.InstancesDir, instanceName, "Save")
 
 	if _, err := os.Stat(savePath); err != nil {
 		return fmt.Errorf("SaveDir '%s' not found in instance '%s'", saveDir, instanceName)
@@ -195,7 +195,7 @@ func RestoreBackupToInstance(instanceName string, backupFile string, optFuncs ..
 	}
 
 	// Load instance configuration (may fail if not in backup, that's OK)
-	config, configLoadErr := asaserver.LoadInstanceConfig(instanceName)
+	_, configLoadErr := asaserver.LoadInstanceConfig(instanceName)
 	if configLoadErr != nil {
 		logger.GetLogger().Warnf("Failed to load instance config: %v (will use default)", configLoadErr)
 	}
@@ -245,12 +245,8 @@ func RestoreBackupToInstance(instanceName string, backupFile string, optFuncs ..
 			if len(relPath) > 0 && relPath[0] == '/' {
 				relPath = relPath[1:]
 			}
-			// Use SaveDir from loaded config, or use instance name as default
-			saveDir := instanceName
-			if configLoadErr == nil && config.SaveDir != "" {
-				saveDir = config.SaveDir
-			}
-			target = filepath.Join(filepath.Join(asaserver.ServerFilesDir, "ShooterGame/Saved", saveDir), relPath)
+			// v2: 存档路径统一使用 instances/<name>/Save/
+			target = filepath.Join(asaserver.InstancesDir, instanceName, "Save", relPath)
 		case options.RestoreInstanceConfig && name == "instance_config.ini":
 			// instance_config.ini -> instanceBaseDir/instance_config.ini (optional)
 			target = filepath.Join(instanceBaseDir, "instance_config.ini")

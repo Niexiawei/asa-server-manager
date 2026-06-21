@@ -45,10 +45,6 @@ func main() {
 	}
 
 	logger.InitLoggerWithBaseDir(asaserver.BaseDir)
-	// Initialize log mapping from persistent storage
-	if err := asaserver.InitializeLogMapping(); err != nil {
-		log.Fatal(err)
-	}
 
 	app := &cli.Command{
 		Name:    "asa-manager",

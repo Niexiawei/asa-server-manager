@@ -158,6 +158,7 @@ asa-server/
 | [STATE_CONTROL.md](STATE_CONTROL.md) | 实例状态控制与互斥机制 |
 | [STARTUP_FIXES.md](STARTUP_FIXES.md) | 启动/停止流程修复记录 |
 | [ARK_SAVE_PARSE_SOLUTION.md](ARK_SAVE_PARSE_SOLUTION.md) | ARK 存档解析设计方案 |
+| [V2_MIGRATION_CHANGELOG.md](V2_MIGRATION_CHANGELOG.md) | asaserverv2 → asaserver 迁移变更日志 |
 
 ## 开发说明
 
@@ -165,6 +166,6 @@ asa-server/
 - 前端使用 TDesign Vue 组件库
 - FRP 和 Syncthing 通过 `//go:embed` 嵌入，更新需重新编译
 - 实例状态持久化在 BadgerDB 中，重启后保持
-- 服务器启动使用 NTFS junction 共享基础服务器配置，同时允许每实例自定义
+- 服务器启动使用 NTFS 镜像目录方案，每个实例拥有独立的 `server-files-tmp-<name>/` 镜像，通过 junction/symlink 链接到原始文件，支持多实例并行启动
 - 长时间操作通过 SSE 流式推送进度，非普通 HTTP 响应
 - API 服务器使用互斥锁（`serverActionsLock`）防止并发启动/停止操作

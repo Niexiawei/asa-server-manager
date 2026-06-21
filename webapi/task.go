@@ -7,30 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 )
-
-// isTransitionalState 检查是否为中间态（批量操作应跳过）
-func isTransitionalState(status asaserver.InstanceStatus) bool {
-	switch status {
-	case asaserver.StatusStarting, asaserver.StatusRestarting, asaserver.StatusStopping,
-		asaserver.StatusStartStartInitialization:
-		return true
-	}
-	return false
-}
-
-// waitForGlobalReady 等待全局初始化完成（基于 sync.Cond 广播，不轮询）
-// 任何实例在 start_initialization 时，所有操作都被阻塞
-func waitForGlobalReady(broadcaster *httpserver.TaskBroadcaster, timeout time.Duration) error {
-	if asaserver.IsAnyInstanceInitializing() {
-		broadcaster.SendMessage("Waiting for instance initialization to complete...")
-		if err := asaserver.WaitForNoInitializing(timeout); err != nil {
-			return fmt.Errorf("timeout waiting for initialization: %w", err)
-		}
-	}
-	return nil
-}
 
 // runUpdateTask executes the server update task with context cancellation support
 func (s *APIServer) runUpdateTask(ctx context.Context) {

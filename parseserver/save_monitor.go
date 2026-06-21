@@ -165,8 +165,8 @@ func (m *SaveDataManager) Start(_ context.Context) {
 			continue
 		}
 
-		arkPath := filepath.Join(asaserver.ServerFilesDir, "ShooterGame/Saved",
-			config.SaveDir, dirMapName, config.MapName+".ark")
+		arkPath := filepath.Join(asaserver.InstancesDir, instanceName, "Save",
+			dirMapName, config.MapName+".ark")
 
 		if err := m.startMonitor(instanceName, arkPath); err != nil {
 			logger.GetLogger().Warnf("Failed to start save monitor for %s: %v", instanceName, err)

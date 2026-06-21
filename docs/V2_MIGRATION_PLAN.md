@@ -14,32 +14,41 @@
 
 ### 2.1 需要从 asaserverv2 迁入 asaserver 的内容
 
-| 模块 | 源文件 | 目标位置 | 说明 |
-|------|--------|----------|------|
-| 镜像管理 | `asaserverv2/mirror.go` | `asaserver/mirror.go` | 全部函数：`SyncInstanceMirror`, `createInstanceMirror`, `syncMirrorEntries`, `CleanupInstanceMirror`, `InstanceMirrorDir` 等 |
-| 启动核心 | `asaserverv2/server.go` 的 `startServerInternal` | `asaserver/server.go` 替换 v1 版本 | 镜像同步 + exe 路径 + 日志路径 |
-| 日志路径 | `asaserverv2/common.go` 的 `GetGameLogFilePath` | `asaserver/common.go` 替换 v1 版本 | 简化为直接路径 |
-| 存档安全 | `asaserverv2/common.go` 的 `SaveWorldSafely` | `asaserver/common.go` 更新 | 存档路径从 server-files 改为 instances/<name>/Save/ |
-| 强制停止 | `asaserverv2/force_stop.go` | `asaserver/server.go` 中的 `ForceStopServer` | 添加镜像清理，去掉 WaitForNoInitializing |
-| 辅助函数 | `asaserverv2/common.go` 的 `quotifyIfNeeded`, `arkApiCleanConsoleOutput` | `asaserver/common.go` | 如果 v1 不存在则迁入 |
+| 模块 | 源文件:行号 | 目标位置 | 说明 |
+|------|------------|----------|------|
+| 镜像管理 | `mirror.go` (900行) | `asaserver/mirror.go` | 全部函数：`SyncInstanceMirror`(:74), `createInstanceMirror`(:145), `syncMirrorEntries`(:531), `CleanupInstanceMirror`(:411), `CleanupMirrorCache`(:523), `InstanceMirrorDir`(:68), `buildExceptionTargets`(:209), `IsElevated`(:46), `EntryType*` 常量(:28-31) 等 |
+| 启动核心 | `server.go:startServerInternal`(:37) | `asaserver/server.go` 替换 v1 版本 | 镜像同步 + exe 路径 + 日志路径 |
+| 日志路径 | `server.go:GetGameLogFilePath`(:497) | `asaserver/server.go` 替换 v1 版本 | 简化为直接路径 `instances/<name>/Logs/ShooterGame.log` |
+| 存档安全 | `common.go:SaveWorldSafely`(:148) | `asaserver/common.go` 更新 | 存档路径从 server-files 改为 instances/<name>/Save/ |
+| 地图名标准化 | `common.go:savePathReplacement`(:142) | `asaserver/common.go` 迁入 | SaveWorldSafely 中的地图名映射（如 BobsMissions_WP → BobsMissions） |
+| 强制停止 | `force_stop.go:ForceStopServer`(:11) | `asaserver/server.go` 替换 | 添加镜像清理，去掉 WaitForNoInitializing |
+| 配置同步 | `server.go:SyncGameConfigToInstance`(:524) | `asaserver/server.go` 迁入 | v1 已有类似实现，需对比合并 |
+| 配置同步 | `server.go:syncConfigFile`(:549) | `asaserver/server.go` 迁入 | 单文件配置同步 |
+| 辅助函数 | `common.go:arkApiCleanConsoleOutput`(:68) | `asaserver/common.go` | v1 已有，保留不变 |
+| 辅助函数 | `server.go:quotifyIfNeeded`(:514) | `asaserver/server.go` | v1 已有(:1153)，保留不变 |
 
 ### 2.2 需要从 asaserver 删除的内容
 
-| 模块 | 函数/变量 | 原因 |
-|------|-----------|------|
-| v1 config junction | `setupInstanceConfig()` | 被 `SyncInstanceMirror` 替代 |
-| v1 config reset | `confReset` 变量及其所有引用 | v2 不需要 junction 释放 |
-| v1 目录复制 | `CopyDir()` (用于 config 复制的版本) | 不再需要 |
-| v1 日志映射 | `InitializeLogMapping()` | v2 直接使用实例目录 |
-| v1 日志映射 | `GetGameLogFileName()` | v2 直接返回固定文件名 |
-| v1 日志映射 | `PersistLogMapping()` | v2 不需要持久化映射 |
-| v1 日志映射 | `RemoveInstanceLogMapping()` | v2 无需清理映射 |
-| v1 日志映射 | `removeNotRunningServerLogMapper()` | v2 无需清理 |
-| v1 日志映射 | `instanceLogMapping` map + `logMappingMutex` | v2 不使用内存映射 |
-| v1 日志映射 | `LogMappingFile` 变量 | v2 不使用映射文件 |
-| v1 日志映射 | `LogMapping` struct + `LoadLogMappingFromFile` / `SaveLogMappingToFile` | v2 不使用 |
-| v1 全局锁 | `isAnyInstanceInitializingLocked()` | v2 不需要全局初始化互斥 |
-| v1 全局锁 | `WaitForNoInitializing()` | v2 不需要等待 junction 释放 |
+| 模块 | 函数/变量 | 文件:行号 | 原因 |
+|------|-----------|----------|------|
+| v1 config junction | `setupInstanceConfig()` | `server.go:386` | 被 `SyncInstanceMirror` 替代 |
+| v1 config reset | `confReset` 变量及其所有引用 | `server.go:551` | v2 不需要 junction 释放 |
+| v1 目录复制 | `CopyDir()` | `server.go:357` | 不再需要 |
+| v1 日志映射 | `InitializeLogMapping()` | `server.go:76` | v2 直接使用实例目录 |
+| v1 日志映射 | `GetGameLogFileName()` | `server.go:177` | v2 直接返回固定文件名 |
+| v1 日志映射 | `PersistLogMapping()` | `server.go:154` | v2 不需要持久化映射 |
+| v1 日志映射 | `RemoveInstanceLogMapping()` | `server.go:166` | v2 无需清理映射 |
+| v1 日志映射 | `removeNotRunningServerLogMapper()` | `server.go:456` | v2 无需清理 |
+| v1 日志映射 | `instanceLogMapping` map + `logMappingMutex` | `server.go:32,26` | v2 不使用内存映射 |
+| v1 日志映射 | `SetInstanceLogFile()` | `server.go:254` | 依赖内存映射 |
+| v1 日志映射 | `GetInstanceLogFile()` | `server.go:261` | 依赖内存映射，**webapi/api.go:1006 使用** |
+| v1 日志映射 | `LogMappingFile` 变量 | `config.go` | v2 不使用映射文件 |
+| v1 日志映射 | `LogMapping` struct + `LoadLogMappingFromFile` / `SaveLogMappingToFile` | `config.go:305,330` | v2 不使用 |
+| v1 全局锁 | `isAnyInstanceInitializingLocked()` | `state_manager.go:426` | v2 不需要全局初始化互斥 |
+| v1 全局锁 | `getInitializingInstanceLocked()` | `state_manager.go:444` | v2 不需要 |
+| v1 全局锁 | `IsAnyInstanceInitializing()` | `state_manager.go:640` | v2 不需要 |
+| v1 全局锁 | `WaitForNoInitializing()` | `state_manager.go:650` | v2 不需要等待 junction 释放 |
+| v1 isOperationAllowed | 全局互斥规则（规则1） | `state_manager.go:587-589` | 删除全局锁检查，仅保留 per-instance 状态检查 |
 
 ### 2.3 需要保留不变的内容
 
@@ -60,14 +69,16 @@
 | `server.go` 中的 `StopServer` 核心逻辑 | 基本不变 |
 | `server.go` 中的 `RestartServer` | 基本不变 |
 
-### 2.4 需要更新调用方
+### 2.4 需要更新的调用方（非 asaserverv2 引用）
 
-| 调用方 | 文件 | 变化 |
-|--------|------|------|
-| webapi | `webapi/api.go`, `webapi/actions.go`, `webapi/task.go` | `asaserverv2.XXX` → `asaserver.XXX` |
-| gui | `gui/gui.go` | `asaserverv2.XXX` → `asaserver.XXX` |
-| winservice | `winservice/service.go` | `asaserverv2.XXX` → `asaserver.XXX` |
-| main | `main.go` | `asaserverv2.XXX` → `asaserver.XXX` |
+> **注意**：`asaserverv2` 包目前**未被任何外部包导入**。以下更新是因为 v1 的函数签名/行为变化而需要同步修改的调用方。
+
+| 调用方 | 文件:行号 | 当前代码 | 迁移后 |
+|--------|----------|----------|--------|
+| webapi 日志流 | `webapi/api.go:1006` | `asaserver.GetInstanceLogFile(instanceName)` | `asaserver.GetGameLogFilePath(instanceName)` |
+| webapi 停止 | `webapi/api.go:902` | `GetInstanceLogFile(instanceName)` | `GetGameLogFilePath(instanceName)` |
+| backup 备份 | `backup/backup.go:36` | `filepath.Join(asaserver.ServerFilesDir, "ShooterGame/Saved", config.SaveDir)` | `filepath.Join(asaserver.InstancesDir, instanceName, "Save")` |
+| backup 恢复 | `backup/backup.go:253` | `filepath.Join(asaserver.ServerFilesDir, "ShooterGame/Saved", saveDir)` | `filepath.Join(asaserver.InstancesDir, instanceName, "Save")` |
 
 ## 三、分步迁移计划
 
@@ -267,28 +278,63 @@ func RestartServer(instanceName string) error {
 
 ### Step 9: 更新状态机（移除全局锁）
 
-**操作**：修改 `isOperationAllowed` 和相关逻辑：
+**操作**：修改 `state_manager.go`：
 
-1. 从 `isOperationAllowed` 中删除全局 `start_initialization` 互斥规则
-2. 仅保留 per-instance 状态检查（start 允许从 stopped/failed 状态启动）
-3. 可选：保留 `isAnyInstanceInitializingLocked` / `WaitForNoInitializing` 但标记为 deprecated
+1. **删除 `isOperationAllowed` 中的全局互斥规则**（行 587-589）：
+```go
+// [删除] 规则 1：全局互斥 - 检查是否有实例在 start_initialization
+if initInstance := sm.getInitializingInstanceLocked(); initInstance != "" {
+    return false, fmt.Sprintf("instance '%s' is in start_initialization state, all operations are blocked", initInstance)
+}
+```
 
-**影响文件**：`asaserver/state_manager.go`
+2. **删除以下函数**：
+   - `isAnyInstanceInitializingLocked()` (行 426)
+   - `getInitializingInstanceLocked()` (行 444)
+   - `IsAnyInstanceInitializing()` (行 640)
+   - `WaitForNoInitializing()` (行 650)
+
+3. **删除调用点**：
+   - `ForceStopServer` 中的 `WaitForNoInitializing(2 * time.Minute)` (server.go:963)
+
+**影响文件**：`asaserver/state_manager.go`, `asaserver/server.go`
 
 ### Step 10: 更新调用方
 
-**操作**：将所有 `asaserverv2.XXX` 调用改为 `asaserver.XXX`：
+**操作**：更新因 v1 函数变更而受影响的调用方：
 
-| 文件 | 变化示例 |
-|------|----------|
-| `webapi/api.go` | `asaserverv2.StartServer(...)` → `asaserver.StartServer(...)` |
-| `webapi/actions.go` | `asaserverv2.ForceStopServer(...)` → `asaserver.ForceStopServer(...)` |
-| `webapi/task.go` | `asaserverv2.RestartServer(...)` → `asaserver.RestartServer(...)` |
-| `gui/gui.go` | `asaserverv2.StartServer(...)` → `asaserver.StartServer(...)` |
-| `winservice/service.go` | 同上 |
-| `main.go` | 同上 |
+**webapi/api.go** — 日志流（行 1006）：
+```go
+// 当前：
+logPath, exists = asaserver.GetInstanceLogFile(instanceName)
+// 迁移后（GetInstanceLogFile 被删除）：
+logPath, err := asaserver.GetGameLogFilePath(instanceName)
+// 注意：不再需要轮询等待，v2 的 GetGameLogFilePath 直接返回固定路径
+```
 
-**注意**：需确认 v2 中 `RestartServer` 的签名与 v1 一致（都使用 `...StartServerOptionsFunc`）。
+**webapi/api.go** — stopServerInternal 日志路径（行 902）：
+```go
+// 当前：
+gameLogPath, _ = GetInstanceLogFile(instanceName)
+// 迁移后：
+gameLogPath, _ = GetGameLogFilePath(instanceName)
+```
+
+**backup/backup.go** — 备份存档路径（行 36）：
+```go
+// 当前：
+savePath := filepath.Join(asaserver.ServerFilesDir, "ShooterGame/Saved", config.SaveDir)
+// 迁移后：
+savePath := filepath.Join(asaserver.InstancesDir, instanceName, "Save")
+```
+
+**backup/backup.go** — 恢复存档路径（行 253）：
+```go
+// 当前：
+target = filepath.Join(filepath.Join(asaserver.ServerFilesDir, "ShooterGame/Saved", saveDir), relPath)
+// 迁移后：
+target = filepath.Join(filepath.Join(asaserver.InstancesDir, instanceName, "Save"), relPath)
+```
 
 ### Step 11: 清理 asaserverv2 包
 
@@ -298,8 +344,10 @@ asaserverv2/server.go       ← 已迁移
 asaserverv2/common.go       ← 已迁移
 asaserverv2/mirror.go       ← 已迁移
 asaserverv2/force_stop.go   ← 已迁移
-asaserverv2/server_test.go  ← 需迁移到 asaserver/
+asaserverv2/server_test.go  ← 迁移到 asaserver/
 ```
+
+**注意**：`StartAllInstances` 和 `StopAllInstances` 已被手动移除，不需要迁移。
 
 ### Step 12: 清理 asaserver 中的冗余代码
 
@@ -325,9 +373,11 @@ asaserverv2/server_test.go  ← 需迁移到 asaserver/
 | 磁盘空间（N 个 exe 副本） | 中 | 每实例 ~200-500MB，其他均为 junction/symlink（0 空间） |
 | exe 复制后版本不一致 | 低 | 增量同步的 MD5 校验会检测并更新 |
 | 多实例同时启动 I/O 压力 | 中 | 非 exe 文件是 symlink，I/O 压力有限 |
-| 存档路径变更影响备份功能 | 高 | 需同步更新 `backup/backup.go` 中的路径 |
-| 日志路径变更影响前端日志流 | 中 | 需确认 SSE 日志流使用 `GetGameLogFilePath` 而非硬编码路径 |
+| 存档路径变更影响备份功能 | **高** | 需同步更新 `backup/backup.go` 中的路径（行 36, 253） |
+| webapi 日志流中断 | **高** | `GetInstanceLogFile` 被删除后必须同步更新 `webapi/api.go:1006` |
+| 日志路径变更影响前端日志流 | 中 | SSE 日志流当前使用 `GetInstanceLogFile`，需改为 `GetGameLogFilePath` |
 | Config API 不受影响 | 低 | Config 文件位置未变（`instances/<name>/Config/`） |
+| IsServerRunning 依赖端口扫描 | 中 | v2 没有此函数，需确认 stopServerInternal 如何判断运行状态 |
 
 ## 六、验证计划
 

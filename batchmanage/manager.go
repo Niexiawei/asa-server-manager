@@ -380,13 +380,6 @@ func (bm *BatchManager) runBatchOperation(op *BatchOperation) {
 	httpserver.BroadcastBatchOperationStarted(opTypeStr, totalInstances)
 	op.sendLog("info", fmt.Sprintf("Batch %s started with %d instances", opTypeStr, totalInstances), "")
 
-	// 等待全局初始化完成
-	if err := waitForGlobalReady(5 * time.Minute); err != nil {
-		op.sendLog("error", fmt.Sprintf("Timeout waiting for initialization: %v", err), "")
-		op.markRemainingCancelled()
-		return
-	}
-
 	var succeeded, failed int
 
 	for i, instanceName := range op.Instances {
@@ -565,12 +558,3 @@ func toASAOperationType(bt BatchOperationType) asaserver.OperationType {
 	return asaserver.OpStart
 }
 
-// waitForGlobalReady 等待全局初始化完成
-func waitForGlobalReady(timeout time.Duration) error {
-	if asaserver.IsAnyInstanceInitializing() {
-		if err := asaserver.WaitForNoInitializing(timeout); err != nil {
-			return fmt.Errorf("timeout waiting for initialization: %w", err)
-		}
-	}
-	return nil
-}

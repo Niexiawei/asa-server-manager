@@ -422,42 +422,6 @@ func (sm *StateManager) getLatestStateOrDefaultLocked(instanceName string) Insta
 	return *state
 }
 
-// isAnyInstanceInitializingLocked 检查是否有任何实例处于 start_initialization（无锁版本）
-func (sm *StateManager) isAnyInstanceInitializingLocked() bool {
-	instances, err := sm.getAllInstancesLocked()
-	if err != nil {
-		return false
-	}
-	for _, name := range instances {
-		state, err := sm.getLatestStateLocked(name)
-		if err != nil {
-			continue
-		}
-		if state.Status == StatusStartStartInitialization {
-			return true
-		}
-	}
-	return false
-}
-
-// getInitializingInstanceLocked 返回当前处于 start_initialization 的实例名（无锁版本）
-func (sm *StateManager) getInitializingInstanceLocked() string {
-	instances, err := sm.getAllInstancesLocked()
-	if err != nil {
-		return ""
-	}
-	for _, name := range instances {
-		state, err := sm.getLatestStateLocked(name)
-		if err != nil {
-			continue
-		}
-		if state.Status == StatusStartStartInitialization {
-			return name
-		}
-	}
-	return ""
-}
-
 // getAllInstancesLocked 获取所有有状态记录的实例名称（无锁版本）
 func (sm *StateManager) getAllInstancesLocked() ([]string, error) {
 	instances := make(map[string]bool)
@@ -578,16 +542,10 @@ func (sm *StateManager) compareAndSwapState(instanceName string, allowedStates [
 // ========== 操作权限检查 ==========
 
 // isOperationAllowed 检查操作是否允许（内部方法）
-// 规则 1：任何实例在 start_initialization 则全部阻塞
-// 规则 2：根据目标实例当前状态判断操作是否允许
+// 根据目标实例当前状态判断操作是否允许
 func (sm *StateManager) isOperationAllowed(instanceName string, op OperationType) (bool, string) {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
-
-	// 规则 1：全局互斥 - 检查是否有实例在 start_initialization
-	if initInstance := sm.getInitializingInstanceLocked(); initInstance != "" {
-		return false, fmt.Sprintf("instance '%s' is in start_initialization state, all operations are blocked", initInstance)
-	}
 
 	// 规则 2：检查目标实例当前状态
 	currentState := sm.getLatestStateOrDefaultLocked(instanceName)
@@ -634,26 +592,6 @@ func IsOperationAllowed(instanceName string, op OperationType) (bool, string) {
 		return false, "state manager not initialized"
 	}
 	return instanceStateManager.isOperationAllowed(instanceName, op)
-}
-
-// IsAnyInstanceInitializing 检查是否有任何实例处于 start_initialization（包级函数）
-func IsAnyInstanceInitializing() bool {
-	if instanceStateManager == nil {
-		return false
-	}
-	instanceStateManager.mu.RLock()
-	defer instanceStateManager.mu.RUnlock()
-	return instanceStateManager.isAnyInstanceInitializingLocked()
-}
-
-// WaitForNoInitializing 等待所有 start_initialization 实例完成（包级函数，基于广播不轮询）
-func WaitForNoInitializing(timeout time.Duration) error {
-	if instanceStateManager == nil {
-		return fmt.Errorf("state manager not initialized")
-	}
-	return instanceStateManager.WaitForCondition(func() bool {
-		return !instanceStateManager.isAnyInstanceInitializingLocked()
-	}, timeout)
 }
 
 // ========== 卡住状态自动恢复 ==========

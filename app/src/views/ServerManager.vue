@@ -114,7 +114,7 @@
                 <div class="server-footer">
                   <t-button
                       @click="startInstance(instance.name)"
-                      :disabled="!canStart(instance.status, globalInitBlocked)"
+                      :disabled="!canStart(instance.status)"
                       :loading="isStartLoading(instance.name, instance.status)"
                       theme="primary"
                   >
@@ -122,7 +122,7 @@
                   </t-button>
                   <t-button
                       @click="stopInstance(instance.name)"
-                      :disabled="!canStop(instance.status, globalInitBlocked)"
+                      :disabled="!canStop(instance.status)"
                       :loading="isStopLoading(instance.status)"
                       theme="warning">
                     停止
@@ -141,7 +141,7 @@
                     </t-button>
                     <t-dropdown-menu>
                       <t-dropdown-item @click="restartInstance(instance.name)"
-                                       :disabled="!canRestart(instance.status, globalInitBlocked)">
+                                       :disabled="!canRestart(instance.status)">
                           <span v-if="isRestartLoading(instance.name, instance.status)">
                             <loading-icon/> 重启中...
                           </span>
@@ -233,7 +233,7 @@
 <script setup>
 
 import {useClipboard, useElementBounding} from "@vueuse/core";
-import {h, inject, onActivated, onDeactivated, reactive, ref, watch, computed} from 'vue'
+import {h, inject, onActivated, onDeactivated, reactive, ref, watch} from 'vue'
 import {useRouter} from 'vue-router'
 import {
   createInstance,
@@ -248,7 +248,7 @@ import BatchOperationDialog from '@/components/BatchOperationDialog.vue'
 import ServerUpdateDialog from '@/components/ServerUpdateDialog.vue'
 import {MessagePlugin, DialogPlugin, NotifyPlugin} from 'tdesign-vue-next';
 import {CheckIcon, CloseIcon, FileCopyIcon, LoadingIcon, MoreIcon} from 'tdesign-icons-vue-next';
-import {initServer, serverStore, addRestartPending, isAnyInstanceInitializing} from '@/store/serverStore.js'
+import {initServer, serverStore, addRestartPending} from '@/store/serverStore.js'
 import {
   canForceStop,
   canStart,
@@ -295,7 +295,6 @@ const logViewerRef = ref()
 const masonryRef = ref()
 const syncModalVisible = ref(false)
 const selectedSourceInstance = ref('')
-const globalInitBlocked = computed(() => isAnyInstanceInitializing())
 
 // 状态辅助函数（标签展示）
 const renderInstanceTitle = (instance) => {

@@ -298,12 +298,9 @@ func (s *APIServer) deleteInstance(c *gin.Context) {
 		return
 	}
 
-	// Delete save directories
-	savePath := filepath.Join(asaserver.ServerFilesDir, "ShooterGame/Saved", name)
+	// Delete save directories (v2: save is under instances/<name>/Save)
+	savePath := filepath.Join(asaserver.InstancesDir, name, "Save")
 	os.RemoveAll(savePath)
-
-	savedArksPath := filepath.Join(asaserver.ServerFilesDir, "ShooterGame/Saved/SavedArks", name)
-	os.RemoveAll(savedArksPath)
 
 	c.JSON(http.StatusOK, StatusResponse{
 		Success: true,
@@ -359,17 +356,11 @@ func (s *APIServer) renameInstance(c *gin.Context) {
 		return
 	}
 
-	// Rename save directories
-	oldSavePath := filepath.Join(asaserver.ServerFilesDir, "ShooterGame/Saved", oldName)
-	newSavePath := filepath.Join(asaserver.ServerFilesDir, "ShooterGame/Saved", req.NewName)
+	// Rename save directories (v2: save is under instances/<name>/Save)
+	oldSavePath := filepath.Join(asaserver.InstancesDir, oldName, "Save")
+	newSavePath := filepath.Join(asaserver.InstancesDir, req.NewName, "Save")
 	if err := os.Rename(oldSavePath, newSavePath); err != nil {
 		logger.GetLogger().Warnf("Failed to rename save directory for instance %s: %v", oldName, err)
-	}
-
-	oldArksPath := filepath.Join(asaserver.ServerFilesDir, "ShooterGame/Saved/SavedArks", oldName)
-	newArksPath := filepath.Join(asaserver.ServerFilesDir, "ShooterGame/Saved/SavedArks", req.NewName)
-	if err := os.Rename(oldArksPath, newArksPath); err != nil {
-		logger.GetLogger().Warnf("Failed to rename arks directory for instance %s: %v", oldName, err)
 	}
 
 	// Update SaveDir in configuration
@@ -995,24 +986,12 @@ func (s *APIServer) streamInstanceLogs(c *gin.Context) {
 	c.Header("Connection", "keep-alive")
 	c.Header("Access-Control-Allow-Origin", "*")
 	c.Header("Access-Control-Allow-Headers", "Content-Type")
-	// Get the log file path for the instance
-	timeout := time.Now().Add(120 * time.Second)
-	var (
-		logPath string
-	)
-
-	for {
-		var exists bool
-		logPath, exists = asaserver.GetInstanceLogFile(instanceName)
-		if exists {
-			break
-		}
-		if time.Now().After(timeout) {
-			fmt.Fprintf(c.Writer, "data: %s\n\n", "failed to get log file path")
-			c.Writer.Flush()
-			return
-		}
-		time.Sleep(1 * time.Second)
+	// Get the log file path for the instance (v2: direct path, no polling needed)
+	logPath, err := asaserver.GetGameLogFilePath(instanceName)
+	if err != nil {
+		fmt.Fprintf(c.Writer, "data: %s\n\n", "failed to get log file path")
+		c.Writer.Flush()
+		return
 	}
 
 	// Check if log file exists
@@ -1826,7 +1805,7 @@ func findSaveFileByInstance(instanceName string) (string, error) {
 		return "", fmt.Errorf("failed to load instance config for %s: %w", instanceName, err)
 	}
 
-	saveDir := filepath.Join(asaserver.ServerFilesDir, "ShooterGame/Saved/SavedArks", config.SaveDir, config.MapName)
+	saveDir := filepath.Join(asaserver.InstancesDir, instanceName, "Save", config.MapName)
 	savePath := filepath.Join(saveDir, config.MapName+".ark")
 	if _, err := os.Stat(savePath); err != nil {
 		return "", fmt.Errorf("save file not found for instance %s: %s", instanceName, savePath)

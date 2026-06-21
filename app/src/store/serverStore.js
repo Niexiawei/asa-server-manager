@@ -303,15 +303,6 @@ export function manualReconnect() {
     })
 }
 
-export function isAnyInstanceInitializing() {
-    for (const instance of serverStore.instances.values()) {
-        if (instance.status === 'start_initialization') {
-            return true
-        }
-    }
-    return false
-}
-
 export function addRestartPending(instanceName) {
     serverStore.restartPending.add(instanceName)
 }

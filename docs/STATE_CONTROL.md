@@ -4,8 +4,8 @@
 
 | 状态值 | 中文名 | 说明 |
 |--------|--------|------|
-| `start_initialization` | 初始化中 | CAS 抢占后，正在创建 junction / 同步镜像目录 |
-| `start_initialization_successful` | 初始化完成 | junction / 镜像已释放，等待进程就绪 |
+| `start_initialization` | 初始化中 | CAS 抢占后，正在同步镜像目录 |
+| `start_initialization_successful` | 初始化完成 | 镜像已建立 + 进程已启动，等待进程就绪 |
 | `starting` | 启动中 | 进程已启动，等待 "Server has completed startup" |
 | `started` | 运行中 | 服务器正常运行 |
 | `stopping` | 停止中 | 正在优雅关闭（RCON saveworld → DoExit） |
@@ -24,7 +24,7 @@
 graph TB
     subgraph 启动流程
         A[stopped / start_failed / stop_failed / restart_failed] -->|CAS StartServer| B[start_initialization]
-        B -->|junction/镜像完成| C[start_initialization_successful]
+        B -->|镜像同步完成| C[start_initialization_successful]
         C -->|进程启动| D[starting]
         D -->|Server has completed startup| E[started]
         B -->|失败| F[start_failed]
@@ -78,23 +78,21 @@ graph TB
 
 | 条件 | 行为 |
 |------|------|
-| 任意实例在 `start_initialization` | **全局阻塞**，等待完成 |
+| 目标实例在 `start_initialization` | **跳过**该实例（与其他中间态相同） |
 | 目标实例在中间态（`starting`/`stopping`/`restarting`） | **跳过**该实例 |
 | 目标实例在失败态 | Stop/Restart 跳过，Start 允许 |
 
 ---
 
-## 全局互斥规则
+## 并行启动能力
 
-```
-任何实例处于 start_initialization → 所有操作阻塞
-```
+镜像方式启动后，每个实例拥有独立的镜像目录（NTFS Junction），不再占用共享资源。
+因此**全局互斥规则已移除**：多个实例可以并行启动，互不阻塞。
 
-**原因**：`start_initialization` 期间占用共享资源（junction 目录），并发操作可能导致冲突。
+`isOperationAllowed()` 仅检查**目标实例自身**的当前状态，不再检查其他实例的状态。
+`IsAnyInstanceInitializing()` 和 `WaitForNoInitializing()` 已删除。
 
-**实现**：`StateManager.isOperationAllowed()` 的 **规则 1** 优先检查全局互斥。`WaitForNoInitializing()` 基于 `sync.Cond` 广播等待，非轮询。
-
-**例外**：`ForceStopServer` 绕过此检查（旧 asaserver 保留等待，asaserverv2 不等待）。
+**例外**：`ForceStopServer` 绕过 CAS 检查，直接杀进程 + 清理镜像。
 
 ---
 
@@ -123,7 +121,7 @@ graph TB
 | | 优雅 Stop | ForceStop |
 |---|----------|-----------|
 | **CAS 检查** | ✅ 需要 `started` | ❌ 无 CAS |
-| **等待初始化** | N/A | 旧代码等待，v2 不等待 |
+| **等待初始化** | N/A | 镜像方式无需等待 |
 | **关闭方式** | RCON `saveworld` → `DoExit` → 等待进程退出（5 分钟超时） | `taskkill /F` 直接杀进程 |
 | **状态写入** | `stopping` → `stopped` / `stop_failed` | 直接写 `stopped` |
 | **v2 镜像清理** | 不涉及 | ✅ CleanupInstanceMirror |
@@ -154,5 +152,5 @@ graph TB
 |------|------|------|
 | **干净停止态** | `stopped`, `start_failed`, `stop_failed`, `restart_failed`, `""` | 可以 Start / Delete |
 | **运行态** | `started` | 可以 Stop / Restart / RCON |
-| **中间态** | `start_initialization`, `start_initialization_successful`, `starting`, `stopping`, `restarting` | 所有操作阻塞，仅 ForceStop 可用 |
+| **中间态** | `start_initialization`, `start_initialization_successful`, `starting`, `stopping`, `restarting` | 仅 ForceStop 可用（镜像方式下多实例可并行启动） |
 | **失败态** | `start_failed`, `stop_failed`, `restart_failed` | 可以 Start（重试），不可 Stop/Restart |

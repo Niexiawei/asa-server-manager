@@ -1,5 +1,4 @@
-import {computed} from 'vue'
-import {serverStore, isAnyInstanceInitializing} from '@/store/serverStore.js'
+import {serverStore} from '@/store/serverStore.js'
 
 const CLEAN_STOPPED = ['stopped', 'start_failed', 'stop_failed', 'restart_failed', '']
 const START_LOADING_STATES = ['start_initialization', 'start_initialization_successful', 'starting']
@@ -44,16 +43,16 @@ export function isCleanStoppedStatus(status) {
   return CLEAN_STOPPED.includes(status)
 }
 
-export function canStart(status, globalBlocked = isAnyInstanceInitializing()) {
-  return isCleanStoppedStatus(status) && !globalBlocked
+export function canStart(status) {
+  return isCleanStoppedStatus(status)
 }
 
-export function canStop(status, globalBlocked = isAnyInstanceInitializing()) {
-  return status === 'started' && !globalBlocked
+export function canStop(status) {
+  return status === 'started'
 }
 
-export function canRestart(status, globalBlocked = isAnyInstanceInitializing()) {
-  return status === 'started' && !globalBlocked
+export function canRestart(status) {
+  return status === 'started'
 }
 
 export function canForceStop(status) {
@@ -74,17 +73,14 @@ export function isRestartLoading(name, status) {
 }
 
 export function useInstanceState(instanceNameRef) {
-  const globalBlocked = computed(() => isAnyInstanceInitializing())
-
-  const canStartInstance = (status) => canStart(status, globalBlocked.value)
-  const canStopInstance = (status) => canStop(status, globalBlocked.value)
-  const canRestartInstance = (status) => canRestart(status, globalBlocked.value)
+  const canStartInstance = (status) => canStart(status)
+  const canStopInstance = (status) => canStop(status)
+  const canRestartInstance = (status) => canRestart(status)
 
   const isStartLoadingInstance = (status) => isStartLoading(instanceNameRef.value, status)
   const isRestartLoadingInstance = (status) => isRestartLoading(instanceNameRef.value, status)
 
   return {
-    globalBlocked,
     canStartInstance,
     canStopInstance,
     canRestartInstance,

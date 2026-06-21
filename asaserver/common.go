@@ -563,10 +563,13 @@ func SaveWorldSafely(instanceName string) error {
 		return nil
 	}
 
-	// Construct the save file path: baseDir + 'server-files\ShooterGame\Saved' + {SaveDir} + {MapName} + {MapName}.ark
-	// The actual path should be: BaseDir/server-files/ShooterGame/Saved/SavedArks/{SaveDir}/{MapName}.ark
-	// Based on the code in server.go, saveDir is used as: filepath.Join(ServerFilesDir, "ShooterGame/Saved/SavedArks", config.SaveDir)
-	saveDirPath := filepath.Join(ServerFilesDir, "ShooterGame/Saved", config.SaveDir, config.MapName)
+	// v2: 存档路径改为实例本地目录
+	saveDirPath := filepath.Join(InstancesDir, instanceName, "Save", config.MapName)
+
+	// 确保存档目录存在
+	if err := os.MkdirAll(saveDirPath, 0755); err != nil {
+		return fmt.Errorf("failed to create save directory: %w", err)
+	}
 
 	args := make([]string, 0, len(savePathReplacement)*2)
 	for k, v := range savePathReplacement {

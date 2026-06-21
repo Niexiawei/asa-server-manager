@@ -12,10 +12,6 @@ func init() {
 	}
 
 	logger.InitLoggerWithBaseDir(BaseDir)
-	// Initialize log mapping from persistent storage
-	if err := InitializeLogMapping(); err != nil {
-		log.Fatal(err)
-	}
 }
 
 func Test_SetMessageOfTheDay(t *testing.T) {

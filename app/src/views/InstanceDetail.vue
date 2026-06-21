@@ -22,7 +22,7 @@
         <t-space breakLine>
           <t-button
               @click="startInstance"
-              :disabled="!canStart(instanceStatus, globalInitBlocked)"
+              :disabled="!canStart(instanceStatus)"
               :loading="isStartLoading(instanceName, instanceStatus)"
               theme="primary"
           >
@@ -30,7 +30,7 @@
           </t-button>
           <t-button
               @click="stopInstance"
-              :disabled="!canStop(instanceStatus, globalInitBlocked)"
+              :disabled="!canStop(instanceStatus)"
               :loading="isStopLoading(instanceStatus)"
               theme="warning"
           >
@@ -38,7 +38,7 @@
           </t-button>
           <t-button
               @click="restartInstance"
-              :disabled="!canRestart(instanceStatus, globalInitBlocked)"
+              :disabled="!canRestart(instanceStatus)"
               :loading="isRestartLoading(instanceName, instanceStatus)"
               theme="success"
           >
@@ -47,7 +47,7 @@
           <t-divider layout="vertical" style="height: 100%"/>
           <t-button
               @click="rconFloatingVisible = true"
-              :disabled="!canStop(instanceStatus, globalInitBlocked)"
+              :disabled="!canStop(instanceStatus)"
               theme="primary"
           >
             RCON 终端
@@ -367,7 +367,7 @@ import {
   uploadGameIniFile,
   uploadGameUserSettingsFile
 } from '@/apis/api.js'
-import {getInstanceStatus, initServer, addRestartPending, isAnyInstanceInitializing} from '@/store/serverStore.js'
+import {getInstanceStatus, initServer, addRestartPending} from '@/store/serverStore.js'
 import {
   canForceStop,
   canStart,
@@ -434,7 +434,6 @@ const savingConfig = ref(false)
 
 // 状态
 const instanceStatus = computed(() => getInstanceStatus(instanceName)?.status || 'stopped')
-const globalInitBlocked = computed(() => isAnyInstanceInitializing())
 
 const baseLoadedSuccessfully = ref(false)
 

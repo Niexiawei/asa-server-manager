@@ -1,8 +1,6 @@
-package asaserverv2
+package asaserver
 
 import (
-	"asa-server/asaserver"
-	"asa-server/logger"
 	"crypto/md5"
 	"fmt"
 	"io"
@@ -11,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"asa-server/logger"
 
 	"golang.org/x/sys/windows"
 	"znkr.io/diff"
@@ -66,12 +66,12 @@ func IsElevated() bool {
 
 // InstanceMirrorDir 返回实例镜像目录路径
 func InstanceMirrorDir(instanceName string) string {
-	return filepath.Join(asaserver.BaseDir, mirrorDirPrefix+instanceName)
+	return filepath.Join(BaseDir, mirrorDirPrefix+instanceName)
 }
 
 // SyncInstanceMirror 同步实例镜像目录
 // 如果镜像不存在则创建，存在则增量同步
-func SyncInstanceMirror(instanceName string, cfg *asaserver.InstanceConfig) (string, error) {
+func SyncInstanceMirror(instanceName string, cfg *InstanceConfig) (string, error) {
 	mirrorDir := InstanceMirrorDir(instanceName)
 
 	// 检查实例 Config 目录是否存在且非空
@@ -109,7 +109,7 @@ func SyncInstanceMirror(instanceName string, cfg *asaserver.InstanceConfig) (str
 
 // validateInstanceConfig 验证实例 Config 目录
 func validateInstanceConfig(instanceName string) error {
-	instanceConfigDir := filepath.Join(asaserver.InstancesDir, instanceName, "Config")
+	instanceConfigDir := filepath.Join(InstancesDir, instanceName, "Config")
 	if _, err := os.Stat(instanceConfigDir); os.IsNotExist(err) {
 		return fmt.Errorf("instance config directory does not exist: %s, please create the instance first", instanceConfigDir)
 	}
@@ -122,8 +122,8 @@ func validateInstanceConfig(instanceName string) error {
 
 // ensureInstanceDirs 确保 Logs 和 Save 目录存在
 func ensureInstanceDirs(instanceName string) error {
-	instanceLogsDir := filepath.Join(asaserver.InstancesDir, instanceName, "Logs")
-	instanceSaveDir := filepath.Join(asaserver.InstancesDir, instanceName, "Save")
+	instanceLogsDir := filepath.Join(InstancesDir, instanceName, "Logs")
+	instanceSaveDir := filepath.Join(InstancesDir, instanceName, "Save")
 
 	for _, dir := range []string{instanceLogsDir, instanceSaveDir} {
 		if err := os.MkdirAll(dir, 0755); err != nil {
@@ -146,12 +146,12 @@ func createInstanceMirror(instanceName string, mirrorDir string, exceptionTarget
 	logger.GetLogger().Infof("Creating instance mirror at %s", mirrorDir)
 
 	// Walk server-files 目录树
-	err := filepath.Walk(asaserver.ServerFilesDir, func(path string, info os.FileInfo, err error) error {
+	err := filepath.Walk(ServerFilesDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 
-		relPath, err := filepath.Rel(asaserver.ServerFilesDir, path)
+		relPath, err := filepath.Rel(ServerFilesDir, path)
 		if err != nil {
 			return err
 		}
@@ -189,7 +189,7 @@ func createInstanceMirror(instanceName string, mirrorDir string, exceptionTarget
 	for relPath, target := range exceptionTargets {
 		mirrorPath := filepath.Join(mirrorDir, filepath.FromSlash(relPath))
 		if _, statErr := os.Stat(mirrorPath); os.IsNotExist(statErr) {
-			srcPath := filepath.Join(asaserver.ServerFilesDir, filepath.FromSlash(relPath))
+			srcPath := filepath.Join(ServerFilesDir, filepath.FromSlash(relPath))
 			if mkErr := os.MkdirAll(srcPath, 0755); mkErr != nil {
 				logger.GetLogger().Warnf("Failed to pre-create source dir %s: %v", srcPath, mkErr)
 			}
@@ -206,10 +206,10 @@ func createInstanceMirror(instanceName string, mirrorDir string, exceptionTarget
 }
 
 // buildExceptionTargets 构建例外路径到目标目录的映射
-func buildExceptionTargets(instanceName string, cfg *asaserver.InstanceConfig) map[string]string {
+func buildExceptionTargets(instanceName string, cfg *InstanceConfig) map[string]string {
 	targets := map[string]string{
-		"ShooterGame/Saved/Config/WindowsServer": filepath.Join(asaserver.InstancesDir, instanceName, "Config"),
-		"ShooterGame/Saved/Logs":                 filepath.Join(asaserver.InstancesDir, instanceName, "Logs"),
+		"ShooterGame/Saved/Config/WindowsServer": filepath.Join(InstancesDir, instanceName, "Config"),
+		"ShooterGame/Saved/Logs":                 filepath.Join(InstancesDir, instanceName, "Logs"),
 	}
 
 	// SaveDir 映射
@@ -217,7 +217,7 @@ func buildExceptionTargets(instanceName string, cfg *asaserver.InstanceConfig) m
 	if saveDir == "" {
 		saveDir = instanceName
 	}
-	targets["ShooterGame/Saved/"+saveDir] = filepath.Join(asaserver.InstancesDir, instanceName, "Save")
+	targets["ShooterGame/Saved/"+saveDir] = filepath.Join(InstancesDir, instanceName, "Save")
 
 	return targets
 }
@@ -529,7 +529,7 @@ func CleanupMirrorCache(instanceName string) error {
 // syncMirrorEntries 增量同步镜像目录
 // 使用 diff 对比源目录和镜像目录，只处理差异
 func syncMirrorEntries(_, mirrorDir string, exceptionTargets map[string]string) error {
-	srcDir := asaserver.ServerFilesDir
+	srcDir := ServerFilesDir
 
 	// 收集源目录条目
 	sourceEntries, err := collectSourceEntries(srcDir, exceptionTargets)

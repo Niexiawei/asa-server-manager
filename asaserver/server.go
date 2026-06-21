@@ -13,23 +13,15 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
 	"github.com/aymanbagabas/go-pty"
-	"github.com/fsnotify/fsnotify"
 	"github.com/gorcon/rcon"
 )
 
-// logMappingMutex protects the instance to log file mapping
-var logMappingMutex sync.RWMutex
-
 // ErrOperationNotAllowed is returned when an operation is not allowed in the current instance state
 var ErrOperationNotAllowed = fmt.Errorf("operation not allowed in current state")
-
-// instanceLogMapping stores the mapping of instance names to their log file paths
-var instanceLogMapping = make(map[string]string)
 
 // LogWriter is a custom writer that forwards output to logger
 type LogWriter struct {
@@ -72,197 +64,18 @@ func removeANSIEscapes(s string) string {
 	return strings.TrimSpace(result.String())
 }
 
-// InitializeLogMapping loads log mappings from persistent storage
-func InitializeLogMapping() error {
-	var (
-		backSyncStart = make(chan struct{}, 1)
-	)
-	defer close(backSyncStart)
-
-	mappings, err := LoadLogMappingFromFile()
-	if err != nil {
-		return fmt.Errorf("failed to load log mapping from file: %w", err)
-	}
-
-	logMappingMutex.Lock()
-	instanceLogMapping = mappings
-	logMappingMutex.Unlock()
-
-	if len(mappings) > 0 {
-		logger.GetLogger().Infof("Loaded %d instance log mappings from persistent storage", len(mappings))
-	}
-
-	go func() {
-		logger.GetLogger().Info("Starting log mapping file change listener...")
-		watcher, err := fsnotify.NewWatcher()
-		if err != nil {
-			panic(fmt.Sprintf("Failed to create file watcher: %v", err))
-		}
-
-		defer watcher.Close()
-		if err := watcher.Add(LogMappingFile); err != nil {
-			panic(fmt.Sprintf("Failed to watch logs directory: %v", err))
-		}
-
-		backSyncStart <- struct{}{}
-
-		for {
-			select {
-			case event, ok := <-watcher.Events:
-				if !ok {
-					return
-				}
-				if event.Name != LogMappingFile {
-					continue
-				}
-
-				if event.Op&fsnotify.Write != fsnotify.Write {
-					continue
-				}
-
-				mappings, err := LoadLogMappingFromFile()
-				if err != nil {
-					logger.GetLogger().Errorf("failed to load log mapping from file: %v", err)
-					continue
-				}
-
-				logMappingMutex.Lock()
-				instanceLogMapping = mappings
-				logMappingMutex.Unlock()
-
-				if len(mappings) > 0 {
-					logger.GetLogger().Infof("Loaded %d instance log mappings from persistent storage", len(mappings))
-				}
-
-			case err, ok := <-watcher.Errors:
-				if !ok {
-					return
-				}
-				logger.GetLogger().Errorf("Watcher error: %v", err)
-				return
-			}
-		}
-
-	}()
-
-	<-backSyncStart
-
-	return nil
-}
-
-// PersistLogMapping saves the current log mappings to storage
-func PersistLogMapping() error {
-	logMappingMutex.RLock()
-	mappingsCopy := make(map[string]string)
-	for k, v := range instanceLogMapping {
-		mappingsCopy[k] = v
-	}
-	logMappingMutex.RUnlock()
-
-	return SaveLogMappingToFile(mappingsCopy)
-}
-
-// RemoveInstanceLogMapping removes the log mapping for an instance
-func RemoveInstanceLogMapping(instanceName string) error {
-	logMappingMutex.Lock()
-	delete(instanceLogMapping, instanceName)
-	logMappingMutex.Unlock()
-	// Persist the updated mappings to file
-	return PersistLogMapping()
-}
-
-// GetGameLogFileName returns the log file name for a given instance based on running order
-// The naming convention is: ShooterGame.log for the first instance, ShooterGame_2.log, ShooterGame_3.log, etc.
-// It finds the first available (non-existent) log file number
-func GetGameLogFileName(instanceName string) (string, error) {
-	logsDir := filepath.Join(ServerFilesDir, "ShooterGame/Saved/Logs")
-
+// GetGameLogFilePath returns the full path to the log file for a given instance
+// v2: uses per-instance log directory under InstancesDir
+func GetGameLogFilePath(instanceName string) (string, error) {
+	logsDir := filepath.Join(InstancesDir, instanceName, "Logs")
 	if err := os.MkdirAll(logsDir, 0755); err != nil {
 		return "", fmt.Errorf("failed to create logs directory: %w", err)
 	}
-
-	logMappingMutex.RLock()
-	defer logMappingMutex.RUnlock()
-
-	// Find the first available log file number (starting from 1)
-	// First, check if ShooterGame.log (number 1) is available
-	logFileName := "ShooterGame.log"
-	used := false
-
-	for _, logPath := range instanceLogMapping {
-		if filepath.Base(logPath) == logFileName {
-			used = true
-			break
-		}
+	logPath := filepath.Join(logsDir, "ShooterGame.log")
+	if _, err := os.Stat(logPath); os.IsNotExist(err) {
+		os.WriteFile(logPath, nil, 0644)
 	}
-	if !used {
-		return logFileName, nil
-	}
-
-	// If ShooterGame.log is used, find the first available numbered file
-	// Check ShooterGame_2.log, ShooterGame_3.log, etc.
-
-	for i := 2; i <= 999; i++ {
-		logFileName := fmt.Sprintf("ShooterGame_%d.log", i)
-		used := false
-		for _, logPath := range instanceLogMapping {
-			if filepath.Base(logPath) == logFileName {
-				used = true
-				break
-			}
-		}
-
-		if !used {
-			return logFileName, nil
-		}
-	}
-
-	// Fallback (should never happen in practice)
-	return "", fmt.Errorf("could not find available log file number for instance %s", instanceName)
-}
-
-// GetGameLogFilePath returns the full path to the log file for a given instance
-func GetGameLogFilePath(instanceName string) (string, error) {
-	logsDir := filepath.Join(ServerFilesDir, "ShooterGame/Saved/Logs")
-
-	// Check if we have a cached mapping
-	logMappingMutex.RLock()
-	if logPath, exists := instanceLogMapping[instanceName]; exists {
-		logMappingMutex.RUnlock()
-		return logPath, nil
-	}
-	logMappingMutex.RUnlock()
-
-	// Get the log file name and create the mapping
-	logFileName, err := GetGameLogFileName(instanceName)
-	if err != nil {
-		return "", err
-	}
-
-	logPath := filepath.Join(logsDir, logFileName)
-
-	// Store the mapping
-	logMappingMutex.Lock()
-	instanceLogMapping[instanceName] = logPath
-	logMappingMutex.Unlock()
-
 	return logPath, nil
-}
-
-// SetInstanceLogFile manually sets the log file path for an instance
-// This is useful when you want to explicitly map an instance to a log file
-func SetInstanceLogFile(instanceName, logFilePath string) {
-	logMappingMutex.Lock()
-	instanceLogMapping[instanceName] = logFilePath
-	logMappingMutex.Unlock()
-}
-
-// GetInstanceLogFile retrieves the log file path for an instance from the mapping
-func GetInstanceLogFile(instanceName string) (string, bool) {
-	logMappingMutex.RLock()
-	logPath, exists := instanceLogMapping[instanceName]
-	logMappingMutex.RUnlock()
-	return logPath, exists
 }
 
 // IsServerRunning checks if a server instance is running
@@ -335,24 +148,6 @@ func IsServerRunningByPID(instanceName string) (bool, error) {
 	return true, nil
 }
 
-// copyFile copies a single file from src to dst
-func copyFile(src, dst string) error {
-	srcFile, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer srcFile.Close()
-
-	dstFile, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer dstFile.Close()
-
-	_, err = io.Copy(dstFile, srcFile)
-	return err
-}
-
 // CopyDir copies a directory recursively
 func CopyDir(src, dst string) error {
 	entries, err := os.ReadDir(src)
@@ -379,96 +174,6 @@ func CopyDir(src, dst string) error {
 		}
 	}
 
-	return nil
-}
-
-// setupInstanceConfig sets up the instance configuration directory with proper symlinks or junctions
-func setupInstanceConfig(instanceName string, confReset *func()) error {
-	instanceConfigDir := filepath.Join(InstancesDir, instanceName, "Config")
-	baseConfigDir := filepath.Join(ServerFilesDir, "ShooterGame/Saved/Config/WindowsServer")
-	baseConfigDirBackup := baseConfigDir + ".bak"
-
-	// 1. If instance Config directory doesn't exist, copy from base server config
-	if _, err := os.Stat(instanceConfigDir); os.IsNotExist(err) {
-		logger.GetLogger().Infof("Copying base server configuration to instance '%s'...", instanceName)
-		if err := CopyDir(baseConfigDir, instanceConfigDir); err != nil {
-			return fmt.Errorf("failed to copy config directory: %w", err)
-		}
-	}
-
-	// 2. Backup the original Config directory if not already backed up
-	fileInfo, err := os.Lstat(baseConfigDir)
-	if err == nil {
-		// If it's not a symlink and backup doesn't exist, back it up
-		isSymlink := (fileInfo.Mode() & os.ModeSymlink) != 0
-		_, backupErr := os.Stat(baseConfigDirBackup)
-		if !isSymlink && os.IsNotExist(backupErr) {
-			logger.GetLogger().Info("Backing up original configuration directory...")
-			if err := os.Rename(baseConfigDir, baseConfigDirBackup); err != nil {
-				return fmt.Errorf("failed to backup original config directory: %w", err)
-			}
-		}
-	}
-
-	// 3. Remove the symlink/directory and create a junction to instance config
-	if err := os.RemoveAll(baseConfigDir); err != nil {
-		return fmt.Errorf("failed to remove base config directory: %w", err)
-	}
-
-	// Create junction from base config to instance config (no admin required on Windows)
-	absInstanceConfigDir, err := filepath.Abs(instanceConfigDir)
-	if err != nil {
-		return fmt.Errorf("failed to get absolute path of instance config: %w", err)
-	}
-
-	// Try to create as junction using mklink command (works without admin on Windows for NTFS)
-	// This is more reliable than os.Symlink which requires admin privileges
-	cmd := exec.Command("cmd", "/c", "mklink", "/J", baseConfigDir, absInstanceConfigDir)
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to create directory junction: %w", err)
-	}
-
-	if confReset != nil {
-		reset := func() {
-			//if _, err := os.Stat(baseConfigDirBackup); os.IsNotExist(err) {
-			//	return
-			//}
-			// Remove the junction
-			if err := os.RemoveAll(baseConfigDir); err != nil {
-				logger.GetLogger().Warnf("Warning: Failed to remove junction for instance %s: %v", instanceName, err)
-			}
-
-			// Restore the original configuration directory from backup if it exists
-			if _, err := os.Stat(baseConfigDirBackup); err == nil {
-				if err := os.Rename(baseConfigDirBackup, baseConfigDir); err != nil {
-					logger.GetLogger().Warnf("Warning: Failed to restore original config directory for instance %s: %v", instanceName, err)
-				} else {
-					logger.GetLogger().Infof("Original configuration directory restored for instance: %s", instanceName)
-				}
-			}
-		}
-		*confReset = reset
-	}
-
-	return nil
-}
-
-func removeNotRunningServerLogMapper() error {
-	servers, err := GetAvailableInstances()
-	if err != nil {
-		return err
-	}
-	for _, s := range servers {
-		running, err := IsServerRunning(s)
-		if err != nil {
-			return err
-		}
-		if !running {
-			if err := RemoveInstanceLogMapping(s); err != nil {
-				return err
-			}
-		}
-	}
 	return nil
 }
 
@@ -536,6 +241,7 @@ func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
 }
 
 // startServerInternal starts a server instance (internal version without CAS, for RestartServer)
+// v2: uses per-instance mirror directory instead of shared junction
 func startServerInternal(instanceName string, options ...StartServerOptionsFunc) error {
 	opts := new(StartServerOptions)
 	opts.WaitServerCompleted = false
@@ -548,31 +254,27 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 	defer cancel()
 
 	var (
-		confReset      func()
 		startupSuccess = make(chan bool, 1)
 		initSuccessful = make(chan bool, 1)
+		initFailed     = make(chan error, 1)
 		pid            int
+		mirrorDir      string
 	)
 
-	defer func() {
-		close(startupSuccess)
-		close(initSuccessful)
-	}()
-
-	// 使用一个变量来记录错误，以便在函数结束时检查是否需要记录失败状态
+	// Buffered channels will be garbage collected when no longer referenced.
 	var startErr error
 
-	// 使用 defer 来在函数退出时记录失败状态（如果存在错误）
 	defer func() {
 		if startErr != nil {
 			_ = WriteInstanceState(instanceName, StatusStartFailed, startErr.Error())
+			// 启动失败时清理镜像
+			if mirrorDir != "" {
+				if err := CleanupInstanceMirror(instanceName); err != nil {
+					logger.GetLogger().Warnf("Failed to cleanup mirror after start failure: %v", err)
+				}
+			}
 		}
 	}()
-
-	if err := removeNotRunningServerLogMapper(); err != nil {
-		startErr = err
-		return err
-	}
 
 	// Check for duplicate ports
 	if err := CheckForDuplicatePorts(); err != nil {
@@ -589,10 +291,12 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 
 	logger.GetLogger().Infof("Starting server for instance: %s", instanceName)
 
-	// Setup instance configuration directory and symlinks
-	if err := setupInstanceConfig(instanceName, &confReset); err != nil {
-		startErr = err
-		return err
+	// 同步实例镜像目录（增量）
+	mirrorDir, err = SyncInstanceMirror(instanceName, config)
+	if err != nil {
+		wrappedErr := fmt.Errorf("failed to setup instance mirror: %w", err)
+		startErr = wrappedErr
+		return wrappedErr
 	}
 
 	// Build the command
@@ -605,8 +309,8 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 		config.SaveDir,
 	)
 
-	// Direct execution of ArkAscendedServer.exe on Windows
-	arkExe := filepath.Join(ServerFilesDir, "ShooterGame/Binaries/Win64/ArkAscendedServer.exe")
+	// 使用镜像目录中的 exe
+	arkExe := filepath.Join(mirrorDir, "ShooterGame/Binaries/Win64/ArkAscendedServer.exe")
 
 	args := []string{
 		mapParam,
@@ -688,19 +392,17 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 		}
 	}
 
-	var (
-		arkAsaApiRunning bool = false
-	)
+	var arkAsaApiRunning bool
 
 	if config.EnableAsaPlugin {
-		arkApiExe := filepath.Join(ServerFilesDir, "ShooterGame/Binaries/Win64/AsaApiLoader.exe")
+		arkApiExe := filepath.Join(mirrorDir, "ShooterGame/Binaries/Win64/AsaApiLoader.exe")
 		if FileExists(arkApiExe) {
 			arkExe = arkApiExe
 			arkAsaApiRunning = true
 		}
 	}
 
-	// Get the game log file path and establish mapping
+	// Get the game log file path (v2: per-instance directory)
 	gameLogPath, err := GetGameLogFilePath(instanceName)
 	if err != nil {
 		startErr = fmt.Errorf("failed to get game log file path: %w", err)
@@ -719,6 +421,9 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 		}
 		logger.GetLogger().Infof("Created log file: %s", gameLogPath)
 	}
+
+	// 设置进程工作目录为镜像内的 exe 目录
+	exeWorkDir := filepath.Join(mirrorDir, "ShooterGame/Binaries/Win64")
 
 	if arkAsaApiRunning {
 		logWriter := &LogWriter{
@@ -740,6 +445,7 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 		}
 		defer pp.Close()
 		c := pp.Command(arkExe, args...)
+		c.Dir = exeWorkDir
 		if err := c.Start(); err != nil {
 			startErr = fmt.Errorf("failed to start server: %w", err)
 			return startErr
@@ -755,6 +461,7 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 		pid = int(_pid)
 	} else {
 		cmd := exec.Command(arkExe, args...)
+		cmd.Dir = exeWorkDir
 		if err := cmd.Start(); err != nil {
 			startErr = fmt.Errorf("failed to start server: %w", err)
 			return startErr
@@ -769,10 +476,6 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 
 	logger.GetLogger().Infof("Server started for instance: %s. It should be fully operational in approximately 60 seconds.", instanceName)
 	logger.GetLogger().Infof("Game log file: %s", gameLogPath)
-	// Persist the log mapping for future restarts
-	if err := PersistLogMapping(); err != nil {
-		logger.GetLogger().Warnf("Failed to persist log mapping: %v", err)
-	}
 
 	if ctx.Err() != nil {
 		killGameServer(pid)
@@ -792,12 +495,16 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 				opts.OnRestartStartupComplete(instanceName)
 			}
 			_ = WriteInstanceState(instanceName, StatusStarted, "")
+			if opts.WaitServerCompleted {
+				startupSuccess <- true
+			}
 		} else {
 			_ = WriteInstanceState(instanceName, StatusStartFailed, err)
+			initFailed <- fmt.Errorf("%s", err)
 		}
 	}, func() {
 		_ = WriteInstanceState(instanceName, StatusStartStartInitializationSuccessful, "")
-		confReset() // junction 释放
+		// v2: 不调用 confReset（镜像目录独立，无需恢复原始 Config）
 		_ = WriteInstanceState(instanceName, StatusStarting, "")
 		initSuccessful <- true
 
@@ -831,7 +538,11 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 			return nil
 		}
 	} else {
-		<-initSuccessful
+		select {
+		case err := <-initFailed:
+			return err
+		case <-initSuccessful:
+		}
 	}
 
 	return nil
@@ -899,7 +610,7 @@ func stopServerInternal(instanceName string) error {
 
 	logger.GetLogger().Infof("Stopping server for instance: %s pid: %d", instanceName, pid)
 
-	gameLogPath, _ = GetInstanceLogFile(instanceName)
+	gameLogPath, _ = GetGameLogFilePath(instanceName)
 
 	if err := SaveWorldSafely(instanceName); err != nil {
 		stopErr = fmt.Errorf("failed to save world safely: %w", err)
@@ -947,23 +658,13 @@ func stopServerInternal(instanceName string) error {
 		}
 	}
 
-	// Remove the log mapping for this instance (log file will be reused on next start)
-	if rmErr := RemoveInstanceLogMapping(instanceName); rmErr != nil {
-		logger.GetLogger().Warnf("Failed to remove log mapping for instance %s: %v", instanceName, rmErr)
-	}
-
 	_ = WriteInstanceState(instanceName, StatusStopped, "")
 	return nil
 }
 
-// ForceStopServer 强制停止实例：杀死进程 + 重置状态
-// 受全局互斥约束：如果有实例在 start_initialization 状态，需等待完成后才能执行
+// ForceStopServer 强制停止实例：杀死进程 + 重置状态 + 清理镜像
+// v2: 不再需要 WaitForNoInitializing（每个实例的镜像独立）
 func ForceStopServer(instanceName string) error {
-	// 全局互斥检查：如果有实例在 start_initialization，等待完成
-	if err := WaitForNoInitializing(2 * time.Minute); err != nil {
-		return fmt.Errorf("cannot force stop: %w", err)
-	}
-
 	// 1. 通过 WMI 查找进程（best effort，端口未监听时也能找到）
 	cfg, err := LoadInstanceConfig(instanceName)
 	if err == nil {
@@ -975,10 +676,12 @@ func ForceStopServer(instanceName string) error {
 	if pid2, pidErr := GetInstancePID(instanceName); pidErr == nil && pid2 > 0 {
 		killGameServer(pid2)
 	}
-	// 3. 清理日志映射
-	_ = RemoveInstanceLogMapping(instanceName)
-	// 4. 重置状态为 stopped
+	// 3. 重置状态为 stopped
 	_ = WriteInstanceState(instanceName, StatusStopped, "")
+	// 4. 清理镜像目录
+	if err := CleanupInstanceMirror(instanceName); err != nil {
+		logger.GetLogger().Warnf("Failed to cleanup instance mirror for %s: %v", instanceName, err)
+	}
 	return nil
 }
 
@@ -1036,7 +739,7 @@ func RestartServer(instanceName string, options ...StartServerOptionsFunc) error
 		restartErr = err
 		return err
 	}
-	time.Sleep(10 * time.Second)
+	// v2: 不再需要 time.Sleep（镜像独立，不需要等待 junction 释放）
 
 	startOpts := append([]StartServerOptionsFunc{WithWaitServerCompleted()}, options...)
 	if err := StartServer(instanceName, startOpts...); err != nil {
