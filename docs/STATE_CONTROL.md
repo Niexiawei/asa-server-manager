@@ -14,7 +14,7 @@
 | `stop_failed` | 停止失败 | 停止过程中发生错误 |
 | `restart_failed` | 重启失败 | 重启过程中发生错误 |
 | `restarting` | 重启中 | 正在执行重启（stop → start） |
-| `restarted` | 已重启 | 重启完成 |
+| `restarted` | 已重启 | 重启完成的历史标记，随后立即转为 `started` |
 
 ---
 
@@ -150,7 +150,7 @@ graph TB
 
 | 分类 | 状态 | 含义 |
 |------|------|------|
-| **干净停止态** | `stopped`, `start_failed`, `stop_failed`, `restart_failed`, `""` | 可以 Start / Delete |
+| **干净停止态** | `stopped`, `start_failed`, `stop_failed`, `restart_failed` | 可以 Start / Delete |
 | **运行态** | `started` | 可以 Stop / Restart / RCON |
 | **中间态** | `start_initialization`, `start_initialization_successful`, `starting`, `stopping`, `restarting` | 仅 ForceStop 可用（镜像方式下多实例可并行启动） |
 | **失败态** | `start_failed`, `stop_failed`, `restart_failed` | 可以 Start（重试），不可 Stop/Restart |

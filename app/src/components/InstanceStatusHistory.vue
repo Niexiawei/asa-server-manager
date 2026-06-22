@@ -81,7 +81,8 @@ const getStatusText = (status) => {
     'start_failed': '启动失败',
     'stop_failed': '停止失败',
     'restart_failed': '重启失败',
-    'restart': '重启中',
+    'restarting': '重启中',
+    'restarted': '运行中',
     'start_initialization_successful': '初始化成功'
   };
   return statusMap[status] || status;
@@ -97,7 +98,8 @@ const getTagTheme = (status) => {
     'start_failed': 'danger',
     'stop_failed': 'danger',
     'restart_failed': 'danger',
-    'restart': 'primary'
+    'restarting': 'warning',
+    'restarted': 'success'
   };
   return statusThemeMap[status] || 'default';
 };
@@ -148,7 +150,8 @@ const handleServerEvent = (event) => {
     'server_start_failed',
     'server_stop_failed',
     'server_restart_failed',
-    'restart'
+    'server_restarting',
+    'server_restarted'
   ];
 
   // 如果是目标实例的状态变化事件，刷新历史列表

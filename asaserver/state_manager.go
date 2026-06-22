@@ -29,7 +29,6 @@ const (
 	StatusStartFailed                        InstanceStatus = "start_failed"
 	StatusStopFailed                         InstanceStatus = "stop_failed"
 	StatusRestartFailed                      InstanceStatus = "restart_failed"
-	StatusRestart                            InstanceStatus = "restart"
 	StatusRestarting                         InstanceStatus = "restarting"
 	StatusRestarted                          InstanceStatus = "restarted"
 )
