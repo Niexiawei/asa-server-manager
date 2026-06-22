@@ -33,6 +33,18 @@ function createEventMessage(type = 'ping', extraData = {}) {
 
 // 建立 WebSocket 连接
 function connectWebSocket(wsUrl) {
+    // 防重入守卫：如果已有活跃连接或正在连接中，跳过
+    if (wsConnection && (wsConnection.readyState === WebSocket.OPEN || wsConnection.readyState === WebSocket.CONNECTING)) {
+        console.log('[WebSocket Worker] Already connected/connecting, skip duplicate connect');
+        return;
+    }
+
+    // 清理可能残留的旧连接（CLOSED/CLOSING 状态）
+    if (wsConnection) {
+        try { wsConnection.close(); } catch (e) { /* ignore */ }
+        wsConnection = null;
+    }
+
     isIntentionalDisconnect = false;
     try {
         wsConnection = new WebSocket(wsUrl);
@@ -200,7 +212,8 @@ function startReconnect() {
 
 // 尝试重新连接
 function attemptReconnect() {
-    if (isWebSocketConnected()) {
+    // 增加 CONNECTING 状态检查，避免重复连接
+    if (wsConnection && (wsConnection.readyState === WebSocket.OPEN || wsConnection.readyState === WebSocket.CONNECTING)) {
         return;
     }
 
@@ -232,9 +245,33 @@ self.onmessage = function(event) {
 
     switch (type) {
         case 'INIT_WS':
-            // 初始化 WebSocket 连接
+            // 幂等守卫：如果已有活跃连接或正在重连，忽略重复初始化
+            if (wsConnection && (wsConnection.readyState === WebSocket.OPEN || wsConnection.readyState === WebSocket.CONNECTING)) {
+                console.log('[WebSocket Worker] INIT_WS ignored: already connected/connecting');
+                postMessage({ type: 'WS_OPEN', clientId: clientId });
+                break;
+            }
+            if (isReconnecting) {
+                console.log('[WebSocket Worker] INIT_WS ignored: reconnecting in progress');
+                break;
+            }
+            // 首次初始化：正常流程
             WS_CONFIG.events = data.wsUrl;
             clientId = generateClientId();
+            connectWebSocket(WS_CONFIG.events);
+            break;
+
+        case 'RECONNECT':
+            // 手动重连：停止现有重连 + 清除旧状态 + 新连接
+            stopReconnect();
+            stopHeartbeat();
+            if (wsConnection) {
+                try { wsConnection.close(); } catch (e) { /* ignore */ }
+                wsConnection = null;
+            }
+            WS_CONFIG.events = data.wsUrl;
+            clientId = generateClientId();
+            isIntentionalDisconnect = false;
             connectWebSocket(WS_CONFIG.events);
             break;
 

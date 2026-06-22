@@ -2,6 +2,7 @@ package win32api
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -23,11 +24,15 @@ var (
 	procOpenProcess        = kernel32.NewProc("OpenProcess")
 	procCloseHandle        = kernel32.NewProc("CloseHandle")
 	procGetExitCodeProcess = kernel32.NewProc("GetExitCodeProcess")
+
+	shell32           = windows.NewLazySystemDLL("shell32.dll")
+	procShellExecuteW = shell32.NewProc("ShellExecuteW")
 )
 
 // ShowWindow flags
 const (
-	SW_MINIMIZE = 6
+	SW_MINIMIZE   = 6
+	SW_SHOWNORMAL = 1
 )
 
 const (
@@ -209,4 +214,37 @@ func HideWindowByPID(pid uint32, onlyVisible bool) ([]uintptr, error) {
 		hidden = append(hidden, uintptr(h))
 	}
 	return hidden, nil
+}
+
+// RunAsAdmin 使用 ShellExecuteW + "runas" 以管理员权限重新启动当前程序
+// args: 传递给新进程的参数字符串（不含程序名本身），例如 "--elevated api --api-port 19193"
+// 返回值: 成功返回 nil，失败返回包含错误码的 error（1223 表示用户取消了 UAC 弹窗）
+func RunAsAdmin(args string) error {
+	exe, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("failed to get executable path: %w", err)
+	}
+
+	verb, _ := syscall.UTF16PtrFromString("runas")
+	file, _ := syscall.UTF16PtrFromString(exe)
+	argPtr, _ := syscall.UTF16PtrFromString(args)
+
+	ret, _, callErr := procShellExecuteW.Call(
+		0,                             // hwnd: 无父窗口
+		uintptr(unsafe.Pointer(verb)), // operation: "runas"
+		uintptr(unsafe.Pointer(file)), // file: 当前可执行文件
+		uintptr(unsafe.Pointer(argPtr)), // parameters: 参数
+		0,                               // directory: nil（继承当前目录）
+		SW_SHOWNORMAL,                   // showcmd
+	)
+
+	// ShellExecuteW 返回值 <= 32 表示失败
+	if ret <= 32 {
+		if ret == 1223 {
+			return fmt.Errorf("用户取消 UAC 提权弹窗")
+		}
+		return fmt.Errorf("ShellExecuteW 失败, ret=%d, err=%v", ret, callErr)
+	}
+
+	return nil
 }

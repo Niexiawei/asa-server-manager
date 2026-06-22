@@ -25,7 +25,6 @@ const ServiceDescription = "ARK Server Ascended Instance Management Service"
 // program implements the service.Service interface
 type program struct {
 	apiServer *webapi.APIServer
-	cancel    context.CancelFunc
 }
 
 // Start starts the service
@@ -41,9 +40,6 @@ func (p *program) Start(s service.Service) error {
 	}
 
 	go func() {
-		// Wait a bit for the service to be fully initialized
-		time.Sleep(2 * time.Second)
-
 		if err := p.apiServer.Start(); err != nil && !errors.Is(err, context.Canceled) {
 			log.Printf("Failed to start API server: %v\n", err)
 		}
@@ -55,9 +51,9 @@ func (p *program) Start(s service.Service) error {
 // Stop stops the service
 func (p *program) Stop(s service.Service) error {
 	log.Printf("Stopping %s service \n", ServiceName)
-	// Cancel the context to gracefully shutdown API server
-	if p.cancel != nil {
-		p.cancel()
+	if p.apiServer == nil {
+		log.Printf("API server not initialized, nothing to stop\n")
+		return nil
 	}
 	if err := p.apiServer.Stop(); err != nil {
 		log.Printf("Error stopping API server: %v\n", err)
@@ -156,28 +152,8 @@ func StopService() error {
 	return nil
 }
 
-// installService installs the Windows service (internal use)
-func installService() error {
-	return InstallService()
-}
-
-// removeService removes the Windows service (internal use)
-func removeService() error {
-	return RemoveService()
-}
-
-// startService starts the Windows service (internal use)
-func startService() error {
-	return StartService()
-}
-
-// stopService stops the Windows service (internal use)
-func stopService() error {
-	return StopService()
-}
-
 // RunService runs the service
-func RunService(isDebug bool) error {
+func RunService() error {
 	prg := &program{}
 	s, err := service.New(prg, &service.Config{
 		Name:        ServiceName,
@@ -199,20 +175,20 @@ func RunService(isDebug bool) error {
 
 // ActionServiceInstall installs the Windows service
 func ActionServiceInstall(ctx context.Context, cmd *cli.Command) error {
-	return installService()
+	return InstallService()
 }
 
 // ActionServiceRemove removes the Windows service
 func ActionServiceRemove(ctx context.Context, cmd *cli.Command) error {
-	return removeService()
+	return RemoveService()
 }
 
 // ActionServiceStart starts the Windows service
 func ActionServiceStart(ctx context.Context, cmd *cli.Command) error {
-	return startService()
+	return StartService()
 }
 
 // ActionServiceStop stops the Windows service
 func ActionServiceStop(ctx context.Context, cmd *cli.Command) error {
-	return stopService()
+	return StopService()
 }

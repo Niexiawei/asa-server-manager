@@ -103,6 +103,7 @@ function createEventMessage(type = 'ping', extraData = {}) {
 
 /**
  * 建立事件 WebSocket 连接
+ * 先查询 Worker 状态，只在未连接且未重连时才发 INIT_WS
  */
 export function connectWebSocket(onOpen, onError, onClose) {
     const wsUrl = WS_CONFIG.events
@@ -126,18 +127,30 @@ export function connectWebSocket(onOpen, onError, onClose) {
     // 添加临时监听器
     worker.addEventListener('message', connectionHandler);
     
-    // 发送初始化消息到 Worker
-    worker.postMessage({
-        type: 'INIT_WS',
-        data: {
-            wsUrl: wsUrl
+    // 先查询 Worker 状态，再决定是否发 INIT_WS
+    const statusHandler = (event) => {
+        const { type, connected, reconnecting } = event.data;
+        if (type === 'WS_CONNECTION_STATUS') {
+            worker.removeEventListener('message', statusHandler);
+            if (!connected && !reconnecting) {
+                // 真正需要初始化
+                worker.postMessage({
+                    type: 'INIT_WS',
+                    data: { wsUrl: wsUrl }
+                });
+            }
+            // 如果已连接或正在重连，不做任何事
         }
-    });
+    };
     
-    // 一定时间后移除临时监听器
+    worker.addEventListener('message', statusHandler);
+    worker.postMessage({ type: 'IS_CONNECTED' });
+    
+    // 超时清理临时监听器
     setTimeout(() => {
         worker.removeEventListener('message', connectionHandler);
-    }, 5000); // 5秒后移除，避免内存泄漏
+        worker.removeEventListener('message', statusHandler);
+    }, 5000);
 }
 
 /**
@@ -210,11 +223,22 @@ export function sendWebSocketMessage(message) {
     return false;
 }
 
+/**
+ * 强制重新连接 WebSocket（用于手动重连）
+ * 发送 RECONNECT 消息给 Worker：停止现有重连 + 清除旧状态 + 生成新 clientId + 新连接
+ */
+export function forceReconnect() {
+    const worker = initWorker();
+    worker.postMessage({
+        type: 'RECONNECT',
+        data: { wsUrl: WS_CONFIG.events }
+    });
+}
+
 // ============ 重连管理 ============
 
 /**
  * 启动自动重连机制
- * 每 10 秒尝试一次重连
  */
 export function startReconnect(onReconnectAttempt = null) {
     if (wsWorker) {
@@ -246,14 +270,21 @@ export function stopReconnect() {
 const visibility = useDocumentVisibility();
 
 watch(visibility, (current) => {
-    if (current === 'visible') {
-        // 如果页面变为可见且未连接，尝试启动重连
-        if (!wsConnectedRef.value && wsWorker) {
-            console.log('[WebSocket Manager] Page visible (VueUse), triggering reconnect check...');
-            wsWorker.postMessage({
-                type: 'START_RECONNECT'
-            });
-        }
+    if (current === 'visible' && wsWorker) {
+        console.log('[WebSocket Manager] Page visible, checking connection status...');
+        // 先查询 Worker 状态，只在确认未连接且未重连时才触发
+        const statusHandler = (event) => {
+            const { type, connected, reconnecting } = event.data;
+            if (type === 'WS_CONNECTION_STATUS') {
+                wsWorker.removeEventListener('message', statusHandler);
+                if (!connected && !reconnecting) {
+                    console.log('[WebSocket Manager] Not connected, triggering reconnect...');
+                    wsWorker.postMessage({ type: 'START_RECONNECT' });
+                }
+            }
+        };
+        wsWorker.addEventListener('message', statusHandler);
+        wsWorker.postMessage({ type: 'IS_CONNECTED' });
     }
 });
 

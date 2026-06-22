@@ -3,8 +3,8 @@ import {
     connectWebSocket,
     disconnectWebSocket,
     onAnyServerEvent,
-    startReconnect,
-    stopReconnect
+    stopReconnect,
+    forceReconnect
 } from '@/utils/wsManager.js'
 import {listInstances} from "@/apis/api.js";
 
@@ -214,21 +214,16 @@ export function initializeWebSocket() {
                 resolve(true)
             },
             (error) => {
+                // Worker 内部的 onclose 会自动触发 startReconnect，无需此处递归调用 initializeWebSocket
                 console.error('WebSocket connection error:', error)
                 serverStore.connectionError = error.message || 'WebSocket 连接失败'
-                // 启动自动重连
-                startReconnect(() => {
-                    initializeWebSocket()
-                })
+                serverStore.connected = false
                 resolve(false)
             },
             () => {
+                // Worker 内部的 onclose 会自动触发 startReconnect，无需此处递归调用 initializeWebSocket
                 console.log('WebSocket disconnected')
                 serverStore.connected = false
-                // 启动自动重连
-                startReconnect(() => {
-                    initializeWebSocket()
-                })
             }
         )
     })
@@ -298,9 +293,8 @@ export function manualReconnect() {
         console.log('Already connected, no need to reconnect')
         return
     }
-    startReconnect(() => {
-        initializeWebSocket()
-    })
+    // 通过 Worker 的 RECONNECT 消息实现：停止现有重连 + 清除旧状态 + 新连接
+    forceReconnect()
 }
 
 export function addRestartPending(instanceName) {

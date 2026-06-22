@@ -94,7 +94,7 @@ func SyncInstanceMirror(instanceName string, cfg *InstanceConfig) (string, error
 
 	// 镜像已存在，增量同步
 	logger.GetLogger().Infof("Syncing existing mirror for instance '%s'", instanceName)
-	if err := syncMirrorEntries(instanceName, mirrorDir, exceptionTargets); err != nil {
+	if err := syncMirrorEntries(mirrorDir, exceptionTargets); err != nil {
 		// 同步失败，尝试重建
 		logger.GetLogger().Warnf("Mirror sync failed, recreating: %v", err)
 		if err := CleanupInstanceMirror(instanceName); err != nil {
@@ -528,7 +528,7 @@ func CleanupMirrorCache(instanceName string) error {
 
 // syncMirrorEntries 增量同步镜像目录
 // 使用 diff 对比源目录和镜像目录，只处理差异
-func syncMirrorEntries(_, mirrorDir string, exceptionTargets map[string]string) error {
+func syncMirrorEntries(mirrorDir string, exceptionTargets map[string]string) error {
 	srcDir := ServerFilesDir
 
 	// 收集源目录条目
@@ -650,23 +650,23 @@ func collectSourceEntries(srcDir string, exceptionTargets map[string]string) ([]
 				return nil
 			}
 
-			// 普通目录 → junction，不递归
-			entries = append(entries, mirrorEntry{RelPath: relPath, EntryType: EntryTypeDirectory})
+			// 普通目录 → junction，不递归（与 collectMirrorEntries 中 junction 的 EntryTypeSymlink 保持一致）
+			entries = append(entries, mirrorEntry{RelPath: relPath, EntryType: EntryTypeSymlink})
 			return filepath.SkipDir
 		}
 
 		// 文件
 		parentDir := filepath.Dir(path)
-		parentRel := filepath.ToSlash(parentDir)
-		if parentRel == "." {
-			parentRel = ""
+		parentRelPath := filepath.ToSlash(filepath.Dir(filepath.FromSlash(relPath)))
+		if parentRelPath == "." {
+			parentRelPath = ""
 		}
 
 		// 如果父目录是 junction（非 exception、非 exe 目录），文件不会在 mirror 中出现
 		// 但 Walk 还是会访问到，我们需要跳过
 		// 通过检查父目录是否会被 junction 来判断
 		parentIsJunction := false
-		if !isExceptionOrIntermediateDir(parentRel, exceptionTargets) && !containsExeFiles(parentDir) {
+		if !isExceptionOrIntermediateDir(parentRelPath, exceptionTargets) && !containsExeFiles(parentDir) {
 			parentIsJunction = true
 		}
 		if parentIsJunction {
