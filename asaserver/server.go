@@ -789,7 +789,7 @@ func SendRCONCommand(instanceName string, command string) (string, error) {
 	}
 
 	if connectErr != nil {
-		logger.GetLogger().Errorf("RCON Connection failed (password: '%s')", config.ServerAdminPassword)
+		logger.GetLogger().Errorf("RCON connection to %s failed after 3 attempts: %v", rconAddr, connectErr)
 		return "", fmt.Errorf("failed to connect to RCON server at %s: %w", rconAddr, connectErr)
 	}
 

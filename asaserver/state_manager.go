@@ -615,39 +615,60 @@ func (sm *StateManager) startStuckStateWatcher(ctx context.Context) {
 
 // recoverStuckStates 扫描所有实例，恢复卡住的中间态为 stopped
 func (sm *StateManager) recoverStuckStates() {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
-
-	instances, err := sm.getAllInstancesLocked()
-	if err != nil {
-		return
+	type stuckCandidate struct {
+		name   string
+		status InstanceStatus
+		age    time.Duration
 	}
 
+	// 阶段1：锁内仅快速采集候选（无外部调用）
+	var candidates []stuckCandidate
+	sm.mu.Lock()
+	instances, err := sm.getAllInstancesLocked()
+	if err != nil {
+		sm.mu.Unlock()
+		return
+	}
 	for _, name := range instances {
 		state, err := sm.getLatestStateLocked(name)
 		if err != nil || state == nil {
 			continue
 		}
-
 		if time.Since(state.OperationTime) < stuckThreshold {
 			continue
 		}
-
 		switch state.Status {
 		case StatusStartStartInitialization, StatusStarting,
 			StatusStartStartInitializationSuccessful, StatusStopping:
-			if !isInstanceProcessAlive(name) {
-				logger.GetLogger().Warnf(
-					"Recovering stuck instance '%s' (state: %s, age: %v)",
-					name, state.Status, time.Since(state.OperationTime))
-				_ = sm.writeStateLocked(InstanceState{
-					InstanceName:  name,
-					OperationTime: time.Now(),
-					Status:        StatusStopped,
-					ErrorMessage:  fmt.Sprintf("auto-recovered from stuck state: %s", state.Status),
-				})
-			}
+			candidates = append(candidates, stuckCandidate{
+				name: name, status: state.Status, age: time.Since(state.OperationTime),
+			})
 		}
+	}
+	sm.mu.Unlock()
+
+	// 阶段2：锁外做进程存活检测（慢调用，不持锁）
+	for _, c := range candidates {
+		if isInstanceProcessAlive(c.name) {
+			continue
+		}
+		// 阶段3：重新持锁并双检（防止采集后状态已被其它路径改写）
+		sm.mu.Lock()
+		latest, err := sm.getLatestStateLocked(c.name)
+		if err == nil && latest != nil &&
+			latest.Status == c.status &&
+			time.Since(latest.OperationTime) >= stuckThreshold {
+			logger.GetLogger().Warnf(
+				"Recovering stuck instance '%s' (state: %s, age: %v)",
+				c.name, c.status, time.Since(latest.OperationTime))
+			_ = sm.writeStateLocked(InstanceState{
+				InstanceName:  c.name,
+				OperationTime: time.Now(),
+				Status:        StatusStopped,
+				ErrorMessage:  fmt.Sprintf("auto-recovered from stuck state: %s", c.status),
+			})
+		}
+		sm.mu.Unlock()
 	}
 }
 

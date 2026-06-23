@@ -10,10 +10,10 @@
       top="5vh"
   >
     <div class="config-edit-modal-body">
-      <t-form ref="formRef" :data="editingConfig" layout="vertical"
-              label-width="150px"
+      <t-form ref="formRef" :data="editingConfig"
+              label-width="120px" label-align="top"
       >
-        <t-space direction="vertical" size="medium" style="width: 100%">
+        <t-space direction="vertical" size="8px" style="width: 100%">
           <t-row :gutter="16">
             <t-col :span="6">
               <t-form-item name="ServerName" label="服务器名称"
@@ -21,52 +21,6 @@
                 <t-input
                     v-model="editingConfig.ServerName"
                     placeholder="输入服务器名称"
-                />
-              </t-form-item>
-            </t-col>
-            <t-col :span="6">
-              <t-form-item name="MaxPlayers" label="最大玩家数"
-                           :rules="[{ required: true, message: '最大玩家数为必填项' }]">
-                <t-input-number
-                    v-model="editingConfig.MaxPlayers"
-                    :min="1"
-                    placeholder="输入最大玩家数"
-                />
-              </t-form-item>
-            </t-col>
-          </t-row>
-
-          <t-row :gutter="16">
-            <t-col :span="6">
-              <t-form-item name="Port" label="游戏端口" :rules="[{ required: true, message: '游戏端口为必填项' }]">
-                <t-input-number
-                    v-model="editingConfig.Port"
-                    :min="1"
-                    :max="65535"
-                    placeholder="输入游戏端口"
-                />
-              </t-form-item>
-            </t-col>
-            <t-col :span="6">
-              <t-form-item name="RCONPort" label="RCON端口" :rules="[{ required: true, message: 'RCON端口为必填项' }]">
-                <t-input-number
-                    v-model="editingConfig.RCONPort"
-                    :min="1"
-                    :max="65535"
-                    placeholder="输入RCON端口"
-                />
-              </t-form-item>
-            </t-col>
-          </t-row>
-
-          <t-row :gutter="16">
-            <t-col :span="6">
-              <t-form-item name="QueryPort" label="查询端口" :rules="[{ required: true, message: '查询端口为必填项' }]">
-                <t-input-number
-                    v-model="editingConfig.QueryPort"
-                    :min="1"
-                    :max="65535"
-                    placeholder="输入查询端口"
                 />
               </t-form-item>
             </t-col>
@@ -80,6 +34,48 @@
             </t-col>
           </t-row>
 
+          <t-row :gutter="16">
+            <t-col :span="3">
+              <t-form-item name="MaxPlayers" label="最大玩家数"
+                           :rules="[{ required: true, message: '最大玩家数为必填项' }]">
+                <t-input-number
+                    v-model="editingConfig.MaxPlayers"
+                    :min="1"
+                    placeholder="输入最大玩家数"
+                />
+              </t-form-item>
+            </t-col>
+            <t-col :span="3">
+              <t-form-item name="Port" label="游戏端口" :rules="[{ required: true, message: '游戏端口为必填项' }]">
+                <t-input-number
+                    v-model="editingConfig.Port"
+                    :min="1"
+                    :max="65535"
+                    placeholder="输入游戏端口"
+                />
+              </t-form-item>
+            </t-col>
+            <t-col :span="3">
+              <t-form-item name="RCONPort" label="RCON端口" :rules="[{ required: true, message: 'RCON端口为必填项' }]">
+                <t-input-number
+                    v-model="editingConfig.RCONPort"
+                    :min="1"
+                    :max="65535"
+                    placeholder="输入RCON端口"
+                />
+              </t-form-item>
+            </t-col>
+            <t-col :span="3">
+              <t-form-item name="QueryPort" label="查询端口" :rules="[{ required: true, message: '查询端口为必填项' }]">
+                <t-input-number
+                    v-model="editingConfig.QueryPort"
+                    :min="1"
+                    :max="65535"
+                    placeholder="输入查询端口"
+                />
+              </t-form-item>
+            </t-col>
+          </t-row>
           <t-row :gutter="16">
             <t-col :span="6">
               <t-form-item name="MapName" label="地图名称" :rules="[{ required: true, message: '地图名称为必填项' }]">
@@ -140,13 +136,6 @@
                     v-model="editingConfig.ServerAdminPassword"
                     type="password"
                     placeholder="输入管理员密码"
-                />
-              </t-form-item>
-            </t-col>
-            <t-col :span="6">
-              <t-form-item name="EnableAsaPlugin" label="启用ASA插件">
-                <t-switch
-                    v-model="editingConfig.EnableAsaPlugin"
                 />
               </t-form-item>
             </t-col>
@@ -230,7 +219,7 @@
             </t-col>
           </t-row>
           <t-row :gutter="16">
-            <t-col :span="6">
+            <t-col :span="3">
               <t-form-item name="MessageOfTheDayDuration" label="消息时长">
                 <t-input-number
                     v-model="editingConfig.MessageOfTheDayDuration"
@@ -241,6 +230,18 @@
                     秒
                   </template>
                 </t-input-number>
+              </t-form-item>
+            </t-col>
+          </t-row>
+
+          <t-divider>其他设置</t-divider>
+
+          <t-row :gutter="8">
+            <t-col :span="6">
+              <t-form-item name="EnableAsaPlugin" label="启用ASA插件">
+                <t-switch
+                    v-model="editingConfig.EnableAsaPlugin"
+                />
               </t-form-item>
             </t-col>
           </t-row>

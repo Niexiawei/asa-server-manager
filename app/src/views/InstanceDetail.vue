@@ -1,6 +1,6 @@
 <template>
   <div class="instance-detail">
-    <t-card class="detail-card" :bordered="false" headerBordered>
+    <t-card class="detail-card" ref="detailCardRef" :bordered="false" headerBordered>
       <template #title>
         <div class="detail-header">
           <t-button
@@ -62,7 +62,13 @@
         </t-space>
       </template>
       <t-alert v-if="error" theme="error" :message="`错误: ${error}`" close/>
-      <div v-else class="config-container">
+      <div v-else class="config-container"
+           :style="{
+          height: `calc(${detailCardHeight}px - 104px)`,
+          overflowY: 'auto',
+          overflowX: 'hidden',
+        }"
+      >
         <!-- 服务器配置与资源监控并排布局 -->
         <div class="config-resource-row">
           <t-card headerBordered class="config-section server-config">
@@ -80,6 +86,15 @@
                   :disabled="instanceData?.running"
               >
                 编辑
+              </t-button>
+              <t-button
+                  theme="primary"
+                  size="small"
+                  @click="advancedConfigVisible = true"
+                  style="margin-left: 8px"
+                  :disabled="instanceData?.running"
+              >
+                服务器规则配置
               </t-button>
             </template>
             <div class="config-grid">
@@ -194,7 +209,7 @@
                   </t-button>
                   <t-button
                       @click="gameIniEditModalVisible = true"
-                      theme="primary"
+                      theme="default"
                       :disabled="instanceData?.running"
                   >
                     编辑文件
@@ -292,6 +307,16 @@
         @cancel="gameUserSettingsEditModalVisible = false"
     />
 
+    <!-- 服务器可视化配置弹窗（Game.ini + GameUserSettings.ini） -->
+    <advanced-game-config-dialog
+        :visible="advancedConfigVisible"
+        :game-ini-content="gameIniContent"
+        :game-user-settings-content="gameUserSettingsContent"
+        :saving="savingGameIni || savingGameUserSettings"
+        @update:visible="advancedConfigVisible = $event"
+        @save="saveAdvancedConfig"
+    />
+
     <!-- RCON 浮窗 Modal -->
     <t-dialog
         v-model:visible="rconFloatingVisible"
@@ -347,6 +372,7 @@ import ConfigEditor from '@/components/ConfigEditor.vue'
 import ConfigFileViewer from '@/components/ConfigFileViewer.vue'
 import ConfigDiffModal from '@/components/ConfigDiffModal.vue'
 import ConfigEditModal from '@/components/ConfigEditModal.vue'
+import AdvancedGameConfigDialog from '@/components/ark/AdvancedGameConfigDialog.vue'
 import LogViewer from '@/components/LogViewer.vue'
 import RconTerminal from '@/components/RconTerminal.vue'
 import ResourceMonitor from '@/components/ResourceMonitor.vue'
@@ -381,12 +407,16 @@ import {
 } from '@/composables/useInstanceState.js'
 import {FileCopyIcon, BrowseIcon, BrowseOffIcon, ChevronLeftIcon} from 'tdesign-icons-vue-next'
 import {MessagePlugin, DialogPlugin, NotifyPlugin} from 'tdesign-vue-next'
-import {useClipboard} from "@vueuse/core";
+import {useClipboard, useElementBounding} from "@vueuse/core";
 
 // Monaco Editor 引用 - 已移至 ConfigEditor 组件
 const loading = ref(true)
 const error = ref(null)
 const instanceData = ref([])
+
+const detailCardRef = ref()
+
+const {height: detailCardHeight} = useElementBounding(detailCardRef)
 
 // Mod信息
 const modInfo = ref([])
@@ -431,6 +461,9 @@ const gameUserSettingsFileInput = ref(null)
 // 配置编辑弹出框相关
 const configEditModalVisible = ref(false)
 const savingConfig = ref(false)
+
+// Game.ini 可视化配置弹窗
+const advancedConfigVisible = ref(false)
 
 // 状态
 const instanceStatus = computed(() => getInstanceStatus(instanceName)?.status || 'stopped')
@@ -514,6 +547,22 @@ const saveGameIni = async (content) => {
     throw err
   } finally {
     savingGameIni.value = false
+  }
+}
+
+// 可视化配置保存：弹窗产出 { gameIni, gameUserSettings } 两文件文本，
+// 仅对发生变化的文件 PUT（复用 saveGameIni / saveGameUserSettings，各自重载），成功后关闭弹窗
+const saveAdvancedConfig = async ({gameIni, gameUserSettings}) => {
+  try {
+    if (gameIni != null && gameIni !== gameIniContent.value) {
+      await saveGameIni(gameIni)
+    }
+    if (gameUserSettings != null && gameUserSettings !== gameUserSettingsContent.value) {
+      await saveGameUserSettings(gameUserSettings)
+    }
+    advancedConfigVisible.value = false
+  } catch (err) {
+    // saveGameIni / saveGameUserSettings 内已提示错误，保持弹窗打开以便重试
   }
 }
 
@@ -1011,6 +1060,7 @@ onUnmounted(() => {
 .detail-card {
   background-color: white;
   border-radius: 8px;
+  height: 100%;
 }
 
 .detail-header {
