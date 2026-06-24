@@ -39,9 +39,9 @@
 | `app/src/utils/arkGameIni.js` | **核心(数组/嵌套)**。Game.ini 受管键登记、解析/序列化/合并、INI 字符串工具、属性索引表 |
 | `app/src/utils/arkSimpleSettings.js` | **核心(简单项)**。跨两文件的 `key=value` 注册表 + 通用节内解析/序列化/合并（见第 6 节） |
 | `app/scripts/gen-ark-data.mjs` | 构建期脚本：解析 docs 的 md 表格 → 生成数据集（`npm run gen:data`） |
-| `app/src/data/ark-items.json` / `ark-creatures.json` | 生成产物（入库），下拉用动态 `import()` 懒加载 |
+| `app/src/data/ark-items.json` / `ark-creatures.json` / `ark-engrams.json` | 生成产物（入库），下拉用动态 `import()` 懒加载 |
 | `app/src/components/ark/ArkClassSelect.vue` | 通用下拉：虚拟滚动 + 可搜索（名称/ClassName）+ 可输入自定义（Mod 兼容） |
-| `app/src/components/ark/CreatureSelect.vue` / `ItemSelect.vue` | `ArkClassSelect` 的薄封装（生物/物品数据集） |
+| `app/src/components/ark/CreatureSelect.vue` / `ItemSelect.vue` / `EngramSelect.vue` | `ArkClassSelect` 的薄封装（生物/物品/印痕数据集） |
 | `app/src/components/ark/AdvancedGameConfigDialog.vue` | 全屏弹窗外壳：打开时 parse（两类）、确认时 merge 出两文件、按分区渲染折叠面板 |
 | `app/src/components/ark/sections/*.vue` | 配置分区组件（数组分区 + `BasicRulesSection.vue` 基础规则 + `WorldSection.vue` 环境配置 + `TribeSection.vue` 部落设置 + `DinoMultipliersSection.vue` 生物设置，复合组件：上半部渲染 `dino_*` 简单项，下半部保留 per-class tab 编辑器） |
 | `app/src/components/ark/sections/section.css` | 分区共享样式（行/卡片/空状态/网格，TDesign 令牌 + hover/focus） |
@@ -212,7 +212,7 @@ const add = () => props.model.push({className: '', multiplier: 1})
 ### 步骤 7 —— 数据集（如需新下拉）
 
 物品/生物已有数据集，直接用 `ItemSelect` / `CreatureSelect`。
-若需**新数据来源**：在 `gen-ark-data.mjs` 增加 `extract(...)` 输出新 JSON，加 `npm run gen:data` 重新生成，再在 `ArkClassSelect.loadDataset` 加分支。
+物品/生物/印痕已有数据集，直接用 `ItemSelect` / `CreatureSelect` / `EngramSelect`。若需**新数据来源**：在 `gen-ark-data.mjs` 新增提取函数输出新 JSON，`npm run gen:data` 重新生成，再在 `ArkClassSelect.loadDataset` 加分支，新建对应薄封装组件。
 
 ### 步骤 8 —— 验证（见第 9 节）
 
@@ -227,7 +227,7 @@ const add = () => props.model.push({className: '', multiplier: 1})
 | 导出 | 说明 |
 |------|------|
 | `SETTINGS_REGISTRY` | 全部简单项声明 `[{ key, file:'game'\|'gus', type:'bool'\|'float'\|'int', default, inverse, group, label, tip }]` |
-| `SETTING_GROUPS` | 分组 `[{ key, label, panel:'basic'\|'world'\|'tribe'\|'dino' }]`，决定 UI 小节顺序及所属面板 |
+| `SETTING_GROUPS` | 分组 `[{ key, label, panel:'basic'\|'world'\|'tribe'\|'dino'\|'maxqty' }]`，决定 UI 小节顺序及所属面板 |
 | `createEmptyUiModel()` | 全部项取默认 UI 值（key→bool/number） |
 | `parseSettings(gameText, gusText)` → `{ model, ... }` | 从两文件解析出可编辑 UI 模型（应用 inverse） |
 | `applySettings(gameText, gusText, model)` → `{ gameIni, gameUserSettings }` | 把 UI 模型合并回两文件（无损保留其余内容） |
@@ -235,7 +235,7 @@ const add = () => props.model.push({className: '', multiplier: 1})
 
 - **inverse**：UI 开关与 INI 语义相反（如「开启 PvP」= `serverPVE=False`、「开启队友伤害」= `bDisableFriendlyFire=False`）。`default` 为 INI 原生默认值。
 - **写盘策略**（`serializeScalars`）：仅写「非默认 **或** 原文件已存在」的键 —— 回默认且原无 → 不写；回默认但原有 → 写默认值（保留显式声明）。布尔输出 `True/False`，浮点用 `arkGameIni` 同款数字格式，整数用 `String(Math.round(n))`。
-- **`panel` 字段**：`SETTING_GROUPS` 每项带 `panel: 'basic' | 'world' | 'tribe' | 'dino'`，用于将分组分派到不同面板组件。`BasicRulesSection.vue` 渲染 `panel === 'basic'` 的组；`WorldSection.vue` 渲染 `panel === 'world'` 的组；`TribeSection.vue` 渲染 `panel === 'tribe'` 的组；`DinoMultipliersSection.vue` 上半部渲染 `panel === 'dino'` 的组（下半部保留 per-class tab 编辑器）。`AdvancedGameConfigDialog.vue` 中 `basicCount` / `worldCount` / `tribeCount` / `dinoSimpleCount` 各自只统计本面板的非默认项数；`dino` 面板徽章 = `dinoSimpleCount + classMultipliers` 条目数之和。
+- **`panel` 字段**：`SETTING_GROUPS` 每项带 `panel: 'basic' | 'world' | 'tribe' | 'dino' | 'maxqty'`，用于将分组分派到不同面板组件。`BasicRulesSection.vue` 渲染 `panel === 'basic'` 的组；`WorldSection.vue` 渲染 `panel === 'world'` 的组；`TribeSection.vue` 渲染 `panel === 'tribe'` 的组；`DinoMultipliersSection.vue` 上半部渲染 `panel === 'dino'` 的组（下半部保留 per-class tab 编辑器）；`ItemMaxQuantitySection.vue` 顶部渲染 `panel === 'maxqty'` 的组（通过额外 `simpleModel` prop 传入），下方保留 `ConfigOverrideItemMaxQuantity` 数组编辑器。`AdvancedGameConfigDialog.vue` 中 `basicCount` / `worldCount` / `tribeCount` / `dinoSimpleCount` / `maxqtySimpleCount` 各自只统计本面板的非默认项数；`maxqty` 面板徽章 = `maxqtySimpleCount + model.maxQuantity.length`。
 - 合并语义与 `arkGameIni` 一致（`absorbed` 删旧行、块插回首个被删行处、节不存在则新建），见 4.2。
 
 ### 6.2 新增一个简单项（一行）
@@ -282,6 +282,9 @@ const add = () => props.model.push({className: '', multiplier: 1})
 { key: 'dino_mult',  label: '倍率设置',   panel: 'dino' },
 { key: 'dino_breed', label: '繁殖与幼崽', panel: 'dino' },
 { key: 'dino_rule',  label: '行为规则',   panel: 'dino' },
+
+// 物品最大堆叠面板顶部全局设置（ItemMaxQuantitySection.vue 上半部）
+{ key: 'item_global', label: '全局设置', panel: 'maxqty' },
 ```
 
 目前已有分组及所属面板：
@@ -303,6 +306,7 @@ const add = () => props.model.push({className: '', multiplier: 1})
 | `dino_mult` | 倍率设置 | `dino` | 含新增 `TamingSpeedMultiplier`（驯服速度倍率，排在被动驯服间隔之后） |
 | `dino_breed` | 繁殖与幼崽 | `dino` | 交配/下蛋/孵化/幼崽成熟/印记等 11 项，全部写入 Game.ini |
 | `dino_rule` | 行为规则 | `dino` | |
+| `item_global` | 全局设置 | `maxqty` | `ItemStackSizeMultiplier`（全局堆叠倍率）、`ClampItemSpoilingTimes`（限制腐烂时间）；渲染在 `ItemMaxQuantitySection.vue` 顶部，位于 `ConfigOverrideItemMaxQuantity` 数组之前 |
 
 > **迁移记录**：
 > - `MaxPersonalTamedDinos` / `AllowRaidDinoFeeding` / `RaidDinoCharacterFoodDrainMultiplier`：`tribe` → `dino_num` / `dino_rule` / `dino_mult`
@@ -312,6 +316,7 @@ const add = () => props.model.push({className: '', multiplier: 1})
 新增 `panel: 'world'` 的分组：自动出现在「环境配置」折叠面板中，`worldCount` 统计计数自动包含。  
 新增 `panel: 'tribe'` 的分组：自动出现在「部落设置」折叠面板中，`tribeCount` 统计计数自动包含。  
 新增 `panel: 'dino'` 的分组：自动出现在「生物设置」折叠面板上半部的简单项网格中，`dinoSimpleCount` 统计计数自动包含。  
+新增 `panel: 'maxqty'` 的分组：渲染在 `ItemMaxQuantitySection.vue` 顶部全局设置区（需额外向该组件传入 `simpleModel` prop），`maxqtySimpleCount` 统计计数自动包含。  
 若需增加新面板，新建 `XxxSection.vue`（复制 `WorldSection.vue` 改 `panel === 'xxx'`），并在 `AdvancedGameConfigDialog.vue` 的 `panels` 数组、`xxxKeys` Set、`xxxCount` 函数及 `counts` computed 中追加即可。
 
 ### 6.4 弹窗与保存（已接好，新增简单项无需改）
@@ -324,8 +329,16 @@ const add = () => props.model.push({className: '', multiplier: 1})
 
 - 共享样式类（`section.css`）：`.section`（外层 flex 列）、`.section-tip`（说明块）、`.toolbar`、`.empty`（空状态）、`.row`/`.cell`/`.cell.grow`/`.cell-label`、`.sub-card`/`.sub-rows`（主从）、`.stat-grid`/`.stat-item`。
 - **两列布局**：用 TDesign 栅格 `<t-row :gutter="[12, 12]"><t-col :xs="12" :md="6">`。`gutter` 数组形式 `[水平, 垂直]`（水平=负 margin，垂直=`row-gap`，TDesign `calcRowStyle` 支持）。窄行分区（生物倍率 / 最大堆叠）用两列；字段多/主从结构（印痕 / 制作消耗）保持单列。
-- 下拉：`ItemSelect`（物品）、`CreatureSelect`（生物），`v-model` 绑 ClassName 字符串，支持搜索与自定义输入。
+- 下拉：`ItemSelect`（物品）、`CreatureSelect`（生物）、`EngramSelect`（印痕），`v-model` 绑 ClassName 字符串，支持搜索与自定义输入（Mod ClassName 可直接键入）。
 - 数字用 `t-input-number`（倍率 `:step="0.1"`、整数 `:step="1"`）；布尔用 `t-switch`。
+- **rule-tip 省略写法**：`BasicRulesSection` / `WorldSection` / `TribeSection` / `DinoMultipliersSection` / `ItemMaxQuantitySection` 中的 tip 文本统一使用 `t-typography-paragraph` 替代 `<span>`，固定 1 行截断，悬停显示完整内容：
+  ```html
+  <t-typography-paragraph
+      class="rule-tip"
+      :ellipsis="{ row: 1, tooltipProps: { placement: 'top-left', content: reg.tip } }"
+  >{{ reg.tip }}</t-typography-paragraph>
+  ```
+  对应 `.rule-tip` CSS 须加 `margin: 0` 重置 `<p>` 标签默认外边距。硬编码文本（非 `reg.tip`）直接将字符串字面量传给 `content`。
 
 ---
 
@@ -350,14 +363,14 @@ const add = () => props.model.push({className: '', multiplier: 1})
 6. **联调**：`npm run dev`（代理 :19193）→ 实例详情 → 「服务器配置」卡片 →「服务器规则配置」按钮 → 各分区（1 基础规则设置 / 2 环境配置 / 3 部落设置 / 4 生物设置 / 5 印痕 / 6 制作消耗 / 7 最大堆叠 / 8 等级 / 9 属性倍率，共 **9 个**）增删改保存 → Monaco 查看器 + 真实文件 `{Game,GameUserSettings}.ini` 核对 → 重新打开确认回显无丢失。重点验证：
    - **环境配置**面板：「难度设置」2 项（修改 `OverrideOfficialDifficulty > 0` 应自动将 `DifficultyOffset` 置为 1.0）、「环境配置」23 项（含 `OxygenSwimSpeedStatMultiplier`）正确显示；
    - **生物设置**面板：上半部 4 个子分组（数量上限 3 项、倍率设置含 `TamingSpeedMultiplier` 共 16 项、繁殖与幼崽 11 项、行为规则 10 项）正确渲染，下半部 per-class tab 正常；「洞穴飞行」开关显示于行为规则组末尾；
-   - **印痕**面板：顶部「自动解锁印痕」区块（`EngramEntryAutoUnlocks`）和底部「印痕条目覆盖」区块均可增删，计数徽章合计两者之和；
-   - **部落设置**面板中 `MaxPersonalTamedDinos` / `AllowRaidDinoFeeding` / `RaidDinoCharacterFoodDrainMultiplier` 已不再显示，`OxygenSwimSpeedStatMultiplier` 也已不再显示。
+   - **印痕**面板：顶部「自动解锁印痕」区块（`EngramEntryAutoUnlocks`）和底部「印痕条目覆盖」区块均可增删，EngramClassName 字段为 `EngramSelect` 下拉（724 条，可搜索名称/ClassName，不在列表中的 Mod ClassName 可直接键入），计数徽章合计两者之和；
+   - **部落设置**面板中 `MaxPersonalTamedDinos` / `AllowRaidDinoFeeding` / `RaidDinoCharacterFoodDrainMultiplier` 已不再显示，`OxygenSwimSpeedStatMultiplier` 也已不再显示；
+   - **物品最大堆叠**面板：顶部「全局设置」区显示 `ItemStackSizeMultiplier`（浮点）和 `ClampItemSpoilingTimes`（开关），分隔线下方为 `ConfigOverrideItemMaxQuantity` 数组编辑器，徽章计数正确合计两部分；各 section 的 tip 文本超出一行时显示 `...`，鼠标悬停弹出完整内容 tooltip。
 
 ---
 
 ## 10. 已知限制
 
-- 印痕（Engram）无清单数据，手动填写 `EngramClassName` / `EngramIndex`。
 - 下拉暂不显示图标（避免依赖 wiki CDN 外网）。
 - `LevelExperienceRampOverrides` 顺序敏感：UI 玩家曲线在前、驯养在后；若只填驯养未填玩家，单行会被 ARK 当作玩家曲线。
 - 简单项「反向布尔」仅影响展示，落盘按真实 INI 语义；写盘策略见 6.1。

@@ -257,6 +257,10 @@ export const SETTINGS_REGISTRY = [
     label: '被动驯服间隔倍率', tip: '被动驯服（投食驯服）的等待间隔倍率，值越大间隔越长，默认 1.0。',
   },
   {
+    key: 'TamingSpeedMultiplier', file: 'gus', type: 'float', default: 1.0, inverse: false, group: 'dino_mult',
+    label: '驯服速度倍率', tip: '驯服生物所需时间的倍率，值越大驯服越快，默认 1.0。',
+  },
+  {
     key: 'PvEDinoDecayPeriodMultiplier', file: 'gus', type: 'float', default: 1.0, inverse: false, group: 'dino_mult',
     label: 'PvE 恐龙自动放生时间倍率', tip: 'PvE 模式下驯服生物的自动衰减周期倍率，需 DisableDinoDecayPvE=False 才生效，默认 1.0。',
   },
@@ -279,7 +283,7 @@ export const SETTINGS_REGISTRY = [
   },
   {
     key: 'AllowFlyerCarryPvE', file: 'gus', type: 'bool', default: false, inverse: false, group: 'dino_rule',
-    label: 'PvE 允许飞行生物抓取', tip: 'True 时 PvE 模式下飞行生物可以抓取野生生物。',
+    label: 'PvE 允许飞行生物拾取（野生）', tip: 'True 时 PvE 模式下飞行生物可以抓取野生生物。PvP 模式默认允许，无需手动开启。',
   },
   {
     key: 'DisableDinoDecayPvE', file: 'gus', type: 'bool', default: false, inverse: false, group: 'dino_rule',
@@ -288,6 +292,67 @@ export const SETTINGS_REGISTRY = [
   {
     key: 'AutoDestroyDecayedDinos', file: 'gus', type: 'bool', default: false, inverse: false, group: 'dino_rule',
     label: '自动销毁已腐烂恐龙', tip: 'True 时自动销毁已进入衰减（可被领养）状态的驯服生物。',
+  },
+  {
+    key: 'bDisableDinoTaming', file: 'game', type: 'bool', default: false, inverse: false, group: 'dino_rule',
+    label: '禁止驯服', tip: 'True 时阻止玩家驯服野生生物。',
+  },
+  {
+    key: 'bDisableDinoRiding', file: 'game', type: 'bool', default: false, inverse: false, group: 'dino_rule',
+    label: '禁止骑乘', tip: 'True 时阻止玩家骑乘已驯服生物。',
+  },
+  {
+    key: 'bAllowSpeedLeveling', file: 'game', type: 'bool', default: false, inverse: false, group: 'dino_rule',
+    label: '允许人物/陆行生物移速加点', tip: '允许玩家和非飞行生物将属性点分配到移动速度。',
+  },
+  {
+    key: 'bAllowFlyerSpeedLeveling', file: 'game', type: 'bool', default: false, inverse: false, group: 'dino_rule',
+    label: '允许飞行生物移速加点', tip: '允许飞行生物将属性点分配到移动速度。需先开启「允许人物/陆行生物移速加点（bAllowSpeedLeveling）」。',
+  },
+  // —— 生物设置：繁殖与幼崽 ——
+  {
+    key: 'MatingIntervalMultiplier', file: 'game', type: 'float', default: 1.0, inverse: false, group: 'dino_breed',
+    label: '交配冷却倍率', tip: '交配冷却时间的倍率，值越小冷却越短（繁殖越频繁），默认 1.0。',
+  },
+  {
+    key: 'MatingSpeedMultiplier', file: 'game', type: 'float', default: 1.0, inverse: false, group: 'dino_breed',
+    label: '交配速度倍率', tip: '完成一次交配过程所需时间的倍率，值越大交配越慢，默认 1.0。',
+  },
+  {
+    key: 'LayEggIntervalMultiplier', file: 'game', type: 'float', default: 1.0, inverse: false, group: 'dino_breed',
+    label: '下蛋间隔倍率', tip: '产蛋间隔时间的倍率，值越小产蛋越频繁，默认 1.0。',
+  },
+  {
+    key: 'EggHatchSpeedMultiplier', file: 'game', type: 'float', default: 1.0, inverse: false, group: 'dino_breed',
+    label: '受精蛋孵化速度倍率', tip: '受精蛋孵化时间的倍率，值越大孵化越快，默认 1.0。',
+  },
+  {
+    key: 'BabyMatureSpeedMultiplier', file: 'game', type: 'float', default: 1.0, inverse: false, group: 'dino_breed',
+    label: '幼崽成熟速度倍率', tip: '幼崽成长为成体的速度倍率，值越大成熟越快，默认 1.0。',
+  },
+  {
+    key: 'BabyFoodConsumptionSpeedMultiplier', file: 'game', type: 'float', default: 1.0, inverse: false, group: 'dino_breed',
+    label: '幼崽食物消耗倍率', tip: '幼崽食物消耗速度的倍率，值越大需要越频繁喂食，默认 1.0。',
+  },
+  {
+    key: 'BabyCuddleIntervalMultiplier', file: 'game', type: 'float', default: 1.0, inverse: false, group: 'dino_breed',
+    label: '幼崽照顾间隔倍率', tip: '幼崽需要照顾（获得印记）的时间间隔倍率，值越小需要越频繁照顾，默认 1.0。',
+  },
+  {
+    key: 'BabyImprintAmountMultiplier', file: 'game', type: 'float', default: 1.0, inverse: false, group: 'dino_breed',
+    label: '每次照顾印记量倍率', tip: '每次照顾幼崽后获得印记百分比的倍率，值越大每次增量越多，默认 1.0。',
+  },
+  {
+    key: 'BabyImprintingStatScaleMultiplier', file: 'game', type: 'float', default: 1.0, inverse: false, group: 'dino_breed',
+    label: '印记属性加成倍率', tip: '印记质量对生物属性加成的影响倍率，设为 0 可禁用印记属性加成，默认 1.0。',
+  },
+  {
+    key: 'BabyCuddleGracePeriodMultiplier', file: 'game', type: 'float', default: 1.0, inverse: false, group: 'dino_breed',
+    label: '照顾宽限期倍率', tip: '延迟照顾幼崽后印记质量开始下降的宽限期倍率，默认 1.0。',
+  },
+  {
+    key: 'BabyCuddleLoseImprintQualitySpeedMultiplier', file: 'game', type: 'float', default: 1.0, inverse: false, group: 'dino_breed',
+    label: '印记质量流失速度倍率', tip: '宽限期过后印记质量下降速度的倍率，默认 1.0。',
   },
   // —— 生物管理 ——
   {
@@ -308,7 +373,7 @@ export const SETTINGS_REGISTRY = [
   },
   // —— 环境 / 资源消耗 ——
   {
-    key: 'OxygenSwimSpeedStatMultiplier', file: 'gus', type: 'float', default: 1.0, inverse: false, group: 'env',
+    key: 'OxygenSwimSpeedStatMultiplier', file: 'gus', type: 'float', default: 1.0, inverse: false, group: 'world',
     label: '氧气游泳速度统计倍率', tip: '氧气属性对游泳速度加成的倍率（v256.0 后游戏内默认已降低 80%）。',
   },
   {
@@ -405,21 +470,132 @@ export const SETTINGS_REGISTRY = [
     key: 'TribeTowerBonusMultiplier', file: 'game', type: 'float', default: 2.0, inverse: false, group: 'tribe',
     label: '部落之塔奖励倍率', tip: '部落之塔（Tribe Tower）奖励的倍率，默认 2.0。',
   },
+  // —— 难度设置 ——
+  {
+    key: 'DifficultyOffset', file: 'gus', type: 'float', default: 1.0, inverse: false, group: 'diff',
+    label: '难度偏移', tip: '控制野生生物等级分布（0~1），与 OverrideOfficialDifficulty 同时使用时建议保持 1.0。',
+  },
+  {
+    key: 'OverrideOfficialDifficulty', file: 'gus', type: 'float', default: 0.0, inverse: false, group: 'diff',
+    label: '覆盖官方难度', tip: '设为 5.0 允许野生生物刷新至最高 150 级（0 = 不生效）。启用后将自动把 DifficultyOffset 设为 1.0。',
+  },
+  // —— 环境配置 ——
+  {
+    key: 'DayCycleSpeedScale', file: 'gus', type: 'float', default: 1.0, inverse: false, group: 'world',
+    label: '昼夜循环速度倍率', tip: '整体昼夜循环的时间流速倍率，默认 1.0。值越大昼夜交替越快。',
+  },
+  {
+    key: 'DayTimeSpeedScale', file: 'gus', type: 'float', default: 1.0, inverse: false, group: 'world',
+    label: '白天速度倍率', tip: '白天时间流逝速度的倍率，默认 1.0。大于 1 则白天更短。',
+  },
+  {
+    key: 'NightTimeSpeedScale', file: 'gus', type: 'float', default: 1.0, inverse: false, group: 'world',
+    label: '夜晚速度倍率', tip: '夜晚时间流逝速度的倍率，默认 1.0。大于 1 则夜晚更短。',
+  },
+  {
+    key: 'HarvestAmountMultiplier', file: 'gus', type: 'float', default: 1.0, inverse: false, group: 'world',
+    label: '采集产量倍率', tip: '采集资源的数量倍率，默认 1.0。值越大每次采集获得的资源越多。',
+  },
+  {
+    key: 'HarvestHealthMultiplier', file: 'gus', type: 'float', default: 1.0, inverse: false, group: 'world',
+    label: '可采集物体生命值倍率', tip: '可采集节点（树木、矿石等）的生命值倍率，值越大节点越耐砍，默认 1.0。',
+  },
+  {
+    key: 'PlayerDamageMultiplier', file: 'gus', type: 'float', default: 1.0, inverse: false, group: 'world',
+    label: '玩家攻击伤害倍率', tip: '玩家发动攻击时的伤害倍率，默认 1.0。',
+  },
+  {
+    key: 'PlayerResistanceMultiplier', file: 'gus', type: 'float', default: 1.0, inverse: false, group: 'world',
+    label: '玩家伤害抗性倍率', tip: '玩家承受伤害的抗性倍率，值越大抗性越低（受到伤害越多），默认 1.0。',
+  },
+  {
+    key: 'PlayerCharacterHealthRecoveryMultiplier', file: 'gus', type: 'float', default: 1.0, inverse: false, group: 'world',
+    label: '玩家生命恢复倍率', tip: '玩家生命值自然恢复速度的倍率，默认 1.0。',
+  },
+  {
+    key: 'PlayerCharacterStaminaDrainMultiplier', file: 'gus', type: 'float', default: 1.0, inverse: false, group: 'world',
+    label: '玩家体力消耗倍率', tip: '玩家体力消耗速度的倍率，默认 1.0。',
+  },
+  {
+    key: 'PlayerCharacterWaterDrainMultiplier', file: 'gus', type: 'float', default: 1.0, inverse: false, group: 'world',
+    label: '玩家水分消耗倍率', tip: '玩家水分消耗速度的倍率，默认 1.0。',
+  },
+  {
+    key: 'PlayerCharacterFoodDrainMultiplier', file: 'gus', type: 'float', default: 1.0, inverse: false, group: 'world',
+    label: '玩家食物消耗倍率', tip: '玩家食物消耗速度的倍率，默认 1.0。',
+  },
+  {
+    key: 'ResourcesRespawnPeriodMultiplier', file: 'gus', type: 'float', default: 1.0, inverse: false, group: 'world',
+    label: '资源重生周期倍率', tip: '资源节点重生时间的倍率，值越大重生越慢，默认 1.0。',
+  },
+  {
+    key: 'StructureResistanceMultiplier', file: 'gus', type: 'float', default: 1.0, inverse: false, group: 'world',
+    label: '建筑伤害抗性倍率', tip: '建筑物承受伤害的抗性倍率，值越大抗性越低，默认 1.0。',
+  },
+  {
+    key: 'StructurePreventResourceRadiusMultiplier', file: 'gus', type: 'float', default: 1.0, inverse: false, group: 'world',
+    label: '建筑禁资源区域半径倍率', tip: '建筑周围阻止资源重生区域范围的倍率，默认 1.0。',
+  },
+  {
+    key: 'StructurePickupHoldDuration', file: 'gus', type: 'float', default: 0.5, inverse: false, group: 'world',
+    label: '快速拾取按住时长（秒）', tip: '快速拾取建筑所需按住的时间（秒），默认 0.5。',
+  },
+  {
+    key: 'StructurePickupTimeAfterPlacement', file: 'gus', type: 'float', default: 30.0, inverse: false, group: 'world',
+    label: '放置后可拾取时间（秒）', tip: '建筑放置后允许快速拾取的时间窗口（秒），默认 30。开启「始终允许拾取」后此项失效。',
+  },
+  {
+    key: 'TheMaxStructuresInRange', file: 'gus', type: 'int', default: 10500, inverse: false, group: 'world',
+    label: '范围内最大建筑数量', tip: '特定半径内允许放置的最大建筑数量，默认 10500。',
+  },
+  {
+    key: 'PerPlatformMaxStructuresMultiplier', file: 'gus', type: 'float', default: 1.0, inverse: false, group: 'world',
+    label: '平台鞍建筑数量倍率', tip: '平台鞍/木筏上允许放置的最大建筑数量的倍率，默认 1.0。',
+  },
+  {
+    key: 'PlatformSaddleBuildAreaBoundsMultiplier', file: 'gus', type: 'float', default: 1.0, inverse: false, group: 'world',
+    label: '平台鞍建造区域倍率', tip: '平台鞍可建造区域范围的倍率，默认 1.0。',
+  },
+  {
+    key: 'AlwaysAllowStructurePickup', file: 'gus', type: 'bool', default: false, inverse: false, group: 'world',
+    label: '始终允许快速拾取建筑', tip: 'True 时禁用快速拾取的时间限制，StructurePickupTimeAfterPlacement 参数将失效。',
+  },
+  {
+    key: 'OnlyAutoDestroyCoreStructures', file: 'gus', type: 'bool', default: false, inverse: false, group: 'world',
+    label: '仅自动销毁核心建筑', tip: 'True 时建筑自动销毁机制仅作用于核心建筑（地基等），不影响其他建筑。',
+  },
+  {
+    key: 'OnlyDecayUnsnappedCoreStructures', file: 'gus', type: 'bool', default: false, inverse: false, group: 'world',
+    label: '仅衰减未连接的核心建筑', tip: 'True 时建筑衰减机制仅作用于未与其他建筑连接的核心建筑。',
+  },
+  // —— 物品堆叠 / 腐烂（全局） ——
+  {
+    key: 'ItemStackSizeMultiplier', file: 'gus', type: 'float', default: 1.0, inverse: false, group: 'item_global',
+    label: '物品堆叠大小倍率', tip: '全局物品堆叠上限倍率。值为 2.0 时所有可堆叠物品上限翻倍；对堆叠上限为 1 的物品无效。ConfigOverrideItemMaxQuantity 设置了 bIgnoreMultiplier=False 的条目也受此影响。',
+  },
+  {
+    key: 'ClampItemSpoilingTimes', file: 'gus', type: 'bool', default: false, inverse: false, group: 'item_global',
+    label: '限制物品腐烂时间', tip: '启用后所有物品的腐烂时间不超过该类物品的最大腐烂时间，防止堆叠增大导致腐烂时间无限延长。',
+  },
 ]
 
 export const SETTING_GROUPS = [
+  { key: 'diff', label: '难度设置', panel: 'world' },
+  { key: 'world', label: '环境配置', panel: 'world' },
   { key: 'pvp', label: 'PvP / PvE 规则', panel: 'basic' },
   { key: 'build', label: '建造限制', panel: 'basic' },
   { key: 'loot', label: '补给箱 / 钓鱼', panel: 'basic' },
   { key: 'cryo', label: '低温舱（Cryopod）', panel: 'basic' },
   { key: 'cross', label: '跨服传输（Cross-ARK）', panel: 'basic' },
   { key: 'tame', label: '生物管理', panel: 'basic' },
-  { key: 'env', label: '环境 / 资源消耗', panel: 'basic' },
+  { key: 'env', label: '环境（其他）', panel: 'basic' },
   { key: 'dino_num', label: '数量上限', panel: 'dino' },
   { key: 'dino_mult', label: '倍率设置', panel: 'dino' },
+  { key: 'dino_breed', label: '繁殖与幼崽', panel: 'dino' },
   { key: 'dino_rule', label: '行为规则', panel: 'dino' },
   { key: 'orp', label: '离线突袭保护（ORP）', panel: 'tribe' },
   { key: 'tribe', label: '部落设置', panel: 'tribe' },
+  { key: 'item_global', label: '全局设置', panel: 'maxqty' },
 ]
 
 const BY_KEY = Object.fromEntries(SETTINGS_REGISTRY.map((r) => [r.key, r]))

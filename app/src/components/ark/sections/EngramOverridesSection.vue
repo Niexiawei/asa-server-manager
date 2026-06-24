@@ -1,19 +1,46 @@
 <template>
   <div class="section">
-    <p class="section-tip">
-      覆盖印痕的隐藏状态、消耗点数、等级需求或前置要求。无印痕清单数据，需手动填写 EngramIndex 或 EngramClassName
-      (如 <code>EngramEntry_Campfire_C</code>)。
-    </p>
-
-    <div class="toolbar">
-      <span class="only-tamed-hint">共 {{ model.length }} 条</span>
-      <t-button theme="primary" size="small" @click="addRow">
+    <!-- 自动解锁 -->
+    <div class="sub-header">
+      <span class="sub-title">自动解锁印痕</span>
+      <span class="sub-desc">玩家达到指定等级时自动获得印痕，无需消耗点数（LevelToAutoUnlock=0 表示始终解锁）</span>
+      <t-button theme="primary" size="small" @click="addAutoUnlock">
         <template #icon><add-icon/></template>
-        添加印痕
+        添加
       </t-button>
     </div>
 
-    <div v-if="model.length === 0" class="empty">暂无配置，点击「添加印痕」开始</div>
+    <div v-if="autoUnlocks.length === 0" class="empty">暂无自动解锁配置</div>
+    <div v-else class="rows">
+      <div v-for="(row, i) in autoUnlocks" :key="i" class="row auto-unlock-row">
+        <div class="cell grow">
+          <span class="cell-label">EngramClassName</span>
+          <engram-select v-model="row.engramClassName"/>
+        </div>
+        <div class="cell">
+          <span class="cell-label">解锁等级</span>
+          <t-input-number v-model="row.levelToAutoUnlock" :min="0" :step="1" theme="normal" align="right"
+                          placeholder="0"/>
+        </div>
+        <t-button variant="text" theme="danger" shape="square" @click="removeAutoUnlock(i)">
+          <template #icon><delete-icon/></template>
+        </t-button>
+      </div>
+    </div>
+
+    <t-divider style="margin: 16px 0 12px"/>
+
+    <!-- 印痕条目覆盖 -->
+    <div class="sub-header">
+      <span class="sub-title">印痕条目覆盖</span>
+      <span class="sub-desc">覆盖印痕的隐藏状态、消耗点数、等级需求或前置要求（OverrideEngramEntries / OverrideNamedEngramEntries）</span>
+      <t-button theme="primary" size="small" @click="addRow">
+        <template #icon><add-icon/></template>
+        添加
+      </t-button>
+    </div>
+
+    <div v-if="model.length === 0" class="empty">暂无覆盖配置</div>
     <div v-else class="rows">
       <div v-for="(row, i) in model" :key="i" class="row engram-row">
         <div class="cell">
@@ -25,7 +52,7 @@
         </div>
         <div class="cell grow">
           <span class="cell-label">{{ row.kind === 'named' ? 'EngramClassName' : 'EngramIndex' }}</span>
-          <t-input v-if="row.kind === 'named'" v-model="row.engramClassName" placeholder="EngramEntry_XXX_C"/>
+          <engram-select v-if="row.kind === 'named'" v-model="row.engramClassName"/>
           <t-input-number v-else v-model="row.engramIndex" :min="0" :step="1" theme="column" align="right"
                           placeholder="索引"/>
         </div>
@@ -57,8 +84,12 @@
 
 <script setup>
 import {AddIcon, DeleteIcon} from 'tdesign-icons-vue-next'
+import EngramSelect from '../EngramSelect.vue'
 
-const props = defineProps({model: {type: Array, required: true}})
+const props = defineProps({
+  model: {type: Array, required: true},
+  autoUnlocks: {type: Array, required: true},
+})
 
 const addRow = () =>
     props.model.push({
@@ -71,10 +102,41 @@ const addRow = () =>
       removeEngramPreReq: false,
     })
 const removeRow = (i) => props.model.splice(i, 1)
+
+const addAutoUnlock = () => props.autoUnlocks.push({engramClassName: '', levelToAutoUnlock: 0})
+const removeAutoUnlock = (i) => props.autoUnlocks.splice(i, 1)
 </script>
 
 <style scoped src="./section.css"></style>
 <style scoped>
+.sub-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.sub-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--td-text-color-primary, #1f1f1f);
+  white-space: nowrap;
+}
+
+.sub-desc {
+  flex: 1;
+  font-size: 12px;
+  color: var(--td-text-color-placeholder, #999);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.auto-unlock-row :deep(.t-input-number) {
+  width: 96px;
+}
+
 .engram-row {
   flex-wrap: wrap;
 }
@@ -85,11 +147,5 @@ const removeRow = (i) => props.model.splice(i, 1)
 
 .engram-row :deep(.t-input-number) {
   width: 96px;
-}
-
-code {
-  background: #f0f0f0;
-  padding: 0 4px;
-  border-radius: 3px;
 }
 </style>

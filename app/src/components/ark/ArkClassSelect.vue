@@ -20,7 +20,7 @@ import {computed, ref, watch} from 'vue'
 
 const props = defineProps({
   modelValue: {type: String, default: ''},
-  dataset: {type: String, default: 'items'}, // 'items' | 'creatures'
+  dataset: {type: String, default: 'items'}, // 'items' | 'creatures' | 'engrams'
   placeholder: {type: String, default: '搜索名称或 ClassName'},
 })
 const emit = defineEmits(['update:modelValue'])
@@ -40,7 +40,9 @@ const loadDataset = async (name) => {
   try {
     const mod = name === 'creatures'
         ? await import('@/data/ark-creatures.json')
-        : await import('@/data/ark-items.json')
+        : name === 'engrams'
+            ? await import('@/data/ark-engrams.json')
+            : await import('@/data/ark-items.json')
     datasetCache[name] = mod.default || mod
     records.value = datasetCache[name]
   } catch (e) {

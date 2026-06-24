@@ -12,7 +12,10 @@
           <div class="rule-item">
             <div class="rule-text">
               <span class="rule-label">{{ reg.label }}</span>
-              <span class="rule-tip">{{ reg.tip }}</span>
+              <t-typography-paragraph
+                  class="rule-tip"
+                  :ellipsis="{ row: 1, tooltipProps: { placement: 'top-left', content: reg.tip } }"
+              >{{ reg.tip }}</t-typography-paragraph>
             </div>
             <div class="rule-control">
               <t-switch v-if="reg.type === 'bool'" v-model="model[reg.key]"/>
@@ -107,6 +110,7 @@ const groupsWithItems = computed(() =>
 }
 
 .rule-tip {
+  margin: 0;
   font-size: 11px;
   line-height: 1.4;
   color: var(--td-text-color-placeholder, #999);

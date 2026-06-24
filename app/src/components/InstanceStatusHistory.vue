@@ -13,12 +13,6 @@
         :style="{
           height: `${height}px`
         }"
-        :scroll="{
-          type: 'virtual',
-          rowHeight: 46,
-          bufferSize: 10,
-          threshold: 10
-        }"
     >
       <t-list-item v-for="(item,index) in statusHistory" :key="index">
         <div class="status-item" :key="index">
@@ -52,7 +46,7 @@ import {onAnyServerEvent} from '@/utils/wsManager';
 
 const ellipsisState = {
   row: 1,
-  suffix: <ChevronDownIcon />,
+  suffix: <ChevronDownIcon/>,
   expandable: true,
   collapsible: true,
 };

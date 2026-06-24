@@ -13,16 +13,26 @@
       <t-button size="small" variant="text" theme="danger" @click="clearGroup">清空本组</t-button>
     </div>
 
-    <div class="stat-grid">
-      <div v-for="s in STAT_INDICES" :key="s.index" class="stat-item">
-        <div class="stat-item-content">
-          <div class="stat-name">{{ s.cn }}</div>
-          <div class="stat-en">{{ s.en }}</div>
+    <t-row :gutter="[10, 10]">
+      <t-col v-for="s in STAT_INDICES" :key="s.index" :xs="12" :md="6" :lg="4">
+        <div class="stat-item">
+          <div class="stat-top">
+            <span class="stat-name">{{ s.cn }}</span>
+            <t-input-number
+                :model-value="getStat(s.index)"
+                :min="0"
+                :step="currentGroup.type === 'int' ? 1 : 0.1"
+                :decimal-places="currentGroup.type === 'int' ? 0 : 4"
+                size="small"
+                align="right"
+                placeholder="默认"
+                @change="(v) => setStat(s.index, v)"
+            />
+          </div>
+          <span class="stat-en">{{ s.en }}</span>
         </div>
-        <t-input-number :model-value="getStat(s.index)" :min="0" :step="0.1" :decimal-places="4" size="small"
-                        align="right" placeholder="默认" @change="(v) => setStat(s.index, v)"/>
-      </div>
-    </div>
+      </t-col>
+    </t-row>
   </div>
 </template>
 
@@ -33,7 +43,8 @@ import {STAT_GROUPS, STAT_INDICES} from '@/utils/arkGameIni.js'
 const props = defineProps({model: {type: Object, required: true}})
 
 const group = ref(STAT_GROUPS[0].key)
-const groupLabel = computed(() => STAT_GROUPS.find((g) => g.key === group.value)?.label || '')
+const currentGroup = computed(() => STAT_GROUPS.find((g) => g.key === group.value) ?? STAT_GROUPS[0])
+const groupLabel = computed(() => currentGroup.value.label)
 
 const getStat = (i) => {
   const v = props.model[group.value]?.[i]

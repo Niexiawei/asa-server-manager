@@ -2,6 +2,7 @@
 // 产物（提交入库，组件用动态 import 懒加载）：
 //   app/src/data/ark-items.json     [{ name, className, category, stack }]
 //   app/src/data/ark-creatures.json [{ name, className, category, nameTag }]
+//   app/src/data/ark-engrams.json   [{ name, className, index }]
 //
 // 运行: cd app && npm run gen:data
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
@@ -70,20 +71,42 @@ function extract(md, classCol, extraCols) {
   return out
 }
 
+function extractEngrams(md) {
+  const out = []
+  const seen = new Set()
+  eachTableRow(md, (cells, colIdx) => {
+    const ni = colIdx['Item']
+    const ci = colIdx['Engram Class']
+    const ii = colIdx['Index']
+    if (ni == null || ci == null) return
+    const name = cells[ni]
+    const className = stripBackticks(cells[ci])
+    if (!name || !className || className === '-') return
+    if (seen.has(className)) return
+    seen.add(className)
+    out.push({ name, className, index: ii != null ? (parseInt(cells[ii], 10) || 0) : 0 })
+  })
+  return out
+}
+
 function main() {
   mkdirSync(outDir, { recursive: true })
 
   const itemsMd = readFileSync(resolve(docsDir, 'asa-item-ids.md'), 'utf8')
   const creaturesMd = readFileSync(resolve(docsDir, 'asa-creature-ids.md'), 'utf8')
+  const engramsMd = readFileSync(resolve(docsDir, 'asa-engrams.md'), 'utf8')
 
   const items = extract(itemsMd, 'Class Name', { stack: '堆叠' })
   const creatures = extract(creaturesMd, 'Entity ID', { nameTag: 'Name Tag' })
+  const engrams = extractEngrams(engramsMd)
 
   writeFileSync(resolve(outDir, 'ark-items.json'), JSON.stringify(items), 'utf8')
   writeFileSync(resolve(outDir, 'ark-creatures.json'), JSON.stringify(creatures), 'utf8')
+  writeFileSync(resolve(outDir, 'ark-engrams.json'), JSON.stringify(engrams), 'utf8')
 
   console.log(`ark-items.json: ${items.length} 条`)
   console.log(`ark-creatures.json: ${creatures.length} 条`)
+  console.log(`ark-engrams.json: ${engrams.length} 条`)
 }
 
 main()

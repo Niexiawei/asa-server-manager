@@ -164,19 +164,19 @@
 | `ActiveMapMod` | 当前活跃的地图模组 ID。指定用于自定义地图的模组 ID，服务器会加载该模组提供的地图而非默认地图 | string | 无 | ✅ |
 | `AdminLogging` | 启用后管理员命令将记录到游戏内聊天。方便所有玩家看到管理员执行的操作，提升服务器管理透明度，适用于需要公开管理行为的社区服务器 | boolean | False | ✅ |
 | `ServerAdminPassword` | 管理员密码。玩家在游戏内输入 `enablecheats <密码>` 后可获得管理员权限，使用各种作弊命令。密码应足够复杂以防被猜解，建议定期更换 | string | 无 | ✅ |
-| `ServerPassword` | 服务器密码 | string | 无 | ✅ |
-| `serverPVE` | 启用 PvE 模式（禁用 PvP） | boolean | False | ✅ |
-| `ServerCrosshair` | 显示准星 | boolean | True | ✅ |
-| `ServerHardcore` | 启用硬核模式（死亡后角色重置为 1 级） | boolean | False | ✅ |
-| `SessionName` | 服务器名称 | string | ARK #123456 | ✅ |
+| `ServerPassword` | 服务器密码。设置后玩家必须输入正确密码才能连接服务器，留空则为公开服务器。用于限制只有知道密码的玩家才能加入 | string | 无 | ✅ |
+| `serverPVE` | 启用 PvE 模式（禁用 PvP）。启用后玩家之间无法造成伤害，适合以合作生存为主的游戏风格，同时会启用建筑衰减等 PvE 专属机制 | boolean | False | ✅ |
+| `ServerCrosshair` | 显示准星。启用后屏幕中心会显示十字准星，方便瞄准远程武器，禁用后需要依靠武器自带的瞄准方式 | boolean | True | ✅ |
+| `ServerHardcore` | 启用硬核模式（死亡后角色重置为 1 级）。角色死亡后所有等级、印痕和属性都会重置，提供极高难度的生存体验，适合追求挑战的玩家 | boolean | False | ✅ |
+| `SessionName` | 服务器名称。显示在服务器列表中的名称，玩家通过此名称识别和搜索服务器，建议使用简洁明了的名称便于玩家查找 | string | ARK #123456 | ✅ |
 | `RCONEnabled` | 启用 RCON | boolean | False | ⚠️ |
-| `RCONPort` | RCON 端口 | integer | 27020 | ✅ |
-| `RCONServerGameLogBuffer` | RCON 游戏日志缓冲区行数 | float | 600.0 | ✅ |
-| `BanListURL` | 全局封禁列表 URL | string | 无 | ✅ |
-| `AdminListURL` | 管理员列表 URL | string | 无 | ✅ |
-| `AutoRestartIntervalSeconds` | 自动重启间隔（秒） | float | 未知 | ✅ |
-| `UpdateAllowedCheatersInterval` | 远程管理员列表更新间隔（秒） | float | 600.0 | ✅ |
-| `UseCharacterTracker` | 启用角色追踪 | boolean | False | ✅ |
+| `RCONPort` | RCON 端口。远程控制台连接端口，管理员通过 RCON 客户端连接此端口可远程执行命令和查看日志，需要配合 `RCONEnabled=True` 使用 | integer | 27020 | ✅ |
+| `RCONServerGameLogBuffer` | RCON 游戏日志缓冲区行数。设置通过 RCON 可查看的历史日志行数，较大的值会占用更多内存但能提供更长的日志历史 | float | 600.0 | ✅ |
+| `BanListURL` | 全局封禁列表 URL。指定外部封禁列表文件的 URL，服务器会定期从该 URL 加载被封禁的玩家列表，适用于使用共享封禁名单的服务器集群 | string | 无 | ✅ |
+| `AdminListURL` | 管理员列表 URL。指定远程管理员列表文件的 URL，服务器会定期加载列表中的 Steam ID 并赋予管理员权限，便于多人协作管理服务器 | string | 无 | ✅ |
+| `AutoRestartIntervalSeconds` | 自动重启间隔（秒）。服务器会在指定时间间隔后自动执行保存和重启操作，有助于清理内存泄漏和保持服务器稳定运行，设为 0 禁用 | float | 未知 | ✅ |
+| `UpdateAllowedCheatersInterval` | 远程管理员列表更新间隔（秒）。控制从 `AdminListURL` 重新加载管理员列表的频率，较短的间隔可更快响应管理员变更，但会增加网络请求 | float | 600.0 | ✅ |
+| `UseCharacterTracker` | 启用角色追踪。允许服务器记录和追踪玩家角色的位置信息，可用于管理工具查看玩家分布，但会增加少量服务器计算开销 | boolean | False | ✅ |
 | `SpectatorPassword` | 观战者密码 | string | 无 | ⚠️ |
 | `UseExclusiveList` | 使用独占列表 | boolean | False | ⚠️ |
 | `ListenServerTetherDistanceMultiplier` | 监听服务器系绳距离倍率 | float | 1.0 | ⚠️ |
@@ -185,75 +185,75 @@
 
 | 配置项 | 说明 | 类型 | 默认值 | 兼容性 |
 |--------|------|------|--------|--------|
-| `AllowAnyoneBabyImprintCuddle` | 允许任何人照顾幼崽 | boolean | False | ✅ |
-| `AllowCaveBuildingPvE` | PvE 模式下允许在洞穴中建造 | boolean | False | ✅ |
-| `AllowCaveBuildingPvP` | PvP 模式下允许在洞穴中建造 | boolean | True | ✅ |
+| `AllowAnyoneBabyImprintCuddle` | 允许任何人照顾幼崽。默认只有幼崽的认领者才能执行照顾操作获得印记，启用后任何部落成员都可以照顾幼崽，方便部落协作养育 | boolean | False | ✅ |
+| `AllowCaveBuildingPvE` | PvE 模式下允许在洞穴中建造。默认 PvE 模式禁止洞穴建造以保护资源点，启用后玩家可以在洞穴内放置建筑，但可能影响洞穴资源刷新 | boolean | False | ✅ |
+| `AllowCaveBuildingPvP` | PvP 模式下允许在洞穴中建造。PvP 模式默认允许洞穴建造，禁用后可防止玩家在洞穴中建造防御工事封锁资源点或矿洞入口 | boolean | True | ✅ |
 | `AllowCrateSpawnsOnTopOfStructures` | 允许在建筑顶部刷新补给箱 | boolean | False | ⚠️ |
-| `AllowCryoFridgeOnSaddle` | 允许在平台鞍和木筏上放置低温冰箱 | boolean | False | ✅ |
-| `AllowFlyerCarryPvE` | PvE 模式下允许飞行生物抓取野生生物 | boolean | False | ✅ |
+| `AllowCryoFridgeOnSaddle` | 允许在平台鞍和木筏上放置低温冰箱。启用后玩家可以在移动平台上使用低温冰箱存储生物，提升移动基地的功能性 | boolean | False | ✅ |
+| `AllowFlyerCarryPvE` | PvE 模式下允许飞行生物抓取野生生物。默认 PvE 模式禁止抓取，启用后玩家可以使用阿根廷巨鹰等飞行生物抓取野生生物进行运输或驯服辅助 | boolean | False | ✅ |
 | `AllowFlyingStaminaRecovery` | 允许飞行中恢复耐力 | boolean | False | ⚠️ |
-| `AllowHideDamageSourceFromLogs` | 在部落日志中隐藏伤害来源 | boolean | True | ✅ |
-| `AllowHitMarkers` | 显示远程攻击命中标记 | boolean | True | ✅ |
+| `AllowHideDamageSourceFromLogs` | 在部落日志中隐藏伤害来源。启用后部落日志只记录生物或建筑被破坏，不显示是谁造成的伤害，可用于保护 PvP 服务器中的战术隐私 | boolean | True | ✅ |
+| `AllowHitMarkers` | 显示远程攻击命中标记。启用后使用远程武器命中目标时会在准星处显示命中标记反馈，帮助玩家确认攻击是否命中 | boolean | True | ✅ |
 | `AllowIntegratedSPlusStructures` | 允许集成 S+ 建筑 | boolean | False | ⚠️ |
-| `AllowMultipleAttachedC4` | 允许在一个生物上附着多个 C4 | boolean | False | ✅ |
-| `AllowRaidDinoFeeding` | 允许永久驯服泰坦龙 | boolean | False | ✅ |
+| `AllowMultipleAttachedC4` | 允许在一个生物上附着多个 C4。默认每个生物只能附着一个 C4 炸药，启用后可以在单个生物上放置多个 C4，增加战术多样性 | boolean | False | ✅ |
+| `AllowRaidDinoFeeding` | 允许永久驯服泰坦龙。默认泰坦龙在驯服后 16-20 小时会自动放走，启用此选项后可以永久保留泰坦龙，大幅改变后期游戏平衡 | boolean | False | ✅ |
 | `AllowSharedConnections` | 允许共享连接 | boolean | False | ⚠️ |
 | `AllowTekSuitPowersInGenesis` | 在创世纪中允许泰克套装能力 | boolean | False | ⚠️ |
-| `AllowThirdPersonPlayer` | 允许第三人称视角 | boolean | True | ✅ |
-| `AlwaysAllowStructurePickup` | 禁用快速拾取建筑的计时器 | boolean | False | ✅ |
+| `AllowThirdPersonPlayer` | 允许第三人称视角。启用后玩家可以切换到第三人称视角进行游戏，提供更广阔的视野范围，禁用后强制使用第一人称视角 | boolean | True | ✅ |
+| `AlwaysAllowStructurePickup` | 禁用快速拾取建筑的计时器。启用后玩家可以随时拾取已放置的建筑而不限于放置后的 30 秒窗口，方便建筑调整和重新布局 | boolean | False | ✅ |
 | `AlwaysNotifyPlayerLeft` | 总是通知玩家离开 | boolean | False | ⚠️ |
-| `ArmadoggoDeathCooldown` | Armadoggo 受致命伤害后重生冷却时间（秒） | float | 3600 | ✅ |
+| `ArmadoggoDeathCooldown` | Armadoggo 受致命伤害后重生冷却时间（秒）。控制 Armadoggo 生物在受到致命伤害后需要等待多长时间才能重新刷新，较长的冷却时间可降低该生物的可用频率 | float | 3600 | ✅ |
 | `AutoDestroyDecayedDinos` | 自动销毁衰减的生物 | boolean | False | ⚠️ |
 | `AutoDestroyOldStructuresMultiplier` | 旧建筑自动销毁倍率 | float | 1.0 | ⚠️ |
-| `AutoSavePeriodMinutes` | 自动保存间隔（分钟） | float | 15.0 | ✅ |
+| `AutoSavePeriodMinutes` | 自动保存间隔（分钟）。服务器会按指定间隔自动保存世界数据，较短的间隔可减少崩溃时的数据丢失，但会增加磁盘写入频率影响性能 | float | 15.0 | ✅ |
 | `bForceCanRideFliers` | 强制允许骑乘飞行生物 | boolean | False | ⚠️ |
-| `ClampItemSpoilingTimes` | 将所有腐烂时间限制为物品最大腐烂时间 | boolean | False | ✅ |
+| `ClampItemSpoilingTimes` | 将所有腐烂时间限制为物品最大腐烂时间。启用后不会因为堆叠数量增加而延长腐烂时间，所有同类物品统一使用最大腐烂时间，简化物品管理 | boolean | False | ✅ |
 | `ClampItemStats` | 限制物品属性 | boolean | False | ⚠️ |
-| `ClampResourceHarvestDamage` | 限制驯服生物对资源的采集伤害 | boolean | False | ✅ |
-| `CosmeticWhitelistOverride` | 自定义装饰白名单 URL | string | 无 | ✅ |
-| `CosmoWeaponAmmoReloadAmount` | Cosmo 蛛网发射器每次装填弹药量 | float | 1 | ✅ |
-| `MaxCosmoWeaponAmmo` | Cosmo 蛛网发射器最大弹药量（-1 为随等级缩放） | float | -1 | ✅ |
+| `ClampResourceHarvestDamage` | 限制驯服生物对资源的采集伤害。启用后生物的采集伤害会被限制在合理范围内，防止高攻击力生物一击摧毁整个资源点，保护资源刷新平衡 | boolean | False | ✅ |
+| `CosmeticWhitelistOverride` | 自定义装饰白名单 URL。指定允许使用的自定义装饰物品列表 URL，服务器会验证玩家使用的装饰是否在白名单中，用于控制可用的装饰内容 | string | 无 | ✅ |
+| `CosmoWeaponAmmoReloadAmount` | Cosmo 蛛网发射器每次装填弹药量。控制每次装填操作恢复的弹药数量，较高的值可减少装填频率，提升战斗中的持续输出能力 | float | 1 | ✅ |
+| `MaxCosmoWeaponAmmo` | Cosmo 蛛网发射器最大弹药量（-1 为随等级缩放）。设置武器的最大弹药容量，设为 -1 时弹药上限会根据武器等级自动缩放，提供更灵活的武器成长体验 | float | -1 | ✅ |
 | `CustomDynamicConfigUrl` | 自定义动态配置 URL | string | 无 | ⚠️ |
-| `CustomLiveTuningUrl` | 实时调优文件 URL | string | 无 | ✅ |
-| `DestroyTamesOverTheSoftTameLimit` | 超过软驯服上限的生物标记并销毁 | boolean | False | ✅ |
-| `DifficultyOffset` | 难度等级 | float | 1.0 | ✅ |
+| `CustomLiveTuningUrl` | 实时调优文件 URL。指定远程实时调优数据文件的 URL，服务器会加载该文件中的参数来动态调整游戏平衡数值，无需重启服务器即可微调游戏体验 | string | 无 | ✅ |
+| `DestroyTamesOverTheSoftTameLimit` | 超过软驯服上限的生物标记并销毁。启用后当服务器驯服生物总数超过 `MaxTamedDinos_SoftTameLimit` 时，超出的生物会被标记并在倒计时结束后自动销毁 | boolean | False | ✅ |
+| `DifficultyOffset` | 难度等级。控制野生生物的最大等级和战利品质量，值为 1.0 时对应官方默认难度（最大等级 150），配合 `OverrideOfficialDifficulty` 可进一步调整 | float | 1.0 | ✅ |
 | `DinoCountMultiplier` | 生物数量倍率 | float | 1.0 | ⚠️ |
-| `DisableBurrowDecayTimers` | 禁用 Burrowbuck 的洞穴衰减计时器 | boolean | False | ✅ |
-| `DisableCryopodEnemyCheck` | 允许在敌人附近使用低温舱 | boolean | False | ✅ |
-| `DisableCryopodFridgeRequirement` | 无需低温冰箱即可使用低温舱 | boolean | False | ✅ |
-| `DisableDinoDecayPvE` | 禁用 PvE 模式下的生物衰减 | boolean | False | ✅ |
-| `DisableImprintDinoBuff` | 禁用印记生物的玩家属性加成 | boolean | False | ✅ |
-| `DisablePvEGamma` | 禁止 PvE 模式下使用 gamma 控制台命令 | boolean | False | ✅ |
-| `DisableStructureDecayPvE` | 禁用 PvE 模式下的建筑自动衰减 | boolean | False | ✅ |
-| `DisableWeatherFog` | 禁用雾天 | boolean | False | ✅ |
-| `DontAlwaysNotifyPlayerJoined` | 禁用玩家加入通知 | boolean | False | ✅ |
-| `EnableExtraStructurePreventionVolumes` | 在特定资源丰富区域禁用建造 | boolean | False | ✅ |
-| `EnablePvPGamma` | 允许 PvP 模式下使用 gamma 控制台命令 | boolean | False | ✅ |
+| `DisableBurrowDecayTimers` | 禁用 Burrowbuck 的洞穴衰减计时器。启用后 Burrowbuck 生物的洞穴不会随时间衰减消失，适合需要保留这些资源点的服务器 | boolean | False | ✅ |
+| `DisableCryopodEnemyCheck` | 允许在敌人附近使用低温舱。默认在敌对玩家附近无法部署低温舱，禁用此检查后可在任何位置使用低温舱，增加战术灵活性 | boolean | False | ✅ |
+| `DisableCryopodFridgeRequirement` | 无需低温冰箱即可使用低温舱。默认低温舱需要在低温冰箱附近才能部署生物，启用后可在任何位置自由部署，大幅提升低温舱的便利性 | boolean | False | ✅ |
+| `DisableDinoDecayPvE` | 禁用 PvE 模式下的生物衰减。默认 PvE 模式中长期未接触的驯服生物会逐渐衰减，禁用后生物永远不会因衰减而死亡，适合活跃的 PvE 社区 | boolean | False | ✅ |
+| `DisableImprintDinoBuff` | 禁用印记生物的玩家属性加成。默认骑乘 100% 印记的生物会给玩家提供属性加成，禁用后印记仅影响生物本身的属性，不传递给骑手 | boolean | False | ✅ |
+| `DisablePvEGamma` | 禁止 PvE 模式下使用 gamma 控制台命令。启用后玩家无法通过 gamma 命令调整亮度，保持游戏的原生光照效果，增加夜晚和洞穴的挑战性 | boolean | False | ✅ |
+| `DisableStructureDecayPvE` | 禁用 PvE 模式下的建筑自动衰减。默认 PvE 模式中离开玩家的建筑会随时间衰减，禁用后建筑永不衰减，但可能导致废弃建筑堆积影响服务器性能 | boolean | False | ✅ |
+| `DisableWeatherFog` | 禁用雾天。启用后地图上不会出现雾天效果，提升能见度和游戏体验，同时可减少因雾天导致的渲染性能开销 | boolean | False | ✅ |
+| `DontAlwaysNotifyPlayerJoined` | 禁用玩家加入通知。启用后玩家加入服务器时不会在所有玩家屏幕上显示通知，减少对其他玩家的干扰 | boolean | False | ✅ |
+| `EnableExtraStructurePreventionVolumes` | 在特定资源丰富区域禁用建造。启用后会在重要的资源点、矿脉等区域设置禁止建造区域，防止玩家封锁资源点影响其他玩家获取资源 | boolean | False | ✅ |
+| `EnablePvPGamma` | 允许 PvP 模式下使用 gamma 控制台命令。启用后 PvP 玩家可以调整游戏亮度，在夜间或洞穴中获得更好的视野，但可能影响游戏公平性 | boolean | False | ✅ |
 | `ExtinctionEventTimeInterval` | 灭绝事件时间间隔 | float | 0 | ⚠️ |
 | `FastDecayUnsnappedCoreStructures` | 快速衰减未连接的核心建筑 | boolean | False | ⚠️ |
-| `ForceAllStructureLocking` | 默认锁定所有建筑 | boolean | False | ✅ |
-| `ForceGachaUnhappyInCaves` | Gacha 在洞穴中变为不快乐状态 | boolean | True | ✅ |
-| `globalVoiceChat` | 启用全局语音聊天 | boolean | False | ✅ |
-| `NonPermanentDiseases` | 使永久疾病不再永久 | boolean | False | ✅ |
-| `OverrideStructurePlatformPrevention` | 允许在平台鞍上建造和使用炮塔 | boolean | False | ✅ |
-| `PreventDiseases` | 完全阻止疾病 | boolean | False | ✅ |
-| `PreventMateBoost` | 禁用生物配偶加成 | boolean | False | ✅ |
-| `PreventOfflinePvP` | 启用离线突袭防护（ORP） | boolean | False | ✅ |
-| `PreventOfflinePvPInterval` | ORP 激活前等待时间（秒） | float | 0.0 | ✅ |
-| `PreventSpawnAnimations` | 禁用重生动画 | boolean | False | ✅ |
-| `PreventTribeAlliances` | 阻止部落创建联盟 | boolean | False | ✅ |
-| `ProximityChat` | 启用近距离聊天 | boolean | False | ✅ |
-| `RandomSupplyCratePoints` | 补给箱随机位置 | boolean | False | ✅ |
-| `ShowFloatingDamageText` | 显示浮动伤害数字 | boolean | False | ✅ |
-| `ShowMapPlayerLocation` | 在地图上显示玩家位置 | boolean | True | ✅ |
-| `UseAstraeosTraversalBuff` | 启用 Astraeos 的生物群落传送 | boolean | True | ✅ |
+| `ForceAllStructureLocking` | 默认锁定所有建筑。启用后所有新放置的建筑自动进入锁定状态，其他玩家无法打开门、箱子等，需要手动解锁才能共享访问权限 | boolean | False | ✅ |
+| `ForceGachaUnhappyInCaves` | Gacha 在洞穴中变为不快乐状态。启用后 Gacha 生物在洞穴内会降低产出效率，防止玩家利用洞穴环境无限刷取资源 | boolean | True | ✅ |
+| `globalVoiceChat` | 启用全局语音聊天。启用后所有在线玩家都可以通过语音聊天交流，不受距离限制，禁用后仅附近玩家可以听到语音 | boolean | False | ✅ |
+| `NonPermanentDiseases` | 使永久疾病不再永久。启用后原本永久的疾病会随时间自动痊愈，降低疾病对玩家的惩罚力度，适合休闲游戏模式 | boolean | False | ✅ |
+| `OverrideStructurePlatformPrevention` | 允许在平台鞍上建造和使用炮塔。默认平台鞍上有建造和炮塔限制，启用后可在平台鞍上自由建造并放置自动炮塔，增强移动基地的战斗力 | boolean | False | ✅ |
+| `PreventDiseases` | 完全阻止疾病。启用后玩家不会感染任何疾病，移除疾病机制带来的生存压力，适合轻松休闲的游戏模式 | boolean | False | ✅ |
+| `PreventMateBoost` | 禁用生物配偶加成。默认成对的异性生物会提供配偶加成效果（如伤害提升、减伤等），禁用后移除此机制，简化生物管理 | boolean | False | ✅ |
+| `PreventOfflinePvP` | 启用离线突袭防护（ORP）。当部落所有成员都离线后，其建筑和生物会获得伤害减免保护，防止被在线玩家趁虚攻击，保护离线玩家的劳动成果 | boolean | False | ✅ |
+| `PreventOfflinePvPInterval` | ORP 激活前等待时间（秒）。设置部落所有成员离线后需要等待多长时间才激活离线保护，防止玩家短暂下线就获得保护 | float | 0.0 | ✅ |
+| `PreventSpawnAnimations` | 禁用重生动画。启用后玩家重生时跳过动画直接进入游戏，减少等待时间，提升游戏流畅度 | boolean | False | ✅ |
+| `PreventTribeAlliances` | 阻止部落创建联盟。启用后部落之间无法建立联盟关系，限制大型势力的形成，促进部落间的独立竞争 | boolean | False | ✅ |
+| `ProximityChat` | 启用近距离聊天。启用后聊天消息只有附近的玩家才能看到，模拟真实的对话距离限制，增加沉浸感，适合 RP 服务器 | boolean | False | ✅ |
+| `RandomSupplyCratePoints` | 补给箱随机位置。启用后补给箱的刷新位置会在预设点之间随机选择，增加寻找补给箱的不确定性和探索乐趣 | boolean | False | ✅ |
+| `ShowFloatingDamageText` | 显示浮动伤害数字。启用后攻击目标时会在屏幕上显示造成的伤害数值，方便玩家直观了解攻击效果和生物血量变化 | boolean | False | ✅ |
+| `ShowMapPlayerLocation` | 在地图上显示玩家位置。启用后地图上会标记当前玩家的位置，方便导航和定位，禁用后需要依靠地标和指南针辨认方向 | boolean | True | ✅ |
+| `UseAstraeosTraversalBuff` | 启用 Astraeos 的生物群落传送。在 Astraeos 地图上，玩家骑乘生物穿越不同生物群落时会获得临时增益效果，提升探索体验 | boolean | True | ✅ |
 | `UseFjordurTraversalBuff` | 启用 Fjordur 的生物群落传送 | boolean | True | ⚠️ |
 | `UseOptimizedHarvestingHealth` | 使用优化的采集生命值 | boolean | False | ⚠️ |
-| `PvEAllowStructuresAtSupplyDrops` | PvE 模式下允许在补给点附近建造 | boolean | False | ✅ |
+| `PvEAllowStructuresAtSupplyDrops` | PvE 模式下允许在补给点附近建造。默认 PvE 模式禁止在补给箱刷新点附近建造，启用后玩家可以在补给点周围放置建筑 | boolean | False | ✅ |
 | `PvEStructureDecayPeriodMultiplier` | PvE 建筑衰减周期倍率 | float | 1.0 | ⚠️ |
-| `PvPDinoDecay` | PvP 模式下启用生物衰减 | boolean | False | ✅ |
+| `PvPDinoDecay` | PvP 模式下启用生物衰减。启用后长期未接触的驯服生物会逐渐衰减，防止玩家通过大量囤积生物来获得不公平优势 | boolean | False | ✅ |
 | `PvPStructureDecay` | PvP 模式下启用建筑衰减 | boolean | False | ⚠️ |
-| `RaidDinoCharacterFoodDrainMultiplier` | 突袭生物食物消耗倍率 | float | 1.0 | ✅ |
+| `RaidDinoCharacterFoodDrainMultiplier` | 突袭生物食物消耗倍率。影响大型突袭生物（如泰坦龙、飞龙等）的食物消耗速度，较低的值减少喂食频率 | float | 1.0 | ✅ |
 | `StructureDamageMultiplier` | 建筑伤害倍率 | float | 1.0 | ⚠️ |
 | `TamedDinoDamageMultiplier` | 驯服生物伤害倍率 | float | 1.0 | ⚠️ |
 | `TamedDinoResistanceMultiplier` | 驯服生物抗性倍率 | float | 1.0 | ⚠️ |
@@ -263,53 +263,53 @@
 
 | 配置项 | 说明 | 类型 | 默认值 | 兼容性 |
 |--------|------|------|--------|--------|
-| `DayCycleSpeedScale` | 昼夜循环速度倍率 | float | 1.0 | ✅ |
-| `DayTimeSpeedScale` | 白天时间速度倍率 | float | 1.0 | ✅ |
-| `NightTimeSpeedScale` | 夜晚时间速度倍率 | float | 1.0 | ✅ |
-| `DifficultyOffset` | 难度等级 | float | 1.0 | ✅ |
-| `OverrideOfficialDifficulty` | 覆盖官方难度（5.0 允许生物刷新到 150 级） | float | 0.0 | ✅ |
-| `DinoDamageMultiplier` | 野生生物攻击伤害倍率 | float | 1.0 | ✅ |
-| `DinoResistanceMultiplier` | 野生生物受伤抗性倍率 | float | 1.0 | ✅ |
-| `DinoCharacterFoodDrainMultiplier` | 生物食物消耗倍率 | float | 1.0 | ✅ |
-| `DinoCharacterHealthRecoveryMultiplier` | 生物生命恢复倍率 | float | 1.0 | ✅ |
-| `DinoCharacterStaminaDrainMultiplier` | 生物耐力消耗倍率 | float | 1.0 | ✅ |
-| `HarvestAmountMultiplier` | 采集产量倍率 | float | 1.0 | ✅ |
-| `HarvestHealthMultiplier` | 可采集物品生命值倍率 | float | 1.0 | ✅ |
-| `ItemStackSizeMultiplier` | 全局物品堆叠大小倍率 | float | 1.0 | ✅ |
-| `PlayerDamageMultiplier` | 玩家攻击伤害倍率 | float | 1.0 | ✅ |
-| `PlayerResistanceMultiplier` | 玩家受伤抗性倍率 | float | 1.0 | ✅ |
-| `PlayerCharacterFoodDrainMultiplier` | 玩家食物消耗倍率 | float | 1.0 | ✅ |
-| `PlayerCharacterHealthRecoveryMultiplier` | 玩家生命恢复倍率 | float | 1.0 | ✅ |
-| `PlayerCharacterStaminaDrainMultiplier` | 玩家耐力消耗倍率 | float | 1.0 | ✅ |
-| `PlayerCharacterWaterDrainMultiplier` | 玩家水分消耗倍率 | float | 1.0 | ✅ |
-| `OxygenSwimSpeedStatMultiplier` | 氧气属性对游泳速度的倍率 | float | 1.0 | ✅ |
-| `ResourcesRespawnPeriodMultiplier` | 资源重生速度倍率 | float | 1.0 | ✅ |
-| `StructureResistanceMultiplier` | 建筑受伤抗性倍率 | float | 1.0 | ✅ |
-| `StructurePreventResourceRadiusMultiplier` | 建筑周围资源禁生区域倍率 | float | 1.0 | ✅ |
-| `TamingSpeedMultiplier` | 驯服速度倍率 | float | 1.0 | ✅ |
-| `XPMultiplier` | 经验值倍率 | float | 1.0 | ✅ |
-| `PvEDinoDecayPeriodMultiplier` | PvE 生物衰减时间倍率 | float | 1.0 | ✅ |
-| `StructurePickupHoldDuration` | 快速拾取建筑按住时间（秒） | float | 0.5 | ✅ |
-| `StructurePickupTimeAfterPlacement` | 放置后可快速拾取的时间（秒） | float | 30.0 | ✅ |
-| `TheMaxStructuresInRange` | 特定范围内最大建筑数量 | integer | 10500 | ✅ |
-| `PerPlatformMaxStructuresMultiplier` | 平台鞍/木筏上最大建筑数量倍率 | float | 1.0 | ✅ |
-| `PlatformSaddleBuildAreaBoundsMultiplier` | 平台鞍建造区域范围倍率 | float | 1.0 | ✅ |
-| `TribeNameChangeCooldown` | 部落名称更改冷却时间（分钟） | float | 15.0 | ✅ |
-| `MaxTamedDinos` | 服务器最大驯服生物数量 | float | 5000.0 | ✅ |
-| `MaxPersonalTamedDinos` | 每部落驯服生物上限（0 为禁用） | integer | 0 | ✅ |
-| `MaxTamedDinos_SoftTameLimit` | 服务器软驯服上限 | integer | 5000 | ✅ |
-| `MaxTamedDinos_SoftTameLimit_CountdownForDeletionDuration` | 超过软上限后生物销毁倒计时（秒） | integer | 604800 | ✅ |
-| `MaxTrainCars` | 火车最大车厢数 | integer | 8 | ✅ |
-| `MaxTributeDinos` | 上传生物槽位 | integer | 20 | ✅ |
-| `MaxTributeItems` | 上传物品槽位 | integer | 50 | ✅ |
+| `DayCycleSpeedScale` | 昼夜循环速度倍率。控制 ARK 中时间流逝的速度，决定白天变为夜晚和夜晚变为白天的频率。默认值 1 提供与单人游戏和官方服务器相同的循环速度。值低于 1 会减慢循环，高于 1 会加速循环。当值为 1 时，1 分钟现实时间约等于 28 分钟游戏时间，因此要实现约 24 小时的昼夜循环，需要设置为 0.025 | float | 1.0 | ✅ |
+| `DayTimeSpeedScale` | 白天时间速度倍率。指定 ARK 中白天时间流逝的缩放因子。此值决定每个白天的长度，相对于夜晚长度（由 NightTimeSpeedScale 指定）。降低此值会增加每个白天的长度 | float | 1.0 | ✅ |
+| `NightTimeSpeedScale` | 夜晚时间速度倍率。指定 ARK 中夜晚时间流逝的缩放因子。此值决定每个夜晚的长度，相对于白天长度（由 DayTimeSpeedScale 指定）。降低此值会增加每个夜晚的长度 | float | 1.0 | ✅ |
+| `DifficultyOffset` | 难度等级。指定服务器的难度级别，影响野生生物的最高等级和资源品质。默认值 1.0 对应官方难度 4，值为 1.2 时对应难度 5（生物最高 150 级） | float | 1.0 | ✅ |
+| `OverrideOfficialDifficulty` | 覆盖官方难度。允许将默认难度等级 4 覆盖为 5 以匹配新的官方服务器难度。默认值 0.0 禁用覆盖。设为 5.0 时普通生物最高刷新到 150 级，设为更高值可出现更高等级生物 | float | 0.0 | ✅ |
+| `DinoDamageMultiplier` | 野生生物攻击伤害倍率。影响所有野生生物造成的伤害，值为 2.0 时伤害翻倍，用于调整 PvE 难度 | float | 1.0 | ✅ |
+| `DinoResistanceMultiplier` | 野生生物受伤抗性倍率。影响野生生物受到的伤害，值越小生物越难被杀死，设为 0.5 则野生生物受到的伤害减半 | float | 1.0 | ✅ |
+| `DinoCharacterFoodDrainMultiplier` | 生物食物消耗倍率。影响所有生物的食物消耗速度，较低的值使生物需要更少食物，减少喂食频率 | float | 1.0 | ✅ |
+| `DinoCharacterHealthRecoveryMultiplier` | 生物生命恢复倍率。影响生物的生命值恢复速度，较高的值使生物更快回血，适合需要快速恢复的游戏节奏 | float | 1.0 | ✅ |
+| `DinoCharacterStaminaDrainMultiplier` | 生物耐力消耗倍率。影响生物的耐力消耗速度，较低的值使生物可以更持久地奔跑、飞行或游泳 | float | 1.0 | ✅ |
+| `HarvestAmountMultiplier` | 采集产量倍率。影响所有资源采集的产出数量，值为 3.0 时每次采集获得 3 倍资源，适合加速游戏进度 | float | 1.0 | ✅ |
+| `HarvestHealthMultiplier` | 可采集物品生命值倍率。影响树木、石头等资源点的血量，较高的值需要更多次采集才能摧毁资源点，增加采集的持续性 | float | 1.0 | ✅ |
+| `ItemStackSizeMultiplier` | 全局物品堆叠大小倍率。影响所有可堆叠物品的最大堆叠数量，值为 2.0 时堆叠上限翻倍，减少背包空间压力 | float | 1.0 | ✅ |
+| `PlayerDamageMultiplier` | 玩家攻击伤害倍率。影响玩家使用武器和工具造成的伤害，值为 2.0 时伤害翻倍，用于调整玩家的战斗能力 | float | 1.0 | ✅ |
+| `PlayerResistanceMultiplier` | 玩家受伤抗性倍率。影响玩家受到的伤害，值越小玩家越难被杀死，设为 0.5 则受到的伤害减半 | float | 1.0 | ✅ |
+| `PlayerCharacterFoodDrainMultiplier` | 玩家食物消耗倍率。影响玩家的饥饿速度，较低的值使玩家需要更少食物，减少生存压力 | float | 1.0 | ✅ |
+| `PlayerCharacterHealthRecoveryMultiplier` | 玩家生命恢复倍率。影响玩家的生命值恢复速度，较高的值使玩家更快回血，减少对药品的依赖 | float | 1.0 | ✅ |
+| `PlayerCharacterStaminaDrainMultiplier` | 玩家耐力消耗倍率。影响玩家的耐力消耗速度，较低的值使玩家可以更持久地奔跑和使用工具 | float | 1.0 | ✅ |
+| `PlayerCharacterWaterDrainMultiplier` | 玩家水分消耗倍率。影响玩家的口渴速度，较低的值使玩家需要更少饮水，减少寻找水源的频率 | float | 1.0 | ✅ |
+| `OxygenSwimSpeedStatMultiplier` | 氧气属性对游泳速度的倍率。影响氧气属性点对游泳速度的加成效果，较高的值使高氧气角色游得更快 | float | 1.0 | ✅ |
+| `ResourcesRespawnPeriodMultiplier` | 资源重生速度倍率。影响被采集资源的重生时间，较低的值使资源更快重生，适合需要大量资源的服务器 | float | 1.0 | ✅ |
+| `StructureResistanceMultiplier` | 建筑受伤抗性倍率。影响建筑受到的伤害，值越小建筑越难被破坏，设为 0.5 则建筑受到的伤害减半 | float | 1.0 | ✅ |
+| `StructurePreventResourceRadiusMultiplier` | 建筑周围资源禁生区域倍率。影响建筑周围禁止资源刷新的范围，较大的值使建筑周围更大范围内不刷新资源 | float | 1.0 | ✅ |
+| `TamingSpeedMultiplier` | 驯服速度倍率。影响驯服生物所需的时间和食物，值为 3.0 时驯服速度变为 3 倍，大幅缩短驯服过程 | float | 1.0 | ✅ |
+| `XPMultiplier` | 经验值倍率。影响所有经验获取的倍率，值为 2.0 时获得双倍经验，加速角色和生物的升级过程 | float | 1.0 | ✅ |
+| `PvEDinoDecayPeriodMultiplier` | PvE 生物衰减时间倍率。影响 PvE 模式下驯服生物的衰减周期，较长的衰减时间给予玩家更多时间回来照顾生物 | float | 1.0 | ✅ |
+| `StructurePickupHoldDuration` | 快速拾取建筑按住时间（秒）。设置拾取建筑需要长按的时间，较短的时间使拾取操作更快响应，但可能增加误操作风险 | float | 0.5 | ✅ |
+| `StructurePickupTimeAfterPlacement` | 放置后可快速拾取的时间（秒）。设置建筑放置后允许快速拾取的时间窗口，超时后只能通过拆除来移除建筑，设为 0 则禁用快速拾取 | float | 30.0 | ✅ |
+| `TheMaxStructuresInRange` | 特定范围内最大建筑数量。限制在一定区域内可以放置的建筑总数，防止玩家在小范围内堆积大量建筑导致服务器性能下降 | integer | 10500 | ✅ |
+| `PerPlatformMaxStructuresMultiplier` | 平台鞍/木筏上最大建筑数量倍率。影响平台鞍和木筏上可以放置的建筑数量，较高的值允许在移动平台上建造更多建筑 | float | 1.0 | ✅ |
+| `PlatformSaddleBuildAreaBoundsMultiplier` | 平台鞍建造区域范围倍率。影响平台鞍上可建造区域的大小，较大的值扩展建造边界，允许在更大范围内放置建筑 | float | 1.0 | ✅ |
+| `TribeNameChangeCooldown` | 部落名称更改冷却时间（分钟）。设置更改部落名称后需要等待的时间才能再次更改，防止频繁改名造成混淆 | float | 15.0 | ✅ |
+| `MaxTamedDinos` | 服务器最大驯服生物数量。限制整个服务器可容纳的驯服生物总数，达到上限后无法继续驯服新生物，用于控制服务器性能 | float | 5000.0 | ✅ |
+| `MaxPersonalTamedDinos` | 每部落驯服生物上限（0 为禁用）。限制每个部落可拥有的驯服生物数量，设为 0 则不限制，用于平衡部落间的资源分配 | integer | 0 | ✅ |
+| `MaxTamedDinos_SoftTameLimit` | 服务器软驯服上限。当驯服生物数量超过此值时会触发销毁倒计时机制，给予玩家时间处理多余的生物，而非立即阻止驯服 | integer | 5000 | ✅ |
+| `MaxTamedDinos_SoftTameLimit_CountdownForDeletionDuration` | 超过软上限后生物销毁倒计时（秒）。设置超过软驯服上限后生物被标记为待销毁的等待时间，给予玩家足够时间决定保留哪些生物 | integer | 604800 | ✅ |
+| `MaxTrainCars` | 火车最大车厢数。限制火车可以连接的最大车厢数量，较少的车厢数可减少火车相关的物理计算负载 | integer | 8 | ✅ |
+| `MaxTributeDinos` | 上传生物槽位。限制玩家在跨服传输终端可同时上传的生物数量，较小的值限制跨服转移能力 | integer | 20 | ✅ |
+| `MaxTributeItems` | 上传物品槽位。限制玩家在跨服传输终端可同时上传的物品数量，控制跨服物品转移的规模 | integer | 50 | ✅ |
 | `MaxTributeCharacters` | 上传角色槽位 | integer | 5 | ⚠️ |
 | `MaxGateFrameOnSaddles` | 平台鞍上门框最大数量 | integer | 6 | ⚠️ |
 | `MaxHexagonsPerCharacter` | 每角色最大六角币数量 | integer | 无 | ⚠️ |
 | `MaxPlatformSaddleStructureLimit` | 平台鞍建筑限制 | integer | 无 | ⚠️ |
 | `PersonalTamedDinosSaddleStructureCost` | 驯服生物鞍建筑成本 | integer | 无 | ⚠️ |
-| `KickIdlePlayersPeriod` | 踢出空闲玩家的时间（秒） | float | 3600.0 | ✅ |
-| `ImplantSuicideCD` | 植入物"重生"功能冷却时间（秒） | float | 28800 | ✅ |
-| `IgnoreLimitMaxStructuresInRangeTypeFlag` | 移除装饰建筑限制 | boolean | False | ✅ |
+| `KickIdlePlayersPeriod` | 踢出空闲玩家的时间（秒）。需要配合 `-EnableIdlePlayerKick` 命令行参数使用，设置玩家未操作多长时间后被踢出服务器 | float | 3600.0 | ✅ |
+| `ImplantSuicideCD` | 植入物"重生"功能冷却时间（秒）。设置使用植入物自杀重生后需要等待的冷却时间，防止玩家频繁利用自杀来快速传送或恢复状态 | float | 28800 | ✅ |
+| `IgnoreLimitMaxStructuresInRangeTypeFlag` | 移除装饰建筑限制。启用后装饰性建筑（如旗帜、火把等）不再计入区域建筑数量限制，允许玩家更自由地装饰基地 | boolean | False | ✅ |
 | `NPCNetworkStasisRangeScalePlayerCountStart` | NPC 网络休眠范围缩放玩家数量起始值 | integer | 0 | ⚠️ |
 | `NPCNetworkStasisRangeScalePlayerCountEnd` | NPC 网络休眠范围缩放玩家数量结束值 | integer | 0 | ⚠️ |
 | `NPCNetworkStasisRangeScalePercentEnd` | NPC 网络休眠范围缩放百分比结束值 | float | 0 | ⚠️ |
@@ -335,62 +335,62 @@
 
 | 配置项 | 说明 | 类型 | 默认值 | 兼容性 |
 |--------|------|------|--------|--------|
-| `CrossARKAllowForeignDinoDownloads` | 允许在畸变地图下载非本地生物 | boolean | False | ✅ |
-| `noTributeDownloads` | 阻止跨服数据下载 | boolean | False | ✅ |
-| `PreventDownloadDinos` | 阻止从 ARK 数据下载生物 | boolean | False | ✅ |
-| `PreventDownloadItems` | 阻止从 ARK 数据下载物品 | boolean | False | ✅ |
-| `PreventDownloadSurvivors` | 阻止从 ARK 数据下载幸存者 | boolean | False | ✅ |
-| `PreventUploadDinos` | 阻止上传生物到 ARK 数据 | boolean | False | ✅ |
-| `PreventUploadItems` | 阻止上传物品到 ARK 数据 | boolean | False | ✅ |
-| `PreventUploadSurvivors` | 阻止上传幸存者到 ARK 数据 | boolean | False | ✅ |
+| `CrossARKAllowForeignDinoDownloads` | 允许在畸变地图下载非本地生物。默认畸变地图只允许本地生物下载，启用后可从其他地图传输非本地生物进入畸变 | boolean | False | ✅ |
+| `noTributeDownloads` | 阻止跨服数据下载。启用后玩家无法从其他服务器下载之前上传的生物、物品或角色数据，完全切断跨服数据传输 | boolean | False | ✅ |
+| `PreventDownloadDinos` | 阻止从 ARK 数据下载生物。单独控制生物的跨服下载，允许玩家上传但不能下载，用于限制外部生物进入服务器 | boolean | False | ✅ |
+| `PreventDownloadItems` | 阻止从 ARK 数据下载物品。单独控制物品的跨服下载，防止外部物品进入服务器经济系统，保护本地游戏平衡 | boolean | False | ✅ |
+| `PreventDownloadSurvivors` | 阻止从 ARK 数据下载幸存者。防止玩家从其他服务器带入高级角色，确保所有玩家从同一起点开始 | boolean | False | ✅ |
+| `PreventUploadDinos` | 阻止上传生物到 ARK 数据。禁止玩家将生物上传到跨服数据，防止生物被转移到其他服务器，保留服务器生态完整性 | boolean | False | ✅ |
+| `PreventUploadItems` | 阻止上传物品到 ARK 数据。禁止玩家将物品上传到跨服数据，防止资源和装备通过跨服转移流失 | boolean | False | ✅ |
+| `PreventUploadSurvivors` | 阻止上传幸存者到 ARK 数据。禁止玩家将角色数据上传到跨服系统，确保玩家角色只能在当前服务器内活动 | boolean | False | ✅ |
 
 #### Bunker（地堡）设置
 
 | 配置项 | 说明 | 类型 | 默认值 | 兼容性 |
 |--------|------|------|--------|--------|
-| `LimitBunkersPerTribe` | 限制每部落地堡数量 | boolean | True | ✅ |
-| `LimitBunkersPerTribeNum` | 每部落最大地堡数 | integer | 3 | ✅ |
-| `AllowBunkersInPreventionZones` | 允许在防护区域内建造地堡 | boolean | False | ✅ |
-| `AllowRidingDinosInsideBunkers` | 允许在地堡内骑乘生物 | boolean | True | ✅ |
-| `AllowBunkerModulesAboveGround` | 允许地堡模块在地面以上 | boolean | False | ✅ |
-| `AllowDinoAIInsideBunkers` | 允许地堡内生物 AI | boolean | True | ✅ |
-| `AllowBunkerModulesInPreventionZones` | 允许在防护区域内地堡模块 | boolean | False | ✅ |
-| `MinDistanceBetweenBunkers` | 地堡之间最小距离 | float | 3000.0 | ✅ |
-| `EnemyAccessBunkerHPThreshold` | 敌人可攻击地堡的血量阈值 | float | 0.25 | ✅ |
-| `BunkerUnderHPThresholdDmgMultiplier` | 地堡低于血量阈值时的伤害倍率 | float | 0.05 | ✅ |
+| `LimitBunkersPerTribe` | 限制每部落地堡数量。启用后每个部落只能拥有有限数量的地堡建筑，防止部落过度使用地堡获得不公平优势 | boolean | True | ✅ |
+| `LimitBunkersPerTribeNum` | 每部落最大地堡数。设置每个部落可以拥有的地堡数量上限，配合 `LimitBunkersPerTribe` 使用，控制地堡的使用规模 | integer | 3 | ✅ |
+| `AllowBunkersInPreventionZones` | 允许在防护区域内建造地堡。默认防护区域禁止建造，启用后可在特定防护区域内放置地堡，扩大地堡的可用范围 | boolean | False | ✅ |
+| `AllowRidingDinosInsideBunkers` | 允许在地堡内骑乘生物。启用后玩家可以在地堡内部骑乘生物移动，提升地堡的机动性和战术价值 | boolean | True | ✅ |
+| `AllowBunkerModulesAboveGround` | 允许地堡模块在地面以上。默认地堡模块只能在地下建造，启用后可在地面以上放置地堡模块，扩展建筑可能性 | boolean | False | ✅ |
+| `AllowDinoAIInsideBunkers` | 允许地堡内生物 AI。启用后地堡内的生物可以正常执行 AI 行为（如巡逻、攻击等），禁用后地堡内生物变为被动状态 | boolean | True | ✅ |
+| `AllowBunkerModulesInPreventionZones` | 允许在防护区域内地堡模块。启用后可在防护区域内建造地堡模块，配合 `AllowBunkersInPreventionZones` 使用 | boolean | False | ✅ |
+| `MinDistanceBetweenBunkers` | 地堡之间最小距离。设置两个地堡之间的最小间隔距离，防止玩家在小范围内密集建造多个地堡 | float | 3000.0 | ✅ |
+| `EnemyAccessBunkerHPThreshold` | 敌人可攻击地堡的血量阈值。当敌方地堡血量低于此百分比时才可被攻击，防止新放置的地堡立即被摧毁 | float | 0.25 | ✅ |
+| `BunkerUnderHPThresholdDmgMultiplier` | 地堡低于血量阈值时的伤害倍率。当敌方地堡血量低于阈值后，受到的伤害会按此倍率增加，加速低血量地堡的摧毁过程 | float | 0.05 | ✅ |
 
 #### CryoHospital（低温医院）设置
 
 | 配置项 | 说明 | 类型 | 默认值 | 兼容性 |
 |--------|------|------|--------|--------|
-| `CryoHospitalHoursToRegenHP` | 低温医院恢复生命值时间（小时） | float | 1.0 | ✅ |
-| `CryoHospitalHoursToRegenFood` | 低温医院恢复食物时间（小时） | float | 24.0 | ✅ |
-| `CryoHospitalHoursToDrainTorpor` | 低温医院消耗昏迷值时间（小时） | float | 1.0 | ✅ |
-| `CryoHospitalMatingCooldownReduction` | 低温医院交配冷却减少量 | float | 2.0 | ✅ |
+| `CryoHospitalHoursToRegenHP` | 低温医院恢复生命值时间（小时）。设置生物在低温医院中完全恢复生命值所需的小时数，较短的时间加速治疗过程 | float | 1.0 | ✅ |
+| `CryoHospitalHoursToRegenFood` | 低温医院恢复食物时间（小时）。设置生物在低温医院中完全恢复食物值所需的小时数，较长的时间模拟缓慢的营养补充过程 | float | 24.0 | ✅ |
+| `CryoHospitalHoursToDrainTorpor` | 低温医院消耗昏迷值时间（小时）。设置生物在低温医院中完全清除昏迷值所需的小时数，帮助受伤或被麻醉的生物恢复清醒 | float | 1.0 | ✅ |
+| `CryoHospitalMatingCooldownReduction` | 低温医院交配冷却减少量。生物在低温医院中停留时可缩短交配冷却时间，加速繁殖周期，适合需要快速繁殖的服务器 | float | 2.0 | ✅ |
 
 #### Bloodforge（血锻）设置
 
 | 配置项 | 说明 | 类型 | 默认值 | 兼容性 |
 |--------|------|------|--------|--------|
-| `BloodforgeReinforceExtraDurability` | 血锻强化额外耐久度 | float | 0.3 | ✅ |
-| `BloodforgeReinforceResourceCostMultiplier` | 血锻强化资源消耗倍率 | float | 3.0 | ✅ |
-| `BloodforgeReinforceSpeedMultiplier` | 血锻强化速度倍率 | float | 0.1 | ✅ |
+| `BloodforgeReinforceExtraDurability` | 血锻强化额外耐久度。设置通过血锻强化装备时获得的额外耐久度百分比，较高的值使强化后的装备更持久 | float | 0.3 | ✅ |
+| `BloodforgeReinforceResourceCostMultiplier` | 血锻强化资源消耗倍率。影响血锻强化所需的资源数量，较低的值减少材料消耗，降低强化门槛 | float | 3.0 | ✅ |
+| `BloodforgeReinforceSpeedMultiplier` | 血锻强化速度倍率。影响血锻强化的完成速度，较高的值缩短强化时间，加快装备升级节奏 | float | 0.1 | ✅ |
 
 #### 前哨站设置
 
 | 配置项 | 说明 | 类型 | 默认值 | 兼容性 |
 |--------|------|------|--------|--------|
-| `MaxActiveOutposts` | 最大活跃前哨站数 | integer | 无 | ✅ |
-| `MaxActiveResourceCaches` | 最大活跃资源缓存数 | integer | 无 | ✅ |
-| `MaxActiveCityOutposts` | 最大城市前哨站数 | integer | 无 | ✅ |
-| `OutpostSigilRewardMultiplier` | 前哨站任务印章奖励倍率 | float | 1.0 | ✅ |
+| `MaxActiveOutposts` | 最大活跃前哨站数。限制服务器中同时存在的前哨站数量，防止过多前哨站影响服务器性能 | integer | 无 | ✅ |
+| `MaxActiveResourceCaches` | 最大活跃资源缓存数。限制服务器中同时存在的资源缓存数量，控制资源点的分布密度 | integer | 无 | ✅ |
+| `MaxActiveCityOutposts` | 最大城市前哨站数。限制服务器中同时存在的城市前哨站数量，与普通前哨站分开计算 | integer | 无 | ✅ |
+| `OutpostSigilRewardMultiplier` | 前哨站任务印章奖励倍率。影响完成前哨站任务获得的印章数量，较高的值加速印章积累，加快商店购买进度 | float | 1.0 | ✅ |
 
 #### 敏感词过滤
 
 | 配置项 | 说明 | 类型 | 默认值 | 兼容性 |
 |--------|------|------|--------|--------|
-| `BadWordListURL` | 敏感词列表 URL | string | 官方默认列表 | ✅ |
-| `BadWordWhiteListURL` | 白名单词列表 URL | string | 官方默认列表 | ✅ |
+| `BadWordListURL` | 敏感词列表 URL。指定敏感词过滤列表的 URL，服务器会从该地址加载需要过滤的词汇，用于自动屏蔽不当内容 | string | 官方默认列表 | ✅ |
+| `BadWordWhiteListURL` | 白名单词列表 URL。指定豁免词汇列表的 URL，列表中的词汇即使包含敏感词也不会被过滤，用于避免误杀正常用语 | string | 官方默认列表 | ✅ |
 | `bFilterCharacterNames` | 过滤角色名称 | boolean | True | ⚠️ |
 | `bFilterChat` | 过滤聊天内容 | boolean | True | ⚠️ |
 | `bFilterTribeNames` | 过滤部落名称 | boolean | True | ⚠️ |
@@ -455,20 +455,20 @@
 
 | 配置项 | 说明 | 类型 | 默认值 | 兼容性 |
 |--------|------|------|--------|--------|
-| `BabyCuddleGracePeriodMultiplier` | 延迟照顾幼崽后印记质量开始下降的宽限期倍率 | float | 1.0 | ✅ |
-| `BabyCuddleIntervalMultiplier` | 幼崽需要照顾的频率倍率 | float | 1.0 | ✅ |
-| `BabyCuddleLoseImprintQualitySpeedMultiplier` | 宽限期后印记质量下降速度倍率 | float | 1.0 | ✅ |
-| `BabyFoodConsumptionSpeedMultiplier` | 幼崽食物消耗速度倍率 | float | 1.0 | ✅ |
-| `BabyImprintAmountMultiplier` | 每次照顾提供的印记百分比倍率 | float | 1.0 | ✅ |
-| `BabyImprintingStatScaleMultiplier` | 印记质量对属性的影响倍率（设为 0 禁用） | float | 1.0 | ✅ |
-| `BabyMatureSpeedMultiplier` | 幼崽成熟速度倍率 | float | 1.0 | ✅ |
-| `EggHatchSpeedMultiplier` | 受精蛋孵化速度倍率 | float | 1.0 | ✅ |
-| `LayEggIntervalMultiplier` | 下蛋间隔倍率 | float | 1.0 | ✅ |
-| `MatingIntervalMultiplier` | 交配间隔倍率 | float | 1.0 | ✅ |
-| `MatingSpeedMultiplier` | 交配速度倍率 | float | 1.0 | ✅ |
-| `PoopIntervalMultiplier` | 排便频率倍率 | float | 1.0 | ✅ |
-| `WildDinoCharacterFoodDrainMultiplier` | 野生生物食物消耗速度倍率 | float | 1.0 | ✅ |
-| `PreventBreedingForClassNames` | 阻止指定生物繁殖（通过类名） | string | 无 | ✅ |
+| `BabyCuddleGracePeriodMultiplier` | 幼崽照顾宽限期倍率。当幼崽需要照顾时，玩家在宽限期内完成照顾不会影响印记质量。增大此值可给予玩家更多时间响应照顾请求，适合无法长时间在线的玩家 | float | 1.0 | ✅ |
+| `BabyCuddleIntervalMultiplier` | 幼崽照顾频率倍率。控制幼崽发出照顾请求的时间间隔，值越大间隔越长。降低此值可减少玩家需要频繁登录照顾幼崽的负担，适合休闲服务器 | float | 1.0 | ✅ |
+| `BabyCuddleLoseImprintQualitySpeedMultiplier` | 宽限期后印记质量下降速度倍率。当玩家错过幼崽的照顾请求后，印记质量会逐渐下降。增大此值会加速下降过程，减小则给予玩家更多补救机会 | float | 1.0 | ✅ |
+| `BabyFoodConsumptionSpeedMultiplier` | 幼崽食物消耗速度倍率。影响幼崽阶段生物的食物消耗速率，值越大消耗越快。降低此值可减少幼崽期间需要准备的食物量，降低养育难度 | float | 1.0 | ✅ |
+| `BabyImprintAmountMultiplier` | 每次照顾提供的印记百分比倍率。增大此值可使每次照顾操作获得更高的印记百分比，减少达到 100% 印记所需的照顾次数，适合加速繁殖流程的服务器 | float | 1.0 | ✅ |
+| `BabyImprintingStatScaleMultiplier` | 印记质量对生物属性的影响倍率。控制 100% 印记给生物带来的属性加成强度，设为 0 则完全禁用印记属性加成。高倍率可使满印记生物获得更显著的属性提升 | float | 1.0 | ✅ |
+| `BabyMatureSpeedMultiplier` | 幼崽成熟速度倍率。控制幼崽成长为成年生物的速度，值越大成熟越快。增大此值可大幅缩短从幼崽到成年的时间，减少玩家的等待和照顾负担 | float | 1.0 | ✅ |
+| `EggHatchSpeedMultiplier` | 受精蛋孵化速度倍率。影响受精蛋从开始孵化到破壳所需的时间，值越大孵化越快。适合需要加速繁殖周期的服务器，可配合幼崽成熟速度一起调整 | float | 1.0 | ✅ |
+| `LayEggIntervalMultiplier` | 生物下蛋间隔倍率。控制雌性生物产卵的时间间隔，值越大间隔越长。降低此值可增加产卵频率，方便需要大量蛋类资源（如制作饲料）的玩家 | float | 1.0 | ✅ |
+| `MatingIntervalMultiplier` | 生物交配间隔倍率。控制雌性生物两次交配之间的冷却时间，值越大间隔越长。降低此值可缩短繁殖冷却，加速生物种群的扩充速度 | float | 1.0 | ✅ |
+| `MatingSpeedMultiplier` | 生物交配速度倍率。控制两只异性生物完成交配过程的速度，值越大交配越快。增大此值可减少生物需要待在一起的时间，提高繁殖效率 | float | 1.0 | ✅ |
+| `PoopIntervalMultiplier` | 生物排便频率倍率。控制所有生物排便的时间间隔，值越大间隔越长。降低此值可增加排便频率，粪便是制作化肥和种植的重要原材料 | float | 1.0 | ✅ |
+| `WildDinoCharacterFoodDrainMultiplier` | 野生生物食物消耗速度倍率。影响野生生物的饥饿速率，值越大饥饿越快。调整此值可间接影响被动驯服的难度，因为饥饿的生物更容易接受喂食 | float | 1.0 | ✅ |
+| `PreventBreedingForClassNames` | 阻止指定类名的生物参与繁殖。通过填入生物类名（逗号分隔）来禁止特定生物繁殖后代，可用于限制某些强力生物的数量增长或防止特定生物繁殖带来的性能问题 | string | 无 | ✅ |
 | `bAllowUnclaimDinos` | 允许取消认领生物 | boolean | True | ⚠️ |
 | `bAllowCustomRecipes` | 允许自定义配方 | boolean | True | ⚠️ |
 | `bDisableDinoBreeding` | 禁用生物繁殖 | boolean | False | ⚠️ |
@@ -477,9 +477,9 @@
 | `DinoHarvestingDamageMultiplier` | 生物采集伤害倍率 | float | 3.2 | ⚠️ |
 | `DinoTurretDamageMultiplier` | 炮塔对生物伤害倍率 | float | 1.0 | ⚠️ |
 | `PassiveTameIntervalMultiplier` | 被动驯服请求间隔倍率 | float | 1.0 | ⚠️ |
-| `TamedDinoCharacterFoodDrainMultiplier` | 驯服生物食物消耗速度倍率 | float | 1.0 | ⚠️ |
-| `TamedDinoTorporDrainMultiplier` | 驯服生物昏迷值消耗速度倍率 | float | 1.0 | ⚠️ |
-| `WildDinoTorporDrainMultiplier` | 野生生物昏迷值消耗速度倍率 | float | 1.0 | ⚠️ |
+| `TamedDinoCharacterFoodDrainMultiplier` | 驯服生物食物消耗速度倍率。影响驯服生物的食物消耗速度，较低的值使驯服生物需要更少食物，减少喂食频率和食物管理压力。设为 0.5 则食物消耗速度减半 | float | 1.0 | ⚠️ |
+| `TamedDinoTorporDrainMultiplier` | 驯服生物昏迷值消耗速度倍率。影响驯服生物从昏迷状态恢复的速度，较低的值使生物昏迷时间更长，适合需要长时间麻醉的场景 | float | 1.0 | ⚠️ |
+| `WildDinoTorporDrainMultiplier` | 野生生物昏迷值消耗速度倍率。影响野生生物从昏迷状态恢复的速度，较低的值使野生生物昏迷时间更长，便于玩家进行驯服操作 | float | 1.0 | ⚠️ |
 | `AdjustableMutagenSpawnDelayMultiplier` | Mutagen 刷新延迟倍率 | float | 1.0 | ⚠️ |
 | `PreventDinoTameClassNames` | 阻止指定生物驯服（通过类名） | string | 无 | ⚠️ |
 
@@ -487,10 +487,10 @@
 
 | 配置项 | 说明 | 类型 | 默认值 | 兼容性 |
 |--------|------|------|--------|--------|
-| `bAllowFlyerSpeedLeveling` | 允许飞行生物升级移动速度 | boolean | False | ✅ |
-| `bAllowSpeedLeveling` | 允许玩家和非飞行生物升级移动速度 | boolean | False | ✅ |
-| `bAllowUnlimitedRespecs` | 允许无限次使用洗点药水 | boolean | False | ✅ |
-| `PerLevelStatsMultiplier_Player[<integer>]` | 玩家每级属性倍率（索引 0-11） | float | 无 | ✅ |
+| `bAllowFlyerSpeedLeveling` | 允许飞行生物升级移动速度。默认情况下飞行生物的移动速度属性不可通过升级点数提升，启用后玩家可以像其他属性一样分配升级点数到速度上，显著增强飞行生物的机动性 | boolean | False | ✅ |
+| `bAllowSpeedLeveling` | 允许玩家和非飞行生物升级移动速度。默认情况下移动速度属性不可升级，启用后玩家和陆地生物都可以通过分配升级点数来提升移动速度，改变游戏的战斗和探索平衡 | boolean | False | ✅ |
+| `bAllowUnlimitedRespecs` | 允许无限次使用洗点药水（Mindwipe Tonic）。默认每个角色在一定等级后只能使用一次洗点药水重置属性和印痕点数，启用后可无限制地反复洗点，方便玩家根据不同场景灵活调整角色配置 | boolean | False | ✅ |
+| `PerLevelStatsMultiplier_Player[<integer>]` | 玩家每级属性倍率（索引 0-11）。控制玩家每次升级时各属性的成长幅度，索引对应不同属性（0=生命值、1=耐力、7=负重等）。值为 2.0 时该属性每级获得双倍加点效果，可精细调整角色成长曲线 | float | 无 | ✅ |
 | `PerLevelStatsMultiplier_DinoTamed<_type>[<integer>]` | 驯服生物每级属性倍率 | float | 无 | ⚠️ |
 | `PerLevelStatsMultiplier_DinoWild[<integer>]` | 野生生物每级属性倍率 | float | 无 | ⚠️ |
 | `PlayerBaseStatMultipliers[<attribute>]` | 玩家基础属性倍率 | float | 无 | ⚠️ |
@@ -504,48 +504,43 @@
 
 | 配置项 | 说明 | 类型 | 默认值 | 兼容性 |
 |--------|------|------|--------|--------|
-| `CraftXPMultiplier` | 制造经验倍率 | float | 1.0 | ✅ |
-| `GenericXPMultiplier` | 通用经验倍率 | float | 1.0 | ✅ |
-| `HarvestXPMultiplier` | 采集经验倍率 | float | 1.0 | ✅ |
-| `KillXPMultiplier` | 击杀经验倍率 | float | 1.0 | ✅ |
-| `SpecialXPMultiplier` | 特殊事件经验倍率 | float | 1.0 | ✅ |
-| `CraftingSkillBonusMultiplier` | 制造技能加成倍率 | float | 1.0 | ✅ |
+| `CraftXPMultiplier` | 制造经验倍率。影响通过制作物品获得的经验值，值为 2.0 时制造获得双倍经验。适合需要加速升级的服务器，鼓励玩家通过制造来提升等级 | float | 1.0 | ✅ |
+| `GenericXPMultiplier` | 通用经验倍率。影响通过探索、发现地点、解锁印痕等通用途径获得的经验值。作为基础经验倍率，调整此值可整体加速或减慢玩家的升级进度 | float | 1.0 | ✅ |
+| `HarvestXPMultiplier` | 采集经验倍率。影响通过采集资源（砍树、挖矿、采集浆果等）获得的经验值。增大此值可让玩家在日常采集资源的同时获得更多经验，适合资源采集密集的服务器 | float | 1.0 | ✅ |
+| `KillXPMultiplier` | 击杀经验倍率。影响通过击杀野生生物获得的经验值，值为 2.0 时击杀获得双倍经验。增大此值可鼓励玩家参与战斗，加快通过战斗升级的速度 | float | 1.0 | ✅ |
+| `SpecialXPMultiplier` | 特殊事件经验倍率。影响通过特殊活动（如节日事件、成就完成等）获得的经验值。可在活动期间临时增大此值以激励玩家参与特殊事件 | float | 1.0 | ✅ |
+| `CraftingSkillBonusMultiplier` | 制造技能加成倍率。影响制造技能属性对制作物品品质的加成效果，值越大高制造技能角色制作出高品质物品的概率越高。调整此值可改变制造专精角色的优势程度 | float | 1.0 | ✅ |
 
 ### 建筑与资源设置
 
 | 配置项 | 说明 | 类型 | 默认值 | 兼容性 |
 |--------|------|------|--------|--------|
-| `bDisableStructurePlacementCollision` | 允许建筑与地形重叠 | boolean | False | ✅ |
-| `bIgnoreStructuresPreventionVolumes` | 允许在禁止建造区域建造 | boolean | False | ✅ |
-| `bAllowPlatformSaddleMultiFloors` | 允许多层平台鞍 | boolean | False | ⚠️ |
-| `bHardLimitTurretsInRange` | 启用炮塔硬限制（10k 范围内 100 个） | boolean | False | ⚠️ |
-| `bLimitTurretsInRange` | 限制范围内炮塔数量 | boolean | True | ⚠️ |
-| `LimitTurretsNum` | 范围内最大炮塔数量 | integer | 100 | ⚠️ |
-| `LimitTurretsRange` | 炮塔限制范围（UE 单位） | float | 10000.0 | ⚠️ |
-| `ResourceNoReplenishRadiusPlayers` | 玩家周围资源禁生区域倍率 | float | 1.0 | ✅ |
-| `ResourceNoReplenishRadiusStructures` | 建筑周围资源禁生区域倍率 | float | 1.0 | ✅ |
-| `CropDecaySpeedMultiplier` | 作物腐烂速度倍率 | float | 1.0 | ✅ |
-| `CropGrowthSpeedMultiplier` | 作物生长速度倍率 | float | 1.0 | ✅ |
-| `LimitGeneratorsNum` | 区域内发电机数量限制 | integer | 3 | ✅ |
-| `LimitGeneratorsRange` | 发电机限制区域范围（UE 单位） | integer | 15000 | ✅ |
-| `MaxFallSpeedMultiplier` | 开始受到坠落伤害的坠落速度倍率 | float | 1.0 | ✅ |
+| `bDisableStructurePlacementCollision` | 允许建筑与地形重叠放置。默认情况下建筑不能与地形或其他物体碰撞，启用后建筑可以穿透地形放置，适合在不平坦的地形上建造基地，但可能导致建筑嵌入山体或地面 | boolean | False | ✅ |
+| `bIgnoreStructuresPreventionVolumes` | 允许在禁止建造区域内建造。默认某些区域（如矿洞入口、重要资源点）被标记为禁止建造区域，启用后可无视这些限制在任意位置建造，但可能影响其他玩家的游戏体验 | boolean | False | ✅ |
+| `ResourceNoReplenishRadiusPlayers` | 玩家周围资源禁生区域倍率。控制玩家附近禁止资源刷新的范围大小，值越大玩家周围越大的区域内不会刷新资源。增大此值可防止资源在玩家附近刷新造成干扰 | float | 1.0 | ✅ |
+| `ResourceNoReplenishRadiusStructures` | 建筑周围资源禁生区域倍率。控制建筑周围禁止资源刷新的范围大小，值越大建筑周围越大的区域内不刷新资源。用于防止树木和石头在基地内部刷新穿模 | float | 1.0 | ✅ |
+| `CropDecaySpeedMultiplier` | 作物腐烂速度倍率。影响种植在耕地上的作物腐烂速度，值越大腐烂越快。降低此值可延长作物存活时间，减少玩家需要频繁浇水施肥的负担 | float | 1.0 | ✅ |
+| `CropGrowthSpeedMultiplier` | 作物生长速度倍率。影响作物从种子到成熟的速度，值越大生长越快。增大此值可加速作物成熟，缩短从播种到收获的等待时间，适合需要大量农业产出的服务器 | float | 1.0 | ✅ |
+| `LimitGeneratorsNum` | 区域内发电机数量限制。限制在指定范围内可以放置的发电机数量，防止玩家密集放置大量发电机导致服务器性能下降和游戏平衡问题 | integer | 3 | ✅ |
+| `LimitGeneratorsRange` | 发电机限制区域范围（UE 单位）。配合 `LimitGeneratorsNum` 使用，设置发电机数量限制的检测范围。在此范围内的发电机数量不能超过设定上限 | integer | 15000 | ✅ |
+| `MaxFallSpeedMultiplier` | 开始受到坠落伤害的坠落速度倍率。控制角色从高处坠落时开始计算伤害的速度阈值，值越大需要更高的坠落速度才会受伤。增大此值可减少坠落伤害的发生频率 | float | 1.0 | ✅ |
 | `LimitNonPlayerDroppedItemsCount` | 非玩家掉落物品数量限制 | integer | 0 | ⚠️ |
 | `LimitNonPlayerDroppedItemsRange` | 非玩家掉落物品范围限制 | integer | 0 | ⚠️ |
 | `FastDecayInterval` | 快速衰减间隔（秒） | integer | 43200 | ⚠️ |
-| `FishingLootQualityMultiplier` | 钓鱼战利品质量倍率 | float | 1.0 | ⚠️ |
-| `FuelConsumptionIntervalMultiplier` | 燃料消耗间隔倍率 | float | 1.0 | ⚠️ |
-| `GlobalCorpseDecompositionTimeMultiplier` | 全局尸体分解时间倍率 | float | 1.0 | ⚠️ |
+| `FishingLootQualityMultiplier` | 钓鱼战利品质量倍率。影响钓鱼获得物品的品质，值越大品质越高。有效值范围 1.0 到 5.0 | float | 1.0 | ⚠️ |
+| `FuelConsumptionIntervalMultiplier` | 燃料消耗间隔倍率。影响发电机等设备消耗燃料的速度，较低的值使燃料消耗更慢，延长设备运行时间 | float | 1.0 | ⚠️ |
+| `GlobalCorpseDecompositionTimeMultiplier` | 全局尸体分解时间倍率。影响玩家和生物尸体消失所需的时间，值越大尸体存在越久。增大此值可给予玩家更多时间找回死亡掉落的物品 | float | 1.0 | ⚠️ |
 | `GlobalPoweredBatteryDurabilityDecreasePerSecond` | 全局电池耐久消耗速率 | float | 3.0 | ⚠️ |
 | `StructureDamageRepairCooldown` | 建筑伤害修复冷却时间（秒） | integer | 180 | ⚠️ |
-| `SupplyCrateLootQualityMultiplier` | 补给箱战利品质量倍率 | float | 1.0 | ⚠️ |
-| `PvPZoneStructureDamageMultiplier` | PvP 区域建筑伤害倍率 | float | 6.0 | ⚠️ |
+| `SupplyCrateLootQualityMultiplier` | 补给箱战利品质量倍率。影响补给箱中物品的品质，值越大品质越高。品质也受难度偏移影响 | float | 1.0 | ⚠️ |
+| `PvPZoneStructureDamageMultiplier` | PvP 区域建筑伤害倍率。影响洞穴内建筑受到的伤害，较低的值使建筑更难被破坏。设为 1.0 则洞穴内外建筑受到相同伤害 | float | 6.0 | ⚠️ |
 | `IncreasePvPRespawnIntervalBaseAmount` | PvP 重生间隔基础增加量（秒） | float | 60.0 | ⚠️ |
 | `IncreasePvPRespawnIntervalCheckPeriod` | PvP 重生间隔检查周期（秒） | float | 300.0 | ⚠️ |
 | `IncreasePvPRespawnIntervalMultiplier` | PvP 重生间隔倍率 | float | 2.0 | ⚠️ |
 | `bIncreasePvPRespawnInterval` | 启用 PvP 重生间隔增加 | boolean | True | ⚠️ |
 | `PreventOfflinePvPConnectionInvincibleInterval` | 登录后无敌时间（秒） | float | 5.0 | ⚠️ |
 | `UseCorpseLifeSpanMultiplier` | 尸体和掉落箱寿命倍率 | float | 1.0 | ⚠️ |
-| `BaseTemperatureMultiplier` | 基础温度倍率 | float | 1.0 | ⚠️ |
+| `BaseTemperatureMultiplier` | 基础温度倍率。指定地图基础温度的缩放因子：较低的值使环境更冷，较高的值使环境更热。可用于调整服务器的整体温度难度 | float | 1.0 | ⚠️ |
 | `bPassiveDefensesDamageRiderlessDinos` | 被动防御伤害无骑手生物 | boolean | False | ⚠️ |
 | `TribeSlotReuseCooldown` | 部落槽位重用冷却时间（秒） | float | 0.0 | ⚠️ |
 | `MaxAlliancesPerTribe` | 每部落最大联盟数 | integer | 无 | ⚠️ |
@@ -575,6 +570,8 @@
 | `ConfigOverrideSupplyCrateItems` | 覆盖补给箱物品 | struct | 无 | ⚠️ |
 | `TamedDinoClassDamageMultipliers` | 全局覆盖驯服生物伤害 | struct | 无 | ⚠️ |
 | `TamedDinoClassResistanceMultipliers` | 全局覆盖驯服生物抗性 | struct | 无 | ⚠️ |
+| `TamedDinoClassSpeedMultipliers` | 全局覆盖驯服生物速度 | struct | 无 | ⚠️ |
+| `TamedDinoClassStaminaMultipliers` | 全局覆盖驯服生物耐力 | struct | 无 | ⚠️ |
 | `ItemStatClamps[<attribute>]` | 全局限制物品属性 | struct | 无 | ⚠️ |
 | `OverrideEngramEntries` | 按索引配置印痕状态 | struct | 无 | ⚠️ |
 | `OverridePlayerLevelEngramPoints` | 覆盖每级印痕点数 | integer | 无 | ⚠️ |
@@ -584,40 +581,40 @@
 
 | 配置项 | 说明 | 类型 | 默认值 | 兼容性 |
 |--------|------|------|--------|--------|
-| `CustomRecipeEffectivenessMultiplier` | 自定义配方效果倍率 | float | 1.0 | ✅ |
-| `CustomRecipeSkillMultiplier` | 自定义配方制造速度技能效果倍率 | float | 1.0 | ✅ |
-| `bDisableWirelessCrafting` | 禁用 Tek 专用存储的无线制造 | boolean | False | ✅ |
-| `bDisableWirelessCraftingForDinos` | 禁用在生物背包中使用无线制造 | boolean | False | ✅ |
-| `bDisableWirelessCraftingForPlayers` | 禁用在玩家背包中使用无线制造 | boolean | False | ✅ |
-| `bDisableWirelessCraftingForStructures` | 禁用在建筑背包中使用无线制造 | boolean | False | ✅ |
-| `WirelessCraftingRangeOverride` | 无线制造范围（UE 单位） | integer | 3000 | ✅ |
+| `CustomRecipeEffectivenessMultiplier` | 自定义配方效果倍率。影响玩家通过烹饪锅制作的自定义配方（如炖菜、药汤等）的效果强度，值越大配方产出的物品效果越强。适合需要强化自定义烹饪玩法的服务器 | float | 1.0 | ✅ |
+| `CustomRecipeSkillMultiplier` | 自定义配方制造技能加成倍率。影响制造技能属性对自定义配方品质的加成效果，值越大高制造技能角色制作出高品质配方的概率越高，鼓励玩家专精制造路线 | float | 1.0 | ✅ |
+| `bDisableWirelessCrafting` | 禁用 Tek 专用存储的无线制造功能。默认 Tek 专用存储可以无线提供制造材料，启用此选项后所有无线制造功能被禁用，玩家需要将材料放入背包才能制造 | boolean | False | ✅ |
+| `bDisableWirelessCraftingForDinos` | 禁用在生物背包中使用无线制造。单独控制生物是否能使用 Tek 专用存储的无线制造材料，禁用后生物身上的物品不能远程调用 Tek 存储中的资源进行制造 | boolean | False | ✅ |
+| `bDisableWirelessCraftingForPlayers` | 禁用在玩家背包中使用无线制造。单独控制玩家是否能使用 Tek 专用存储的无线制造材料，禁用后玩家必须将材料手动放入背包才能进行制造操作 | boolean | False | ✅ |
+| `bDisableWirelessCraftingForStructures` | 禁用在建筑背包中使用无线制造。单独控制建筑（如工作台、熔炉等）是否能使用 Tek 专用存储的无线制造材料，禁用后建筑需要直接存放材料才能运作 | boolean | False | ✅ |
+| `WirelessCraftingRangeOverride` | 无线制造范围覆盖（UE 单位）。设置 Tek 专用存储无线制造功能的有效距离，玩家在此范围内才能远程调用存储中的材料。增大此值可扩大无线制造的便利范围 | integer | 3000 | ✅ |
 
 ### 其他设置
 
 | 配置项 | 说明 | 类型 | 默认值 | 兼容性 |
 |--------|------|------|--------|--------|
-| `bDisableFriendlyFire` | 禁用友军伤害 | boolean | False | ✅ |
-| `bPvEDisableFriendlyFire` | PvE 模式下禁用友军伤害 | boolean | False | ✅ |
-| `bDisablePhotoMode` | 禁用拍照模式 | boolean | False | ✅ |
-| `bShowCreativeMode` | 在暂停菜单中显示创意模式按钮 | boolean | False | ✅ |
-| `bUseDinoLevelUpAnimations` | 生物升级时播放动画 | boolean | True | ✅ |
-| `bUseSingleplayerSettings` | 启用单人游戏平衡设置 | boolean | False | ✅ |
-| `HairGrowthSpeedMultiplier` | 头发生长速度倍率 | float | 0 (ASA) | ✅ |
-| `GlobalItemDecompositionTimeMultiplier` | 掉落物品分解时间倍率 | float | 1.0 | ✅ |
-| `GlobalSpoilingTimeMultiplier` | 全局腐烂时间倍率 | float | 1.0 | ✅ |
-| `DestroyTamesOverLevelClamp` | 超过指定等级的驯服生物在启动时删除 | integer | 0 | ✅ |
-| `PhotoModeRangeLimit` | 拍照模式相机与玩家最大距离 | integer | 3000 | ✅ |
-| `IgnorePVPMountedWeaponryRestrictions` | 忽略 PvP 骑乘武器限制 | boolean | False | ✅ |
-| `TribeTowerBonusMultiplier` | 部落塔加成倍率 | float | 2.0 | ✅ |
-| `BaseHexagonRewardMultiplier` | 任务六角币奖励倍率 | float | 1.0 | ✅ |
-| `HexagonCostMultiplier` | 六角币商店物品价格倍率 | float | 1.0 | ✅ |
-| `ExcludeItemIndices` | 从补给箱中排除指定物品 ID | integer | 无 | ✅ |
-| `HarvestResourceItemAmountClassMultipliers` | 按资源类型设置采集产量倍率 | struct | 无 | ✅ |
-| `LevelExperienceRampOverrides` | 配置玩家和生物等级及经验需求 | struct | 无 | ✅ |
-| `OverrideNamedEngramEntries` | 按名称配置印痕状态和需求 | struct | 无 | ✅ |
-| `ConfigAddNPCSpawnEntriesContainer` | 在刷新区域添加指定生物 | struct | 无 | ✅ |
-| `CheatTeleportLocations` | 创建命名传送点 | struct | 无 | ✅ |
-| `ValgueroMemorialEntries` | Valguero 纪念碑名称列表（分号分隔） | string | 无 | ✅ |
+| `bDisableFriendlyFire` | 禁用友军伤害。启用后同部落成员之间无法互相造成伤害，防止队友间的误伤，适合 PvE 和合作型服务器，减少因意外攻击队友导致的损失 | boolean | False | ✅ |
+| `bPvEDisableFriendlyFire` | PvE 模式下禁用友军伤害。仅在 PvE 模式下生效，阻止同部落成员之间的伤害。与 `bDisableFriendlyFire` 不同，此选项仅影响 PvE 模式，PvP 模式下仍保留友军伤害 | boolean | False | ✅ |
+| `bDisablePhotoMode` | 禁用拍照模式。启用后玩家无法使用游戏内置的拍照模式功能，可减少因拍照模式带来的潜在作弊风险（如透视查看周围环境），适合竞技型服务器 | boolean | False | ✅ |
+| `bShowCreativeMode` | 在暂停菜单中显示创意模式按钮。启用后拥有管理员权限的玩家可在暂停菜单中切换创意模式，创意模式提供无限资源和无碰撞建造，适合建筑创作和服务器调试 | boolean | False | ✅ |
+| `bUseDinoLevelUpAnimations` | 生物升级时播放动画。启用后生物每次升级会播放短暂的升级动画效果，禁用可跳过动画加快操作节奏，适合需要快速批量升级生物的服务器 | boolean | True | ✅ |
+| `bUseSingleplayerSettings` | 启用单人游戏平衡设置。启用后自动应用一系列单人游戏优化参数（如更高的驯服速度、更短的幼崽成长时间等），适合单人或小型合作游戏，大幅降低单人游玩的时间成本 | boolean | False | ✅ |
+| `HairGrowthSpeedMultiplier` | 头发生长速度倍率。控制角色头发和胡须的生长速度，值越大生长越快。设为 0 禁用头发生长，玩家需要通过理发来改变发型。ASA 中默认禁用头发生长 | float | 0 (ASA) | ✅ |
+| `GlobalItemDecompositionTimeMultiplier` | 掉落物品分解时间倍率。影响地上掉落物品（如死亡掉落的背包）消失所需的时间，值越大物品存在越久。增大此值可给予玩家更多时间找回死亡掉落的物品 | float | 1.0 | ✅ |
+| `GlobalSpoilingTimeMultiplier` | 全局腐烂时间倍率。影响所有可腐烂物品（如生肉、浆果等）的腐烂速度，值越大腐烂越慢。增大此值可延长食物保质期，减少食物管理的压力 | float | 1.0 | ✅ |
+| `DestroyTamesOverLevelClamp` | 超过指定等级的驯服生物在服务器启动时自动删除。设为 0 禁用此功能。当服务器更新或模组变更导致生物等级异常时，可通过此设置自动清理超高等级生物，维护游戏平衡 | integer | 0 | ✅ |
+| `PhotoModeRangeLimit` | 拍照模式相机与玩家的最大距离（UE 单位）。限制拍照模式下相机可以离开角色的最远距离，防止玩家利用拍照模式进行远距离侦察。较小的值限制更严格 | integer | 3000 | ✅ |
+| `IgnorePVPMountedWeaponryRestrictions` | 忽略 PvP 模式下的骑乘武器限制。默认 PvP 模式下某些武器在骑乘状态时受到限制，启用后可移除这些限制，允许玩家在骑乘时使用所有武器，增加战斗多样性 | boolean | False | ✅ |
+| `TribeTowerBonusMultiplier` | 部落塔加成倍率。影响部落塔（Tribe Tower）提供的增益效果强度，值越大加成越强。部落塔是 ASA 中的部落协作建筑，此倍率可调整其对部落成员的属性加成幅度 | float | 2.0 | ✅ |
+| `BaseHexagonRewardMultiplier` | 任务六角币奖励倍率。影响完成任务（如创世纪任务）获得的基础六角币数量，值为 2.0 时获得双倍六角币。适合加速六角币积累，让玩家更快购买商店物品 | float | 1.0 | ✅ |
+| `HexagonCostMultiplier` | 六角币商店物品价格倍率。影响六角币商店中所有物品的购买价格，值越大价格越高。降低此值可使商店物品更便宜，提升六角币的购买力 | float | 1.0 | ✅ |
+| `ExcludeItemIndices` | 从补给箱中排除指定物品 ID。通过填入物品索引 ID 来阻止特定物品出现在补给箱战利品池中，可用于移除不想要的物品或调整战利品组成 | integer | 无 | ✅ |
+| `HarvestResourceItemAmountClassMultipliers` | 按资源类型设置采集产量倍率。针对特定资源类名设置独立的采集产量倍率，可精细控制每种资源的采集效率，而不影响其他资源。格式为类名和倍率的配对列表 | struct | 无 | ✅ |
+| `LevelExperienceRampOverrides` | 配置玩家和生物的等级上限及每级所需经验值。第一次出现配置玩家等级曲线，第二次出现配置驯服生物等级曲线。可自定义最高等级和升级所需经验，实现自定义等级体系 | struct | 无 | ✅ |
+| `OverrideNamedEngramEntries` | 按名称配置印痕状态和需求。通过印痕类名来精确控制每个印痕的可见性、学习成本、等级需求和前置条件，比按索引配置更直观且不易因游戏更新而失效 | struct | 无 | ✅ |
+| `ConfigAddNPCSpawnEntriesContainer` | 在指定刷新区域添加新的生物刷新条目。可在现有的生物刷新组中注入自定义的生物，指定刷新权重和数量限制，用于在特定区域增加新生物种类 | struct | 无 | ✅ |
+| `CheatTeleportLocations` | 创建命名传送点。定义一组可命名的传送坐标点，管理员可通过命令快速传送到这些预设位置，方便服务器管理和巡查各区域 | struct | 无 | ✅ |
+| `ValgueroMemorialEntries` | Valguero 纪念碑名称列表（分号分隔）。用于自定义 Valguero 地图上纪念碑显示的名称，多个名称用分号分隔。通常用于纪念对服务器有贡献的玩家或特殊事件 | string | 无 | ✅ |
 | `bDisableHexagonStore` | 禁用六角币商店 | boolean | False | ⚠️ |
 | `bDisableDefaultMapItemSets` | 禁用默认地图物品套装 | boolean | False | ⚠️ |
 | `bDisableGenesisMissions` | 禁用创世纪任务 | boolean | False | ⚠️ |
@@ -744,12 +741,16 @@ NPCReplacements=((FromClassName="MegaRaptor_Character_BP_C",ToClassName="Dodo_Ch
 
 #### DinoClassDamageMultipliers / TamedDinoClassDamageMultipliers
 
-覆盖生物伤害。
+按类名覆盖特定生物的伤害倍率。`DinoClassDamageMultipliers` 用于野生生物，`TamedDinoClassDamageMultipliers` 用于驯服生物。值越大伤害越高。可以指定多个条目，但每个类名只能出现一次。生物类名可在 Creature IDs 页面找到。
 
 ```
 DinoClassDamageMultipliers=(ClassName="<string>",Multiplier=<float>)
 TamedDinoClassDamageMultipliers=(ClassName="<string>",Multiplier=<float>)
 ```
+
+**参数说明：**
+- `ClassName` (string) - 生物类名
+- `Multiplier` (float) - 伤害倍率，默认 1.0
 
 **示例：**
 ```ini
@@ -759,12 +760,16 @@ TamedDinoClassDamageMultipliers=(ClassName="Rex_Character_BP_C",Multiplier=10.0)
 
 #### DinoClassResistanceMultipliers / TamedDinoClassResistanceMultipliers
 
-覆盖生物抗性。
+按类名覆盖特定生物的抗性倍率。`DinoClassResistanceMultipliers` 用于野生生物，`TamedDinoClassResistanceMultipliers` 用于驯服生物。值越大受到的伤害越少。可以指定多个条目，但每个类名只能出现一次。生物类名可在 Creature IDs 页面找到。
 
 ```
 DinoClassResistanceMultipliers=(ClassName="<string>",Multiplier=<float>)
 TamedDinoClassResistanceMultipliers=(ClassName="<string>",Multiplier=<float>)
 ```
+
+**参数说明：**
+- `ClassName` (string) - 生物类名
+- `Multiplier` (float) - 抗性倍率，默认 1.0
 
 **示例：**
 ```ini
@@ -774,15 +779,36 @@ TamedDinoClassResistanceMultipliers=(ClassName="Rex_Character_BP_C",Multiplier=1
 
 #### TamedDinoClassSpeedMultipliers
 
-覆盖驯服生物速度。
+按类名覆盖驯服生物的基础速度倍率。值越大速度越快。可以指定多个条目，但每个类名只能出现一次。生物类名可在 Creature IDs 页面找到。
 
 ```
 TamedDinoClassSpeedMultipliers=(ClassName="<string>",Multiplier=<float>)
 ```
 
+**参数说明：**
+- `ClassName` (string) - 生物类名
+- `Multiplier` (float) - 速度倍率，默认 1.0
+
 **示例：**
 ```ini
 TamedDinoClassSpeedMultipliers=(ClassName="Argent_Character_BP_C",Multiplier=2.0)
+```
+
+#### TamedDinoClassStaminaMultipliers
+
+按类名覆盖驯服生物的耐力倍率。值越大耐力越高。可以指定多个条目，但每个类名只能出现一次。生物类名可在 Creature IDs 页面找到。
+
+```
+TamedDinoClassStaminaMultipliers=(ClassName="<string>",Multiplier=<float>)
+```
+
+**参数说明：**
+- `ClassName` (string) - 生物类名
+- `Multiplier` (float) - 耐力倍率，默认 1.0
+
+**示例：**
+```ini
+TamedDinoClassStaminaMultipliers=(ClassName="Ptero_Character_BP_C",Multiplier=5.0)
 ```
 
 #### ConfigOverrideItemCraftingCosts
@@ -812,24 +838,99 @@ ConfigOverrideItemMaxQuantity=(ItemClassString="<string>",Quantity=(MaxItemQuant
 
 #### ConfigOverrideSupplyCrateItems
 
-覆盖补给箱物品。
+覆盖补给箱物品。允许手动覆盖战利品箱中的物品。每个战利品箱可以有一个或多个物品集，每个物品集可以有一个或多个物品条目。
 
 ```
-ConfigOverrideSupplyCrateItems=(SupplyCrateClassString="<string>",MinItemSets=<integer>,MaxItemSets=<integer>,NumItemSetsPower=<float>,bSetsRandomWithoutReplacement=<boolean>[,bAppendItemSets=<boolean>],ItemSets=((SetName="<string>",MinNumItems=<integer>,MaxNumItems=<integer>,NumItemsPower=<float>,SetWeight=<float>,bItemsRandomWithoutReplacement=<boolean>,ItemEntries=((ItemEntryName="<string>",EntryWeight=<float>,ItemClassStrings=("<string>"),ItemsWeights=(<float>),MinQuantity=<float>,MaxQuantity=<float>,MinQuality=<float>,MaxQuality=<float>,bForceBlueprint=<boolean>,ChanceToBeBlueprintOverride=<float>)))))
+ConfigOverrideSupplyCrateItems=(
+  SupplyCrateClassString="<string>",
+  MinItemSets=<integer>,
+  MaxItemSets=<integer>,
+  NumItemSetsPower=<float>,
+  bSetsRandomWithoutReplacement=<boolean>
+  [,bAppendItemSets=<boolean>]
+  [,bAppendPreventIncreasingMinMaxItemSets=<boolean>],
+  ItemSets=(
+    [SetName="<string>",]
+    MinNumItems=<integer>,
+    MaxNumItems=<integer>,
+    NumItemsPower=<float>,
+    SetWeight=<float>,
+    bItemsRandomWithoutReplacement=<boolean>,
+    ItemEntries=(
+      [ItemEntryName="<string>",]
+      EntryWeight=<float>,
+      ItemClassStrings=("<string>"[,...n]),
+      ItemsWeights=(<float>[,...n]),
+      MinQuantity=<float>,
+      MaxQuantity=<float>,
+      MinQuality=<float>,
+      MaxQuality=<float>,
+      bForceBlueprint=<boolean>,
+      ChanceToBeBlueprintOverride=<float>
+      [,bForcePreventGrinding=<boolean>]
+      [,ItemStatClampsMultiplier=<float>]
+    )
+  )[,...m]
+)
 ```
+
+**箱子选项参数：**
+- `SupplyCrateClassString` (string) - 要覆盖的战利品箱类名
+- `MinItemSets` (integer) - 最小物品集数量
+- `MaxItemSets` (integer) - 最大物品集数量
+- `NumItemSetsPower` (float) - 所有物品集的品质，默认 1.0
+- `bSetsRandomWithoutReplacement` (boolean) - True 时确保物品不会重复出现
+- `bAppendItemSets` (boolean) - True 时追加物品集而非完全替换，默认 False
+- `bAppendPreventIncreasingMinMaxItemSets` (boolean) - True 时动态增加掉落物品数量（需 bAppendItemSets=True），默认 False
+
+**物品集选项参数：**
+- `SetName` (string) - 物品集名称（可选）
+- `MinNumItems` (integer) - 此集中最小物品数量
+- `MaxNumItems` (integer) - 此集中最大物品数量
+- `NumItemsPower` (float) - 此集的品质倍率
+- `SetWeight` (float) - 此集的权重因子，默认 1.0
+- `bItemsRandomWithoutReplacement` (boolean) - True 时确保此集中物品不会重复
+
+**物品条目选项参数：**
+- `ItemEntryName` (string) - 物品条目名称（可选）
+- `EntryWeight` (float) - 此条目的权重因子，默认 1.0
+- `ItemClassStrings` (string) - 物品类名列表（逗号分隔）
+- `ItemsWeights` (float) - 各物品的权重列表
+- `MinQuantity` (float) - 最小数量
+- `MaxQuantity` (float) - 最大数量
+- `MinQuality` (float) - 最小品质
+- `MaxQuality` (float) - 最大品质
+- `bForceBlueprint` (boolean) - 强制为蓝图
+- `ChanceToBeBlueprintOverride` (float) - 蓝图覆盖概率
+- `bForcePreventGrinding` (boolean) - 强制防止分解（可选）
+- `ItemStatClampsMultiplier` (float) - 物品属性限制倍率（可选）
+
+**注意：** 每个条目必须在配置文件中写在一行内。自 273.7 补丁后，SupplyCrateClassString 支持使用简写形式。
 
 #### HarvestResourceItemAmountClassMultipliers
 
-按资源类型设置采集产量倍率。
+按资源类型设置采集产量倍率。与全局设置 `HarvestAmountMultiplier` 类似，但仅对指定的资源类型生效。可以添加多行来分别设置不同资源（如木材、石头等）的采集倍率。值越大每次采集获得的资源越多。
 
 ```
 HarvestResourceItemAmountClassMultipliers=(ClassName="<string>",Multiplier=<float>)
 ```
 
-**示例：**
+**参数说明：**
+- `ClassName` (string) - 资源类名，可在 Item IDs 页面找到
+- `Multiplier` (float) - 采集倍率，默认 1.0
+
+**示例（采集茅草时获得 2 倍产量）：**
 ```ini
 HarvestResourceItemAmountClassMultipliers=(ClassName="PrimalItemResource_Thatch_C",Multiplier=2.0)
 ```
+
+**常见资源类名：**
+- `PrimalItemResource_Thatch_C` - 茅草
+- `PrimalItemResource_Wood_C` - 木材
+- `PrimalItemResource_Stone_C` - 石头
+- `PrimalItemResource_Metal_C` - 金属
+- `PrimalItemResource_Fiber_C` - 纤维
+- `PrimalItemResource_Hide_C` - 兽皮
 
 #### ItemStatClamps
 
@@ -857,7 +958,7 @@ ItemStatClamps[3]=19800
 
 #### PerLevelStatsMultiplier
 
-每级属性倍率配置。
+每级属性倍率配置。允许更改每升一级获得的属性值。
 
 ```
 PerLevelStatsMultiplier_Player[<attribute>]=<multiplier>
@@ -867,9 +968,38 @@ PerLevelStatsMultiplier_DinoTamed_Add[<attribute>]=<multiplier>
 PerLevelStatsMultiplier_DinoTamed_Affinity[<attribute>]=<multiplier>
 ```
 
+**配置类型说明：**
+- `PerLevelStatsMultiplier_Player` - 玩家每级属性倍率
+- `PerLevelStatsMultiplier_DinoWild` - 野生生物每级属性倍率
+- `PerLevelStatsMultiplier_DinoTamed` - 驯服生物每级属性倍率（升级点）
+- `PerLevelStatsMultiplier_DinoTamed_Add` - 驯服生物属性倍率（驯服时立即加成）
+- `PerLevelStatsMultiplier_DinoTamed_Affinity` - 驯服生物属性倍率（亲和度加成）
+
+**参数说明：**
+- `attribute` (integer) - 属性索引，见属性索引表
+- `multiplier` (float) - 倍率，默认 1.0。设为 0.01 可几乎禁用属性增长（设为 0 会恢复默认值 1.0）
+
+**默认值表：**
+
+| 属性 | Wild | Tamed | Tamed_Add | Tamed_Affinity |
+|------|------|-------|-----------|----------------|
+| 0 Health | 1 | 0.2 | 0.14 | 0.44 |
+| 1 Stamina | 1 | 1 | 1 | 1 |
+| 2 Torpidity | 1 | 1 | 1 | 1 |
+| 3 Oxygen | 1 | 1 | 1 | 1 |
+| 4 Food | 1 | 1 | 1 | 1 |
+| 5 Water | 1 | 1 | 1 | 1 |
+| 6 Temperature | 1 | 1 | 1 | 1 |
+| 7 Weight | 1 | 1 | 1 | 1 |
+| 8 Melee Damage | 1 | 0.17 | 0.14 | 0.44 |
+| 9 Movement Speed | 1 | 1 | 1 | 1 |
+| 10 Fortitude | 1 | 1 | 1 | 1 |
+| 11 Crafting Skill | 1 | 1 | 1 | 1 |
+
 **示例：**
 ```ini
 PerLevelStatsMultiplier_Player[7]=2.0
+PerLevelStatsMultiplier_DinoWild[0]=1.0
 PerLevelStatsMultiplier_DinoTamed[0]=1.0
 PerLevelStatsMultiplier_DinoTamed_Add[0]=1.0
 PerLevelStatsMultiplier_DinoTamed_Affinity[0]=1.0
@@ -877,60 +1007,93 @@ PerLevelStatsMultiplier_DinoTamed_Affinity[0]=1.0
 
 #### MutagenLevelBoost / MutagenLevelBoost_Bred
 
-Mutagen 对生物的等级提升。
+Mutagen 对生物的等级提升。`MutagenLevelBoost` 用于有野生血统的驯服生物，`MutagenLevelBoost_Bred` 用于繁殖生物。
 
 ```
 MutagenLevelBoost[<Stat_ID>]=<integer>
 MutagenLevelBoost_Bred[<Stat_ID>]=<integer>
 ```
 
-**默认值：** 5, 5, 0, 0, 0, 0, 0, 5, 5, 0, 0, 0
+**参数说明：**
+- `Stat_ID` (integer) - 属性索引，见属性索引表
+- `integer` - 等级点数
 
-**示例：**
+**MutagenLevelBoost 默认值：** 5, 5, 0, 0, 0, 0, 0, 5, 5, 0, 0, 0
+**MutagenLevelBoost_Bred 默认值：** 1, 1, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0
+
+**示例（将生命和伤害提升加倍，移除耐力和负重提升）：**
 ```ini
 MutagenLevelBoost[0]=10
 MutagenLevelBoost[1]=0
 MutagenLevelBoost[7]=0
 MutagenLevelBoost[8]=10
+
+MutagenLevelBoost_Bred[0]=2
+MutagenLevelBoost_Bred[1]=0
+MutagenLevelBoost_Bred[7]=0
+MutagenLevelBoost_Bred[8]=2
 ```
 
 #### PlayerBaseStatMultipliers
 
-玩家基础属性倍率。
+玩家基础属性倍率。通过乘以默认值来改变玩家的初始属性，即新生成角色的起始属性。
 
 ```
 PlayerBaseStatMultipliers[<attribute>]=<multiplier>
 ```
 
-**默认值：**
-| 属性 | 默认值 | 输出 |
-|------|--------|------|
-| 0 Health | 1.0 | 100.0 |
-| 1 Stamina | 1.0 | 100.0 |
-| 2 Torpidity | 1.0 | 200.0 |
-| 3 Oxygen | 1.0 | 100.0 |
-| 4 Food | 1.0 | 100.0 |
-| 5 Water | 1.0 | 100.0 |
-| 6 Temperature | 1.0 | 100.0 |
-| 7 Weight | 1.0 | 100.0 |
-| 8 Damage | 1.0 | 100.0 |
-| 9 Speed | 1.0 | 100.0 |
-| 10 Fortitude | 1.0 | 0.0 |
-| 11 Crafting Speed | 1.0 | 100.0 |
+**参数说明：**
+- `attribute` (integer) - 属性索引，见属性索引表
+- `multiplier` (float) - 倍率，默认值见下表
+
+**默认值表：**
+
+| 属性 | 默认值 | 输出 | 说明 |
+|------|--------|------|------|
+| 0 Health | 1.0 | 100.0 | 生命值 |
+| 1 Stamina | 1.0 | 100.0 | 耐力 |
+| 2 Torpidity | 1.0 | 200.0 | 昏迷值（超过 50 仍会昏迷） |
+| 3 Oxygen | 1.0 | 100.0 | 氧气 |
+| 4 Food | 1.0 | 100.0 | 食物 |
+| 5 Water | 1.0 | 100.0 | 水分 |
+| 6 Temperature | 0.0 | 0.0 | 温度（未使用属性） |
+| 7 Weight | 1.0 | 100.0 | 负重 |
+| 8 MeleeDamageMultiplier | 0.0 | 100% | 近战伤害（基础值无法增加） |
+| 9 SpeedMultiplier | 0.0 | 100% | 移动速度（基础值无法增加） |
+| 10 TemperatureFortitude | 0.0 | 0 | 恒温抗性（基础值无法增加） |
+| 11 CraftingSpeedMultiplier | 0.0 | 100% | 制造速度（基础值无法增加） |
+
+**注意：** 属性 6、8、9、10、11 的默认值为 0.0，这些属性的基础值无法通过此配置增加。
 
 #### LevelExperienceRampOverrides
 
-配置玩家和生物等级及经验需求。第一次出现配置玩家等级，第二次出现配置驯服生物等级。
+配置玩家和生物等级及经验需求。此指令在配置文件中可以出现两次：
+- 第一次出现时，配置玩家等级
+- 第二次出现时，配置驯服生物等级
+
+每次使用时，必须列出玩家/生物可以达到的所有等级。每个等级都需要一个 `ExperiencePointsForLevel` 参数。`<n>` 的值必须从 0 开始顺序递增。
 
 ```
 LevelExperienceRampOverrides=(ExperiencePointsForLevel[0]=<points>,ExperiencePointsForLevel[1]=<points>,...,ExperiencePointsForLevel[n]=<points>)
 ```
 
-**注意：** 最后 100 级用于飞升、迷你恐龙经验、探索者笔记和符文奖励，需要额外添加 100 级。
+**参数说明：**
+- `n` (integer) - 等级编号（从 0 开始）
+- `points` (integer) - 达到该等级所需的经验值
 
-**示例：**
+**重要注意事项：**
+- 最后 100 级用于飞升、迷你恐龙经验、探索者笔记和符文奖励，需要额外添加 100 级
+- 每个条目必须在配置文件中写在一行内
+- 如果只想修改最高等级，需要重新定义所有等级的经验值
+
+**示例（50 个玩家等级 + 15 个飞升等级）：**
 ```ini
 LevelExperienceRampOverrides=(ExperiencePointsForLevel[0]=1,ExperiencePointsForLevel[1]=5,...,ExperiencePointsForLevel[64]=1000)
+```
+
+**示例（35 个驯服生物等级，放在玩家等级配置之后）：**
+```ini
+LevelExperienceRampOverrides=(ExperiencePointsForLevel[0]=1,ExperiencePointsForLevel[1]=5,...,ExperiencePointsForLevel[34]=1000)
 ```
 
 ---
@@ -943,16 +1106,16 @@ LevelExperienceRampOverrides=(ExperiencePointsForLevel[0]=1,ExperiencePointsForL
 
 | 配置项 | 说明 | 类型 | 默认值 | 兼容性 |
 |--------|------|------|--------|--------|
-| `BabyCuddleIntervalMultiplier` | 同 Game.ini 中的 `BabyCuddleIntervalMultiplier` | float | 1.0 | ✅ |
-| `BabyImprintAmountMultiplier` | 同 Game.ini 中的 `BabyImprintAmountMultiplier` | float | 1.0 | ✅ |
-| `BabyMatureSpeedMultiplier` | 同 Game.ini 中的 `BabyMatureSpeedMultiplier` | float | 1.0 | ✅ |
-| `EggHatchSpeedMultiplier` | 同 Game.ini 中的 `EggHatchSpeedMultiplier` | float | 1.0 | ✅ |
-| `HarvestAmountMultiplier` | 同 GameUserSettings.ini 中的 `HarvestAmountMultiplier` | float | 1.0 | ✅ |
-| `HexagonRewardMultiplier` | 同 Game.ini 中的六角币奖励倍率 | float | 1.0 | ✅ |
-| `MatingIntervalMultiplier` | 同 Game.ini 中的 `MatingIntervalMultiplier` | float | 1.0 | ✅ |
-| `XPMultiplier` | 同 Game.ini 中的经验倍率 | float | 1.0 | ✅ |
-| `DynamicColorset` | 自定义颜色列表（逗号分隔，需 `ActiveEventColors=custom`） | string | 无 | ✅ |
-| `DynamicColorsetChanceOverride` | 动态颜色应用概率（0.0-1.0） | float | 0.25 | ✅ |
+| `BabyCuddleIntervalMultiplier` | 同 Game.ini 中的 `BabyCuddleIntervalMultiplier`。动态调整幼崽需要照顾的频率，可在不重启服务器的情况下修改 | float | 1.0 | ✅ |
+| `BabyImprintAmountMultiplier` | 同 Game.ini 中的 `BabyImprintAmountMultiplier`。动态调整每次照顾提供的印记百分比，可在运行时微调印记难度 | float | 1.0 | ✅ |
+| `BabyMatureSpeedMultiplier` | 同 Game.ini 中的 `BabyMatureSpeedMultiplier`。动态调整幼崽成长速度，适合在活动期间临时加速繁殖体验 | float | 1.0 | ✅ |
+| `EggHatchSpeedMultiplier` | 同 Game.ini 中的 `EggHatchSpeedMultiplier`。动态调整受精蛋孵化速度，可在不重启服务器的情况下加速或减慢孵化过程 | float | 1.0 | ✅ |
+| `HarvestAmountMultiplier` | 同 GameUserSettings.ini 中的 `HarvestAmountMultiplier`。动态调整采集产量，适合在活动期间临时提高资源产出倍率 | float | 1.0 | ✅ |
+| `HexagonRewardMultiplier` | 同 Game.ini 中的六角币奖励倍率。动态调整任务六角币奖励数量，可用于活动期间提升六角币获取速度 | float | 1.0 | ✅ |
+| `MatingIntervalMultiplier` | 同 Game.ini 中的 `MatingIntervalMultiplier`。动态调整生物交配间隔，可在活动期间临时缩短繁殖冷却时间 | float | 1.0 | ✅ |
+| `XPMultiplier` | 同 Game.ini 中的经验倍率。动态调整全局经验获取倍率，适合在活动期间临时提高经验获取速度 | float | 1.0 | ✅ |
+| `DynamicColorset` | 自定义颜色列表（逗号分隔，需 `ActiveEventColors=custom`）。指定自定义的生物颜色配色方案，用于创建独特的服务器视觉风格 | string | 无 | ✅ |
+| `DynamicColorsetChanceOverride` | 动态颜色应用概率（0.0-1.0）。控制自定义颜色在生物刷新时的应用概率，值为 0.5 表示 50% 的生物会获得自定义颜色 | float | 0.25 | ✅ |
 
 ### 未知状态配置
 

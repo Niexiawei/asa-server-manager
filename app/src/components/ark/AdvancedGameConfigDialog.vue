@@ -53,11 +53,12 @@
 
             <div class="panel-body">
               <basic-rules-section v-if="p.value === 'basic'" :model="simpleModel"/>
+              <world-section v-else-if="p.value === 'world'" :model="simpleModel"/>
               <tribe-section v-else-if="p.value === 'tribe'" :model="simpleModel"/>
-              <dino-multipliers-section v-else-if="p.value === 'dino'" :model="model.classMultipliers" :simple-model="simpleModel"/>
-              <engram-overrides-section v-else-if="p.value === 'engram'" :model="model.engrams"/>
+              <dino-multipliers-section v-else-if="p.value === 'dino'" :model="model.classMultipliers" :simple-model="simpleModel" :cave-flyers="caveFlyers" @update:cave-flyers="caveFlyers = $event"/>
+              <engram-overrides-section v-else-if="p.value === 'engram'" :model="model.engrams" :auto-unlocks="model.autoUnlocks"/>
               <crafting-costs-section v-else-if="p.value === 'crafting'" :model="model.craftingCosts"/>
-              <item-max-quantity-section v-else-if="p.value === 'maxqty'" :model="model.maxQuantity"/>
+              <item-max-quantity-section v-else-if="p.value === 'maxqty'" :model="model.maxQuantity" :simple-model="simpleModel"/>
               <level-overrides-section
                   v-else-if="p.value === 'levels'"
                   :player="model.levels.player"
@@ -86,6 +87,7 @@ import {
   SETTINGS_REGISTRY,
 } from '@/utils/arkSimpleSettings.js'
 import BasicRulesSection from './sections/BasicRulesSection.vue'
+import WorldSection from './sections/WorldSection.vue'
 import TribeSection from './sections/TribeSection.vue'
 import DinoMultipliersSection from './sections/DinoMultipliersSection.vue'
 import EngramOverridesSection from './sections/EngramOverridesSection.vue'
@@ -98,12 +100,14 @@ const props = defineProps({
   visible: {type: Boolean, default: false},
   gameIniContent: {type: String, default: ''},
   gameUserSettingsContent: {type: String, default: ''},
+  customStartParameters: {type: String, default: ''},
   saving: {type: Boolean, default: false},
 })
 const emit = defineEmits(['update:visible', 'save'])
 
 const model = ref(createEmptyModel())          // Game.ini 数组/嵌套
 const simpleModel = ref(createEmptyUiModel())   // 跨两文件的简单 key=value
+const caveFlyers = ref(false)
 let meta = null
 const activePanels = ref([])
 
@@ -114,13 +118,14 @@ const panels = [
     title: '基础规则设置',
     sub: 'PvP / PvE 规则、建造限制、补给箱 / 钓鱼（GameUserSettings.ini + Game.ini）'
   },
-  {value: 'tribe', no: 2, title: '部落设置', sub: '离线突袭保护（ORP）、部落规则与限制'},
-  {value: 'dino', no: 3, title: '生物设置', sub: '数量上限、全局倍率、行为规则，以及按生物类名精细配置'},
-  {value: 'engram', no: 4, title: '印痕条目覆盖', sub: '隐藏 / 消耗点数 / 等级需求 / 前置（Engram Entries）'},
-  {value: 'crafting', no: 5, title: '物品制作消耗', sub: '自定义配方资源（ConfigOverrideItemCraftingCosts）'},
-  {value: 'maxqty', no: 6, title: '物品最大堆叠', sub: '单物品堆叠上限（ConfigOverrideItemMaxQuantity）'},
-  {value: 'levels', no: 7, title: '玩家与驯养等级覆盖', sub: '最大等级 / 经验曲线 / 印痕点数'},
-  {value: 'stats', no: 8, title: '属性倍率', sub: '每级属性点倍率（PerLevelStatsMultiplier）'},
+  {value: 'world', no: 2, title: '环境配置', sub: '难度、昼夜、玩家属性、采集、建筑数量与拾取等全局倍率'},
+  {value: 'tribe', no: 3, title: '部落设置', sub: '离线突袭保护（ORP）、部落规则与限制'},
+  {value: 'dino', no: 4, title: '生物设置', sub: '数量上限、全局倍率、行为规则，以及按生物类名精细配置'},
+  {value: 'engram', no: 5, title: '印痕条目覆盖', sub: '隐藏 / 消耗点数 / 等级需求 / 前置（Engram Entries）'},
+  {value: 'crafting', no: 6, title: '物品制作消耗', sub: '自定义配方资源（ConfigOverrideItemCraftingCosts）'},
+  {value: 'maxqty', no: 7, title: '物品最大堆叠', sub: '单物品堆叠上限（ConfigOverrideItemMaxQuantity）'},
+  {value: 'levels', no: 8, title: '玩家与驯养等级覆盖', sub: '最大等级 / 经验曲线 / 印痕点数'},
+  {value: 'stats', no: 9, title: '属性倍率', sub: '每级属性点倍率（PerLevelStatsMultiplier）'},
 ]
 
 const dinoKeys = new Set(
@@ -138,8 +143,18 @@ const basicKeys = new Set(
         SETTINGS_REGISTRY.filter((r) => r.group === g.key).map((r) => r.key),
     ),
 )
+const worldKeys = new Set(
+    SETTING_GROUPS.filter((g) => g.panel === 'world').flatMap((g) =>
+        SETTINGS_REGISTRY.filter((r) => r.group === g.key).map((r) => r.key),
+    ),
+)
 const tribeKeys = new Set(
     SETTING_GROUPS.filter((g) => g.panel === 'tribe').flatMap((g) =>
+        SETTINGS_REGISTRY.filter((r) => r.group === g.key).map((r) => r.key),
+    ),
+)
+const maxqtyKeys = new Set(
+    SETTING_GROUPS.filter((g) => g.panel === 'maxqty').flatMap((g) =>
         SETTINGS_REGISTRY.filter((r) => r.group === g.key).map((r) => r.key),
     ),
 )
@@ -148,8 +163,16 @@ const basicCount = (m) =>
     SETTINGS_REGISTRY.filter((r) => basicKeys.has(r.key)).reduce(
         (s, reg) => s + (m[reg.key] !== defaultUiValue(reg) ? 1 : 0), 0,
     )
+const worldCount = (m) =>
+    SETTINGS_REGISTRY.filter((r) => worldKeys.has(r.key)).reduce(
+        (s, reg) => s + (m[reg.key] !== defaultUiValue(reg) ? 1 : 0), 0,
+    )
 const tribeCount = (m) =>
     SETTINGS_REGISTRY.filter((r) => tribeKeys.has(r.key)).reduce(
+        (s, reg) => s + (m[reg.key] !== defaultUiValue(reg) ? 1 : 0), 0,
+    )
+const maxqtySimpleCount = (m) =>
+    SETTINGS_REGISTRY.filter((r) => maxqtyKeys.has(r.key)).reduce(
         (s, reg) => s + (m[reg.key] !== defaultUiValue(reg) ? 1 : 0), 0,
     )
 
@@ -157,11 +180,12 @@ const counts = computed(() => {
   const m = model.value
   return {
     basic: basicCount(simpleModel.value),
+    world: worldCount(simpleModel.value),
     tribe: tribeCount(simpleModel.value),
-    dino: Object.values(m.classMultipliers).reduce((s, a) => s + a.length, 0) + dinoSimpleCount(simpleModel.value),
-    engram: m.engrams.length,
+    dino: Object.values(m.classMultipliers).reduce((s, a) => s + a.length, 0) + dinoSimpleCount(simpleModel.value) + (caveFlyers.value ? 1 : 0),
+    engram: m.engrams.length + m.autoUnlocks.length,
     crafting: m.craftingCosts.length,
-    maxqty: m.maxQuantity.length,
+    maxqty: m.maxQuantity.length + maxqtySimpleCount(simpleModel.value),
     levels: m.levels.player.length + m.levels.dino.length + m.engramPoints.length,
     stats: Object.values(m.stats).reduce((s, o) => s + Object.keys(o).length, 0),
   }
@@ -179,6 +203,7 @@ watch(
       model.value = parsed.model
       meta = parsed.meta
       simpleModel.value = parseSettings(props.gameIniContent || '', props.gameUserSettingsContent || '').model
+      caveFlyers.value = /-ForceAllowCaveFlyers\b/i.test(props.customStartParameters || '')
       const open = panels.filter((p) => counts.value[p.value]).map((p) => p.value)
       //activePanels.value = open.length ? open : ['basic']
       activePanels.value = ['basic']
@@ -194,7 +219,10 @@ const handleConfirm = () => {
       props.gameUserSettingsContent || '',
       simpleModel.value,
   )
-  emit('save', {gameIni, gameUserSettings})
+  const FLAG = '-ForceAllowCaveFlyers'
+  let params = (props.customStartParameters || '').replace(/\s*-ForceAllowCaveFlyers\b/gi, '').trimStart()
+  if (caveFlyers.value) params = params ? `${params} ${FLAG}` : FLAG
+  emit('save', {gameIni, gameUserSettings, customStartParameters: params})
 }
 
 const handleClose = () => emit('update:visible', false)

@@ -12,7 +12,10 @@
           <div class="rule-item">
             <div class="rule-text">
               <span class="rule-label">{{ reg.label }}</span>
-              <span class="rule-tip">{{ reg.tip }}</span>
+              <t-typography-paragraph
+                  class="rule-tip"
+                  :ellipsis="{ row: 1, tooltipProps: { placement: 'top-left', content: reg.tip } }"
+              >{{ reg.tip }}</t-typography-paragraph>
             </div>
             <div class="rule-control">
               <t-switch v-if="reg.type === 'bool'" v-model="simpleModel[reg.key]"/>
@@ -36,6 +39,21 @@
                   align="right"
                   style="width: 120px"
               />
+            </div>
+          </div>
+        </t-col>
+        <!-- 允许洞穴飞行：命令行参数，注入到行为规则组末尾 -->
+        <t-col v-if="g.key === 'dino_rule'" :xs="12" :md="6">
+          <div class="rule-item">
+            <div class="rule-text">
+              <span class="rule-label">允许洞穴飞行</span>
+              <t-typography-paragraph
+                  class="rule-tip"
+                  :ellipsis="{ row: 1, tooltipProps: { placement: 'top-left', content: '允许飞行生物进入洞穴（-ForceAllowCaveFlyers 命令行参数，修改后重启服务器生效）。' } }"
+              >允许飞行生物进入洞穴（-ForceAllowCaveFlyers 命令行参数，修改后重启服务器生效）。</t-typography-paragraph>
+            </div>
+            <div class="rule-control">
+              <t-switch :value="caveFlyers" @change="emit('update:caveFlyers', $event)"/>
             </div>
           </div>
         </t-col>
@@ -84,7 +102,7 @@
 </template>
 
 <script setup>
-import {computed, ref} from 'vue'
+import {computed, ref, watch} from 'vue'
 import {AddIcon, DeleteIcon} from 'tdesign-icons-vue-next'
 import CreatureSelect from '../CreatureSelect.vue'
 import {SETTING_GROUPS, SETTINGS_REGISTRY} from '@/utils/arkSimpleSettings.js'
@@ -92,6 +110,14 @@ import {SETTING_GROUPS, SETTINGS_REGISTRY} from '@/utils/arkSimpleSettings.js'
 const props = defineProps({
   model: {type: Object, required: true},
   simpleModel: {type: Object, required: true},
+  caveFlyers: {type: Boolean, default: false},
+})
+const emit = defineEmits(['update:caveFlyers'])
+
+watch(() => props.simpleModel.bAllowFlyerSpeedLeveling, (val) => {
+  if (val && !props.simpleModel.bAllowSpeedLeveling) {
+    props.simpleModel.bAllowSpeedLeveling = true
+  }
 })
 
 const groupsWithItems = computed(() =>
@@ -173,6 +199,7 @@ const removeRow = (i) => props.model[activeKey.value].splice(i, 1)
 }
 
 .rule-tip {
+  margin: 0;
   font-size: 11px;
   line-height: 1.4;
   color: var(--td-text-color-placeholder, #999);

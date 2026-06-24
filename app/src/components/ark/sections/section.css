@@ -134,28 +134,16 @@
   background: var(--td-bg-color-component, #fafbfc);
 }
 
-/* 属性倍率网格 */
-.stat-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
-  gap: 10px;
-}
-
+/* 属性倍率卡片（t-row + t-col 响应式布局） */
 .stat-item {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  flex-direction: column;
+  gap: 4px;
   padding: 8px 12px;
   background: var(--td-bg-color-container, #fff);
   border: 1px solid var(--td-component-border, #e7e7e7);
   border-radius: 8px;
   transition: border-color 0.18s ease, background 0.18s ease;
-  .stat-item-content{
-    display: flex;
-    flex-direction: column;
-    align-items: start;
-  }
 }
 
 .stat-item:hover {
@@ -163,15 +151,24 @@
   background: var(--td-brand-color-light, #f5f7ff);
 }
 
+.stat-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .stat-item .stat-name {
+  flex: 1 1 0;
+  min-width: 0;
   font-size: 13px;
+  font-weight: 500;
   color: var(--td-text-color-primary, #1f1f1f);
 }
 
 .stat-item .stat-en {
   font-size: 11px;
   color: var(--td-text-color-placeholder, #aaa);
-  white-space: nowrap;
 }
 
 @media (prefers-reduced-motion: reduce) {

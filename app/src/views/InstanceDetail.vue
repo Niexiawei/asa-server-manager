@@ -312,6 +312,7 @@
         :visible="advancedConfigVisible"
         :game-ini-content="gameIniContent"
         :game-user-settings-content="gameUserSettingsContent"
+        :custom-start-parameters="instanceData?.config?.CustomStartParameters || ''"
         :saving="savingGameIni || savingGameUserSettings"
         @update:visible="advancedConfigVisible = $event"
         @save="saveAdvancedConfig"
@@ -550,9 +551,9 @@ const saveGameIni = async (content) => {
   }
 }
 
-// 可视化配置保存：弹窗产出 { gameIni, gameUserSettings } 两文件文本，
-// 仅对发生变化的文件 PUT（复用 saveGameIni / saveGameUserSettings，各自重载），成功后关闭弹窗
-const saveAdvancedConfig = async ({gameIni, gameUserSettings}) => {
+// 可视化配置保存：弹窗产出 { gameIni, gameUserSettings, customStartParameters }，
+// 仅对发生变化的文件/字段写入，成功后关闭弹窗
+const saveAdvancedConfig = async ({gameIni, gameUserSettings, customStartParameters}) => {
   try {
     if (gameIni != null && gameIni !== gameIniContent.value) {
       await saveGameIni(gameIni)
@@ -560,9 +561,16 @@ const saveAdvancedConfig = async ({gameIni, gameUserSettings}) => {
     if (gameUserSettings != null && gameUserSettings !== gameUserSettingsContent.value) {
       await saveGameUserSettings(gameUserSettings)
     }
+    const currentParams = instanceData.value?.config?.CustomStartParameters || ''
+    if (customStartParameters != null && customStartParameters !== currentParams) {
+      const data = await updateInstanceConfig(instanceName, {CustomStartParameters: customStartParameters})
+      if (data?.success && instanceData.value?.config) {
+        instanceData.value.config.CustomStartParameters = customStartParameters
+      }
+    }
     advancedConfigVisible.value = false
   } catch (err) {
-    // saveGameIni / saveGameUserSettings 内已提示错误，保持弹窗打开以便重试
+    // 各 save 函数内已提示错误，保持弹窗打开以便重试
   }
 }
 

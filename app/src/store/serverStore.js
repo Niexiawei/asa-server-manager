@@ -38,7 +38,7 @@ function handleServerEvent(event) {
                 instance.status = 'start_initialization'
                 instance.running = false
                 instance.message = `${instance_name} 初始化中...`
-                instance.isStartingOrRunning = false
+                instance.isStartingOrRunning = true
             }
             break
 
@@ -48,7 +48,7 @@ function handleServerEvent(event) {
                 instance.status = 'start_initialization_successful'
                 instance.running = false
                 instance.message = `${instance_name} 初始化完成，等待启动...`
-                instance.isStartingOrRunning = false
+                instance.isStartingOrRunning = true
             }
             break
 
@@ -133,6 +133,7 @@ function handleServerEvent(event) {
         case 'server_restarted':
             if (instance_name) {
                 serverStore.restartPending.delete(instance_name)
+                instance.isStartingOrRunning = true
             }
             break
 
