@@ -682,9 +682,10 @@ func waitServerStartup(pid int, gameLogPath string, callback waitServerStartupFu
 	defer cancel()
 	var latestLogLineMu sync.Mutex
 	var latestLogLine string
+	var networkErrLine string
 	var (
-		startup    = make(chan struct{}) // 无缓冲，使用 close() 通知
-		closeOnce  sync.Once             // C5 fix: protect close(startup) from double-close
+		startup   = make(chan struct{}) // 无缓冲，使用 close() 通知
+		closeOnce sync.Once             // C5 fix: protect close(startup) from double-close
 	)
 
 	safeCloseStartup := func() {
@@ -695,6 +696,9 @@ func waitServerStartup(pid int, gameLogPath string, callback waitServerStartupFu
 		if exited := WaitGamePidExit(ctx, pid); exited {
 			latestLogLineMu.Lock()
 			logLine := latestLogLine
+			if networkErrLine != "" {
+				logLine = networkErrLine
+			}
 			latestLogLineMu.Unlock()
 			callback(false, logLine)
 			safeCloseStartup() // C5 fix: process exit path
@@ -704,6 +708,9 @@ func waitServerStartup(pid int, gameLogPath string, callback waitServerStartupFu
 	TailLogFileWithLinesContext(ctx, gameLogPath, 0, func(line string) {
 		latestLogLineMu.Lock()
 		latestLogLine = line // H6 fix: protected by mutex
+		if strings.Contains(line, "ApiError: Failed (serverUnreachable)") {
+			networkErrLine = line
+		}
 		latestLogLineMu.Unlock()
 		// Check for successful startup message
 		if strings.Contains(line, "Server has completed startup and is now advertising for join") {

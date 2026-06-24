@@ -794,15 +794,15 @@ func removeMirrorEntry(mirrorDir string, entry mirrorEntry) error {
 	mirrorPath := filepath.Join(mirrorDir, filepath.FromSlash(entry.RelPath))
 
 	if isJunctionOrSymlink(mirrorPath) {
-		return os.Remove(mirrorPath)
+		return os.Remove(mirrorPath) // junction/symlink：只删链接本身，不删目标内容
 	}
 
 	if entry.EntryType == EntryTypeFile {
 		return os.Remove(mirrorPath)
 	}
 
-	// 目录：尝试删除（仅空目录成功）
-	return os.Remove(mirrorPath)
+	// 真实目录：游戏运行时可能在此写入文件，使用 RemoveAll 强制清除
+	return os.RemoveAll(mirrorPath)
 }
 
 // reconcileEntry 检查并修复已有条目

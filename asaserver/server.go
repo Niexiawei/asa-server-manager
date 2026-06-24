@@ -184,6 +184,8 @@ type StartServerOptions struct {
 	ParentCtx                    context.Context
 	PidCallback                  func(pid int)
 	OnRestartStartupComplete     func(instanceName string)
+	RetryOnNetworkError          int           // serverUnreachable 错误重试次数，0 → 默认 3
+	RetryInterval                time.Duration // 重试间隔，0 → 默认 5s
 }
 
 type StartServerOptionsFunc func(options *StartServerOptions)
@@ -224,6 +226,18 @@ func WithRestartStartupCompletion(callback func(instanceName string)) StartServe
 	}
 }
 
+func WithRetryOnNetworkError(count int) StartServerOptionsFunc {
+	return func(options *StartServerOptions) { options.RetryOnNetworkError = count }
+}
+
+func WithRetryInterval(d time.Duration) StartServerOptionsFunc {
+	return func(options *StartServerOptions) { options.RetryInterval = d }
+}
+
+func isNetworkRetriableStartupError(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "ApiError: Failed (serverUnreachable)")
+}
+
 // StartServer starts a server instance (public version with CAS check)
 func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
 	// CAS: 原子检查状态并转换到 start_initialization
@@ -237,7 +251,38 @@ func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
 		return ErrOperationNotAllowed
 	}
 
-	return startServerInternal(instanceName, options...)
+	tmpOpts := new(StartServerOptions)
+	for _, o := range options {
+		o(tmpOpts)
+	}
+	retryCount := tmpOpts.RetryOnNetworkError
+	if retryCount == 0 {
+		retryCount = 3
+	}
+	retryInterval := tmpOpts.RetryInterval
+	if retryInterval == 0 {
+		retryInterval = 5 * time.Second
+	}
+
+	var lastErr error
+	for attempt := 0; attempt <= retryCount; attempt++ {
+		if attempt > 0 {
+			logger.GetLogger().Infof("服务器 %s 网络错误，第 %d/%d 次重试，等待 %v...", instanceName, attempt, retryCount, retryInterval)
+			time.Sleep(retryInterval)
+		}
+		lastErr = startServerInternal(instanceName, options...)
+		if lastErr == nil {
+			return nil
+		}
+		if isNetworkRetriableStartupError(lastErr) && attempt < retryCount {
+			logger.GetLogger().Warnf("服务器 %s 启动失败（网络错误），将重试 (%d/%d): %v", instanceName, attempt+1, retryCount, lastErr)
+			continue
+		}
+		_ = WriteInstanceState(instanceName, StatusStopped, "")
+		return lastErr
+	}
+	_ = WriteInstanceState(instanceName, StatusStopped, "")
+	return lastErr
 }
 
 // startServerInternal starts a server instance (internal version without CAS, for RestartServer)
@@ -267,12 +312,6 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 	defer func() {
 		if startErr != nil {
 			_ = WriteInstanceState(instanceName, StatusStartFailed, startErr.Error())
-			// 启动失败时清理镜像
-			if mirrorDir != "" {
-				if err := CleanupInstanceMirror(instanceName); err != nil {
-					logger.GetLogger().Warnf("Failed to cleanup mirror after start failure: %v", err)
-				}
-			}
 		}
 	}()
 
@@ -443,13 +482,15 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 			startErr = fmt.Errorf("failed to create pty: %w", err)
 			return startErr
 		}
-		defer pp.Close()
 		c := pp.Command(arkExe, args...)
 		c.Dir = exeWorkDir
 		if err := c.Start(); err != nil {
+			_ = pp.Close()
 			startErr = fmt.Errorf("failed to start server: %w", err)
 			return startErr
 		}
+		// PTY 跟随 AsaApiLoader 进程生命周期，不在函数返回时关闭
+		go func() { _ = c.Wait(); _ = pp.Close() }()
 		go arkApiCleanConsoleOutput(pp, logWriter)
 		logger.GetLogger().Infof("[%s] Redirecting AsaApiLoader output to logger", instanceName)
 
@@ -476,14 +517,6 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 
 	logger.GetLogger().Infof("Server started for instance: %s. It should be fully operational in approximately 60 seconds.", instanceName)
 	logger.GetLogger().Infof("Game log file: %s", gameLogPath)
-
-	if ctx.Err() != nil {
-		killGameServer(pid)
-	}
-
-	if opts.PidCallback != nil {
-		opts.PidCallback(pid)
-	}
 
 	// Monitor for mod information in a separate goroutine
 	go MonitorAndExtractModInfo(ctx, gameLogPath, instanceName)
@@ -513,38 +546,23 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 		}
 	})
 
-	if opts.WaitServerCompleted {
-		WaitServerCompletedCtx, WaitServerCompletedCancel := context.WithCancel(ctx)
-		defer WaitServerCompletedCancel()
-
-		go func() {
-			if exited := WaitGamePidExit(WaitServerCompletedCtx, pid); exited {
-				WaitServerCompletedCancel()
-			}
-		}()
-
-		TailLogFileWithLinesContext(WaitServerCompletedCtx, gameLogPath, 0, func(line string) {
-			// Check for successful startup message
-			if strings.Contains(line, "Server has completed startup and is now advertising for join") {
-				startupSuccess <- true
-			}
-		})
-
-		select {
-		case <-WaitServerCompletedCtx.Done():
-			startErr = fmt.Errorf("start game server exited")
-			return startErr
-		case <-startupSuccess:
-			return nil
-		}
-	} else {
-		select {
-		case err := <-initFailed:
-			return err
-		case <-initSuccessful:
-		}
+	if ctx.Err() != nil {
+		killGameServer(pid)
 	}
 
+	if opts.PidCallback != nil {
+		opts.PidCallback(pid)
+	}
+
+	select {
+	case err := <-initFailed:
+		return err
+	case <-initSuccessful:
+	}
+
+	if opts.WaitServerCompleted {
+		<-startupSuccess
+	}
 	return nil
 }
 
