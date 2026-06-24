@@ -1,7 +1,7 @@
 # ARK: Survival Ascended - 印痕 (Engrams) 完整列表
 
 > **来源**: [ARK Wiki - Engrams](https://ark.wiki.gg/wiki/Engrams) & [Engram Class Names](https://ark.wiki.gg/wiki/Engram_class_names) | **日期**: 2026-06-23
-> **共 724 个印痕** | 用于服务器配置与玩家参考
+> **共 724 个印痕** | 用于服务器配置与玩家参考 | **已添加中文名称列**
 
 ---
 
@@ -609,110 +609,107 @@ admincheat ResetEngrams
 
 ## DLC 印痕 — Aberration
 
-| 名称 | 等级 | EP | 前置印痕 |
-|------|------|-----|----------|
-| Glow Stick | 10 | 4 | - |
-| Fish Basket | 13 | 6 | - |
-| Portable Rope Ladder | 15 | 7 | Wooden Ladder |
-| Shag Rug | 17 | 4 | - |
-| Small Wood Elevator Platform | 20 | 4 | Wood Elevator Track |
-| Wood Elevator Track | 20 | 4 | Wood Elevator Top Switch |
-| Wood Elevator Top Switch | 20 | 16 | - |
-| Medium Wood Elevator Platform | 23 | 7 | Wood Elevator Track |
-| Large Wood Elevator Platform | 30 | 8 | Wood Elevator Track |
-| Zip-Line Anchor | 31 | 8 | Crossbow |
-| Climbing Pick | 34 | 16 | Metal Pick |
-| Stone Cliff Platform | 37 | 28 | Wooden Tree Platform |
-| Gas Collector | 40 | 35 | - |
-| Pliers | 45 | 16 | - |
-| Ravager Saddle | 47 | 20 | - |
-| Metal Cliff Platform | 51 | 48 | Metal Tree Platform |
-| Zip-Line Motor Attachment Skin | 54 | 34 | - |
-| Roll Rat Saddle | 58 | 26 | - |
-| Glider Suit Skin | 62 | 26 | Parachute |
-| Karkinos Saddle | 65 | 28 | - |
-| Hazard Suit Gloves | 68 | 16 | - |
-| Hazard Suit Boots | 68 | 16 | - |
-| Hazard Suit Shirt | 68 | 22 | - |
-| Hazard Suit Pants | 68 | 22 | - |
-| Hazard Suit Hat | 68 | 28 | - |
-| Charge Battery | 71 | 22 | Glow Stick |
-| Rock Drake Saddle | 75 | 26 | - |
-| Charge Lantern | 80 | 32 | Charge Battery |
-| Basilisk Saddle | 85 | 28 | - |
+| 名称 | 中文名 | 等级 | EP | 前置印痕 |
+|------|--------|------|-----|----------|
+| Glow Stick | 荧光棒 | 10 | 4 | - |
+| Fish Basket | 鱼篮 | 13 | 6 | - |
+| Portable Rope Ladder | 便携绳梯 | 15 | 7 | Wooden Ladder |
+| Shag Rug | 粗毛地毯 | 17 | 4 | - |
+| Small Wood Elevator Platform | 小木电梯平台 | 20 | 4 | Wood Elevator Track |
+| Wood Elevator Track | 木电梯轨道 | 20 | 4 | Wood Elevator Top Switch |
+| Wood Elevator Top Switch | 木电梯顶部开关 | 20 | 16 | - |
+| Medium Wood Elevator Platform | 中木电梯平台 | 23 | 7 | Wood Elevator Track |
+| Large Wood Elevator Platform | 大木电梯平台 | 30 | 8 | Wood Elevator Track |
+| Zip-Line Anchor | 滑索锚 | 31 | 8 | Crossbow |
+| Climbing Pick | 登山镐 | 34 | 16 | Metal Pick |
+| Stone Cliff Platform | 石悬崖平台 | 37 | 28 | Wooden Tree Platform |
+| Gas Collector | 气体收集器 | 40 | 35 | - |
+| Pliers | 钳子 | 45 | 16 | - |
+| Ravager Saddle | 劫掠者鞍 | 47 | 20 | - |
+| Metal Cliff Platform | 金属悬崖平台 | 51 | 48 | Metal Tree Platform |
+| Zip-Line Motor Attachment Skin | 滑索电机皮肤 | 54 | 34 | - |
+| Roll Rat Saddle | 鼹鼠鞍 | 58 | 26 | - |
+| Glider Suit Skin | 滑翔服皮肤 | 62 | 26 | Parachute |
+| Karkinos Saddle | 巨蟹鞍 | 65 | 28 | - |
+| Hazard Suit Gloves | 防化手套 | 68 | 16 | - |
+| Hazard Suit Boots | 防化靴 | 68 | 16 | - |
+| Hazard Suit Shirt | 防化衣 | 68 | 22 | - |
+| Hazard Suit Pants | 防化裤 | 68 | 22 | - |
+| Hazard Suit Hat | 防化头盔 | 68 | 28 | - |
+| Charge Battery | 充电电池 | 71 | 22 | Glow Stick |
+| Rock Drake Saddle | 岩龙鞍 | 75 | 26 | - |
+| Charge Lantern | 充电灯 | 80 | 32 | Charge Battery |
+| Basilisk Saddle | 蛇怪鞍 | 85 | 28 | - |
 
 ---
 
 ## DLC 印痕 — Extinction
 
-| 名称 | 等级 | EP | 前置印痕 |
-|------|------|-----|----------|
-| Taxidermy Tool | 10 | 3 | - |
-| Small Taxidermy Base | 10 | 4 | - |
-| Delivery Crate | 16 | 6 | - |
-| Medium Taxidermy Base | 21 | 4 | - |
-| Dino Leash | 22 | 6 | - |
-| Velonasaur Saddle | 27 | 8 | - |
-| Large Taxidermy Base | 32 | 4 | - |
-| Gacha Saddle | 38 | 6 | - |
-| Gasbags Saddle | 43 | 6 | - |
-| Cryopod | 51 | 20 | - |
-| Unstable Element Shard | 55 | 6 | - |
-| Unstable Element | 58 | 6 | - |
-| Snow Owl Saddle | 61 | 6 | - |
-| Managarmr Saddle | 66 | 8 | - |
-| Tek Bridge | 72 | 32 | - |
-| Tek Gravity Grenade | 79 | 20 | Gunpowder |
-| Unassembled Mek | 91 | 38 | - |
-| M.D.S.M. | 93 | 40 | - |
-| Rocket Pod | 95 | 35 | - |
-| M.R.L.M. | 95 | 40 | - |
-| Cannon Shell | 97 | 35 | - |
-| M.S.C.M. | 97 | 40 | - |
+| 名称 | 中文名 | 等级 | EP | 前置印痕 |
+|------|--------|------|-----|----------|
+| Taxidermy Tool | 标本工具 | 10 | 3 | - |
+| Small Taxidermy Base | 小标本底座 | 10 | 4 | - |
+| Delivery Crate | 送货箱 | 16 | 6 | - |
+| Medium Taxidermy Base | 中标本底座 | 21 | 4 | - |
+| Dino Leash | 恐龙缰绳 | 22 | 6 | - |
+| Velonasaur Saddle | 维纳龙鞍 | 27 | 8 | - |
+| Large Taxidermy Base | 大标本底座 | 32 | 4 | - |
+| Gacha Saddle | 嘎查鞍 | 38 | 6 | - |
+| Gasbags Saddle | 气囊兽鞍 | 43 | 6 | - |
+| Cryopod | 低温舱 | 51 | 20 | - |
+| Unstable Element Shard | 不稳定元素碎片 | 55 | 6 | - |
+| Unstable Element | 不稳定元素 | 58 | 6 | - |
+| Snow Owl Saddle | 雪鸮鞍 | 61 | 6 | - |
+| Managarmr Saddle | 冰牙龙鞍 | 66 | 8 | - |
+| Tek Bridge | 泰克桥 | 72 | 32 | - |
+| Tek Gravity Grenade | 泰克重力手雷 | 79 | 20 | Gunpowder |
+| Unassembled Mek | 未组装机甲 | 91 | 38 | - |
+| Rocket Pod | 火箭荚舱 | 95 | 35 | - |
+| Cannon Shell | 加农炮弹 | 97 | 35 | - |
 
 ---
 
 ## DLC 印痕 — Genesis
 
-| 名称 | 等级 | EP | 前置印痕 |
-|------|------|-----|----------|
-| Fish Net | 6 | 4 | - |
-| Pressure Plate | 12 | 6 | - |
-| Wood Ocean Platform | 25 | 24 | - |
-| Megachelon Platform Saddle | 45 | 35 | - |
-| Metal Ocean Platform | 53 | 50 | Wood Ocean Platform |
-| Tek Jump Pad | 70 | 30 | - |
-| Mining Drill | 80 | 35 | - |
-| Magmasaur Saddle | 95 | 35 | - |
+| 名称 | 中文名 | 等级 | EP | 前置印痕 |
+|------|--------|------|-----|----------|
+| Fish Net | 鱼网 | 6 | 4 | - |
+| Pressure Plate | 压力板 | 12 | 6 | - |
+| Wood Ocean Platform | 木海洋平台 | 25 | 24 | - |
+| Megachelon Platform Saddle | 巨龟平台鞍 | 45 | 35 | - |
+| Metal Ocean Platform | 金属海洋平台 | 53 | 50 | Wood Ocean Platform |
+| Tek Jump Pad | 泰克跳板 | 70 | 30 | - |
+| Mining Drill | 采矿钻 | 80 | 35 | - |
+| Magmasaur Saddle | 岩浆兽鞍 | 95 | 35 | - |
 
 ---
 
 ## DLC 印痕 — Genesis Part 2
 
-| 名称 | 等级 | EP | 前置印痕 |
-|------|------|-----|----------|
-| Canoe | 8 | 10 | - |
-| Maewing Saddle | 19 | 24 | - |
-| Loadout Mannequin | 23 | 8 | Training Dummy |
-| Ammo Box | 29 | 24 | Large Storage Box |
-| Jar of Pitch | 35 | 18 | Catapult Turret |
-| Net Projectile | 43 | 12 | Harpoon Launcher |
-| Egg Incubator | 89 | 55 | Air Conditioner |
-| Minigun | 94 | 35 | Longneck Rifle |
+| 名称 | 中文名 | 等级 | EP | 前置印痕 |
+|------|--------|------|-----|----------|
+| Canoe | 独木舟 | 8 | 10 | - |
+| Maewing Saddle | 滑翔鼠鞍 | 19 | 24 | - |
+| Loadout Mannequin | 装备人台 | 23 | 8 | Training Dummy |
+| Ammo Box | 弹药箱 | 29 | 24 | Large Storage Box |
+| Jar of Pitch | 焦油罐 | 35 | 18 | Catapult Turret |
+| Net Projectile | 网弹 | 43 | 12 | Harpoon Launcher |
+| Egg Incubator | 蛋孵化器 | 89 | 55 | Air Conditioner |
+| Minigun | 迷你机枪 | 94 | 35 | Longneck Rifle |
 
 ---
 
 ## DLC 印痕 — Fjordur
 
-| 名称 | 等级 | EP | 前置印痕 |
-|------|------|-----|----------|
-| Tek Canteen | 101 | 6 | Water Jar, Fabricator |
-| Tek Crop Plot | 104 | 32 | Water Jar, Fabricator |
-| Tek Surveillance Console | 108 | 60 | - |
-| Tek Hoversail | 112 | 45 | - |
-| Tek Bow | 116 | 53 | Compound Bow |
-| Tek Phase Pistol | 118 | 55 | - |
-| Astrodelphis Starwing Saddle | 135 | 60 | - |
+| 名称 | 中文名 | 等级 | EP | 前置印痕 |
+|------|--------|------|-----|----------|
+| Tek Canteen | 泰克水壶 | 101 | 6 | Water Jar, Fabricator |
+| Tek Crop Plot | 泰克耕地 | 104 | 32 | Water Jar, Fabricator |
+| Tek Surveillance Console | 泰克监控台 | 108 | 60 | - |
+| Tek Hoversail | 泰克悬浮帆 | 112 | 45 | - |
+| Tek Bow | 泰克弓 | 116 | 53 | Compound Bow |
+| Tek Phase Pistol | 泰克相位手枪 | 118 | 55 | - |
+| Astrodelphis Starwing Saddle | 星翼海豚鞍 | 135 | 60 | - |
 
 ---
 
@@ -739,13 +736,13 @@ Tek 印痕需要通过击败 Boss 解锁，不能用普通印痕点数学习。
 
 ### Tek 印痕列表
 
-| 名称 | 解锁难度 |
-|------|----------|
-| Tek Foundation | ✓ |
-| Tek Replicator | ✓ |
-| Tek Triangle Ceiling | ✓ |
-| Tek Triangle Foundation | ✓ |
-| Tek Triangle Roof | ✓ |
+| 名称 | 中文名 | 解锁难度 |
+|------|--------|----------|
+| Tek Foundation | 泰克地基 | ✓ |
+| Tek Replicator | 泰克复制器 | ✓ |
+| Tek Triangle Ceiling | 泰克三角天花板 | ✓ |
+| Tek Triangle Foundation | 泰克三角地基 | ✓ |
+| Tek Triangle Roof | 泰克三角屋顶 | ✓ |
 
 ---
 

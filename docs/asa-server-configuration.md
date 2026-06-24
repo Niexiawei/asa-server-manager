@@ -168,40 +168,40 @@ ArkAscendedServer.exe TheIsland_WP?listen -NoBattlEye -WinLiveMaxPlayers=70
 
 | 配置项 | 中文名 | 默认值 | 类型 | 配置方式 | 说明 (EN) | 说明 (中文) |
 |--------|--------|--------|------|----------|-----------|-------------|
-| `AllowHideDamageSourceFromLogs` | 允许隐藏日志伤害源 | True | boolean | GameUserSettings.ini + 命令行 | False, shows the damage sources in tribe logs. | False, shows the damage sources in tribe logs. |
-| `AllowHitMarkers` | 允许命中标记 | True | boolean | GameUserSettings.ini + 命令行 | False, disables optional markers for ranged attacks. | False, disables optional markers for ranged attacks. |
-| `AllowMultipleAttachedC4` | 允许多个C4附着 | False | boolean | GameUserSettings.ini + 命令行 | True, allows to attach more than one C4 per creature. | True, allows to attach more than one C4 per creature. |
-| `CustomLiveTuningUrl` | 自定义实时调优URL | - | string | GameUserSettings.ini + 命令行 | with a URLDirect link to the live tuning file. For more information on how to use this system check out the official announcement: https://survivetheark.com/index.php?/forums/topic/569366-server-configuration-live-tuning-system.  ARK: Survival Evolve | with a URLDirect link to the live tuning file. |
-| `DestroyTamesOverTheSoftTameLimit` | Destroy驯养sOverTheSoftTameLimit | False | boolean | GameUserSettings.ini + 命令行 | above the Soft Tame Server Limit will be marked “For Cryo” and display an icon and a timer indicating how soon they need to be cryopodded before they are automatically destroyed. Dinos marked and dinos destroyed by this system will be logged in the t | above the Soft Tame Server Limit will be marked “For Cryo” and display an icon and a timer indicating how soon they need to be cryopodded before they are automatically destroyed. |
-| `DifficultyOffset` | 难度偏移值 | 1.0 | float | GameUserSettings.ini + 命令行 | the difficulty level. | the difficulty level. |
-| `DisableWeatherFog` | 禁用天气雾 | False | boolean | GameUserSettings.ini + 命令行 | True, disables fog. | True, disables fog. |
-| `globalVoiceChat` | globalVoiceChat | False | boolean | GameUserSettings.ini + 命令行 | True, voice chat turns global. | True, voice chat turns global. |
-| `MaxTrainCars` | MaxTrainCars | 8 | integer | GameUserSettings.ini + 命令行 | the maximum amount of carts a train cave have. | the maximum amount of carts a train cave have. |
-| `NonPermanentDiseases` | 疾病非永久化 | False | boolean | GameUserSettings.ini + 命令行 | True, makes permanent diseases not permanent. Players will lose them if on re-spawn. | True, makes permanent diseases not permanent. |
-| `OxygenSwimSpeedStatMultiplier` | OxygenSwim速度Stat倍率 | 1.0 | float | GameUserSettings.ini + 命令行 | this to set how swim speed is multiplied by level spent in oxygen. The value was reduced by 80% in 256.0. | this to set how swim speed is multiplied by level spent in oxygen. |
-| `PlatformSaddleBuildAreaBoundsMultiplier` | PlatformSaddleBuildAreaBounds倍率 | 1.0 | float | GameUserSettings.ini + 命令行 | the number allows structures being placed further away from the platform. | the number allows structures being placed further away from the platform. |
-| `PreventDiseases` | PreventDiseases | False | boolean | GameUserSettings.ini + 命令行 | True, completely diseases on the server. Thus far just Swamp Fever. | True, completely diseases on the server. |
-| `ProximityChat` | ProximityChat | False | boolean | GameUserSettings.ini + 命令行 | True, only players near each other can see their chat messages | True, only players near each other can see their chat messages |
-| `RCONPort` | RCONPort | 27020 | integer | GameUserSettings.ini + 命令行 | the optional TCP RCON Port. See Dedicated server setup | the optional TCP RCON Port. |
-| `RCONServerGameLogBuffer` | RCONServerGameLogBuffer | 600.0 | float | GameUserSettings.ini + 命令行 | how many lines of game logs are send over the RCON. Note: despite being coded as a float it's suggested to treat it as integer. | how many lines of game logs are send over the RCON. |
-| `ServerCrosshair` | ServerCrosshair | True | boolean | GameUserSettings.ini + 命令行 | False, disables the Crosshair on your server. | False, disables the Crosshair on your server. |
-| `ServerForceNoHUD` | ServerForceNoHUD | False | boolean | GameUserSettings.ini + 命令行 | True, HUD is always disabled for non-tribe owned NPCs. | True, HUD is always disabled for non-tribe owned NPCs. |
-| `ServerHardcore` | ServerHardcore | False | boolean | GameUserSettings.ini + 命令行 | True, enables Hardcore mode (player characters revert to level 1 upon death) | True, enables Hardcore mode (player characters revert to level 1 upon death) |
-| `ShowFloatingDamageText` | ShowFloating伤害Text | False | boolean | GameUserSettings.ini + 命令行 | True, enables RPG-style popup damage text mode. | True, enables RPG-style popup damage text mode. |
-| `UseAstraeosTraversalBuff` | UseAstraeosTraversalBuff | True | boolean | GameUserSettings.ini | True, enables the biome teleport in Astraeos when holding .mw-parser-output .key{display:inline-block;white-space:nowrap}.mw-parser-output .key kbd{padding:0.1em 0.6em 0.1em 0.6em;margin-right:2px;font-size:85%;font-family:inherit;font-style:normal;b | True, enables the biome teleport in Astraeos when holding .mw-parser-output .key{display:inline-block;white-space:nowrap}.mw-parser-output .key kbd{padding:0.1em 0.6em 0.1em 0.6em;margin-right:2px;fon |
-| `YoungIceFoxDeathCooldown` | YoungIceFoxDeathCooldown | 3600 | float | GameUserSettings.ini + 命令行 | the cooldown for Veilwyn to reappear after taking fatal damage (in seconds), default is set to 1 hour. Must be greater than 0. | the cooldown for Veilwyn to reappear after taking fatal damage (in seconds), default is set to 1 hour. |
-| `noTributeDownloads` | noTributeDownloads | False | boolean | GameUserSettings.ini + 命令行 | True, prevents CrossArk-data downloads inCross-ARK Data Transfer. | True, prevents CrossArk-data downloads inCross-ARK Data Transfer. |
-| `PreventDownloadSurvivors` | PreventDownloadSurvivors | False | boolean | GameUserSettings.ini + 命令行 | True, prevents survivors download from ARK Data in Cross-ARK Data Transfer. | True, prevents survivors download from ARK Data in Cross-ARK Data Transfer. |
-| `PreventUploadSurvivors` | PreventUploadSurvivors | False | boolean | GameUserSettings.ini + 命令行 | True, prevents survivors upload to ARK Data in Cross-ARK Data Transfer. | True, prevents survivors upload to ARK Data in Cross-ARK Data Transfer. |
-| `BadWordListURL` | BadWordListURL | : "http://arkdedicated.com/badwords.txt"  : "http://cdn2.arkdedicated.com/asa/badwords.txt" | string | GameUserSettings.ini | with a URLAdd the URL to hosting your own bad words list. Note: on  ARK: Survival Evolved servers only the HTTP protocol is supported (an HTTPS URL will not work). | with a URLAdd the URL to hosting your own bad words list. |
-| `BadWordWhiteListURL` | BadWordWhiteListURL | : "http://arkdedicated.com/goodwords.txt"  : "http://cdn2.arkdedicated.com/asa/goodwords.txt" | string | GameUserSettings.ini | with a URLAdd the URL to hosting your own good words list. Note: on  ARK: Survival Evolved servers only the HTTP protocol is supported (an HTTPS URL will not work). | with a URLAdd the URL to hosting your own good words list. |
-| `BloodforgeReinforceExtraDurability` | BloodforgeReinforceExtraDurability | 0.3 | float | GameUserSettings.ini | Default value: 0.3Value type: float | 默认: 0.3类型: float |
-| `BloodforgeReinforceSpeedMultiplier` | BloodforgeReinforce速度倍率 | 0.1 | float | GameUserSettings.ini | Default value: 0.1Value type: float | 默认: 0.1类型: float |
-| `MaxActiveOutposts` | MaxActiveOutposts | - | integer | GameUserSettings.ini | Value type: integer | 类型: integer |
-| `MaxActiveCityOutposts` | MaxActiveCityOutposts | - | integer | GameUserSettings.ini | Value type: integer | 类型: integer |
-| `OutpostSigilRewardMultiplier` | OutpostSigilReward倍率 | 1.0 | float | GameUserSettings.ini | the scaling factor for sigil rewards from outpost missions. Higher values increase the number of sigils rewarded. | the scaling factor for sigil rewards from outpost missions. |
-| `AutoRestartIntervalSeconds` | AutoRestart间隔Seconds | Unknown | float | GameUserSettings.ini + 命令行 | the time (in seconds) after which the server will automatically restart. Undocumented by Wildcard. (Appears to shut off the server instead of restarting properly) | the time (in seconds) after which the server will automatically restart. |
-| `UseCharacterTracker` | UseCharacterTracker | False | boolean | GameUserSettings.ini + 命令行 | to enable character tracking. Alternatively, this option can be configured with -disableCharacterTracker argument in the command line (note that the argument from command line has priority over the value set in GameUserSettings.ini). Undocumented by  | to enable character tracking. |
+| `AllowHideDamageSourceFromLogs` | 允许隐藏日志中的伤害来源 | True | boolean | GameUserSettings.ini + 命令行 | False, shows the damage sources in tribe logs. | False，显示部落日志中的伤害来源。 |
+| `AllowHitMarkers` | 允许命中标记 | True | boolean | GameUserSettings.ini + 命令行 | False, disables optional markers for ranged attacks. | False，禁用远程攻击的可选标记。 |
+| `AllowMultipleAttachedC4` | 允许多个C4附着 | False | boolean | GameUserSettings.ini + 命令行 | True, allows to attach more than one C4 per creature. | 允许每个生物附加多个C4。 |
+| `CustomLiveTuningUrl` | 自定义实时调优URL | - | string | GameUserSettings.ini + 命令行 | with a URLDirect link to the live tuning file. | 直接链接到实时调优文件的URL。 |
+| `DestroyTamesOverTheSoftTameLimit` | 超过软驯服限制时销毁 | False | boolean | GameUserSettings.ini + 命令行 | above the Soft Tame Server Limit will be marked “For Cryo” and display an icon and a timer indicating how soon they need to be cryopodded before they are automatically destroyed. Dinos marked and dinos destroyed by this system will be logged in the t | above the Soft Tame Server Limit will be marked “For Cryo” and display an icon and a timer indicating how soon they need to be cryopodded before they are automatically destroyed. |
+| `DifficultyOffset` | 难度偏移值 | 1.0 | float | GameUserSettings.ini + 命令行 | the difficulty level. | 难度等级。 |
+| `DisableWeatherFog` | 禁用天气雾 | False | boolean | GameUserSettings.ini + 命令行 | True, disables fog. | True，禁用雾效果。 |
+| `globalVoiceChat` | 全局语音聊天 | False | boolean | GameUserSettings.ini + 命令行 | True, voice chat turns global. | True，语音聊天变为全局。 |
+| `MaxTrainCars` | 最大火车车厢数 | 8 | integer | GameUserSettings.ini + 命令行 | the maximum amount of carts a train cave have. | 火车可拥有的最大车厢数量。 |
+| `NonPermanentDiseases` | 疾病非永久化 | False | boolean | GameUserSettings.ini + 命令行 | True, makes permanent diseases not permanent. Players will lose them if on re-spawn. | True，使永久性疾病变为非永久。玩家重生后将失去疾病。 |
+| `OxygenSwimSpeedStatMultiplier` | 氧气游泳速度属性倍率 | 1.0 | float | GameUserSettings.ini + 命令行 | this to set how swim speed is multiplied by level spent in oxygen. The value was reduced by 80% in 256.0. | 设置游泳速度如何乘以氧气等级。在256.0版本中数值降低了80%。 |
+| `PlatformSaddleBuildAreaBoundsMultiplier` | 平台鞍建造区域范围倍率 | 1.0 | float | GameUserSettings.ini + 命令行 | the number allows structures being placed further away from the platform. | 允许将结构放置在距离平台鞍更远的位置。 |
+| `PreventDiseases` | 预防疾病 | False | boolean | GameUserSettings.ini + 命令行 | True, completely diseases on the server. Thus far just Swamp Fever. | True，完全预防服务器上的疾病。目前仅限沼泽热。 |
+| `ProximityChat` | 近距离聊天 | False | boolean | GameUserSettings.ini + 命令行 | True, only players near each other can see their chat messages | True，只有彼此靠近的玩家才能看到聊天消息。 |
+| `RCONPort` | RCON端口 | 27020 | integer | GameUserSettings.ini + 命令行 | the optional TCP RCON Port. See Dedicated server setup | 可选的TCP RCON端口。 |
+| `RCONServerGameLogBuffer` | RCON服务器游戏日志缓冲区 | 600.0 | float | GameUserSettings.ini + 命令行 | how many lines of game logs are send over the RCON. Note: despite being coded as a float it's suggested to treat it as integer. | 通过RCON发送的游戏日志行数。建议视为整数处理。 |
+| `ServerCrosshair` | 服务器十字准线 | True | boolean | GameUserSettings.ini + 命令行 | False, disables the Crosshair on your server. | False，禁用服务器上的十字准线。 |
+| `ServerForceNoHUD` | 服务器强制无HUD | False | boolean | GameUserSettings.ini + 命令行 | True, HUD is always disabled for non-tribe owned NPCs. | True，非部落拥有的NPC的HUD始终禁用。 |
+| `ServerHardcore` | 服务器硬核模式 | False | boolean | GameUserSettings.ini + 命令行 | True, enables Hardcore mode (player characters revert to level 1 upon death) | True，启用硬核模式（玩家角色死亡后恢复到1级）。 |
+| `ShowFloatingDamageText` | 显示浮动伤害文本 | False | boolean | GameUserSettings.ini + 命令行 | True, enables RPG-style popup damage text mode. | True，启用RPG风格的弹出伤害文本模式。 |
+| `UseAstraeosTraversalBuff` | 使用Astraeos传送Buff | True | boolean | GameUserSettings.ini | True, enables the biome teleport in Astraeos when holding .mw-parser-output .key{display:inline-block;white-space:nowrap}.mw-parser-output .key kbd{padding:0.1em 0.6em 0.1em 0.6em;margin-right:2px;font-size:85%;font-family:inherit;font-style:normal;b | True，启用Astraeos中的生物群落传送。 |
+| `YoungIceFoxDeathCooldown` | 幼年冰狐死亡冷却时间 | 3600 | float | GameUserSettings.ini + 命令行 | the cooldown for Veilwyn to reappear after taking fatal damage (in seconds), default is set to 1 hour. Must be greater than 0. | Veilwyn受到致命伤害后重新出现的冷却时间（秒），默认1小时。必须大于0。 |
+| `noTributeDownloads` | 禁止贡品下载 | False | boolean | GameUserSettings.ini + 命令行 | True, prevents CrossArk-data downloads inCross-ARK Data Transfer. | True，禁止跨ARK数据传输中的数据下载。 |
+| `PreventDownloadSurvivors` | 禁止下载幸存者 | False | boolean | GameUserSettings.ini + 命令行 | True, prevents survivors download from ARK Data in Cross-ARK Data Transfer. | True，禁止从ARK数据下载幸存者。 |
+| `PreventUploadSurvivors` | 禁止上传幸存者 | False | boolean | GameUserSettings.ini + 命令行 | True, prevents survivors upload to ARK Data in Cross-ARK Data Transfer. | True，禁止向ARK数据上传幸存者。 |
+| `BadWordListURL` | 违禁词列表URL | : "http://arkdedicated.com/badwords.txt"  : "http://cdn2.arkdedicated.com/asa/badwords.txt" | string | GameUserSettings.ini | with a URLAdd the URL to hosting your own bad words list. Note: on  ARK: Survival Evolved servers only the HTTP protocol is supported (an HTTPS URL will not work). | 托管自定义违禁词列表的URL。注意：ARK服务器仅支持HTTP协议。 |
+| `BadWordWhiteListURL` | 违禁词白名单URL | : "http://arkdedicated.com/goodwords.txt"  : "http://cdn2.arkdedicated.com/asa/goodwords.txt" | string | GameUserSettings.ini | with a URLAdd the URL to hosting your own good words list. Note: on  ARK: Survival Evolved servers only the HTTP protocol is supported (an HTTPS URL will not work). | 托管自定义白名单词汇列表的URL。注意：ARK服务器仅支持HTTP协议。 |
+| `BloodforgeReinforceExtraDurability` | 血锻强化额外耐久度 | 0.3 | float | GameUserSettings.ini | Default value: 0.3Value type: float | 默认: 0.3类型: float |
+| `BloodforgeReinforceSpeedMultiplier` | 血锻强化速度倍率 | 0.1 | float | GameUserSettings.ini | Default value: 0.1Value type: float | 默认: 0.1类型: float |
+| `MaxActiveOutposts` | 最大活跃前哨站数 | - | integer | GameUserSettings.ini | Value type: integer | 类型: integer |
+| `MaxActiveCityOutposts` | 最大城市前哨站数 | - | integer | GameUserSettings.ini | Value type: integer | 类型: integer |
+| `OutpostSigilRewardMultiplier` | 前哨站印记奖励倍率 | 1.0 | float | GameUserSettings.ini | the scaling factor for sigil rewards from outpost missions. Higher values increase the number of sigils rewarded. | 前哨站任务印记奖励的缩放因子。数值越高，奖励印记越多。 |
+| `AutoRestartIntervalSeconds` | 自动重启间隔(秒) | Unknown | float | GameUserSettings.ini + 命令行 | the time (in seconds) after which the server will automatically restart. Undocumented by Wildcard. (Appears to shut off the server instead of restarting properly) | 服务器自动重启的时间（秒）。未被Wildcard文档记录。 |
+| `UseCharacterTracker` | 启用角色追踪器 | False | boolean | GameUserSettings.ini + 命令行 | to enable character tracking. Alternatively, this option can be configured with -disableCharacterTracker argument in the command line (note that the argument from command line has priority over the value set in GameUserSettings.ini). Undocumented by  | 启用角色追踪。可通过命令行-disableCharacterTracker参数配置。 |
 
 #### 服务器管理与安全 (22项)
 
@@ -261,30 +261,30 @@ ArkAscendedServer.exe TheIsland_WP?listen -NoBattlEye -WinLiveMaxPlayers=70
 
 | 配置项 | 中文名 | 默认值 | 类型 | 配置方式 | 说明 (EN) | 说明 (中文) |
 |--------|--------|--------|------|----------|-----------|-------------|
-| `AllowRaidDinoFeeding` | AllowRaid恐龙Feeding | False | boolean | GameUserSettings.ini + 命令行 | True, allows Titanosaurs to be permanently tamed (namely allow them to be fed). Note: in The Island only spawns a maximum of 3 Titanosaurs, so 3 tamed ones should ultimately block any more ones from spawning. | True, allows Titanosaurs to be permanently tamed (namely allow them to be fed). |
-| `DinoCharacterFoodDrainMultiplier` | 恐龙CharacterFoodDrain倍率 | 1.0 | float | GameUserSettings.ini + 命令行 | the scaling factor for creatures' food consumption. Higher values increase food consumption (creatures get hungry faster). It also affects the taming-times. | the scaling factor for creatures' food consumption. |
-| `DinoCharacterHealthRecoveryMultiplier` | 恐龙CharacterHealthRecovery倍率 | 1.0 | float | GameUserSettings.ini + 命令行 | the scaling factor for creatures' health recovery. Higher values increase the recovery rate (creatures heal faster). | the scaling factor for creatures' health recovery. |
-| `DinoCharacterStaminaDrainMultiplier` | 恐龙CharacterStaminaDrain倍率 | 1.0 | float | GameUserSettings.ini + 命令行 | the scaling factor for creatures' stamina consumption. Higher values increase stamina consumption (creatures get tired faster). | the scaling factor for creatures' stamina consumption. |
-| `DinoDamageMultiplier` | 恐龙伤害倍率 | 1.0 | float | GameUserSettings.ini + 命令行 | the scaling factor for the damage wild creatures deal with their attacks. The default value 1 provides normal damage. Higher values increase damage. Lower values decrease it. | the scaling factor for the damage wild creatures deal with their attacks. |
-| `DinoResistanceMultiplier` | 恐龙抗性倍率 | 1.0 | float | GameUserSettings.ini + 命令行 | the scaling factor for the resistance to damage wild creatures receive when attacked. The default value 1 provides normal damage. Higher values decrease resistance, increasing damage per attack. Lower values increase it, reducing damage per attack. A | the scaling factor for the resistance to damage wild creatures receive when attacked. |
-| `DisableDinoDecayPvE` | Disable恐龙DecayPvE | False | boolean | GameUserSettings.ini + 命令行 | True, disables the creature decay in PvE mode. Note: after patch 273.691, in PvE mode the creature auto-unclaim after decay period has been disabled. | True, disables the creature decay in PvE mode. |
-| `MaxPersonalTamedDinos` | MaxPersonal驯养d恐龙s | 0 | integer | GameUserSettings.ini + 命令行 | a per-tribe creature tame limit (500 on official PvE servers, 300 in official PvP servers). The default value of 0 disables such limit. | a per-tribe creature tame limit (500 on official PvE servers, 300 in official PvP servers). |
-| `MaxTamedDinos` | Max驯养d恐龙s | 5000.0 | float | GameUserSettings.ini + 命令行 | the maximum number of tame creatures on a server, this is a global cap. Note: although at code level it is defined as a floating-point number, it is suggested to use an integer instead. | the maximum number of tame creatures on a server, this is a global cap. |
-| `MaxTamedDinos_SoftTameLimit` | Max驯养d恐龙s_SoftTameLimit | 5000 | integer | GameUserSettings.ini + 命令行 | the server-wide soft tame limit. See DestroyTamesOverTheSoftTameLimit for more info. | the server-wide soft tame limit. |
-| `MaxTamedDinos_SoftTameLimit_CountdownForDeletionDuration` | Max驯养d恐龙s_SoftTameLimit_CountdownForDeletionDuration | 604800 | integer | GameUserSettings.ini + 命令行 | the time (in seconds) for tame to get destroyed. See DestroyTamesOverTheSoftTameLimit for more info. | the time (in seconds) for tame to get destroyed. |
-| `MaxTributeDinos` | MaxTribute恐龙s | 20 | integer | GameUserSettings.ini + 命令行 | for uploaded creatures. Any value less than default will be reverted. Note: Some player claimed maximum 273 to be safe cap and more will corrupt profile/cluster and lead to lose of all stored creatures but it need to be checked | for uploaded creatures. |
-| `PreventSpawnAnimations` | 禁用重生动画 | False | boolean | GameUserSettings.ini + 命令行 | True, player characters (re)spawn without the wake-up animation. | True, player characters (re)spawn without the wake-up animation. |
-| `PvEDinoDecayPeriodMultiplier` | PvE恐龙衰减周期倍率 | 1.0 | float | GameUserSettings.ini + 命令行 | PvE auto-decay time multiplier. Requires DisableDinoDecayPvE=false in GameUserSettings.ini or ?DisableDinoDecayPvE=false in command line to work. | PvE auto-decay time multiplier. |
-| `PvPDinoDecay` | PvP恐龙衰减 | False | boolean | GameUserSettings.ini + 命令行 | True, enables creatures' decay in PvP while the Offline Raid Prevention is active. | True, enables creatures' decay in PvP while the Offline Raid Prevention is active. |
-| `RaidDinoCharacterFoodDrainMultiplier` | 突袭恐龙食物消耗倍率 | 1.0 | float | GameUserSettings.ini + 命令行 | how quickly the food drains on such "raid dinos" (e.g.: Titanosaurus) | how quickly the food drains on such "raid dinos" (e.g.: Titanosaurus) |
-| `ResourcesRespawnPeriodMultiplier` | 资源重生周期倍率 | 1.0 | float | GameUserSettings.ini + 命令行 | the scaling factor for the re-spawn rate for resource nodes (trees, rocks, bushes, etc.). Lower values cause nodes to re-spawn more frequently. | the scaling factor for the re-spawn rate for resource nodes (trees, rocks, bushes, etc.). |
-| `CrossARKAllowForeignDinoDownloads` | 跨服允许下载外来恐龙 | False | boolean | GameUserSettings.ini + 命令行 | True, enables non-native creatures tribute download on Aberration. | True, enables non-native creatures tribute download on Aberration. |
-| `PreventDownloadDinos` | 禁止下载恐龙 | False | boolean | GameUserSettings.ini + 命令行 | True, prevents creatures download from ARK Data in Cross-ARK Data Transfer. | True, prevents creatures download from ARK Data in Cross-ARK Data Transfer. |
-| `PreventUploadDinos` | 禁止上传恐龙 | False | boolean | GameUserSettings.ini + 命令行 | True, prevents creatures upload to ARK Data in Cross-ARK Data Transfer. | True, prevents creatures upload to ARK Data in Cross-ARK Data Transfer. |
-| `AllowRidingDinosInsideBunkers` | AllowRiding恐龙sInsideBunkers | True | boolean | GameUserSettings.ini | Default value: TrueValue type: boolean | 默认: True类型: boolean |
-| `AllowDinoAIInsideBunkers` | Allow恐龙AIInsideBunkers | True | boolean | GameUserSettings.ini | Default value: TrueValue type: boolean | 默认: True类型: boolean |
-| `CryoHospitalHoursToRegenFood` | CryoHospitalHoursToRegenFood | 24.0 | float | GameUserSettings.ini | Default value: 24.0Value type: float | 默认: 24.0类型: float |
-| `CryoHospitalHoursToDrainTorpor` | CryoHospitalHoursToDrainTorpor | 1.0 | float | GameUserSettings.ini | Default value: 1.0Value type: float | 默认: 1.0类型: float |
+| `AllowRaidDinoFeeding` | 允许突袭恐龙喂食 | False | boolean | GameUserSettings.ini + 命令行 | True, allows Titanosaurs to be permanently tamed (namely allow them to be fed). Note: in The Island only spawns a maximum of 3 Titanosaurs, so 3 tamed ones should ultimately block any more ones from spawning. | True，允许泰坦龙被永久驯服（即允许喂食）。 |
+| `DinoCharacterFoodDrainMultiplier` | 恐龙食物消耗倍率 | 1.0 | float | GameUserSettings.ini + 命令行 | the scaling factor for creatures' food consumption. Higher values increase food consumption (creatures get hungry faster). It also affects the taming-times. | 生物食物消耗的缩放因子。数值越高，食物消耗越快（生物更快饥饿）。也影响驯服时间。 |
+| `DinoCharacterHealthRecoveryMultiplier` | 恐龙生命恢复倍率 | 1.0 | float | GameUserSettings.ini + 命令行 | the scaling factor for creatures' health recovery. Higher values increase the recovery rate (creatures heal faster). | 生物生命恢复的缩放因子。数值越高，恢复速度越快。 |
+| `DinoCharacterStaminaDrainMultiplier` | 恐龙耐力消耗倍率 | 1.0 | float | GameUserSettings.ini + 命令行 | the scaling factor for creatures' stamina consumption. Higher values increase stamina consumption (creatures get tired faster). | 生物耐力消耗的缩放因子。数值越高，耐力消耗越快。 |
+| `DinoDamageMultiplier` | 恐龙伤害倍率 | 1.0 | float | GameUserSettings.ini + 命令行 | the scaling factor for the damage wild creatures deal with their attacks. The default value 1 provides normal damage. Higher values increase damage. Lower values decrease it. | 野生生物攻击伤害的缩放因子。默认值1为正常伤害。 |
+| `DinoResistanceMultiplier` | 恐龙抗性倍率 | 1.0 | float | GameUserSettings.ini + 命令行 | the scaling factor for the resistance to damage wild creatures receive when attacked. The default value 1 provides normal damage. Higher values decrease resistance, increasing damage per attack. Lower values increase it, reducing damage per attack. A | 野生生物受到伤害时的抗性缩放因子。默认值1为正常伤害。数值越高抗性越低。 |
+| `DisableDinoDecayPvE` | 禁用PvE恐龙衰减 | False | boolean | GameUserSettings.ini + 命令行 | True, disables the creature decay in PvE mode. Note: after patch 273.691, in PvE mode the creature auto-unclaim after decay period has been disabled. | True，禁用PvE模式下的生物衰减。 |
+| `MaxPersonalTamedDinos` | 每部落驯服恐龙上限 | 0 | integer | GameUserSettings.ini + 命令行 | a per-tribe creature tame limit (500 on official PvE servers, 300 in official PvP servers). The default value of 0 disables such limit. | 每部落生物驯服上限（官方PvE服500，PvP服300）。默认值0表示无限制。 |
+| `MaxTamedDinos` | 服务器驯服恐龙上限 | 5000.0 | float | GameUserSettings.ini + 命令行 | the maximum number of tame creatures on a server, this is a global cap. Note: although at code level it is defined as a floating-point number, it is suggested to use an integer instead. | 服务器上驯服生物的最大数量（全局上限）。建议使用整数。 |
+| `MaxTamedDinos_SoftTameLimit` | 服务器软驯服限制 | 5000 | integer | GameUserSettings.ini + 命令行 | the server-wide soft tame limit. See DestroyTamesOverTheSoftTameLimit for more info. | 服务器范围的软驯服限制。 |
+| `MaxTamedDinos_SoftTameLimit_CountdownForDeletionDuration` | 软驯服限制销毁倒计时(秒) | 604800 | integer | GameUserSettings.ini + 命令行 | the time (in seconds) for tame to get destroyed. See DestroyTamesOverTheSoftTameLimit for more info. | 超出软驯服限制后生物被销毁的时间（秒）。 |
+| `MaxTributeDinos` | 最大上传恐龙数 | 20 | integer | GameUserSettings.ini + 命令行 | for uploaded creatures. Any value less than default will be reverted. Note: Some player claimed maximum 273 to be safe cap and more will corrupt profile/cluster and lead to lose of all stored creatures but it need to be checked | 上传生物的最大数量。低于默认值将被恢复。 |
+| `PreventSpawnAnimations` | 禁用重生动画 | False | boolean | GameUserSettings.ini + 命令行 | True, player characters (re)spawn without the wake-up animation. | True，玩家角色重生时无唤醒动画。 |
+| `PvEDinoDecayPeriodMultiplier` | PvE恐龙衰减周期倍率 | 1.0 | float | GameUserSettings.ini + 命令行 | PvE auto-decay time multiplier. Requires DisableDinoDecayPvE=false in GameUserSettings.ini or ?DisableDinoDecayPvE=false in command line to work. | PvE生物自动衰减时间倍率。需要DisableDinoDecayPvE=false。 |
+| `PvPDinoDecay` | PvP恐龙衰减 | False | boolean | GameUserSettings.ini + 命令行 | True, enables creatures' decay in PvP while the Offline Raid Prevention is active. | True，启用PvP模式下离线突袭保护期间的生物衰减。 |
+| `RaidDinoCharacterFoodDrainMultiplier` | 突袭恐龙食物消耗倍率 | 1.0 | float | GameUserSettings.ini + 命令行 | how quickly the food drains on such "raid dinos" (e.g.: Titanosaurus) | 突袭恐龙（如泰坦龙）的食物消耗速度。 |
+| `ResourcesRespawnPeriodMultiplier` | 资源重生周期倍率 | 1.0 | float | GameUserSettings.ini + 命令行 | the scaling factor for the re-spawn rate for resource nodes (trees, rocks, bushes, etc.). Lower values cause nodes to re-spawn more frequently. | 资源节点（树木、岩石、灌木等）重生速率的缩放因子。数值越低重生越频繁。 |
+| `CrossARKAllowForeignDinoDownloads` | 跨服允许下载外来恐龙 | False | boolean | GameUserSettings.ini + 命令行 | True, enables non-native creatures tribute download on Aberration. | True，启用在畸变地图下载非本地生物。 |
+| `PreventDownloadDinos` | 禁止下载恐龙 | False | boolean | GameUserSettings.ini + 命令行 | True, prevents creatures download from ARK Data in Cross-ARK Data Transfer. | True，禁止从ARK数据下载生物。 |
+| `PreventUploadDinos` | 禁止上传恐龙 | False | boolean | GameUserSettings.ini + 命令行 | True, prevents creatures upload to ARK Data in Cross-ARK Data Transfer. | True，禁止向ARK数据上传生物。 |
+| `AllowRidingDinosInsideBunkers` | 允许在地堡内骑乘恐龙 | True | boolean | GameUserSettings.ini | Default value: TrueValue type: boolean | 默认: True，允许在地堡内骑乘恐龙。 |
+| `AllowDinoAIInsideBunkers` | 允许地堡内恐龙AI | True | boolean | GameUserSettings.ini | Default value: TrueValue type: boolean | 默认: True，允许地堡内恐龙AI运作。 |
+| `CryoHospitalHoursToRegenFood` | 低温舱医院食物恢复时间(小时) | 24.0 | float | GameUserSettings.ini | Default value: 24.0Value type: float | 默认: 24.0，低温舱医院食物恢复所需小时数。 |
+| `CryoHospitalHoursToDrainTorpor` | 低温舱医院昏迷恢复时间(小时) | 1.0 | float | GameUserSettings.ini | Default value: 1.0Value type: float | 默认: 1.0，低温舱医院昏迷值恢复所需小时数。 |
 | `TamedDinoCharacterFoodDrainMultiplier` | 驯服恐龙食物消耗倍率 | 1.0 | float | GameUserSettings.ini + 命令行 | the scaling factor for tamed creatures' food consumption. | 驯服生物食物消耗倍率。 |
 | `TamedDinoDamageMultiplier` | 驯服恐龙伤害倍率 | 1.0 | float | GameUserSettings.ini + 命令行 | the scaling factor for tamed creatures' damage. | 驯服生物伤害倍率。 |
 | `TamedDinoResistanceMultiplier` | 驯服恐龙抗性倍率 | 1.0 | float | GameUserSettings.ini + 命令行 | the scaling factor for tamed creatures' resistance. | 驯服生物抗性倍率。 |
@@ -301,21 +301,21 @@ ArkAscendedServer.exe TheIsland_WP?listen -NoBattlEye -WinLiveMaxPlayers=70
 
 | 配置项 | 中文名 | 默认值 | 类型 | 配置方式 | 说明 (EN) | 说明 (中文) |
 |--------|--------|--------|------|----------|-----------|-------------|
-| `AllowCryoFridgeOnSaddle` | 允许冷冰箱放鞍上 | False | boolean | GameUserSettings.ini + 命令行 | True, allows cryofridges to be built on platform saddles and rafts. | True, allows cryofridges to be built on platform saddles and rafts. |
-| `ArmadoggoDeathCooldown` | Armadoggo死亡冷却(秒) | 3600 | float | GameUserSettings.ini + 命令行 | the cooldown for Armadoggo to reappear after taking fatal damage (in seconds), default is set to 1 hour. Must be greater than 0. | the cooldown for Armadoggo to reappear after taking fatal damage (in seconds), default is set to 1 hour. |
-| `CosmoWeaponAmmoReloadAmount` | Cosmo武器弹药装填量 | 1 | float | GameUserSettings.ini + 命令行 | how much ammo is given as the Cosmo's webslinger reloads over time. | how much ammo is given as the Cosmo's webslinger reloads over time. |
-| `DisableCryopodEnemyCheck` | 禁用低温舱敌人检测 | False | boolean | GameUserSettings.ini + 命令行 | True, allows cryopods to be used while enemies are nearby. | True, allows cryopods to be used while enemies are nearby. |
-| `DisableCryopodFridgeRequirement` | 禁用低温舱冰箱需求 | False | boolean | GameUserSettings.ini + 命令行 | True, allows cryopods to be used without needing to be in range of a powered cryofridge. | True, allows cryopods to be used without needing to be in range of a powered cryofridge. |
-| `ForceGachaUnhappyInCaves` | 强制嘎查在洞穴中不高兴 | True | boolean | GameUserSettings.ini + 命令行 | True, Gachas will become unhappy within caves. | True, Gachas will become unhappy within caves. |
-| `ImplantSuicideCD` | 植入体自杀冷却(秒) | 28800 | float | GameUserSettings.ini | the time (in seconds) a player must wait between 2 uses of the implant's "Respawn" feature. | the time (in seconds) a player must wait between 2 uses of the implant's "Respawn" feature. |
-| `MaxCosmoWeaponAmmo` | MaxCosmoWeaponAmmo | -1 | float | GameUserSettings.ini + 命令行 | will make the maximum ammo amount for the Cosmo's webslinger to a set number instead of it scaling with the Cosmo's level. The default of -1 will enable scaling with level. | will make the maximum ammo amount for the Cosmo's webslinger to a set number instead of it scaling with the Cosmo's level. |
-| `AllowBunkersInPreventionZones` | AllowBunkersInPreventionZones | False | boolean | GameUserSettings.ini | Default value: FalseValue type: boolean | 默认: False类型: boolean |
-| `MinDistanceBetweenBunkers` | MinDistanceBetweenBunkers | 3000.0 | float | GameUserSettings.ini | Default value: 3000.0Value type: float | 默认: 3000.0类型: float |
-| `EnemyAccessBunkerHPThreshold` | EnemyAccessBunkerHPThreshold | 0.25 | float | GameUserSettings.ini | Default value: 0.25Value type: float | 默认: 0.25类型: float |
-| `BunkerUnderHPThresholdDmgMultiplier` | BunkerUnderHPThresholdDmg倍率 | 0.05 | float | GameUserSettings.ini | Default value: 0.05Value type: float | 默认: 0.05类型: float |
-| `CryoHospitalHoursToRegenHP` | CryoHospitalHoursToRegenHP | 1.0 | float | GameUserSettings.ini | Default value: 1.0Value type: float | 默认: 1.0类型: float |
-| `CryoHospitalMatingCooldownReduction` | CryoHospitalMatingCooldownReduction | 2.0 | float | GameUserSettings.ini | Default value: 2.0Value type: float | 默认: 2.0类型: float |
-| `UpdateAllowedCheatersInterval` | UpdateAllowedCheaters间隔 | 600.0 | float | GameUserSettings.ini + 命令行 | in seconds at which the remote admin list linked by AllowedCheatersURL is queried for updates. Any value less than 3.0 will be reverted to 3.0. Undocumented by Wildcard. | in seconds at which the remote admin list linked by AllowedCheatersURL is queried for updates. |
+| `AllowCryoFridgeOnSaddle` | 允许冷冰箱放鞍上 | False | boolean | GameUserSettings.ini + 命令行 | True, allows cryofridges to be built on platform saddles and rafts. | True，允许在平台鞍和木筏上放置低温冰箱。 |
+| `ArmadoggoDeathCooldown` | Armadoggo死亡冷却(秒) | 3600 | float | GameUserSettings.ini + 命令行 | the cooldown for Armadoggo to reappear after taking fatal damage (in seconds), default is set to 1 hour. Must be greater than 0. | Armadoggo受到致命伤害后重新出现的冷却时间（秒），默认1小时。 |
+| `CosmoWeaponAmmoReloadAmount` | Cosmo武器弹药装填量 | 1 | float | GameUserSettings.ini + 命令行 | how much ammo is given as the Cosmo's webslinger reloads over time. | Cosmo的网枪随时间装填的弹药量。 |
+| `DisableCryopodEnemyCheck` | 禁用低温舱敌人检测 | False | boolean | GameUserSettings.ini + 命令行 | True, allows cryopods to be used while enemies are nearby. | True，允许在敌人附近使用低温舱。 |
+| `DisableCryopodFridgeRequirement` | 禁用低温舱冰箱需求 | False | boolean | GameUserSettings.ini + 命令行 | True, allows cryopods to be used without needing to be in range of a powered cryofridge. | True，允许无需在低温冰箱附近即可使用低温舱。 |
+| `ForceGachaUnhappyInCaves` | 强制嘎查在洞穴中不高兴 | True | boolean | GameUserSettings.ini + 命令行 | True, Gachas will become unhappy within caves. | True，嘎查在洞穴内会变得不高兴。 |
+| `ImplantSuicideCD` | 植入体自杀冷却(秒) | 28800 | float | GameUserSettings.ini | the time (in seconds) a player must wait between 2 uses of the implant's "Respawn" feature. | 玩家两次使用植入体"重生"功能之间的等待时间（秒）。 |
+| `MaxCosmoWeaponAmmo` | Cosmo最大武器弹药量 | -1 | float | GameUserSettings.ini + 命令行 | will make the maximum ammo amount for the Cosmo's webslinger to a set number instead of it scaling with the Cosmo's level. The default of -1 will enable scaling with level. | 设置Cosmo网枪的最大弹药量，-1为随等级缩放。 |
+| `AllowBunkersInPreventionZones` | 允许在防护区建造地堡 | False | boolean | GameUserSettings.ini | Default value: FalseValue type: boolean | 默认: False，允许在防护区域建造地堡。 |
+| `MinDistanceBetweenBunkers` | 地堡最小间距 | 3000.0 | float | GameUserSettings.ini | Default value: 3000.0Value type: float | 默认: 3000.0，地堡之间的最小距离。 |
+| `EnemyAccessBunkerHPThreshold` | 敌人进入地堡生命值阈值 | 0.25 | float | GameUserSettings.ini | Default value: 0.25Value type: float | 默认: 0.25，敌人可进入地堡的生命值阈值。 |
+| `BunkerUnderHPThresholdDmgMultiplier` | 地堡低于阈值伤害倍率 | 0.05 | float | GameUserSettings.ini | Default value: 0.05Value type: float | 默认: 0.05，地堡生命值低于阈值时的伤害倍率。 |
+| `CryoHospitalHoursToRegenHP` | 低温舱医院生命恢复时间(小时) | 1.0 | float | GameUserSettings.ini | Default value: 1.0Value type: float | 默认: 1.0，低温舱医院生命值恢复所需小时数。 |
+| `CryoHospitalMatingCooldownReduction` | 低温舱医院交配冷却减少 | 2.0 | float | GameUserSettings.ini | Default value: 2.0Value type: float | 默认: 2.0，低温舱医院减少的交配冷却时间。 |
+| `UpdateAllowedCheatersInterval` | 更新允许作弊者列表间隔(秒) | 600.0 | float | GameUserSettings.ini + 命令行 | in seconds at which the remote admin list linked by AllowedCheatersURL is queried for updates. Any value less than 3.0 will be reverted to 3.0. Undocumented by Wildcard. | AllowedCheatersURL远程管理员列表查询更新的间隔（秒）。低于3.0将被恢复。 |
 
 #### 低温舱削弱设置 (4项)
 
@@ -340,19 +340,19 @@ ArkAscendedServer.exe TheIsland_WP?listen -NoBattlEye -WinLiveMaxPlayers=70
 
 | 配置项 | 中文名 | 默认值 | 类型 | 配置方式 | 说明 (EN) | 说明 (中文) |
 |--------|--------|--------|------|----------|-----------|-------------|
-| `AllowAnyoneBabyImprintCuddle` | 允许任何人照料婴儿 | False | boolean | GameUserSettings.ini + 命令行 | True, allows anyone to "take care" of a baby creatures (cuddle etc.), not just whomever imprinted on it. | True, allows anyone to "take care" of a baby creatures (cuddle etc.), not just whomever imprinted on it. |
-| `AllowThirdPersonPlayer` | 允许第三人称视角 | True | boolean | GameUserSettings.ini + 命令行 | False, disables third person camera allowed by default on all dedicated servers. | False, disables third person camera allowed by default on all dedicated servers. |
-| `DisableImprintDinoBuff` | DisableImprint恐龙Buff | False | boolean | GameUserSettings.ini + 命令行 | True, disables the creature imprinting player Stat Bonus. Where whomever specifically imprinted on the creature, and raised it to have an Imprinting Quality, gets extra Damage/Resistance buff. | True, disables the creature imprinting player Stat Bonus. |
-| `DontAlwaysNotifyPlayerJoined` | DontAlwaysNotify玩家Joined | False | boolean | GameUserSettings.ini + 命令行 | True, globally disables player joins notifications. | True, globally disables player joins notifications. |
-| `KickIdlePlayersPeriod` | KickIdle玩家sPeriod | 3600.0 | float | GameUserSettings.ini + 命令行 | in seconds after which characters that have not moved or interacted will be kicked (if -EnableIdlePlayerKick as command line parameter is set). Note: although at code level it is defined as a floating-point number, it is suggested to use an integer i | in seconds after which characters that have not moved or interacted will be kicked (if -EnableIdlePlayerKick as command line parameter is set). |
-| `PlayerCharacterFoodDrainMultiplier` | 玩家CharacterFoodDrain倍率 | 1.0 | float | GameUserSettings.ini + 命令行 | the scaling factor for player characters' food consumption. Higher values increase food consumption (player characters get hungry faster). | the scaling factor for player characters' food consumption. |
-| `PlayerCharacterHealthRecoveryMultiplier` | 玩家CharacterHealthRecovery倍率 | 1.0 | float | GameUserSettings.ini + 命令行 | the scaling factor for player characters' health recovery. Higher values increase the recovery rate (player characters heal faster). | the scaling factor for player characters' health recovery. |
-| `PlayerCharacterStaminaDrainMultiplier` | 玩家CharacterStaminaDrain倍率 | 1.0 | float | GameUserSettings.ini + 命令行 | the scaling factor for player characters' stamina consumption. Higher values increase stamina consumption (player characters get tired faster). | the scaling factor for player characters' stamina consumption. |
-| `PlayerCharacterWaterDrainMultiplier` | 玩家CharacterWaterDrain倍率 | 1.0 | float | GameUserSettings.ini + 命令行 | the scaling factor for player characters' water consumption. Higher values increase water consumption (player characters get thirsty faster). | the scaling factor for player characters' water consumption. |
-| `PlayerDamageMultiplier` | 玩家伤害倍率 | 1.0 | float | GameUserSettings.ini + 命令行 | the scaling factor for the damage players deal with their attacks. The default value 1 provides normal damage. Higher values increase damage. Lower values decrease it. | the scaling factor for the damage players deal with their attacks. |
-| `PlayerResistanceMultiplier` | 玩家受到伤害倍率 | 1.0 | float | GameUserSettings.ini + 命令行 | the scaling factor for the resistance to damage players receive when attacked. The default value 1 provides normal damage. Higher values decrease resistance, increasing damage per attack. Lower values increase it, reducing damage per attack. A value  | the scaling factor for the resistance to damage players receive when attacked. |
-| `PreventMateBoost` | PreventMateBoost | False | boolean | GameUserSettings.ini + 命令行 | True, disables creature mate boosting. | True, disables creature mate boosting. |
-| `ShowMapPlayerLocation` | 地图显示玩家位置 | True | boolean | GameUserSettings.ini + 命令行 | False, hides each player their own precise position when they view their map. | False, hides each player their own precise position when they view their map. |
+| `AllowAnyoneBabyImprintCuddle` | 允许任何人照料婴儿 | False | boolean | GameUserSettings.ini + 命令行 | True, allows anyone to "take care" of a baby creatures (cuddle etc.), not just whomever imprinted on it. | True，允许任何人照料婴儿生物（拥抱等），不仅限于印记绑定者。 |
+| `AllowThirdPersonPlayer` | 允许第三人称视角 | True | boolean | GameUserSettings.ini + 命令行 | False, disables third person camera allowed by default on all dedicated servers. | False，禁用专用服务器默认的第三人称视角。 |
+| `DisableImprintDinoBuff` | 禁用印记恐龙加成 | False | boolean | GameUserSettings.ini + 命令行 | True, disables the creature imprinting player Stat Bonus. Where whomever specifically imprinted on the creature, and raised it to have an Imprinting Quality, gets extra Damage/Resistance buff. | True，禁用生物印记玩家属性加成。 |
+| `DontAlwaysNotifyPlayerJoined` | 不通知玩家加入 | False | boolean | GameUserSettings.ini + 命令行 | True, globally disables player joins notifications. | True，全局禁用玩家加入通知。 |
+| `KickIdlePlayersPeriod` | 踢出挂机玩家时间(秒) | 3600.0 | float | GameUserSettings.ini + 命令行 | in seconds after which characters that have not moved or interacted will be kicked (if -EnableIdlePlayerKick as command line parameter is set). Note: although at code level it is defined as a floating-point number, it is suggested to use an integer i | 未移动或交互的角色被踢出的等待时间（秒）。需要-EnableIdlePlayerKick参数。 |
+| `PlayerCharacterFoodDrainMultiplier` | 玩家食物消耗倍率 | 1.0 | float | GameUserSettings.ini + 命令行 | the scaling factor for player characters' food consumption. Higher values increase food consumption (player characters get hungry faster). | 玩家食物消耗的缩放因子。数值越高，食物消耗越快。 |
+| `PlayerCharacterHealthRecoveryMultiplier` | 玩家生命恢复倍率 | 1.0 | float | GameUserSettings.ini + 命令行 | the scaling factor for player characters' health recovery. Higher values increase the recovery rate (player characters heal faster). | 玩家生命恢复的缩放因子。数值越高，恢复速度越快。 |
+| `PlayerCharacterStaminaDrainMultiplier` | 玩家耐力消耗倍率 | 1.0 | float | GameUserSettings.ini + 命令行 | the scaling factor for player characters' stamina consumption. Higher values increase stamina consumption (player characters get tired faster). | 玩家耐力消耗的缩放因子。数值越高，耐力消耗越快。 |
+| `PlayerCharacterWaterDrainMultiplier` | 玩家水分消耗倍率 | 1.0 | float | GameUserSettings.ini + 命令行 | the scaling factor for player characters' water consumption. Higher values increase water consumption (player characters get thirsty faster). | 玩家水分消耗的缩放因子。数值越高，水分消耗越快。 |
+| `PlayerDamageMultiplier` | 玩家伤害倍率 | 1.0 | float | GameUserSettings.ini + 命令行 | the scaling factor for the damage players deal with their attacks. The default value 1 provides normal damage. Higher values increase damage. Lower values decrease it. | 玩家攻击伤害的缩放因子。默认值1为正常伤害。 |
+| `PlayerResistanceMultiplier` | 玩家抗性倍率 | 1.0 | float | GameUserSettings.ini + 命令行 | the scaling factor for the resistance to damage players receive when attacked. The default value 1 provides normal damage. Higher values decrease resistance, increasing damage per attack. Lower values increase it, reducing damage per attack. A value  | 玩家受到伤害时的抗性缩放因子。默认值1为正常伤害。 |
+| `PreventMateBoost` | 禁用配偶加成 | False | boolean | GameUserSettings.ini + 命令行 | True, disables creature mate boosting. | True，禁用生物配偶加成。 |
+| `ShowMapPlayerLocation` | 地图显示玩家位置 | True | boolean | GameUserSettings.ini + 命令行 | False, hides each player their own precise position when they view their map. | False，隐藏玩家在地图上的精确位置。 |
 | `PlayerHarvestingDamageMultiplier` | 玩家采集伤害倍率 | 1.0 | float | GameUserSettings.ini + 命令行 | the scaling factor for player harvesting damage. | 玩家采集伤害倍率。 |
 | `UseCorpseLifeSpanMultiplier` | 尸体寿命倍率 | 6.0 | float | GameUserSettings.ini + 命令行 | the multiplier for corpse lifespan. | 尸体寿命倍率。 |
 
@@ -360,19 +360,19 @@ ArkAscendedServer.exe TheIsland_WP?listen -NoBattlEye -WinLiveMaxPlayers=70
 
 | 配置项 | 中文名 | 默认值 | 类型 | 配置方式 | 说明 (EN) | 说明 (中文) |
 |--------|--------|--------|------|----------|-----------|-------------|
-| `AllowCaveBuildingPvE` | PvE允许洞穴建造 | False | boolean | GameUserSettings.ini | True, allows building in caves when PvE mode is also enabled. Note: no more working in command-line options before patch 241.5. | True, allows building in caves when PvE mode is also enabled. |
-| `AllowCaveBuildingPvP` | PvP允许洞穴建造 | True | boolean | GameUserSettings.ini | False, prevents building in caves when PvP mode is also enabled. | False, prevents building in caves when PvP mode is also enabled. |
-| `AlwaysAllowStructurePickup` | AlwaysAllow建筑Pickup | False | boolean | GameUserSettings.ini + 命令行 | True disables the timer on the quick pick-up system. | True disables the timer on the quick pick-up system. |
-| `DisableStructureDecayPvE` | Disable建筑DecayPvE | False | boolean | GameUserSettings.ini + 命令行 | True, disables the gradual auto-decay of player structures. | True, disables the gradual auto-decay of player structures. |
-| `EnableExtraStructurePreventionVolumes` | EnableExtra建筑PreventionVolumes | False | boolean | GameUserSettings.ini + 命令行 | True, disables building in specific resource-rich areas, in particular setup on The Island around the major mountains. | True, disables building in specific resource-rich areas, in particular setup on The Island around the major mountains. |
-| `ForceAllStructureLocking` | ForceAll建筑Locking | False | boolean | GameUserSettings.ini + 命令行 | True, will default lock all structures. | True, will default lock all structures. |
-| `IgnoreLimitMaxStructuresInRangeTypeFlag` | IgnoreLimitMax建筑sInRangeTypeFlag | False | boolean | GameUserSettings.ini | True, removes the limit of 150 decorative structures (flags, signs, dermis etc.). | True, removes the limit of 150 decorative structures (flags, signs, dermis etc.). |
-| `OverrideStructurePlatformPrevention` | 覆盖建筑PlatformPrevention | False | boolean | GameUserSettings.ini + 命令行 | True, turrets becomes be buildable and functional on platform saddles. Since 247.999 applies on spike structure too. Note: despite patch notes, in ShooterGameServer it's coded OverrideStructurePlatformPrevention with two r. | True, turrets becomes be buildable and functional on platform saddles. |
-| `PerPlatformMaxStructuresMultiplier` | PerPlatformMax建筑s倍率 | 1.0 | float | GameUserSettings.ini + 命令行 | value increases (from a percentage scale) max number of items place-able on saddles and rafts. | value increases (from a percentage scale) max number of items place-able on saddles and rafts. |
-| `PvEAllowStructuresAtSupplyDrops` | PvEAllow建筑sAtSupplyDrops | False | boolean | GameUserSettings.ini + 命令行 | True, allows building near supply drop points in PvE mode. | True, allows building near supply drop points in PvE mode. |
-| `StructurePickupHoldDuration` | 建筑PickupHoldDuration | 0.5 | float | GameUserSettings.ini + 命令行 | the quick pick-up hold duration, a value of 0 results in instant pick-up. | the quick pick-up hold duration, a value of 0 results in instant pick-up. |
-| `StructureResistanceMultiplier` | 建筑抗性倍率 | 1.0 | float | GameUserSettings.ini + 命令行 | the scaling factor for the resistance to damage structures receive when attacked. The default value 1 provides normal damage. Higher values decrease resistance, increasing damage per attack. Lower values increase it, reducing damage per attack. A val | the scaling factor for the resistance to damage structures receive when attacked. |
-| `TheMaxStructuresInRange` | TheMax建筑sInRange | 10500 | integer | GameUserSettings.ini + 命令行 | the maximum number of structures that can be constructed within a certain (currently hard-coded) range. Replaces the old value NewMaxStructuresInRange | the maximum number of structures that can be constructed within a certain (currently hard-coded) range. |
+| `AllowCaveBuildingPvE` | PvE允许洞穴建造 | False | boolean | GameUserSettings.ini | True, allows building in caves when PvE mode is also enabled. Note: no more working in command-line options before patch 241.5. | True，允许在PvE模式下的洞穴中建造。 |
+| `AllowCaveBuildingPvP` | PvP允许洞穴建造 | True | boolean | GameUserSettings.ini | False, prevents building in caves when PvP mode is also enabled. | False，禁止在PvP模式下的洞穴中建造。 |
+| `AlwaysAllowStructurePickup` | 始终允许建筑拾取 | False | boolean | GameUserSettings.ini + 命令行 | True disables the timer on the quick pick-up system. | True，禁用快速拾取系统的计时器。 |
+| `DisableStructureDecayPvE` | 禁用PvE建筑衰减 | False | boolean | GameUserSettings.ini + 命令行 | True, disables the gradual auto-decay of player structures. | True，禁用玩家建筑的自动衰减。 |
+| `EnableExtraStructurePreventionVolumes` | 启用额外建筑防护区域 | False | boolean | GameUserSettings.ini + 命令行 | True, disables building in specific resource-rich areas, in particular setup on The Island around the major mountains. | True，禁止在特定资源丰富区域建造。 |
+| `ForceAllStructureLocking` | 强制所有建筑锁定 | False | boolean | GameUserSettings.ini + 命令行 | True, will default lock all structures. | True，默认锁定所有建筑。 |
+| `IgnoreLimitMaxStructuresInRangeTypeFlag` | 忽略范围内最大建筑限制 | False | boolean | GameUserSettings.ini | True, removes the limit of 150 decorative structures (flags, signs, dermis etc.). | True，移除150个装饰性建筑的限制。 |
+| `OverrideStructurePlatformPrevention` | 覆盖建筑平台限制 | False | boolean | GameUserSettings.ini + 命令行 | True, turrets becomes be buildable and functional on platform saddles. Since 247.999 applies on spike structure too. Note: despite patch notes, in ShooterGameServer it's coded OverrideStructurePlatformPrevention with two r. | True，允许在平台鞍上建造和使用炮塔。 |
+| `PerPlatformMaxStructuresMultiplier` | 平台最大建筑数倍率 | 1.0 | float | GameUserSettings.ini + 命令行 | value increases (from a percentage scale) max number of items place-able on saddles and rafts. | 增加鞍和木筏上可放置物品的最大数量。 |
+| `PvEAllowStructuresAtSupplyDrops` | PvE允许在补给点建造 | False | boolean | GameUserSettings.ini + 命令行 | True, allows building near supply drop points in PvE mode. | True，允许在PvE模式下的补给点附近建造。 |
+| `StructurePickupHoldDuration` | 建筑拾取长按时间 | 0.5 | float | GameUserSettings.ini + 命令行 | the quick pick-up hold duration, a value of 0 results in instant pick-up. | 快速拾取的长按持续时间，0为即时拾取。 |
+| `StructureResistanceMultiplier` | 建筑抗性倍率 | 1.0 | float | GameUserSettings.ini + 命令行 | the scaling factor for the resistance to damage structures receive when attacked. The default value 1 provides normal damage. Higher values decrease resistance, increasing damage per attack. Lower values increase it, reducing damage per attack. A val | 建筑受到伤害时的抗性缩放因子。默认值1为正常伤害。 |
+| `TheMaxStructuresInRange` | 范围内最大建筑数 | 10500 | integer | GameUserSettings.ini + 命令行 | the maximum number of structures that can be constructed within a certain (currently hard-coded) range. Replaces the old value NewMaxStructuresInRange | 某范围内可建造的最大建筑数量。 |
 | `MaxStructuresInRange` | 范围内最大建筑数 | 10500 | integer | GameUserSettings.ini + 命令行 | the maximum number of structures in a certain range. | 某范围内最大建筑数量。 |
 | `MaxStructuresInSmallRadius` | 小范围内最大建筑数 | 0 | integer | GameUserSettings.ini + 命令行 | the maximum number of structures in a small radius. 0 disables. | 小范围内最大建筑数量，0禁用。 |
 | `MaxStructuresToProcess` | 处理建筑最大数量 | 0 | integer | GameUserSettings.ini + 命令行 | the maximum number of structures to process. 0 disables. | 处理建筑最大数量，0禁用。 |
@@ -398,16 +398,16 @@ ArkAscendedServer.exe TheIsland_WP?listen -NoBattlEye -WinLiveMaxPlayers=70
 
 | 配置项 | 中文名 | 默认值 | 类型 | 配置方式 | 说明 (EN) | 说明 (中文) |
 |--------|--------|--------|------|----------|-----------|-------------|
-| `AllowFlyerCarryPvE` | PvE允许飞行抓取 | False | boolean | GameUserSettings.ini + 命令行 | True, allows flying creatures to pick up wild creatures in PvE. | True, allows flying creatures to pick up wild creatures in PvE. |
-| `DisablePvEGamma` | DisablePvEGamma | False | boolean | GameUserSettings.ini + 命令行 | True, prevents use of console command "gamma" in PvE mode. | True, prevents use of console command "gamma" in PvE mode. |
-| `EnablePvPGamma` | EnablePvPGamma | False | boolean | GameUserSettings.ini + 命令行 | True, allows use of console command "gamma" in PvP mode. | True, allows use of console command "gamma" in PvP mode. |
-| `PreventOfflinePvP` | PreventOfflinePvP | False | boolean | GameUserSettings.ini + 命令行 | True, enables the Offline Raiding Prevention (ORP). When all tribe members are logged off, tribe characters, creature and structures become invulnerable. Creature starvation still applies, moreover, characters and creature can still die if drowned. D | True, enables the Offline Raiding Prevention (ORP). |
-| `PreventOfflinePvPInterval` | PreventOfflinePvP间隔 | 0.0 | float | GameUserSettings.ini + 命令行 | to wait before a ORP becomes active for tribe/players and relative creatures/structures (10 seconds in official PvE servers). Note: although at code level it is defined as a floating-point number, it is suggested to use an integer instead. | to wait before a ORP becomes active for tribe/players and relative creatures/structures (10 seconds in official PvE servers). |
-| `PreventTribeAlliances` | PreventTribeAlliances | False | boolean | GameUserSettings.ini + 命令行 | True, prevents tribes from creating Alliances. | True, prevents tribes from creating Alliances. |
-| `serverPVE` | serverPVE | False | boolean | GameUserSettings.ini + 命令行 | True, disables PvP and enables PvE | True, disables PvP and enables PvE |
-| `TribeNameChangeCooldown` | TribeNameChangeCooldown | 15.0 | float | GameUserSettings.ini + 命令行 | in minutes, in between tribe name changes. Official server use a value of 172800.0 (2 days). | in minutes, in between tribe name changes. |
-| `LimitBunkersPerTribe` | LimitBunkersPerTribe | True | boolean | GameUserSettings.ini | Default value: TrueValue type: boolean | 默认: True类型: boolean |
-| `LimitBunkersPerTribeNum` | LimitBunkersPerTribeNum | 3 | integer | GameUserSettings.ini | Default value: 3Value type: integer | 默认: 3类型: integer |
+| `AllowFlyerCarryPvE` | PvE允许飞行抓取 | False | boolean | GameUserSettings.ini + 命令行 | True, allows flying creatures to pick up wild creatures in PvE. | True，允许飞行生物在PvE中抓取野生生物。 |
+| `DisablePvEGamma` | 禁用PvE伽马值 | False | boolean | GameUserSettings.ini + 命令行 | True, prevents use of console command "gamma" in PvE mode. | True，禁止在PvE模式下使用gamma控制台命令。 |
+| `EnablePvPGamma` | 启用PvP伽马值 | False | boolean | GameUserSettings.ini + 命令行 | True, allows use of console command "gamma" in PvP mode. | True，允许在PvP模式下使用gamma控制台命令。 |
+| `PreventOfflinePvP` | 启用离线突袭防护 | False | boolean | GameUserSettings.ini + 命令行 | True, enables the Offline Raiding Prevention (ORP). When all tribe members are logged off, tribe characters, creature and structures become invulnerable. Creature starvation still applies, moreover, characters and creature can still die if drowned. D | True，启用离线突袭防护（ORP）。所有部落成员离线后，角色、生物和建筑变为无敌。 |
+| `PreventOfflinePvPInterval` | 离线突袭防护生效延迟(秒) | 0.0 | float | GameUserSettings.ini + 命令行 | to wait before a ORP becomes active for tribe/players and relative creatures/structures (10 seconds in official PvE servers). Note: although at code level it is defined as a floating-point number, it is suggested to use an integer instead. | ORP生效前的等待时间（秒）。 |
+| `PreventTribeAlliances` | 禁止部落联盟 | False | boolean | GameUserSettings.ini + 命令行 | True, prevents tribes from creating Alliances. | True，禁止部落创建联盟。 |
+| `serverPVE` | 服务器PvE模式 | False | boolean | GameUserSettings.ini + 命令行 | True, disables PvP and enables PvE | True，禁用PvP并启用PvE。 |
+| `TribeNameChangeCooldown` | 部落改名冷却时间(分钟) | 15.0 | float | GameUserSettings.ini + 命令行 | in minutes, in between tribe name changes. Official server use a value of 172800.0 (2 days). | 部落名称更改之间的冷却时间（分钟）。 |
+| `LimitBunkersPerTribe` | 限制每部落地堡数 | True | boolean | GameUserSettings.ini | Default value: TrueValue type: boolean | 默认: True，限制每部落可建造的地堡数量。 |
+| `LimitBunkersPerTribeNum` | 每部落地堡数量上限 | 3 | integer | GameUserSettings.ini | Default value: 3Value type: integer | 默认: 3，每部落可建造的地堡最大数量。 |
 | `IncreasePvPRespawnIntervalBaseAmount` | 增加PvP重生间隔基础值 | 0.0 | float | GameUserSettings.ini + 命令行 | the base amount added to PvP respawn interval. | PvP重生间隔增加的基础值。 |
 | `IncreasePvPRespawnIntervalCheckPeriod` | 增加PvP重生间隔检查周期 | 0.0 | float | GameUserSettings.ini + 命令行 | the time period to check for repeated PvP deaths. | 检查重复PvP死亡的时间周期。 |
 | `IncreasePvPRespawnIntervalMultiplier` | 增加PvP重生间隔倍率 | 0.0 | float | GameUserSettings.ini + 命令行 | the multiplier for increased PvP respawn interval. | PvP重生间隔增加的倍率。 |
@@ -428,41 +428,41 @@ ArkAscendedServer.exe TheIsland_WP?listen -NoBattlEye -WinLiveMaxPlayers=70
 
 | 配置项 | 中文名 | 默认值 | 类型 | 配置方式 | 说明 (EN) | 说明 (中文) |
 |--------|--------|--------|------|----------|-----------|-------------|
-| `AutoSavePeriodMinutes` | 自动保存间隔(分钟) | 15.0 | float | GameUserSettings.ini + 命令行 | interval for automatic saves. Setting this to 0 will cause constant saving. | interval for automatic saves. |
-| `ClampItemSpoilingTimes` | ClampItemSpoilingTimes | False | boolean | GameUserSettings.ini + 命令行 | True, clamps all spoiling times to the items' maximum spoiling times. Useful if any infinite-spoiling exploits were used on the server and you wish to clean them up. Could potentially cause issues with mods that alter spoiling time, hence it is an op | True, clamps all spoiling times to the items' maximum spoiling times. |
-| `DayCycleSpeedScale` | 昼夜循环速度 | 1.0 | float | GameUserSettings.ini + 命令行 | the scaling factor for the passage of time in the ARK, controlling how often day changes to night and night changes to day. The default value 1 provides the same cycle speed as the single player experience (and the official public servers). Values lo | the scaling factor for the passage of time in the ARK, controlling how often day changes to night and night changes to day. |
-| `DayTimeSpeedScale` | 白天时间速度 | 1.0 | float | GameUserSettings.ini + 命令行 | the scaling factor for the passage of time in the ARK during the day. This value determines the length of each day, relative to the length of each night (as specified by NightTimeSpeedScale). Lowering this value increases the length of each day. | the scaling factor for the passage of time in the ARK during the day. |
-| `DisableBurrowDecayTimers` | DisableBurrowDecayTimers | False | boolean | GameUserSettings.ini + 命令行 | True, turns off entirely the Burrowbuck's burrow decay timers. | True, turns off entirely the Burrowbuck's burrow decay timers. |
-| `NightTimeSpeedScale` | 夜晚时间速度 | 1.0 | float | GameUserSettings.ini + 命令行 | the scaling factor for the passage of time in the ARK during night time. This value determines the length of each night, relative to the length of each day (as specified by DayTimeSpeedScale) Lowering this value increases the length of each night. | the scaling factor for the passage of time in the ARK during night time. |
-| `StructurePickupTimeAfterPlacement` | 建筑PickupTimeAfterPlacement | 30.0 | float | GameUserSettings.ini + 命令行 | of time in seconds after placement that quick pick-up is available. | of time in seconds after placement that quick pick-up is available. |
+| `AutoSavePeriodMinutes` | 自动保存间隔(分钟) | 15.0 | float | GameUserSettings.ini + 命令行 | interval for automatic saves. Setting this to 0 will cause constant saving. | 自动保存间隔（分钟）。设为0将导致持续保存。 |
+| `ClampItemSpoilingTimes` | 限制物品腐烂时间 | False | boolean | GameUserSettings.ini + 命令行 | True, clamps all spoiling times to the items' maximum spoiling times. Useful if any infinite-spoiling exploits were used on the server and you wish to clean them up. Could potentially cause issues with mods that alter spoiling time, hence it is an op | True，将所有腐烂时间限制在物品最大腐烂时间内。 |
+| `DayCycleSpeedScale` | 昼夜循环速度 | 1.0 | float | GameUserSettings.ini + 命令行 | the scaling factor for the passage of time in the ARK, controlling how often day changes to night and night changes to day. The default value 1 provides the same cycle speed as the single player experience (and the official public servers). Values lo | ARK中时间流逝的缩放因子，控制昼夜交替速度。默认值1为正常速度。 |
+| `DayTimeSpeedScale` | 白天时间速度 | 1.0 | float | GameUserSettings.ini + 命令行 | the scaling factor for the passage of time in the ARK during the day. This value determines the length of each day, relative to the length of each night (as specified by NightTimeSpeedScale). Lowering this value increases the length of each day. | ARK白天时间流逝的缩放因子。降低此值增加白天时长。 |
+| `DisableBurrowDecayTimers` | 禁用地穴衰减计时器 | False | boolean | GameUserSettings.ini + 命令行 | True, turns off entirely the Burrowbuck's burrow decay timers. | True，完全关闭地穴的衰减计时器。 |
+| `NightTimeSpeedScale` | 夜晚时间速度 | 1.0 | float | GameUserSettings.ini + 命令行 | the scaling factor for the passage of time in the ARK during night time. This value determines the length of each night, relative to the length of each day (as specified by DayTimeSpeedScale) Lowering this value increases the length of each night. | ARK夜晚时间流逝的缩放因子。降低此值增加夜晚时长。 |
+| `StructurePickupTimeAfterPlacement` | 建筑放置后可拾取时间(秒) | 30.0 | float | GameUserSettings.ini + 命令行 | of time in seconds after placement that quick pick-up is available. | 建筑放置后可快速拾取的时间窗口（秒）。 |
 
 #### 采集与资源 (6项)
 
 | 配置项 | 中文名 | 默认值 | 类型 | 配置方式 | 说明 (EN) | 说明 (中文) |
 |--------|--------|--------|------|----------|-----------|-------------|
-| `ClampResourceHarvestDamage` | ClampResource采集伤害 | False | boolean | GameUserSettings.ini + 命令行 | True, limit the damage caused by a tame to a resource on harvesting based on resource remaining health.  Note: enabling this setting may result in sensible resource harvesting reduction using high damage tools or creatures. | True, limit the damage caused by a tame to a resource on harvesting based on resource remaining health. |
-| `HarvestAmountMultiplier` | 采集产量倍率 | 1.0 | float | GameUserSettings.ini + 命令行 | the scaling factor for yields from all harvesting activities (chopping down trees, picking berries, carving carcasses, mining rocks, etc.). Higher values increase the amount of materials harvested with each strike. | the scaling factor for yields from all harvesting activities (chopping down trees, picking berries, carving carcasses, mining rocks, etc.). |
-| `HarvestHealthMultiplier` | 可采集物生命值倍率 | 1.0 | float | GameUserSettings.ini + 命令行 | the scaling factor for the "health" of items that can be harvested (trees, rocks, carcasses, etc.). Higher values increase the amount of damage (i.e., "number of strikes") such objects can withstand before being destroyed, which results in higher ove | the scaling factor for the "health" of items that can be harvested (trees, rocks, carcasses, etc.). |
-| `StructurePreventResourceRadiusMultiplier` | 建筑PreventResourceRadius倍率 | 1.0 | float | GameUserSettings.ini + 命令行 | as ResourceNoReplenishRadiusStructures in Game.ini. If both settings are set both multiplier will be applied. Can be useful when cannot change the Game.ini file as it works as a command line option too. | as ResourceNoReplenishRadiusStructures in Game.ini. |
-| `BloodforgeReinforceResourceCostMultiplier` | BloodforgeReinforceResourceCost倍率 | 3.0 | float | GameUserSettings.ini | Default value: 3.0Value type: float | 默认: 3.0类型: float |
-| `MaxActiveResourceCaches` | MaxActiveResourceCaches | - | integer | GameUserSettings.ini | Value type: integer | 类型: integer |
+| `ClampResourceHarvestDamage` | 限制资源采集伤害 | False | boolean | GameUserSettings.ini + 命令行 | True, limit the damage caused by a tame to a resource on harvesting based on resource remaining health.  Note: enabling this setting may result in sensible resource harvesting reduction using high damage tools or creatures. | True，限制驯服生物对资源的采集伤害。 |
+| `HarvestAmountMultiplier` | 采集产量倍率 | 1.0 | float | GameUserSettings.ini + 命令行 | the scaling factor for yields from all harvesting activities (chopping down trees, picking berries, carving carcasses, mining rocks, etc.). Higher values increase the amount of materials harvested with each strike. | 所有采集活动产出的缩放因子。数值越高，每次采集获得的材料越多。 |
+| `HarvestHealthMultiplier` | 可采集物生命值倍率 | 1.0 | float | GameUserSettings.ini + 命令行 | the scaling factor for the "health" of items that can be harvested (trees, rocks, carcasses, etc.). Higher values increase the amount of damage (i.e., "number of strikes") such objects can withstand before being destroyed, which results in higher ove | 可采集物品（树木、岩石等）生命值的缩放因子。数值越高，物品越耐采集。 |
+| `StructurePreventResourceRadiusMultiplier` | 建筑资源阻止半径倍率 | 1.0 | float | GameUserSettings.ini + 命令行 | as ResourceNoReplenishRadiusStructures in Game.ini. If both settings are set both multiplier will be applied. Can be useful when cannot change the Game.ini file as it works as a command line option too. | 等同于Game.ini中的ResourceNoReplenishRadiusStructures。 |
+| `BloodforgeReinforceResourceCostMultiplier` | 血锻强化资源消耗倍率 | 3.0 | float | GameUserSettings.ini | Default value: 3.0Value type: float | 默认: 3.0类型: float |
+| `MaxActiveResourceCaches` | 最大活跃资源缓存数 | - | integer | GameUserSettings.ini | Value type: integer | 类型: integer |
 
 #### 管理员与安全 (5项)
 
 | 配置项 | 中文名 | 默认值 | 类型 | 配置方式 | 说明 (EN) | 说明 (中文) |
 |--------|--------|--------|------|----------|-----------|-------------|
-| `AdminLogging` | 管理员命令日志 | False | boolean | GameUserSettings.ini + 命令行 | True, logs all admin commands to in-game chat. | True, logs all admin commands to in-game chat. |
-| `BanListURL` | 封禁列表URL | - | string | GameUserSettings.ini + 命令行 | with a URLSets the global ban list. Must be enclosed in double quotes. The list is fetched every 10 minutes (to check if there are new banned IDs).  ARK: Survival Evolved: Official ban list URL is http://arkdedicated.com/banlist.txt (before 279.233 t | with a URLSets the global ban list. |
-| `ServerAdminPassword` | 管理员密码 | - | string | GameUserSettings.ini + 命令行 | specified, players must provide this password (via the in-game console) to gain access to administrator commands on the server. Note: no quotes are used. | specified, players must provide this password (via the in-game console) to gain access to administrator commands on the server. |
-| `ServerPassword` | 服务器连接密码 | - | string | GameUserSettings.ini + 命令行 | specified, players must provide this password to join the server. Note: no quotes are used. | specified, players must provide this password to join the server. |
-| `AdminListURL` | AdminListURL | N/A | string | GameUserSettings.ini + 命令行 | with a URLAlternative to AllowedCheaterAccountIDs.txt (see Administrator Whitelisting) using a web resource. The interval at which the server queries the resource to check for admin list update is defined by UpdateAllowedCheatersInterval. Undocumente | with a URLAlternative to AllowedCheaterAccountIDs.txt (see Administrator Whitelisting) using a web resource. |
+| `AdminLogging` | 管理员命令日志 | False | boolean | GameUserSettings.ini + 命令行 | True, logs all admin commands to in-game chat. | True，将所有管理员命令记录到游戏聊天中。 |
+| `BanListURL` | 封禁列表URL | - | string | GameUserSettings.ini + 命令行 | with a URLSets the global ban list. Must be enclosed in double quotes. The list is fetched every 10 minutes (to check if there are new banned IDs).  ARK: Survival Evolved: Official ban list URL is http://arkdedicated.com/banlist.txt (before 279.233 t | 设置全局封禁列表URL。每10分钟更新一次。 |
+| `ServerAdminPassword` | 管理员密码 | - | string | GameUserSettings.ini + 命令行 | specified, players must provide this password (via the in-game console) to gain access to administrator commands on the server. Note: no quotes are used. | 玩家需通过游戏控制台输入此密码以获得管理员权限。 |
+| `ServerPassword` | 服务器连接密码 | - | string | GameUserSettings.ini + 命令行 | specified, players must provide this password to join the server. Note: no quotes are used. | 玩家加入服务器时需要输入的密码。 |
+| `AdminListURL` | 管理员列表URL | N/A | string | GameUserSettings.ini + 命令行 | with a URLAlternative to AllowedCheaterAccountIDs.txt (see Administrator Whitelisting) using a web resource. The interval at which the server queries the resource to check for admin list update is defined by UpdateAllowedCheatersInterval. Undocumente | AllowedCheaterAccountIDs.txt的替代方案，使用Web资源的管理员白名单URL。 |
 
 #### 物品 (5项)
 
 | 配置项 | 中文名 | 默认值 | 类型 | 配置方式 | 说明 (EN) | 说明 (中文) |
 |--------|--------|--------|------|----------|-----------|-------------|
-| `ItemStackSizeMultiplier` | ItemStackSize倍率 | 1.0 | float | GameUserSettings.ini + 命令行 | increasing or decreasing global item stack size, this means all default stack sizes will be multiplied by the value given (excluding items that have a stack size of 1 by default). | increasing or decreasing global item stack size, this means all default stack sizes will be multiplied by the value given (excluding items that have a stack size of 1 by default). |
-| `MaxTributeItems` | MaxTributeItems | 50 | integer | GameUserSettings.ini + 命令行 | for uploaded items and resources. Any value less than default will be reverted. Note: Some player claimed maximum 154 to be safe cap and more will corrupt profile/cluster and lead to lose of all stored items and resources but it need to be checked | for uploaded items and resources. |
+| `ItemStackSizeMultiplier` | 物品堆叠大小倍率 | 1.0 | float | GameUserSettings.ini + 命令行 | increasing or decreasing global item stack size, this means all default stack sizes will be multiplied by the value given (excluding items that have a stack size of 1 by default). | 全局物品堆叠大小的缩放因子。所有默认堆叠大小将乘以此值。 |
+| `MaxTributeItems` | 最大上传物品数 | 50 | integer | GameUserSettings.ini + 命令行 | for uploaded items and resources. Any value less than default will be reverted. Note: Some player claimed maximum 154 to be safe cap and more will corrupt profile/cluster and lead to lose of all stored items and resources but it need to be checked | 上传物品和资源的最大数量。低于默认值将被恢复。 |
 | `MaxTributeCharacters` | 最大贡品角色数 | 10 | integer | GameUserSettings.ini + 命令行 | the maximum number of tribute characters. | 最大贡品角色数量。 |
 | `TributeCharacterExpirationSeconds` | 贡品角色过期时间(秒) | 0 | integer | GameUserSettings.ini + 命令行 | the expiration time in seconds for tribute characters. 0 disables. | 贡品角色过期时间（秒），0禁用。 |
 | `TributeDinoExpirationSeconds` | 贡品恐龙过期时间(秒) | 86400 | integer | GameUserSettings.ini + 命令行 | the expiration time in seconds for tribute dinos. | 贡品恐龙过期时间（秒）。 |
@@ -470,9 +470,9 @@ ArkAscendedServer.exe TheIsland_WP?listen -NoBattlEye -WinLiveMaxPlayers=70
 | `MinimumDinoReuploadInterval` | 最小恐龙重新上传间隔 | 0.0 | float | GameUserSettings.ini + 命令行 | the minimum interval in seconds for dino reupload. 0 disables. | 恐龙重新上传最小间隔（秒），0禁用。 |
 | `PreventTransferForClassNames` | 防止指定类名传输 | N/A | string | GameUserSettings.ini + 命令行 | prevents transfer of specific creatures by classname. | 防止指定类名的生物传输。 |
 | `PersonalTamedDinosSaddleStructureCost` | 个人驯服恐龙鞍建筑成本 | 0 | integer | GameUserSettings.ini + 命令行 | the saddle structure cost for personal tamed dinos. | 个人驯服恐龙鞍建筑成本。 |
-| `RandomSupplyCratePoints` | RandomSupplyCratePoints | False | boolean | GameUserSettings.ini + 命令行 | True, supply drops are in random locations. Note: This setting is known to cause artifacts becoming inaccessible on Ragnarok if active. | True, supply drops are in random locations. |
-| `PreventDownloadItems` | PreventDownloadItems | False | boolean | GameUserSettings.ini + 命令行 | True, prevents items download from ARK Data in Cross-ARK Data Transfer. | True, prevents items download from ARK Data in Cross-ARK Data Transfer. |
-| `PreventUploadItems` | PreventUploadItems | False | boolean | GameUserSettings.ini + 命令行 | True, prevents items upload to ARK Data in Cross-ARK Data Transfer. | True, prevents items upload to ARK Data in Cross-ARK Data Transfer. |
+| `RandomSupplyCratePoints` | 随机补给箱位置 | False | boolean | GameUserSettings.ini + 命令行 | True, supply drops are in random locations. Note: This setting is known to cause artifacts becoming inaccessible on Ragnarok if active. | True，补给箱出现在随机位置。 |
+| `PreventDownloadItems` | 禁止下载物品 | False | boolean | GameUserSettings.ini + 命令行 | True, prevents items download from ARK Data in Cross-ARK Data Transfer. | True，禁止从ARK数据下载物品。 |
+| `PreventUploadItems` | 禁止上传物品 | False | boolean | GameUserSettings.ini + 命令行 | True, prevents items upload to ARK Data in Cross-ARK Data Transfer. | True，禁止向ARK数据上传物品。 |
 | `SupplyCrateLootQualityMultiplier` | 补给箱战利品品质倍率 | 1.0 | float | GameUserSettings.ini + 命令行 | the quality multiplier for supply crate loot. | 补给箱战利品品质倍率。 |
 | `FishingLootQualityMultiplier` | 钓鱼战利品品质倍率 | 1.0 | float | GameUserSettings.ini + 命令行 | the quality multiplier for fishing loot. | 钓鱼战利品品质倍率。 |
 | `ClampItemStats` | 限制物品属性 | False | boolean | GameUserSettings.ini + 命令行 | True, clamps item stats to maximum values. | 限制物品属性到最大值。 |
@@ -484,29 +484,29 @@ ArkAscendedServer.exe TheIsland_WP?listen -NoBattlEye -WinLiveMaxPlayers=70
 
 | 配置项 | 中文名 | 默认值 | 类型 | 配置方式 | 说明 (EN) | 说明 (中文) |
 |--------|--------|--------|------|----------|-----------|-------------|
-| `ActiveMods` | 启用模组列表 | - | list | GameUserSettings.ini | of mod IDs, comma-separated with no spaces, in a single line (for example: ModID1,ModID2,ModID3)Specifies the order and which mods are loaded. ModIDs are comma separated and in one line. Priority is in descending order (the left-most ModID hast the h | of mod IDs, comma-separated with no spaces, in a single line (for example: ModID1,ModID2,ModID3)Specifies the order and which mods are loaded. |
-| `ActiveMapMod` | 启用地图模组 | - | mod | GameUserSettings.ini | ID for currently active mod mapSpecifies which mod map is loaded. | ID for currently active mod mapSpecifies which mod map is loaded. |
-| `AllowBunkerModulesAboveGround` | AllowBunkerModulesAboveGround | False | boolean | GameUserSettings.ini | Default value: FalseValue type: boolean | 默认: False类型: boolean |
-| `AllowBunkerModulesInPreventionZones` | AllowBunkerModulesInPreventionZones | False | boolean | GameUserSettings.ini | Default value: FalseValue type: boolean | 默认: False类型: boolean |
+| `ActiveMods` | 启用模组列表 | - | list | GameUserSettings.ini | of mod IDs, comma-separated with no spaces, in a single line (for example: ModID1,ModID2,ModID3)Specifies the order and which mods are loaded. ModIDs are comma separated and in one line. Priority is in descending order (the left-most ModID hast the h | 模组ID列表，逗号分隔，单行排列。指定加载顺序，左侧优先级最高。 |
+| `ActiveMapMod` | 启用地图模组 | - | mod | GameUserSettings.ini | ID for currently active mod mapSpecifies which mod map is loaded. | 当前活跃地图模组的ID，指定加载哪个模组地图。 |
+| `AllowBunkerModulesAboveGround` | 允许地堡模块在地面 | False | boolean | GameUserSettings.ini | Default value: FalseValue type: boolean | 默认: False，允许地堡模块在地面使用。 |
+| `AllowBunkerModulesInPreventionZones` | 允许防护区内地堡模块 | False | boolean | GameUserSettings.ini | Default value: FalseValue type: boolean | 默认: False，允许在防护区域内使用地堡模块。 |
 
 #### 印痕与等级 (2项)
 
 | 配置项 | 中文名 | 默认值 | 类型 | 配置方式 | 说明 (EN) | 说明 (中文) |
 |--------|--------|--------|------|----------|-----------|-------------|
-| `CosmeticWhitelistOverride` | CosmeticWhitelist覆盖 | - | string | GameUserSettings.ini + 命令行 | with a URLURL to a comma-separated list of whitelisted custom cosmetics, in this format: Mod ID/Enable Dynamic Download (0/1)/Allow non-dataonly blueprints(0/1). See this post for details (note: CRC is not required and it's not used by the game anymo | with a URLURL to a comma-separated list of whitelisted custom cosmetics, in this format: Mod ID/Enable Dynamic Download (0/1)/Allow non-dataonly blueprints(0/1). |
-| `OverrideOfficialDifficulty` | 覆盖OfficialDifficulty | 0.0 | float | GameUserSettings.ini + 命令行 | you to override the default server difficulty level of 4 with 5 to match the new official server difficulty level. Default value of 0.0 disables the override. A value of 5.0 will allow common creatures to spawn up to level 150. Originally (247.95) av | you to override the default server difficulty level of 4 with 5 to match the new official server difficulty level. |
+| `CosmeticWhitelistOverride` | 外观白名单覆盖 | - | string | GameUserSettings.ini + 命令行 | with a URLURL to a comma-separated list of whitelisted custom cosmetics, in this format: Mod ID/Enable Dynamic Download (0/1)/Allow non-dataonly blueprints(0/1). See this post for details (note: CRC is not required and it's not used by the game anymo | 白名单自定义外观的URL列表，格式：Mod ID/启用动态下载(0/1)/允许非纯数据蓝图(0/1)。 |
+| `OverrideOfficialDifficulty` | 覆盖官方难度 | 0.0 | float | GameUserSettings.ini + 命令行 | you to override the default server difficulty level of 4 with 5 to match the new official server difficulty level. Default value of 0.0 disables the override. A value of 5.0 will allow common creatures to spawn up to level 150. Originally (247.95) av | 覆盖默认服务器难度等级。默认值0.0禁用覆盖，5.0允许普通生物最高150级。 |
 
 #### 驯养设置 (1项)
 
 | 配置项 | 中文名 | 默认值 | 类型 | 配置方式 | 说明 (EN) | 说明 (中文) |
 |--------|--------|--------|------|----------|-----------|-------------|
-| `TamingSpeedMultiplier` | 驯服速度倍率 | 1.0 | float | GameUserSettings.ini + 命令行 | the scaling factor for creature taming speed. Higher values make taming faster. | the scaling factor for creature taming speed. |
+| `TamingSpeedMultiplier` | 驯服速度倍率 | 1.0 | float | GameUserSettings.ini + 命令行 | the scaling factor for creature taming speed. Higher values make taming faster. | 生物驯服速度的缩放因子。数值越高，驯服越快。 |
 
 #### 经验值倍率 (1项)
 
 | 配置项 | 中文名 | 默认值 | 类型 | 配置方式 | 说明 (EN) | 说明 (中文) |
 |--------|--------|--------|------|----------|-----------|-------------|
-| `XPMultiplier` | 全局经验倍率 | 1.0 | float | GameUserSettings.ini + 命令行 | the scaling factor for the experience received by players, tribes and tames for various actions. The default value 1 provides the same amounts of experience as in the single player experience (and official public servers). Higher values increase XP a | the scaling factor for the experience received by players, tribes and tames for various actions. |
+| `XPMultiplier` | 全局经验倍率 | 1.0 | float | GameUserSettings.ini + 命令行 | the scaling factor for the experience received by players, tribes and tames for various actions. The default value 1 provides the same amounts of experience as in the single player experience (and official public servers). Higher values increase XP a | 玩家、部落和驯服生物获得经验的缩放因子。默认值1为正常经验。 |
 
 
 
@@ -514,17 +514,17 @@ ArkAscendedServer.exe TheIsland_WP?listen -NoBattlEye -WinLiveMaxPlayers=70
 
 | 配置项 | 中文名 | 默认值 | 类型 | 配置方式 | 说明 (EN) | 说明 (中文) |
 |--------|--------|--------|------|----------|-----------|-------------|
-| `MultiHome` | 多宿主IP地址 | N/A | IP_ADDRESSSpecifies | GameUserSettings.ini | MultiHome IP Address. Boolean Multihome option must be set to True as well (command line or [MultiHome] section). Leave it empty if not using multihoming. Can be specified in command line too. | MultiHome IP Address. |
-| `Port` | 游戏端口 | 7777 | integer | GameUserSettings.ini | the UDP Game Port. See Dedicated server setupNote: command line append syntax is not supported by  ARK: Survival Ascended | the UDP Game Port. |
-| `QueryPort` | Steam查询端口 | 27015 | integer | GameUserSettings.ini | the UDP Steam Query Port. See Dedicated server setup | the UDP Steam Query Port. |
-| `SessionName` | 服务器显示名称 | ARK #123456 | string | GameUserSettings.ini | the Server name advertised in the Game Server Browser as well in Steam Server browser. If no name is provide, the default name will be ARK # followed by a random 6 digit number. Note: Name must not be typed between quotes unless it is launched from c | the Server name advertised in the Game Server Browser as well in Steam Server browser. |
+| `MultiHome` | 多宿主IP地址 | N/A | IP_ADDRESSSpecifies | GameUserSettings.ini | MultiHome IP Address. Boolean Multihome option must be set to True as well (command line or [MultiHome] section). Leave it empty if not using multihoming. Can be specified in command line too. | 多宿主IP地址。需要同时设置MultiHome选项为True。 |
+| `Port` | 游戏端口 | 7777 | integer | GameUserSettings.ini | the UDP Game Port. See Dedicated server setupNote: command line append syntax is not supported by  ARK: Survival Ascended | UDP游戏端口。 |
+| `QueryPort` | Steam查询端口 | 27015 | integer | GameUserSettings.ini | the UDP Steam Query Port. See Dedicated server setup | UDP Steam查询端口。 |
+| `SessionName` | 服务器显示名称 | ARK #123456 | string | GameUserSettings.ini | the Server name advertised in the Game Server Browser as well in Steam Server browser. If no name is provide, the default name will be ARK # followed by a random 6 digit number. Note: Name must not be typed between quotes unless it is launched from c | 在游戏服务器浏览器和Steam服务器浏览器中显示的服务器名称。 |
 
 
 ### 2.3 [/Script/Engine.GameSession]
 
 | 配置项 | 中文名 | 默认值 | 类型 | 配置方式 | 说明 (EN) | 说明 (中文) |
 |--------|--------|--------|------|----------|-----------|-------------|
-| `MaxPlayers` | 最大玩家数 | 70 | integer | GameUserSettings.ini | the maximum number of players that can play on the server simultaneously. ASA: This setting is replaced with -WinLiveMaxPlayers in the command line options, as otherwise, it will force it back to the default value. | the maximum number of players that can play on the server simultaneously. |
+| `MaxPlayers` | 最大玩家数 | 70 | integer | GameUserSettings.ini | the maximum number of players that can play on the server simultaneously. ASA: This setting is replaced with -WinLiveMaxPlayers in the command line options, as otherwise, it will force it back to the default value. | 服务器同时在线的最大玩家数量。ASA中使用命令行-WinLiveMaxPlayers替代。 |
 
 
 ### 2.4 [MessageOfTheDay]
@@ -537,8 +537,8 @@ Duration=30
 
 | 配置项 | 中文名 | 默认值 | 类型 | 配置方式 | 说明 (EN) | 说明 (中文) |
 |--------|--------|--------|------|----------|-----------|-------------|
-| `Duration` | 显示持续时间(秒) | 20 | integer | GameUserSettings.ini | in seconds the duration of the displayed message on player log-in. | in seconds the duration of the displayed message on player log-in. |
-| `Message` | 消息内容 | N/A | string | GameUserSettings.ini | single line string for a message displayed to played once logged-in. No quotes needed. Use \n to start a new line in the message. | single line string for a message displayed to played once logged-in. |
+| `Duration` | 显示持续时间(秒) | 20 | integer | GameUserSettings.ini | in seconds the duration of the displayed message on player log-in. | 玩家登录时显示消息的持续时间（秒）。 |
+| `Message` | 消息内容 | N/A | string | GameUserSettings.ini | single line string for a message displayed to played once logged-in. No quotes needed. Use \n to start a new line in the message. | 玩家登录后显示的单行消息。使用\n换行。 |
 
 
 ---
@@ -553,76 +553,76 @@ Duration=30
 
 | 配置项 | 中文名 | 默认值 | 类型 | 配置方式 | 说明 (EN) | 说明 (中文) |
 |--------|--------|--------|------|----------|-----------|-------------|
-| `BabyCuddleGracePeriodMultiplier` | 婴儿照料宽限期倍率 | 1.0 | float | Game.ini | how long after delaying cuddling with the Baby before Imprinting Quality starts to decrease. | how long after delaying cuddling with the Baby before Imprinting Quality starts to decrease. |
-| `BabyCuddleIntervalMultiplier` | 婴儿照料间隔倍率 | 1.0 | float | Game.ini | how often babies needs attention for imprinting. More often means you'll need to cuddle with them more frequently to gain Imprinting Quality. Scales always according to default BabyMatureSpeedMultiplier value: set at 1.0 the imprint request is every  | how often babies needs attention for imprinting. |
-| `BabyCuddleLoseImprintQualitySpeedMultiplier` | 婴儿印记品质下降速度倍率 | 1.0 | float | Game.ini | how fast Imprinting Quality decreases after the grace period if you haven't yet cuddled with the Baby. | how fast Imprinting Quality decreases after the grace period if you haven't yet cuddled with the Baby. |
-| `BabyFoodConsumptionSpeedMultiplier` | 婴儿食物消耗速度倍率 | 1.0 | float | Game.ini | the speed that baby tames eat their food. A lower value decreases (by percentage) the food eaten by babies. | the speed that baby tames eat their food. |
-| `BabyImprintAmountMultiplier` | 印记量倍率 | 1.0 | float | Game.ini | the percentage each imprint provides. A higher value, will rise the amount of imprinting % at each baby care/cuddle, a lower value will decrease it. This multiplier is global, meaning it will affect the imprinting progression of every species. See al | the percentage each imprint provides. |
-| `BabyImprintingStatScaleMultiplier` | 印记属性缩放倍率 | 1.0 | float | Game.ini | how much of an effect on stats the Imprinting Quality has. Set it to 0 to effectively disable the system. | how much of an effect on stats the Imprinting Quality has. |
-| `BabyMatureSpeedMultiplier` | 婴儿成长速度倍率 | 1.0 | float | Game.ini | the maturation speed of babies. A higher number decreases (by percentage) time needed for baby tames to mature. See Times for Breeding tables for values at 1.0, see The Imprinting formula how it affects the imprinting amount at each baby care/cuddle. | the maturation speed of babies. |
-| `bDisableWirelessCraftingForPlayers` | 禁用玩家无线制作 | false | boolean | Game.ini | True, prevents wireless crafting from Tek Dedicated Storage when crafting in the player inventory. | True, prevents wireless crafting from Tek Dedicated Storage when crafting in the player inventory. |
-| `bUseSingleplayerSettings` | 启用单人游戏设置 | False | boolean | Game.ini | True, all game settings will be more balanced for an individual player experience. Useful for dedicated server with a very small amount of players. See Single Player Settings section for more details. | True, all game settings will be more balanced for an individual player experience. |
-| `EggHatchSpeedMultiplier` | 蛋孵化速度倍率 | 1.0 | float | Game.ini | the time needed for a fertilised egg to hatch. A higher value decreases (by percentage) that time. | the time needed for a fertilised egg to hatch. |
-| `LayEggIntervalMultiplier` | 产蛋间隔倍率 | 1.0 | float | Game.ini | the time between eggs are spawning / being laid. Higher number increases it (by percentage). | the time between eggs are spawning / being laid. |
-| `PerLevelStatsMultiplier_Player[<integer>]` | PerLevelStatsMultiplier_玩家[<integer>] | N/A | float | Game.ini | Player stats. See Level stats related section for more detail. | Player stats. |
-| `PreventBreedingForClassNames` | 禁止指定物种繁殖 | N/A | "<string>"Prevents | Game.ini | breeding of specific creatures via classname. E.g. PreventBreedingForClassNames="Argent_Character_BP_C". Creature classnames can be found on the Creature IDs page. | breeding of specific creatures via classname. |
-| `ResourceNoReplenishRadiusPlayers` | 玩家周围资源不刷新半径 | 1.0 | float | Game.ini | how resources regrow closer or farther away from players. Values higher than 1.0 increase the distance around players where resources are not allowed to grow back. Values between 0 and 1.0 will reduce it. | how resources regrow closer or farther away from players. |
+| `BabyCuddleGracePeriodMultiplier` | 婴儿照料宽限期倍率 | 1.0 | float | Game.ini | how long after delaying cuddling with the Baby before Imprinting Quality starts to decrease. | 延迟照料婴儿后，印记品质开始下降前的宽限期。 |
+| `BabyCuddleIntervalMultiplier` | 婴儿照料间隔倍率 | 1.0 | float | Game.ini | how often babies needs attention for imprinting. More often means you'll need to cuddle with them more frequently to gain Imprinting Quality. Scales always according to default BabyMatureSpeedMultiplier value: set at 1.0 the imprint request is every  | 婴儿需要照料的频率。数值越高，照料间隔越短。 |
+| `BabyCuddleLoseImprintQualitySpeedMultiplier` | 婴儿印记品质下降速度倍率 | 1.0 | float | Game.ini | how fast Imprinting Quality decreases after the grace period if you haven't yet cuddled with the Baby. | 宽限期后印记品质下降的速度。 |
+| `BabyFoodConsumptionSpeedMultiplier` | 婴儿食物消耗速度倍率 | 1.0 | float | Game.ini | the speed that baby tames eat their food. A lower value decreases (by percentage) the food eaten by babies. | 婴儿驯服生物的食物消耗速度。数值越低，消耗越少。 |
+| `BabyImprintAmountMultiplier` | 印记量倍率 | 1.0 | float | Game.ini | the percentage each imprint provides. A higher value, will rise the amount of imprinting % at each baby care/cuddle, a lower value will decrease it. This multiplier is global, meaning it will affect the imprinting progression of every species. See al | 每次照料提供的印记百分比。数值越高，每次照料获得的印记越多。 |
+| `BabyImprintingStatScaleMultiplier` | 印记属性缩放倍率 | 1.0 | float | Game.ini | how much of an effect on stats the Imprinting Quality has. Set it to 0 to effectively disable the system. | 印记品质对属性加成的影响程度。设为0可禁用此系统。 |
+| `BabyMatureSpeedMultiplier` | 婴儿成长速度倍率 | 1.0 | float | Game.ini | the maturation speed of babies. A higher number decreases (by percentage) time needed for baby tames to mature. See Times for Breeding tables for values at 1.0, see The Imprinting formula how it affects the imprinting amount at each baby care/cuddle. | 婴儿成长速度。数值越高，成长所需时间越短。 |
+| `bDisableWirelessCraftingForPlayers` | 禁用玩家无线制作 | false | boolean | Game.ini | True, prevents wireless crafting from Tek Dedicated Storage when crafting in the player inventory. | True，禁止玩家背包从泰克专用存储无线制作。 |
+| `bUseSingleplayerSettings` | 启用单人游戏设置 | False | boolean | Game.ini | True, all game settings will be more balanced for an individual player experience. Useful for dedicated server with a very small amount of players. See Single Player Settings section for more details. | True，所有游戏设置将更适合单人体验。 |
+| `EggHatchSpeedMultiplier` | 蛋孵化速度倍率 | 1.0 | float | Game.ini | the time needed for a fertilised egg to hatch. A higher value decreases (by percentage) that time. | 受精蛋孵化所需时间。数值越高，孵化越快。 |
+| `LayEggIntervalMultiplier` | 产蛋间隔倍率 | 1.0 | float | Game.ini | the time between eggs are spawning / being laid. Higher number increases it (by percentage). | 产蛋间隔时间。数值越高，间隔越长。 |
+| `PerLevelStatsMultiplier_Player[<integer>]` | 玩家每级属性倍率[<整数>] | N/A | float | Game.ini | Player stats. See Level stats related section for more detail. | 玩家属性倍率。 |
+| `PreventBreedingForClassNames` | 禁止指定物种繁殖 | N/A | "<string>"Prevents | Game.ini | breeding of specific creatures via classname. E.g. PreventBreedingForClassNames="Argent_Character_BP_C". Creature classnames can be found on the Creature IDs page. | 通过类名禁止特定生物繁殖。 |
+| `ResourceNoReplenishRadiusPlayers` | 玩家周围资源不刷新半径 | 1.0 | float | Game.ini | how resources regrow closer or farther away from players. Values higher than 1.0 increase the distance around players where resources are not allowed to grow back. Values between 0 and 1.0 will reduce it. | 玩家周围资源不刷新的半径。数值越高，禁止刷新范围越大。 |
 
 #### 通用设置 (10项)
 
 | 配置项 | 中文名 | 默认值 | 类型 | 配置方式 | 说明 (EN) | 说明 (中文) |
 |--------|--------|--------|------|----------|-----------|-------------|
-| `bAllowUnlimitedRespecs` | 允许无限洗点 | False | boolean | Game.ini | True, allows more than one usage of Mindwipe Tonic without 24 hours cooldown. | True, allows more than one usage of Mindwipe Tonic without 24 hours cooldown. |
-| `CustomRecipeEffectivenessMultiplier` | 自定义配方效果倍率 | 1.0 | float | Game.ini | the effectiveness of custom recipes. A higher value increases (by percentage) their effectiveness. | the effectiveness of custom recipes. |
-| `CustomRecipeSkillMultiplier` | 自定义配方技能倍率 | 1.0 | float | Game.ini | the effect of the players crafting speed level that is used as a base for the formula in creating a custom recipe. A higher number increases (by percentage) the effect. | the effect of the players crafting speed level that is used as a base for the formula in creating a custom recipe. |
-| `LimitGeneratorsNum` | 发电机数量上限 | 3 | integer | Game.ini | the number of generators in the area defined by LimitGeneratorsRange. Official servers have it set to 3. | the number of generators in the area defined by LimitGeneratorsRange. |
-| `LimitGeneratorsRange` | 发电机限制范围 | 15000 | integer | Game.ini | the area range (in Unreal Units) in which the option LimitGeneratorsNum applies. Official servers have it set to 15000. | the area range (in Unreal Units) in which the option LimitGeneratorsNum applies. |
-| `HairGrowthSpeedMultiplier` | 毛发生长速度倍率 | 1.0 (ASE), 0 (ASA) | float | Game.ini | the hair growth. Higher values increase speed of growth. | the hair growth. |
-| `MatingIntervalMultiplier` | 交配间隔倍率 | 1.0 | float | Game.ini | the interval between tames can mate. A lower value decreases it (on a percentage scale). Example: a value of 0.5 would allow tames to mate 50% sooner. | the interval between tames can mate. |
-| `MatingSpeedMultiplier` | 交配速度倍率 | 1.0 | float | Game.ini | the speed at which tames mate with each other. A higher value increases it (by percentage). Example: MatingSpeedMultiplier=2.0 would cause tames to complete mating in half the normal time. | the speed at which tames mate with each other. |
-| `MaxFallSpeedMultiplier` | 最大坠落速度倍率 | 1.0 | float | Game.ini | the falling speed multiplier at which players starts taking fall damage. The falling speed is based on the time players spent in the air while having a negated Z axis velocity meaning that the higher this setting is, the longer players can fall witho | the falling speed multiplier at which players starts taking fall damage. |
-| `PoopIntervalMultiplier` | 排便间隔倍率 | 1.0 | float | Game.ini | how frequently survivors can poop. Higher value decreases it (by percentage) | how frequently survivors can poop. |
+| `bAllowUnlimitedRespecs` | 允许无限洗点 | False | boolean | Game.ini | True, allows more than one usage of Mindwipe Tonic without 24 hours cooldown. | True，允许无限制使用洗点药水，无需24小时冷却。 |
+| `CustomRecipeEffectivenessMultiplier` | 自定义配方效果倍率 | 1.0 | float | Game.ini | the effectiveness of custom recipes. A higher value increases (by percentage) their effectiveness. | 自定义配方的效果倍率。数值越高，效果越好。 |
+| `CustomRecipeSkillMultiplier` | 自定义配方技能倍率 | 1.0 | float | Game.ini | the effect of the players crafting speed level that is used as a base for the formula in creating a custom recipe. A higher number increases (by percentage) the effect. | 玩家制作速度等级对自定义配方的影响。 |
+| `LimitGeneratorsNum` | 发电机数量上限 | 3 | integer | Game.ini | the number of generators in the area defined by LimitGeneratorsRange. Official servers have it set to 3. | LimitGeneratorsRange范围内发电机的最大数量。 |
+| `LimitGeneratorsRange` | 发电机限制范围 | 15000 | integer | Game.ini | the area range (in Unreal Units) in which the option LimitGeneratorsNum applies. Official servers have it set to 15000. | LimitGeneratorsNum适用的区域范围（虚幻单位）。 |
+| `HairGrowthSpeedMultiplier` | 毛发生长速度倍率 | 1.0 (ASE), 0 (ASA) | float | Game.ini | the hair growth. Higher values increase speed of growth. | 毛发生长速度。数值越高，生长越快。 |
+| `MatingIntervalMultiplier` | 交配间隔倍率 | 1.0 | float | Game.ini | the interval between tames can mate. A lower value decreases it (on a percentage scale). Example: a value of 0.5 would allow tames to mate 50% sooner. | 驯服生物可交配的间隔时间。数值越低，间隔越短。 |
+| `MatingSpeedMultiplier` | 交配速度倍率 | 1.0 | float | Game.ini | the speed at which tames mate with each other. A higher value increases it (by percentage). Example: MatingSpeedMultiplier=2.0 would cause tames to complete mating in half the normal time. | 驯服生物的交配速度。数值越高，交配越快。 |
+| `MaxFallSpeedMultiplier` | 最大坠落速度倍率 | 1.0 | float | Game.ini | the falling speed multiplier at which players starts taking fall damage. The falling speed is based on the time players spent in the air while having a negated Z axis velocity meaning that the higher this setting is, the longer players can fall witho | 玩家开始受到坠落伤害的坠落速度倍率。数值越高，可坠落时间越长。 |
+| `PoopIntervalMultiplier` | 排便间隔倍率 | 1.0 | float | Game.ini | how frequently survivors can poop. Higher value decreases it (by percentage) | 幸存者排便频率。数值越高，排便越频繁。 |
 
 #### ASA新增功能 (8项)
 
 | 配置项 | 中文名 | 默认值 | 类型 | 配置方式 | 说明 (EN) | 说明 (中文) |
 |--------|--------|--------|------|----------|-----------|-------------|
-| `bAllowFlyerSpeedLeveling` | 允许飞行生物升级速度 | False | boolean | Game.ini | whether flyer creatures can have their Movement Speed levelled up. In ARK: Survival Ascended, setting this to True only works if bAllowSpeedLeveling is also True. | whether flyer creatures can have their Movement Speed levelled up. |
-| `bAllowSpeedLeveling` | 允许升级移动速度 | False | boolean | Game.ini | whether players and non-flyer creatures can have their Movement Speed levelled up. | whether players and non-flyer creatures can have their Movement Speed levelled up. |
-| `bDisableWirelessCrafting` | 禁用无线制作 | false | boolean | Game.ini | True, prevents wireless crafting from Tek Dedicated Storage. | True, prevents wireless crafting from Tek Dedicated Storage. |
-| `CheatTeleportLocations=(TeleportName="<string>",TeleportLocation=(X=<float>,Y=-<float>,Z=<float>))` | CheatTeleportLocations=(TeleportName="<string>",TeleportLocation=(X=<float>,Y=-<float>,Z=<float>)) | - | (...)Creates | Game.ini | a named teleport location that can be used with the TP command. The coordinates must be listed in Unreal units, not in-game gps coordinates. Example:  CheatTeleportLocations=(TeleportName="Hightower",TeleportLocation=(X=467967.0,Y=-359082.0,Z=6879.0) | a named teleport location that can be used with the TP command. |
-| `WirelessCraftingRangeOverride` | 无线制作范围覆盖 | 3000 | integer | Game.ini | the wireless crafting range (in Unreal Units) on Tek Dedicated Storage. | the wireless crafting range (in Unreal Units) on Tek Dedicated Storage. |
-| `ValgueroMemorialEntries` | 瓦尔盖罗纪念碑名列表 | N/A | list | Game.ini | of player names, semicolon-separated with no spaces, in a single line (for example: Name1;Name2;Name3;)The Valguero Memorial is now interactable, honouring those who have ascended by displaying their names. Server owners can customize the list of nam | of player names, semicolon-separated with no spaces, in a single line (for example: Name1;Name2;Name3;)The Valguero Memorial is now interactable, honouring those who have ascended by displaying their names. |
-| `BaseHexagonRewardMultiplier` | 六角币奖励基础倍率 | 1.0 | float | Game.ini | the missions score hexagon rewards. Also scales token rewards in Club Ark (ASA). | the missions score hexagon rewards. |
-| `HexagonCostMultiplier` | 六角币消耗倍率 | 1.0 | float | Game.ini | the hexagon cost of items in the Hexagon store. Also scales token cost of items in Club Ark (ASA). | the hexagon cost of items in the Hexagon store. |
+| `bAllowFlyerSpeedLeveling` | 允许飞行生物升级速度 | False | boolean | Game.ini | whether flyer creatures can have their Movement Speed levelled up. In ARK: Survival Ascended, setting this to True only works if bAllowSpeedLeveling is also True. | 允许飞行生物升级移动速度。需要bAllowSpeedLeveling也为True。 |
+| `bAllowSpeedLeveling` | 允许升级移动速度 | False | boolean | Game.ini | whether players and non-flyer creatures can have their Movement Speed levelled up. | 允许玩家和非飞行生物升级移动速度。 |
+| `bDisableWirelessCrafting` | 禁用无线制作 | false | boolean | Game.ini | True, prevents wireless crafting from Tek Dedicated Storage. | True，禁止从泰克专用存储无线制作。 |
+| `CheatTeleportLocations=(TeleportName="<string>",TeleportLocation=(X=<float>,Y=-<float>,Z=<float>))` | 自定义传送点位置 | - | (...)Creates | Game.ini | a named teleport location that can be used with the TP command. The coordinates must be listed in Unreal units, not in-game gps coordinates. Example:  CheatTeleportLocations=(TeleportName="Hightower",TeleportLocation=(X=467967.0,Y=-359082.0,Z=6879.0) | 创建可用于TP命令的命名传送点。坐标必须使用虚幻单位。 |
+| `WirelessCraftingRangeOverride` | 无线制作范围覆盖 | 3000 | integer | Game.ini | the wireless crafting range (in Unreal Units) on Tek Dedicated Storage. | 泰克专用存储的无线制作范围（虚幻单位）。 |
+| `ValgueroMemorialEntries` | 瓦尔盖罗纪念碑名列表 | N/A | list | Game.ini | of player names, semicolon-separated with no spaces, in a single line (for example: Name1;Name2;Name3;)The Valguero Memorial is now interactable, honouring those who have ascended by displaying their names. Server owners can customize the list of nam | 玩家名称列表，分号分隔。自定义纪念碑上显示的飞升者名称。 |
+| `BaseHexagonRewardMultiplier` | 六角币奖励基础倍率 | 1.0 | float | Game.ini | the missions score hexagon rewards. Also scales token rewards in Club Ark (ASA). | 任务六角币奖励的基础倍率。也影响Club ARK的代币奖励。 |
+| `HexagonCostMultiplier` | 六角币消耗倍率 | 1.0 | float | Game.ini | the hexagon cost of items in the Hexagon store. Also scales token cost of items in Club Ark (ASA). | 六角币商店物品的消耗倍率。也影响Club ARK的代币消耗。 |
 
 #### 经验值倍率 (5项)
 
 | 配置项 | 中文名 | 默认值 | 类型 | 配置方式 | 说明 (EN) | 说明 (中文) |
 |--------|--------|--------|------|----------|-----------|-------------|
-| `CraftXPMultiplier` | 制作经验倍率 | 1.0 | float | Game.ini | the amount of XP earned for crafting. | the amount of XP earned for crafting. |
-| `GenericXPMultiplier` | 通用经验倍率 | 1.0 | float | Game.ini | the amount of XP earned for generic XP (automatic over time). | the amount of XP earned for generic XP (automatic over time). |
-| `HarvestXPMultiplier` | 采集经验倍率 | 1.0 | float | Game.ini | the amount of XP earned for harvesting. | the amount of XP earned for harvesting. |
-| `KillXPMultiplier` | 击杀经验倍率 | 1.0 | float | Game.ini | the amount of XP earned for a kill. | the amount of XP earned for a kill. |
-| `SpecialXPMultiplier` | 特殊事件经验倍率 | 1.0 | float | Game.ini | the amount of XP earned for SpecialEvent. | the amount of XP earned for SpecialEvent. |
+| `CraftXPMultiplier` | 制作经验倍率 | 1.0 | float | Game.ini | the amount of XP earned for crafting. | 制作获得的经验值倍率。 |
+| `GenericXPMultiplier` | 通用经验倍率 | 1.0 | float | Game.ini | the amount of XP earned for generic XP (automatic over time). | 自动获得的通用经验值倍率。 |
+| `HarvestXPMultiplier` | 采集经验倍率 | 1.0 | float | Game.ini | the amount of XP earned for harvesting. | 采集获得的经验值倍率。 |
+| `KillXPMultiplier` | 击杀经验倍率 | 1.0 | float | Game.ini | the amount of XP earned for a kill. | 击杀获得的经验值倍率。 |
+| `SpecialXPMultiplier` | 特殊事件经验倍率 | 1.0 | float | Game.ini | the amount of XP earned for SpecialEvent. | 特殊事件获得的经验值倍率。 |
 
 #### PvP与部落 (4项)
 
 | 配置项 | 中文名 | 默认值 | 类型 | 配置方式 | 说明 (EN) | 说明 (中文) |
 |--------|--------|--------|------|----------|-----------|-------------|
-| `bDisableFriendlyFire` | 禁用友军伤害 | False | boolean | Game.ini | True, prevents Friendly-Fire (among tribe mates/tames/structures). | True, prevents Friendly-Fire (among tribe mates/tames/structures). |
-| `bPvEDisableFriendlyFire` | PvE禁用友军伤害 | False | boolean | Game.ini | True, disabled Friendly-Fire (among tribe mates/tames/structures) in PvE servers. | True, disabled Friendly-Fire (among tribe mates/tames/structures) in PvE servers. |
-| `IgnorePVPMountedWeaponryRestrictions` | IgnorePVPMountedWeaponryRestrictions | False | boolean | Game.ini | further information has been added about this variable. If you know anything, please consider creating an account and contributing. | further information has been added about this variable. |
-| `TribeTowerBonusMultiplier` | 部落之塔奖励倍率 | 2.0 | float | Game.ini | for Tribe Tower bonus. | for Tribe Tower bonus. |
+| `bDisableFriendlyFire` | 禁用友军伤害 | False | boolean | Game.ini | True, prevents Friendly-Fire (among tribe mates/tames/structures). | True，禁止友军伤害（部落成员/驯服生物/建筑之间）。 |
+| `bPvEDisableFriendlyFire` | PvE禁用友军伤害 | False | boolean | Game.ini | True, disabled Friendly-Fire (among tribe mates/tames/structures) in PvE servers. | True，在PvE服务器中禁用友军伤害。 |
+| `IgnorePVPMountedWeaponryRestrictions` | 忽略PvP骑乘武器限制 | False | boolean | Game.ini | further information has been added about this variable. If you know anything, please consider creating an account and contributing. | 忽略PvP模式下的骑乘武器限制。 |
+| `TribeTowerBonusMultiplier` | 部落之塔奖励倍率 | 2.0 | float | Game.ini | for Tribe Tower bonus. | 部落之塔奖励倍率。 |
 
 #### 生物设置 (4项)
 
 | 配置项 | 中文名 | 默认值 | 类型 | 配置方式 | 说明 (EN) | 说明 (中文) |
 |--------|--------|--------|------|----------|-----------|-------------|
-| `bDisableWirelessCraftingForDinos` | 禁用恐龙无线制作 | false | boolean | Game.ini | True, prevents wireless crafting from Tek Dedicated Storage when crafting in dino inventories. | True, prevents wireless crafting from Tek Dedicated Storage when crafting in dino inventories. |
-| `bUseDinoLevelUpAnimations` | 使用恐龙升级动画 | True | boolean | Game.ini | False, tame creatures on level-up will not perform the related animation. | False, tame creatures on level-up will not perform the related animation. |
-| `ConfigAddNPCSpawnEntriesContainer` | 添加NPC生成区域配置 | N/A | (...)Adds | Game.ini | specific creatures in spawn areas. See Creature Spawn related section for more detail. | specific creatures in spawn areas. |
-| `WildDinoCharacterFoodDrainMultiplier` | 野生恐龙食物消耗倍率 | 1.0 | float | Game.ini | how fast wild creatures consume food. | how fast wild creatures consume food. |
+| `bDisableWirelessCraftingForDinos` | 禁用恐龙无线制作 | false | boolean | Game.ini | True, prevents wireless crafting from Tek Dedicated Storage when crafting in dino inventories. | True，禁止恐龙背包从泰克专用存储无线制作。 |
+| `bUseDinoLevelUpAnimations` | 使用恐龙升级动画 | True | boolean | Game.ini | False, tame creatures on level-up will not perform the related animation. | False，驯服生物升级时不播放动画。 |
+| `ConfigAddNPCSpawnEntriesContainer` | 添加NPC生成区域配置 | N/A | (...)Adds | Game.ini | specific creatures in spawn areas. See Creature Spawn related section for more detail. | 在生成区域添加特定生物。 |
+| `WildDinoCharacterFoodDrainMultiplier` | 野生恐龙食物消耗倍率 | 1.0 | float | Game.ini | how fast wild creatures consume food. | 野生生物的食物消耗速度。 |
 
 #### 生物等级与经验 (4项)
 
@@ -649,48 +649,48 @@ Duration=30
 
 | 配置项 | 中文名 | 默认值 | 类型 | 配置方式 | 说明 (EN) | 说明 (中文) |
 |--------|--------|--------|------|----------|-----------|-------------|
-| `CropDecaySpeedMultiplier` | 作物腐烂速度倍率 | 1.0 | float | Game.ini | the speed of crop decay in plots. A higher value decrease (by percentage) speed of crop decay in plots. | the speed of crop decay in plots. |
-| `CropGrowthSpeedMultiplier` | 作物生长速度倍率 | 1.0 | float | Game.ini | the speed of crop growth in plots. A higher value increases (by percentage) speed of crop growth. | the speed of crop growth in plots. |
-| `HarvestResourceItemAmountClassMultipliers` | 资源采集量分类倍率 | N/A | (...)Scales | Game.ini | on a per-resource type basis, the amount of resources harvested. See Items related section for more details. | on a per-resource type basis, the amount of resources harvested. |
-| `ResourceNoReplenishRadiusStructures` | 建筑周围资源不刷新半径 | 1.0 | float | Game.ini | how resources regrow closer or farther away from structures Values higher than 1.0 increase the distance around structures where resources are not allowed to grow back. Values between 0 and 1.0 will reduce it. | how resources regrow closer or farther away from structures Values higher than 1.0 increase the distance around structures where resources are not allowed to grow back. |
+| `CropDecaySpeedMultiplier` | 作物腐烂速度倍率 | 1.0 | float | Game.ini | the speed of crop decay in plots. A higher value decrease (by percentage) speed of crop decay in plots. | 农田中作物的腐烂速度。数值越高，腐烂越慢。 |
+| `CropGrowthSpeedMultiplier` | 作物生长速度倍率 | 1.0 | float | Game.ini | the speed of crop growth in plots. A higher value increases (by percentage) speed of crop growth. | 农田中作物的生长速度。数值越高，生长越快。 |
+| `HarvestResourceItemAmountClassMultipliers` | 资源采集量分类倍率 | N/A | (...)Scales | Game.ini | on a per-resource type basis, the amount of resources harvested. See Items related section for more details. | 按资源类型缩放的采集产出量。 |
+| `ResourceNoReplenishRadiusStructures` | 建筑周围资源不刷新半径 | 1.0 | float | Game.ini | how resources regrow closer or farther away from structures Values higher than 1.0 increase the distance around structures where resources are not allowed to grow back. Values between 0 and 1.0 will reduce it. | 建筑周围资源不刷新的半径。数值越高，禁止刷新范围越大。 |
 
 #### Mod与地图 (3项)
 
 | 配置项 | 中文名 | 默认值 | 类型 | 配置方式 | 说明 (EN) | 说明 (中文) |
 |--------|--------|--------|------|----------|-----------|-------------|
-| `bDisablePhotoMode` | 禁用拍照模式 | False | boolean | Game.ini | if photo mode is allowed (False) or not (True). | if photo mode is allowed (False) or not (True). |
-| `bShowCreativeMode` | 显示创造模式 | False | boolean | Game.ini | True, adds a button to the pause menu to enable/disable creative mode. | True, adds a button to the pause menu to enable/disable creative mode. |
-| `PhotoModeRangeLimit` | 拍照模式最大距离 | 3000 | integer | Game.ini | the maximum distance between photo mode camera position and player position. | the maximum distance between photo mode camera position and player position. |
+| `bDisablePhotoMode` | 禁用拍照模式 | False | boolean | Game.ini | if photo mode is allowed (False) or not (True). | True，禁用拍照模式。 |
+| `bShowCreativeMode` | 显示创造模式 | False | boolean | Game.ini | True, adds a button to the pause menu to enable/disable creative mode. | True，在暂停菜单中添加启用/禁用创造模式的按钮。 |
+| `PhotoModeRangeLimit` | 拍照模式最大距离 | 3000 | integer | Game.ini | the maximum distance between photo mode camera position and player position. | 拍照模式相机与玩家位置之间的最大距离。 |
 
 #### 建筑与防御 (3项)
 
 | 配置项 | 中文名 | 默认值 | 类型 | 配置方式 | 说明 (EN) | 说明 (中文) |
 |--------|--------|--------|------|----------|-----------|-------------|
-| `bDisableStructurePlacementCollision` | 禁用建筑放置碰撞 | False | boolean | Game.ini | True, allows for structures to clip into the terrain. | True, allows for structures to clip into the terrain. |
-| `bDisableWirelessCraftingForStructures` | 禁用建筑无线制作 | false | boolean | Game.ini | True, prevents wireless crafting from Tek Dedicated Storage when crafting in structure inventories. | True, prevents wireless crafting from Tek Dedicated Storage when crafting in structure inventories. |
-| `bIgnoreStructuresPreventionVolumes` | 忽略建筑禁止区域 | False | boolean | Game.ini | True, enables building areas where normally it's not allowed, such around some maps' Obelisks, in the Aberration Portal and in Mission Volumes areas on Genesis: Part 1. Note: in Genesis: Part 1 this settings is enabled by default and there is an ad h | True, enables building areas where normally it's not allowed, such around some maps' Obelisks, in the Aberration Portal and in Mission Volumes areas on Genesis: Part 1. |
+| `bDisableStructurePlacementCollision` | 禁用建筑放置碰撞 | False | boolean | Game.ini | True, allows for structures to clip into the terrain. | True，允许建筑穿入地形。 |
+| `bDisableWirelessCraftingForStructures` | 禁用建筑无线制作 | false | boolean | Game.ini | True, prevents wireless crafting from Tek Dedicated Storage when crafting in structure inventories. | True，禁止建筑背包从泰克专用存储无线制作。 |
+| `bIgnoreStructuresPreventionVolumes` | 忽略建筑禁止区域 | False | boolean | Game.ini | True, enables building areas where normally it's not allowed, such around some maps' Obelisks, in the Aberration Portal and in Mission Volumes areas on Genesis: Part 1. Note: in Genesis: Part 1 this settings is enabled by default and there is an ad h | True，允许在通常禁止建造的区域建造。 |
 
 #### 印痕与等级 (3项)
 
 | 配置项 | 中文名 | 默认值 | 类型 | 配置方式 | 说明 (EN) | 说明 (中文) |
 |--------|--------|--------|------|----------|-----------|-------------|
-| `DestroyTamesOverLevelClamp` | 销毁超过等级上限的驯养 | 0 | integer | Game.ini | that exceed that level will be deleted on server start. Official servers have it set to 450. | that exceed that level will be deleted on server start. |
-| `LevelExperienceRampOverrides` | 等级经验曲线覆盖 | N/A | (...)Configures | Game.ini | the total number of levels available to players and tame creatures and the experience points required to reach each level. See Players and tames levels override section for more details. | the total number of levels available to players and tame creatures and the experience points required to reach each level. |
-| `OverrideNamedEngramEntries` | 覆盖命名印痕条目 | N/A | (...)Configures | Game.ini | the status and requirements for learning an engram, specified by its name. See Engram Entries related section for more detail. | the status and requirements for learning an engram, specified by its name. |
+| `DestroyTamesOverLevelClamp` | 销毁超过等级上限的驯养 | 0 | integer | Game.ini | that exceed that level will be deleted on server start. Official servers have it set to 450. | 超过此等级的驯服生物将在服务器启动时被删除。官方服务器设为450。 |
+| `LevelExperienceRampOverrides` | 等级经验曲线覆盖 | N/A | (...)Configures | Game.ini | the total number of levels available to players and tame creatures and the experience points required to reach each level. See Players and tames levels override section for more details. | 配置玩家和驯服生物的可用等级总数及每级所需经验值。 |
+| `OverrideNamedEngramEntries` | 覆盖命名印痕条目 | N/A | (...)Configures | Game.ini | the status and requirements for learning an engram, specified by its name. See Engram Entries related section for more detail. | 按名称配置印痕的学习状态和要求。 |
 
 #### 物品 (2项)
 
 | 配置项 | 中文名 | 默认值 | 类型 | 配置方式 | 说明 (EN) | 说明 (中文) |
 |--------|--------|--------|------|----------|-----------|-------------|
-| `CraftingSkillBonusMultiplier` | 制作技能奖励倍率 | 1.0 | float | Game.ini | the bonus received from upgrading the Crafting Skill. | the bonus received from upgrading the Crafting Skill. |
-| `ExcludeItemIndices` | 排除物品索引 | N/A | integer | Game.ini | an item from supply crates specifying its Item ID. You can have multiple lines of this option. | an item from supply crates specifying its Item ID. |
+| `CraftingSkillBonusMultiplier` | 制作技能奖励倍率 | 1.0 | float | Game.ini | the bonus received from upgrading the Crafting Skill. | 升级制作技能获得的奖励倍率。 |
+| `ExcludeItemIndices` | 排除物品索引 | N/A | integer | Game.ini | an item from supply crates specifying its Item ID. You can have multiple lines of this option. | 通过物品ID从补给箱中排除物品。 |
 
 #### 时间与存档 (2项)
 
 | 配置项 | 中文名 | 默认值 | 类型 | 配置方式 | 说明 (EN) | 说明 (中文) |
 |--------|--------|--------|------|----------|-----------|-------------|
-| `GlobalItemDecompositionTimeMultiplier` | 全局物品分解时间倍率 | 1.0 | float | Game.ini | the decomposition time of dropped items, loot bags etc. globally. Higher values prolong the time. | the decomposition time of dropped items, loot bags etc. |
-| `GlobalSpoilingTimeMultiplier` | 全局腐烂时间倍率 | 1.0 | float | Game.ini | the spoiling time of perishables globally. Higher values prolong the time. | the spoiling time of perishables globally. |
+| `GlobalItemDecompositionTimeMultiplier` | 全局物品分解时间倍率 | 1.0 | float | Game.ini | the decomposition time of dropped items, loot bags etc. globally. Higher values prolong the time. | 掉落物品、战利品袋等的全局分解时间。数值越高，时间越长。 |
+| `GlobalSpoilingTimeMultiplier` | 全局腐烂时间倍率 | 1.0 | float | Game.ini | the spoiling time of perishables globally. Higher values prolong the time. | 易腐物品的全局腐烂时间。数值越高，腐烂越慢。 |
 
 
 

@@ -43,7 +43,7 @@
 | `app/src/components/ark/ArkClassSelect.vue` | 通用下拉：虚拟滚动 + 可搜索（名称/ClassName）+ 可输入自定义（Mod 兼容） |
 | `app/src/components/ark/CreatureSelect.vue` / `ItemSelect.vue` | `ArkClassSelect` 的薄封装（生物/物品数据集） |
 | `app/src/components/ark/AdvancedGameConfigDialog.vue` | 全屏弹窗外壳：打开时 parse（两类）、确认时 merge 出两文件、按分区渲染折叠面板 |
-| `app/src/components/ark/sections/*.vue` | 配置分区组件（数组分区 + `BasicRulesSection.vue` 基础规则 + `TribeSection.vue` 部落设置） |
+| `app/src/components/ark/sections/*.vue` | 配置分区组件（数组分区 + `BasicRulesSection.vue` 基础规则 + `WorldSection.vue` 环境配置 + `TribeSection.vue` 部落设置 + `DinoMultipliersSection.vue` 生物设置，复合组件：上半部渲染 `dino_*` 简单项，下半部保留 per-class tab 编辑器） |
 | `app/src/components/ark/sections/section.css` | 分区共享样式（行/卡片/空状态/网格，TDesign 令牌 + hover/focus） |
 | `app/src/views/InstanceDetail.vue` | 接入点：「服务器配置」卡片操作区「服务器规则配置」按钮 + 挂载弹窗 + `saveAdvancedConfig`（按需保存两文件） |
 
@@ -65,6 +65,7 @@
   },
   engrams: [{ kind:'index'|'named', engramClassName, engramIndex,
               engramHidden, engramPointsCost, engramLevelRequirement, removeEngramPreReq }],
+  autoUnlocks: [{ engramClassName, levelToAutoUnlock }],   // EngramEntryAutoUnlocks，0=始终解锁
   craftingCosts: [{ itemClassString,
                     resources: [{ resourceItemTypeString, baseResourceRequirement, requireExactType }] }],
   maxQuantity: [{ itemClassString, maxItemQuantity, ignoreMultiplier }],
@@ -226,7 +227,7 @@ const add = () => props.model.push({className: '', multiplier: 1})
 | 导出 | 说明 |
 |------|------|
 | `SETTINGS_REGISTRY` | 全部简单项声明 `[{ key, file:'game'\|'gus', type:'bool'\|'float'\|'int', default, inverse, group, label, tip }]` |
-| `SETTING_GROUPS` | 分组 `[{ key, label, panel:'basic'\|'tribe' }]`，决定 UI 小节顺序及所属面板 |
+| `SETTING_GROUPS` | 分组 `[{ key, label, panel:'basic'\|'world'\|'tribe'\|'dino' }]`，决定 UI 小节顺序及所属面板 |
 | `createEmptyUiModel()` | 全部项取默认 UI 值（key→bool/number） |
 | `parseSettings(gameText, gusText)` → `{ model, ... }` | 从两文件解析出可编辑 UI 模型（应用 inverse） |
 | `applySettings(gameText, gusText, model)` → `{ gameIni, gameUserSettings }` | 把 UI 模型合并回两文件（无损保留其余内容） |
@@ -234,7 +235,7 @@ const add = () => props.model.push({className: '', multiplier: 1})
 
 - **inverse**：UI 开关与 INI 语义相反（如「开启 PvP」= `serverPVE=False`、「开启队友伤害」= `bDisableFriendlyFire=False`）。`default` 为 INI 原生默认值。
 - **写盘策略**（`serializeScalars`）：仅写「非默认 **或** 原文件已存在」的键 —— 回默认且原无 → 不写；回默认但原有 → 写默认值（保留显式声明）。布尔输出 `True/False`，浮点用 `arkGameIni` 同款数字格式，整数用 `String(Math.round(n))`。
-- **`panel` 字段**：`SETTING_GROUPS` 每项带 `panel: 'basic' | 'tribe'`，用于将分组分派到不同的面板组件。`BasicRulesSection.vue` 渲染 `panel === 'basic'` 的组；`TribeSection.vue` 渲染 `panel === 'tribe'` 的组。`AdvancedGameConfigDialog.vue` 中 `basicCount` / `tribeCount` 也各自只统计本面板的非默认项数。
+- **`panel` 字段**：`SETTING_GROUPS` 每项带 `panel: 'basic' | 'world' | 'tribe' | 'dino'`，用于将分组分派到不同面板组件。`BasicRulesSection.vue` 渲染 `panel === 'basic'` 的组；`WorldSection.vue` 渲染 `panel === 'world'` 的组；`TribeSection.vue` 渲染 `panel === 'tribe'` 的组；`DinoMultipliersSection.vue` 上半部渲染 `panel === 'dino'` 的组（下半部保留 per-class tab 编辑器）。`AdvancedGameConfigDialog.vue` 中 `basicCount` / `worldCount` / `tribeCount` / `dinoSimpleCount` 各自只统计本面板的非默认项数；`dino` 面板徽章 = `dinoSimpleCount + classMultipliers` 条目数之和。
 - 合并语义与 `arkGameIni` 一致（`absorbed` 删旧行、块插回首个被删行处、节不存在则新建），见 4.2。
 
 ### 6.2 新增一个简单项（一行）
@@ -268,28 +269,50 @@ const add = () => props.model.push({className: '', multiplier: 1})
 // 基础规则面板（BasicRulesSection.vue）
 { key: 'build', label: '建造限制', panel: 'basic' },
 
+// 环境配置面板（WorldSection.vue）
+{ key: 'diff',  label: '难度设置', panel: 'world' },
+{ key: 'world', label: '环境配置', panel: 'world' },
+
 // 部落面板（TribeSection.vue）
 { key: 'orp',   label: '离线突袭保护（ORP）', panel: 'tribe' },
 { key: 'tribe', label: '部落设置',            panel: 'tribe' },
+
+// 生物设置面板（DinoMultipliersSection.vue 上半部）
+{ key: 'dino_num',   label: '数量上限',   panel: 'dino' },
+{ key: 'dino_mult',  label: '倍率设置',   panel: 'dino' },
+{ key: 'dino_breed', label: '繁殖与幼崽', panel: 'dino' },
+{ key: 'dino_rule',  label: '行为规则',   panel: 'dino' },
 ```
 
 目前已有分组及所属面板：
 
-| group | label | panel |
-|-------|-------|-------|
-| `pvp` | PvP / PvE 规则 | `basic` |
-| `build` | 建造限制 | `basic` |
-| `loot` | 补给箱 / 钓鱼 | `basic` |
-| `cryo` | 低温舱（Cryopod） | `basic` |
-| `cross` | 跨服传输（Cross-ARK） | `basic` |
-| `tame` | 生物管理 | `basic` |
-| `env` | 环境 / 资源消耗 | `basic` |
-| `orp` | 离线突袭保护（ORP） | `tribe` |
-| `tribe` | 部落设置 | `tribe` |
+| group | label | panel | 说明 |
+|-------|-------|-------|------|
+| `diff` | 难度设置 | `world` | DifficultyOffset、OverrideOfficialDifficulty；后者 > 0 时自动将前者设为 1.0 |
+| `world` | 环境配置 | `world` | 昼夜、玩家属性消耗/倍率、采集、建筑数量与拾取等 23 项 |
+| `pvp` | PvP / PvE 规则 | `basic` | |
+| `build` | 建造限制 | `basic` | |
+| `loot` | 补给箱 / 钓鱼 | `basic` | |
+| `cryo` | 低温舱（Cryopod） | `basic` | |
+| `cross` | 跨服传输（Cross-ARK） | `basic` | |
+| `tame` | 生物管理 | `basic` | |
+| `env` | 环境（其他） | `basic` | 尸体/电池/燃料/物品属性上限等杂项；`OxygenSwimSpeedStatMultiplier` 已迁至 `world` |
+| `orp` | 离线突袭保护（ORP） | `tribe` | |
+| `tribe` | 部落设置 | `tribe` | |
+| `dino_num` | 数量上限 | `dino` | |
+| `dino_mult` | 倍率设置 | `dino` | 含新增 `TamingSpeedMultiplier`（驯服速度倍率，排在被动驯服间隔之后） |
+| `dino_breed` | 繁殖与幼崽 | `dino` | 交配/下蛋/孵化/幼崽成熟/印记等 11 项，全部写入 Game.ini |
+| `dino_rule` | 行为规则 | `dino` | |
+
+> **迁移记录**：
+> - `MaxPersonalTamedDinos` / `AllowRaidDinoFeeding` / `RaidDinoCharacterFoodDrainMultiplier`：`tribe` → `dino_num` / `dino_rule` / `dino_mult`
+> - `OxygenSwimSpeedStatMultiplier`：`env` → `world`
 
 新增 `panel: 'basic'` 的分组：自动出现在「基础规则设置」折叠面板中，`basicCount` 统计计数自动包含。  
+新增 `panel: 'world'` 的分组：自动出现在「环境配置」折叠面板中，`worldCount` 统计计数自动包含。  
 新增 `panel: 'tribe'` 的分组：自动出现在「部落设置」折叠面板中，`tribeCount` 统计计数自动包含。  
-若需增加第三个面板，新建 `XxxSection.vue`（复制 `TribeSection.vue` 改 `panel === 'xxx'`），并在 `AdvancedGameConfigDialog.vue` 的 `panels` 数组与 `counts` computed 中追加即可。
+新增 `panel: 'dino'` 的分组：自动出现在「生物设置」折叠面板上半部的简单项网格中，`dinoSimpleCount` 统计计数自动包含。  
+若需增加新面板，新建 `XxxSection.vue`（复制 `WorldSection.vue` 改 `panel === 'xxx'`），并在 `AdvancedGameConfigDialog.vue` 的 `panels` 数组、`xxxKeys` Set、`xxxCount` 函数及 `counts` computed 中追加即可。
 
 ### 6.4 弹窗与保存（已接好，新增简单项无需改）
 
@@ -324,7 +347,11 @@ const add = () => props.model.push({className: '', multiplier: 1})
 3. **嵌套结构**：重点测多/单子项的 `(...)` 嵌套往返。
 4. **简单项（arkSimpleSettings）**：临时 node 脚本验证 `parseSettings` → 改 `model` → `applySettings`：inverse 解析正确、默认值不写、回默认但原有则写、跨两文件保留注释/未识别键、幂等；并测「数组合并 + 标量合并」在同一 Game.ini 合成无 clobber、无重复行。
 5. **构建**：`cd app && npm run build` 通过。
-6. **联调**：`npm run dev`（代理 :19193）→ 实例详情 → 「服务器配置」卡片 →「服务器规则配置」按钮 → 各分区（基础规则设置 / 部落设置 / 生物倍率 … 共 8 个）增删改保存 → Monaco 查看器 + 真实文件 `{Game,GameUserSettings}.ini` 核对 → 重新打开确认回显无丢失。
+6. **联调**：`npm run dev`（代理 :19193）→ 实例详情 → 「服务器配置」卡片 →「服务器规则配置」按钮 → 各分区（1 基础规则设置 / 2 环境配置 / 3 部落设置 / 4 生物设置 / 5 印痕 / 6 制作消耗 / 7 最大堆叠 / 8 等级 / 9 属性倍率，共 **9 个**）增删改保存 → Monaco 查看器 + 真实文件 `{Game,GameUserSettings}.ini` 核对 → 重新打开确认回显无丢失。重点验证：
+   - **环境配置**面板：「难度设置」2 项（修改 `OverrideOfficialDifficulty > 0` 应自动将 `DifficultyOffset` 置为 1.0）、「环境配置」23 项（含 `OxygenSwimSpeedStatMultiplier`）正确显示；
+   - **生物设置**面板：上半部 4 个子分组（数量上限 3 项、倍率设置含 `TamingSpeedMultiplier` 共 16 项、繁殖与幼崽 11 项、行为规则 10 项）正确渲染，下半部 per-class tab 正常；「洞穴飞行」开关显示于行为规则组末尾；
+   - **印痕**面板：顶部「自动解锁印痕」区块（`EngramEntryAutoUnlocks`）和底部「印痕条目覆盖」区块均可增删，计数徽章合计两者之和；
+   - **部落设置**面板中 `MaxPersonalTamedDinos` / `AllowRaidDinoFeeding` / `RaidDinoCharacterFoodDrainMultiplier` 已不再显示，`OxygenSwimSpeedStatMultiplier` 也已不再显示。
 
 ---
 
