@@ -23,6 +23,7 @@ const isSeparatorRow = (cells) =>
   cells.length > 0 && cells.every((c) => c === '' || /^:?-+:?$/.test(c))
 
 const stripBackticks = (s) => (s || '').replace(/`/g, '').trim()
+const stripMarkdownLink = (s) => (s || '').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').trim()
 
 /**
  * 遍历所有 Markdown 表格的数据行，回调 (cells, colIdx)。
@@ -49,19 +50,21 @@ function eachTableRow(md, cb) {
   }
 }
 
-/** 通用提取：classCol 为存放 ClassName 的列名（物品=Class Name，生物=Entity ID） */
-function extract(md, classCol, extraCols) {
+/** 通用提取：classCol 为 ClassName 列名，nameCol 为英文名列名，zhCol 为中文名列名（可选） */
+function extract(md, classCol, extraCols, nameCol = '名称', zhCol = null) {
   const out = []
   const seen = new Set()
   eachTableRow(md, (cells, colIdx) => {
-    const ni = colIdx['名称']
+    const ni = colIdx[nameCol]
     const ci = colIdx[classCol]
     if (ni == null || ci == null) return
-    const name = cells[ni]
+    const rawName = stripMarkdownLink(cells[ni])
     const className = stripBackticks(cells[ci])
-    if (!name || !className || className === '-') return
+    if (!rawName || !className || className === '-') return
     if (seen.has(className)) return
     seen.add(className)
+    const zh = zhCol != null && colIdx[zhCol] != null ? cells[colIdx[zhCol]]?.trim() : ''
+    const name = zh && zh !== '-' ? `${zh}(${rawName})` : rawName
     const row = { name, className, category: colIdx['分类'] != null ? cells[colIdx['分类']] : '' }
     for (const [key, col] of Object.entries(extraCols || {})) {
       row[key] = colIdx[col] != null ? cells[colIdx[col]] : ''
@@ -72,18 +75,22 @@ function extract(md, classCol, extraCols) {
 }
 
 function extractEngrams(md) {
+  // 新格式：单表 | Item | 名称（中文） | Engram Class | Index |
   const out = []
   const seen = new Set()
   eachTableRow(md, (cells, colIdx) => {
-    const ni = colIdx['Item']
+    const ei = colIdx['Item']
+    const zi = colIdx['名称（中文）']
     const ci = colIdx['Engram Class']
     const ii = colIdx['Index']
-    if (ni == null || ci == null) return
-    const name = cells[ni]
+    if (ei == null || ci == null) return
+    const item = cells[ei]?.trim()
     const className = stripBackticks(cells[ci])
-    if (!name || !className || className === '-') return
+    if (!item || !className || className === '-') return
     if (seen.has(className)) return
     seen.add(className)
+    const zh = zi != null ? cells[zi]?.trim() : ''
+    const name = zh && zh !== '-' ? `${zh}(${item})` : item
     out.push({ name, className, index: ii != null ? (parseInt(cells[ii], 10) || 0) : 0 })
   })
   return out
@@ -92,12 +99,12 @@ function extractEngrams(md) {
 function main() {
   mkdirSync(outDir, { recursive: true })
 
-  const itemsMd = readFileSync(resolve(docsDir, 'asa-item-ids.md'), 'utf8')
-  const creaturesMd = readFileSync(resolve(docsDir, 'asa-creature-ids.md'), 'utf8')
+  const itemsMd = readFileSync(resolve(docsDir, 'asa-itemsids.md'), 'utf8')
+  const creaturesMd = readFileSync(resolve(docsDir, 'asa-creatureids.md'), 'utf8')
   const engramsMd = readFileSync(resolve(docsDir, 'asa-engrams.md'), 'utf8')
 
-  const items = extract(itemsMd, 'Class Name', { stack: '堆叠' })
-  const creatures = extract(creaturesMd, 'Entity ID', { nameTag: 'Name Tag' })
+  const items = extract(itemsMd, 'Class Name', { stack: 'Stack Size' }, 'Name', 'Chinese Name')
+  const creatures = extract(creaturesMd, 'Entity ID', { nameTag: 'Name Tag' }, '名称', '名称（中文）')
   const engrams = extractEngrams(engramsMd)
 
   writeFileSync(resolve(outDir, 'ark-items.json'), JSON.stringify(items), 'utf8')

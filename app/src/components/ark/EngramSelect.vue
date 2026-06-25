@@ -2,7 +2,7 @@
   <ark-class-select
       :model-value="modelValue"
       dataset="engrams"
-      placeholder="搜索印痕名称或 ClassName"
+      placeholder="搜索印痕中文名或 ClassName"
       @update:model-value="(v) => emit('update:modelValue', v)"
   />
 </template>
