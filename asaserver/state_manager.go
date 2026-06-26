@@ -50,6 +50,9 @@ type StateManager struct {
 	maxHistoryRecords int                // 每个实例的最大历史记录数
 	cancelFunc        context.CancelFunc // watcher 关闭
 	seq               atomic.Uint64      // 进程内单调递增序列号，保证 key 有序
+	subMu             sync.Mutex
+	subs              map[int]chan InstanceState
+	nextSubID         int
 }
 
 const DefaultMaxHistoryRecords = 500 // 每个实例的最大历史记录数
@@ -73,6 +76,7 @@ func NewStateManager(baseDir string) (*StateManager, error) {
 		db:                db,
 		path:              dbPath,
 		maxHistoryRecords: DefaultMaxHistoryRecords,
+		subs:              make(map[int]chan InstanceState),
 	}
 	sm.stateChange = sync.NewCond(&sm.mu)
 	sm.seq.Store(1) // 序列号从 1 开始
@@ -93,6 +97,15 @@ func (sm *StateManager) Close() error {
 	if sm.cancelFunc != nil {
 		sm.cancelFunc()
 	}
+
+	// 关闭所有订阅 channel，让订阅者 goroutine 感知关闭
+	sm.subMu.Lock()
+	for id, ch := range sm.subs {
+		delete(sm.subs, id)
+		close(ch)
+	}
+	sm.subMu.Unlock()
+
 	if sm.db != nil {
 		return sm.db.Close()
 	}
@@ -475,6 +488,7 @@ func (sm *StateManager) writeStateLocked(state InstanceState) error {
 	}
 
 	sm.stateChange.Broadcast()
+	sm.notifySubscribers(state)
 	return sm.cleanupOldRecords(state.InstanceName)
 }
 
@@ -499,6 +513,43 @@ func (sm *StateManager) WaitForCondition(condition func() bool, timeout time.Dur
 		timer.Stop()
 	}
 	return nil
+}
+
+// ========== 订阅机制 ==========
+
+// Subscribe 注册状态变更订阅，返回订阅 ID 和只读 channel。
+// bufSize 建议 32~64，慢消费者会丢弃事件（非阻塞投递）。
+func (sm *StateManager) Subscribe(bufSize int) (int, <-chan InstanceState) {
+	ch := make(chan InstanceState, bufSize)
+	sm.subMu.Lock()
+	id := sm.nextSubID
+	sm.nextSubID++
+	sm.subs[id] = ch
+	sm.subMu.Unlock()
+	return id, ch
+}
+
+// Unsubscribe 注销订阅并关闭对应 channel。
+func (sm *StateManager) Unsubscribe(id int) {
+	sm.subMu.Lock()
+	if ch, ok := sm.subs[id]; ok {
+		delete(sm.subs, id)
+		close(ch)
+	}
+	sm.subMu.Unlock()
+}
+
+// notifySubscribers 在 sm.mu 持有期间向所有订阅者非阻塞投递状态。
+// 锁序：sm.mu → subMu，Subscribe/Unsubscribe 只获取 subMu，无死锁风险。
+func (sm *StateManager) notifySubscribers(state InstanceState) {
+	sm.subMu.Lock()
+	for _, ch := range sm.subs {
+		select {
+		case ch <- state:
+		default: // 慢消费者直接丢弃，保证写入路径不阻塞
+		}
+	}
+	sm.subMu.Unlock()
 }
 
 // ========== 原子状态转换（CAS） ==========
@@ -576,6 +627,23 @@ func (sm *StateManager) isOperationAllowed(instanceName string, op OperationType
 }
 
 // ========== 对外包级便捷函数 ==========
+
+// SubscribeStateChanges 订阅全局状态变更（包级函数）。
+// 返回订阅 ID（用于取消订阅）和只读 channel。
+// 必须在 InitStateManager 之后调用。
+func SubscribeStateChanges(bufSize int) (int, <-chan InstanceState) {
+	if instanceStateManager == nil {
+		return -1, nil
+	}
+	return instanceStateManager.Subscribe(bufSize)
+}
+
+// UnsubscribeStateChanges 取消状态变更订阅（包级函数）。
+func UnsubscribeStateChanges(id int) {
+	if instanceStateManager != nil {
+		instanceStateManager.Unsubscribe(id)
+	}
+}
 
 // CompareAndSwapInstanceState 原子状态转换（包级函数）
 func CompareAndSwapInstanceState(instanceName string, allowedStates []InstanceStatus, newStatus InstanceStatus) (bool, error) {

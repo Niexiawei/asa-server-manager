@@ -94,6 +94,7 @@ func (s *APIServer) Start() error {
 	if err := asaserver.InitStateManager(asaserver.BaseDir); err != nil {
 		panic(err)
 	}
+	s.startStateChangeDispatcher(s.serverCtx)
 
 	// Start save file monitor
 	if s.saveDataManager != nil {

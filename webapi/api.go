@@ -3,7 +3,6 @@ package webapi
 import (
 	"asa-server/asaserver"
 	"asa-server/backup"
-	"asa-server/httpserver"
 	"asa-server/logger"
 	"asa-server/parseserver"
 	"asa-server/serverinfo"
@@ -426,9 +425,6 @@ func (s *APIServer) startServer(c *gin.Context) {
 		return
 	}
 
-	// Broadcast server starting event
-	httpserver.BroadcastServerStartingEvent(instanceName)
-
 	// 异步启动（复用 runStartServerTask，锁冲突由核心层处理）
 	go s.runStartServerTask(instanceName)
 
@@ -450,7 +446,6 @@ func (s *APIServer) stopServer(c *gin.Context) {
 		return
 	}
 
-	httpserver.BroadcastServerStoppingEvent(name)
 	go s.runStopServerTask(name)
 
 	c.JSON(http.StatusOK, StatusResponse{
@@ -471,7 +466,6 @@ func (s *APIServer) restartServer(c *gin.Context) {
 		return
 	}
 
-	httpserver.BroadcastServerRestartingEvent(name)
 	go s.runRestartServerTask(name)
 
 	c.JSON(http.StatusOK, StatusResponse{
@@ -487,7 +481,6 @@ func (s *APIServer) forceStopServer(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, StatusResponse{Success: false, Error: err.Error()})
 		return
 	}
-	httpserver.BroadcastServerStoppedEvent(name)
 	c.JSON(http.StatusOK, StatusResponse{
 		Success: true,
 		Message: fmt.Sprintf("Server '%s' has been force stopped", name),
