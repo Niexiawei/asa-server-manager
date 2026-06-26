@@ -102,7 +102,7 @@
 | Empty Cryopod | 空的低温舱 | 1 | - | PrimalItem_WeaponEmptyCryopod_C | Extinction/CoreBlueprints/Weapons/PrimalItem_WeaponEmptyCryopod.PrimalItem_WeaponEmptyCryopod | ![Empty Cryopod](../icon/items/PrimalItem_WeaponEmptyCryopod_C.png) |
 | Fish Net | 渔网 | 1 | - | PrimalItem_WeaponFishingNet_C | Genesis/Weapons/FishingNet/PrimalItem_WeaponFishingNet.PrimalItem_WeaponFishingNet | ![Fish Net](../icon/items/PrimalItem_WeaponFishingNet_C.png) |
 | Fishing Rod | 鱼竿 | 1 | - | PrimalItem_WeaponFishingRod_C | PrimalEarth/CoreBlueprints/Weapons/PrimalItem_WeaponFishingRod.PrimalItem_WeaponFishingRod | ![Fishing Rod](../icon/items/PrimalItem_WeaponFishingRod_C.png) |
-| GPS |  | 1 | 71 | PrimalItem_WeaponGPS_C | PrimalEarth/Test/PrimalItem_WeaponGPS.PrimalItem_WeaponGPS | ![GPS](../icon/items/PrimalItem_WeaponGPS_C.png) |
+| GPS | GPS | 1 | 71 | PrimalItem_WeaponGPS_C | PrimalEarth/Test/PrimalItem_WeaponGPS.PrimalItem_WeaponGPS | ![GPS](../icon/items/PrimalItem_WeaponGPS_C.png) |
 | Magnifying Glass | 放大镜 | 1 | - | PrimalItem_WeaponMagnifyingGlass_C | PrimalEarth/Test/PrimalItem_WeaponMagnifyingGlass.PrimalItem_WeaponMagnifyingGlass | ![Magnifying Glass](../icon/items/PrimalItem_WeaponMagnifyingGlass_C.png) |
 | Metal Hatchet | 金属斧子 | 1 | 36 | PrimalItem_WeaponMetalHatchet_C | PrimalEarth/CoreBlueprints/Weapons/PrimalItem_WeaponMetalHatchet.PrimalItem_WeaponMetalHatchet | ![Metal Hatchet](../icon/items/PrimalItem_WeaponMetalHatchet_C.png) |
 | Metal Pick | 金属镐 | 1 | 35 | PrimalItem_WeaponMetalPick_C | PrimalEarth/CoreBlueprints/Weapons/PrimalItem_WeaponMetalPick.PrimalItem_WeaponMetalPick | ![Metal Pick](../icon/items/PrimalItem_WeaponMetalPick_C.png) |
