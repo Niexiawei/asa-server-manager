@@ -186,6 +186,7 @@ type StartServerOptions struct {
 	OnRestartStartupComplete     func(instanceName string)
 	RetryOnNetworkError          int           // serverUnreachable 错误重试次数，0 → 默认 3
 	RetryInterval                time.Duration // 重试间隔，0 → 默认 5s
+	StatePreset                  bool          // CAS 已由调用方完成，跳过内部 CAS
 }
 
 type StartServerOptionsFunc func(options *StartServerOptions)
@@ -234,27 +235,35 @@ func WithRetryInterval(d time.Duration) StartServerOptionsFunc {
 	return func(options *StartServerOptions) { options.RetryInterval = d }
 }
 
+// WithStatePreset 表示调用方已完成 CAS，函数内部跳过重复的原子状态检查。
+func WithStatePreset() StartServerOptionsFunc {
+	return func(options *StartServerOptions) { options.StatePreset = true }
+}
+
 func isNetworkRetriableStartupError(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "ApiError: Failed (serverUnreachable)")
 }
 
 // StartServer starts a server instance (public version with CAS check)
 func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
-	// CAS: 原子检查状态并转换到 start_initialization
-	ok, err := CompareAndSwapInstanceState(instanceName,
-		[]InstanceStatus{StatusStopped, StatusStartFailed, StatusStopFailed, StatusRestartFailed, ""},
-		StatusStartStartInitialization)
-	if err != nil {
-		return fmt.Errorf("failed to check instance state: %w", err)
-	}
-	if !ok {
-		return ErrOperationNotAllowed
-	}
-
 	tmpOpts := new(StartServerOptions)
 	for _, o := range options {
 		o(tmpOpts)
 	}
+
+	if !tmpOpts.StatePreset {
+		// CAS: 原子检查状态并转换到 start_initialization
+		ok, err := CompareAndSwapInstanceState(instanceName,
+			[]InstanceStatus{StatusStopped, StatusStartFailed, StatusStopFailed, StatusRestartFailed, ""},
+			StatusStartStartInitialization)
+		if err != nil {
+			return fmt.Errorf("failed to check instance state: %w", err)
+		}
+		if !ok {
+			return ErrOperationNotAllowed
+		}
+	}
+
 	retryCount := tmpOpts.RetryOnNetworkError
 	if retryCount == 0 {
 		retryCount = 3
@@ -567,16 +576,23 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 }
 
 // StopServer stops a server instance (public version with CAS check)
-func StopServer(instanceName string) error {
-	// CAS: 原子检查状态并转换到 stopping
-	ok, err := CompareAndSwapInstanceState(instanceName,
-		[]InstanceStatus{StatusStarted},
-		StatusStopping)
-	if err != nil {
-		return fmt.Errorf("failed to check instance state: %w", err)
+func StopServer(instanceName string, options ...StartServerOptionsFunc) error {
+	opts := new(StartServerOptions)
+	for _, o := range options {
+		o(opts)
 	}
-	if !ok {
-		return ErrOperationNotAllowed
+
+	if !opts.StatePreset {
+		// CAS: 原子检查状态并转换到 stopping
+		ok, err := CompareAndSwapInstanceState(instanceName,
+			[]InstanceStatus{StatusStarted},
+			StatusStopping)
+		if err != nil {
+			return fmt.Errorf("failed to check instance state: %w", err)
+		}
+		if !ok {
+			return ErrOperationNotAllowed
+		}
 	}
 
 	return stopServerInternal(instanceName)
@@ -724,15 +740,22 @@ func KillServer(instanceName string) error {
 
 // RestartServer restarts a server instance
 func RestartServer(instanceName string, options ...StartServerOptionsFunc) error {
-	// CAS: 原子检查状态并转换到 restarting
-	ok, err := CompareAndSwapInstanceState(instanceName,
-		[]InstanceStatus{StatusStarted},
-		StatusRestarting)
-	if err != nil {
-		return fmt.Errorf("failed to check instance state: %w", err)
+	opts := new(StartServerOptions)
+	for _, o := range options {
+		o(opts)
 	}
-	if !ok {
-		return ErrOperationNotAllowed
+
+	if !opts.StatePreset {
+		// CAS: 原子检查状态并转换到 restarting
+		ok, err := CompareAndSwapInstanceState(instanceName,
+			[]InstanceStatus{StatusStarted},
+			StatusRestarting)
+		if err != nil {
+			return fmt.Errorf("failed to check instance state: %w", err)
+		}
+		if !ok {
+			return ErrOperationNotAllowed
+		}
 	}
 
 	// 使用一个变量来记录错误，以便在函数结束时检查是否需要记录失败状态

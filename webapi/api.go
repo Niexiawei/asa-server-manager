@@ -375,48 +375,11 @@ func (s *APIServer) renameInstance(c *gin.Context) {
 	})
 }
 
-// checkInstanceState 检查实例是否可执行指定操作
-// 返回非空字符串表示拒绝原因
-func checkInstanceState(instanceName string, op asaserver.OperationType) string {
-	allowed, reason := asaserver.IsOperationAllowed(instanceName, op)
-	if !allowed {
-		return reason
-	}
-	return ""
-}
-
 // startServer starts a server instance
 func (s *APIServer) startServer(c *gin.Context) {
 	instanceName := c.Param("name")
 
-	// Check if server is already running first
-	running, err := asaserver.IsServerRunning(instanceName)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, StatusResponse{
-			Success: false,
-			Error:   fmt.Sprintf("Failed to check server status: %v", err),
-		})
-		return
-	}
-
-	if running {
-		c.JSON(http.StatusConflict, StatusResponse{
-			Success: false,
-			Error:   fmt.Sprintf("Server '%s' is already running", instanceName),
-		})
-		return
-	}
-
-	// 状态检查
-	if reason := checkInstanceState(instanceName, asaserver.OpStart); reason != "" {
-		c.JSON(http.StatusConflict, StatusResponse{
-			Success: false,
-			Error:   reason,
-		})
-		return
-	}
-
-	// Check for duplicate ports
+	// Check for duplicate ports before acquiring state lock
 	if err := asaserver.CheckForDuplicatePorts(); err != nil {
 		c.JSON(http.StatusConflict, StatusResponse{
 			Success: false,
@@ -425,7 +388,29 @@ func (s *APIServer) startServer(c *gin.Context) {
 		return
 	}
 
-	// 异步启动（复用 runStartServerTask，锁冲突由核心层处理）
+	// 同步 CAS：原子检查并设置状态，立即返回 409 如果不允许
+	ok, err := asaserver.CompareAndSwapInstanceState(instanceName,
+		[]asaserver.InstanceStatus{
+			asaserver.StatusStopped, asaserver.StatusStartFailed,
+			asaserver.StatusStopFailed, asaserver.StatusRestartFailed, "",
+		},
+		asaserver.StatusStartStartInitialization)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, StatusResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to check instance state: %v", err),
+		})
+		return
+	}
+	if !ok {
+		c.JSON(http.StatusConflict, StatusResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Server '%s' operation not allowed in current state", instanceName),
+		})
+		return
+	}
+
+	// CAS 已成功（state = start_initialization），异步完成启动
 	go s.runStartServerTask(instanceName)
 
 	c.JSON(http.StatusOK, StatusResponse{
@@ -438,10 +423,21 @@ func (s *APIServer) startServer(c *gin.Context) {
 func (s *APIServer) stopServer(c *gin.Context) {
 	name := c.Param("name")
 
-	if reason := checkInstanceState(name, asaserver.OpStop); reason != "" {
+	// 同步 CAS：原子检查并设置状态，立即返回 409 如果不允许
+	ok, err := asaserver.CompareAndSwapInstanceState(name,
+		[]asaserver.InstanceStatus{asaserver.StatusStarted},
+		asaserver.StatusStopping)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, StatusResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to check instance state: %v", err),
+		})
+		return
+	}
+	if !ok {
 		c.JSON(http.StatusConflict, StatusResponse{
 			Success: false,
-			Error:   reason,
+			Error:   fmt.Sprintf("Server '%s' operation not allowed in current state", name),
 		})
 		return
 	}
@@ -458,10 +454,21 @@ func (s *APIServer) stopServer(c *gin.Context) {
 func (s *APIServer) restartServer(c *gin.Context) {
 	name := c.Param("name")
 
-	if reason := checkInstanceState(name, asaserver.OpRestart); reason != "" {
+	// 同步 CAS：原子检查并设置状态，立即返回 409 如果不允许
+	ok, err := asaserver.CompareAndSwapInstanceState(name,
+		[]asaserver.InstanceStatus{asaserver.StatusStarted},
+		asaserver.StatusRestarting)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, StatusResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to check instance state: %v", err),
+		})
+		return
+	}
+	if !ok {
 		c.JSON(http.StatusConflict, StatusResponse{
 			Success: false,
-			Error:   reason,
+			Error:   fmt.Sprintf("Server '%s' operation not allowed in current state", name),
 		})
 		return
 	}

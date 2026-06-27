@@ -160,11 +160,11 @@ func (lb *LogBroadcaster) broadcast() {
 
 // BatchOperation 单次批量操作
 type BatchOperation struct {
-	Type            BatchOperationType  `json:"type"`
-	Instances       []string            `json:"instances"`
-	DelayBetween    time.Duration       `json:"-"`
-	Status          string              `json:"status"` // running / completed / cancelled
-	InstanceResults []*InstanceResult   `json:"instance_results"`
+	Type            BatchOperationType `json:"type"`
+	Instances       []string           `json:"instances"`
+	DelayBetween    time.Duration      `json:"-"`
+	Status          string             `json:"status"` // running / completed / cancelled
+	InstanceResults []*InstanceResult  `json:"instance_results"`
 
 	ctx          context.Context
 	cancel       context.CancelFunc
@@ -409,12 +409,17 @@ func (bm *BatchManager) runBatchOperation(op *BatchOperation) {
 		default:
 		}
 
-		// 状态检查
-		asaOpType := toASAOperationType(op.Type)
-		allowed, reason := asaserver.IsOperationAllowed(instanceName, asaOpType)
-		if !allowed {
-			op.setResult(instanceName, InstanceSkipped, reason)
-			op.sendLog("warning", fmt.Sprintf("Instance '%s' skipped: %s", instanceName, reason), instanceName)
+		// 原子 CAS：预检并设置状态，失败时跳过该实例
+		ok, casErr := batchDoCAS(instanceName, op.Type)
+		if casErr != nil {
+			op.setResult(instanceName, InstanceFailed, casErr.Error())
+			op.sendLog("error", fmt.Sprintf("Instance '%s' CAS error: %v", instanceName, casErr), instanceName)
+			failed++
+			continue
+		}
+		if !ok {
+			op.setResult(instanceName, InstanceSkipped, "operation not allowed in current state")
+			op.sendLog("warning", fmt.Sprintf("Instance '%s' skipped: operation not allowed in current state", instanceName), instanceName)
 			continue
 		}
 
@@ -458,7 +463,7 @@ func (bm *BatchManager) runBatchOperation(op *BatchOperation) {
 	op.sendLog("completed", fmt.Sprintf("[COMPLETED] %d/%d succeeded, %d failed", succeeded, totalInstances, failed), "")
 }
 
-// executeInstance 执行单个实例操作
+// executeInstance 执行单个实例操作（调用方已完成 CAS，此处传 WithStatePreset）
 func (op *BatchOperation) executeInstance(instanceName string, opType BatchOperationType) {
 	var err error
 	actionVerb := ""
@@ -466,52 +471,30 @@ func (op *BatchOperation) executeInstance(instanceName string, opType BatchOpera
 	switch opType {
 	case BatchStart:
 		actionVerb = "starting"
-		httpserver.BroadcastServerStartingEvent(instanceName)
 		op.sendLog("info", fmt.Sprintf("Starting instance '%s'...", instanceName), instanceName)
-		err = asaserver.StartServer(instanceName)
+		err = asaserver.StartServer(instanceName, asaserver.WithStatePreset())
 
 	case BatchStop:
 		actionVerb = "stopping"
-		httpserver.BroadcastServerStoppingEvent(instanceName)
 		op.sendLog("info", fmt.Sprintf("Stopping instance '%s'...", instanceName), instanceName)
-		err = asaserver.StopServer(instanceName)
+		err = asaserver.StopServer(instanceName, asaserver.WithStatePreset())
 
 	case BatchRestart:
 		actionVerb = "restarting"
-		httpserver.BroadcastServerRestartingEvent(instanceName)
 		op.sendLog("info", fmt.Sprintf("Restarting instance '%s'...", instanceName), instanceName)
 		err = asaserver.RestartServer(instanceName,
-			asaserver.WithRestartStartupCompletion(func(name string) {
-				httpserver.BroadcastServerRestartedEvent(name)
-			}),
+			asaserver.WithStatePreset(),
+			asaserver.WithRestartStartupCompletion(func(string) {}), // 写 StatusRestarted 状态供 dispatcher 推送
 		)
 	}
-
 	if err != nil {
 		op.setResult(instanceName, InstanceFailed, err.Error())
 		op.sendLog("error", fmt.Sprintf("Failed %s instance '%s': %v", actionVerb, instanceName, err), instanceName)
-		// 触发失败 hook
-		switch opType {
-		case BatchStart:
-			httpserver.BroadcastServerEvent("server_start_failed", instanceName, fmt.Sprintf("Failed to start server: %v", err), "failed")
-		case BatchStop, BatchRestart:
-			httpserver.BroadcastServerEvent("server_stop_failed", instanceName, fmt.Sprintf("Failed to stop server: %v", err), "failed")
-		}
 		return
 	}
 
 	op.setResult(instanceName, InstanceSuccess, "")
 	op.sendLog("success", fmt.Sprintf("Instance '%s' %sed successfully", instanceName, actionVerb), instanceName)
-
-	// 触发成功 hook
-	switch opType {
-	case BatchStart:
-		httpserver.BroadcastServerStartedEvent(instanceName)
-	case BatchStop:
-		httpserver.BroadcastServerStoppedEvent(instanceName)
-	case BatchRestart:
-		httpserver.BroadcastServerStartedEvent(instanceName)
-	}
 }
 
 // markRemainingCancelled 标记所有剩余实例为已取消
@@ -545,16 +528,25 @@ func (op *BatchOperation) GetLogBroadcaster() *LogBroadcaster {
 	return op.logBroadcaster
 }
 
-// toASAOperationType 转换操作类型
-func toASAOperationType(bt BatchOperationType) asaserver.OperationType {
-	switch bt {
+// batchDoCAS 为批量操作做原子 CAS。成功（ok=true）时状态已设置，调用方应传 WithStatePreset。
+func batchDoCAS(instanceName string, opType BatchOperationType) (bool, error) {
+	switch opType {
 	case BatchStart:
-		return asaserver.OpStart
+		return asaserver.CompareAndSwapInstanceState(instanceName,
+			[]asaserver.InstanceStatus{
+				asaserver.StatusStopped, asaserver.StatusStartFailed,
+				asaserver.StatusStopFailed, asaserver.StatusRestartFailed, "",
+			},
+			asaserver.StatusStartStartInitialization)
 	case BatchStop:
-		return asaserver.OpStop
+		return asaserver.CompareAndSwapInstanceState(instanceName,
+			[]asaserver.InstanceStatus{asaserver.StatusStarted},
+			asaserver.StatusStopping)
 	case BatchRestart:
-		return asaserver.OpRestart
+		return asaserver.CompareAndSwapInstanceState(instanceName,
+			[]asaserver.InstanceStatus{asaserver.StatusStarted},
+			asaserver.StatusRestarting)
+	default:
+		return false, fmt.Errorf("unknown batch operation type: %s", opType)
 	}
-	return asaserver.OpStart
 }
-

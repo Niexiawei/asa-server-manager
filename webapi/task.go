@@ -5,7 +5,6 @@ import (
 	"asa-server/httpserver"
 	"asa-server/logger"
 	"context"
-	"errors"
 	"fmt"
 )
 
@@ -102,41 +101,27 @@ func (s *APIServer) runUpdateTask(ctx context.Context) {
 
 // runStartServerTask monitors a single server startup process
 func (s *APIServer) runStartServerTask(name string) {
-	err := asaserver.StartServer(name, asaserver.WithWaitServerCompleted())
-	if err != nil {
-		if errors.Is(err, asaserver.ErrOperationNotAllowed) {
-			logger.GetLogger().Infof("server '%s' start skipped: operation not allowed in current state", name)
-			httpserver.BroadcastServerEvent("server_start_failed", name, fmt.Sprintf("Failed to start server: %v", err), "failed")
-		} else {
-			logger.GetLogger().Errorf("failed to start server '%s': %v", name, err)
-		}
-		return
+	if err := asaserver.StartServer(name,
+		asaserver.WithWaitServerCompleted(),
+		asaserver.WithStatePreset(),
+	); err != nil {
+		logger.GetLogger().Errorf("failed to start server '%s': %v", name, err)
 	}
 }
 
 // runStopServerTask stops a server instance asynchronously
 func (s *APIServer) runStopServerTask(name string) {
-	if err := asaserver.StopServer(name); err != nil {
-		if errors.Is(err, asaserver.ErrOperationNotAllowed) {
-			logger.GetLogger().Infof("server '%s' stop skipped: operation not allowed in current state", name)
-			httpserver.BroadcastServerEvent("server_stop_failed", name, fmt.Sprintf("Failed to stop server: %v", fmt.Errorf("operation not allowed in current state")), "failed")
-		} else {
-			logger.GetLogger().Errorf("failed to stop server '%s': %v", name, err)
-		}
-		return
+	if err := asaserver.StopServer(name, asaserver.WithStatePreset()); err != nil {
+		logger.GetLogger().Errorf("failed to stop server '%s': %v", name, err)
 	}
 }
 
 // runRestartServerTask restarts a server instance asynchronously
 func (s *APIServer) runRestartServerTask(name string) {
-	err := asaserver.RestartServer(name)
-	if err != nil {
-		if errors.Is(err, asaserver.ErrOperationNotAllowed) {
-			logger.GetLogger().Infof("server '%s' restart skipped: operation not allowed in current state", name)
-			httpserver.BroadcastServerEvent("server_restart_failed", name, fmt.Sprintf("Failed to restart server: %v", fmt.Errorf("operation not allowed in current state")), "failed")
-		} else {
-			logger.GetLogger().Errorf("failed to restart server '%s': %v", name, err)
-		}
-		return
+	if err := asaserver.RestartServer(name,
+		asaserver.WithStatePreset(),
+		asaserver.WithRestartStartupCompletion(func(string) {}), // 写 StatusRestarted 状态供 dispatcher 推送
+	); err != nil {
+		logger.GetLogger().Errorf("failed to restart server '%s': %v", name, err)
 	}
 }
