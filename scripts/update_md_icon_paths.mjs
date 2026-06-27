@@ -17,9 +17,14 @@ const iconDir = path.join(root, 'icon', 'creature');
 // ── 文件名规范化（与 icon_download_server.mjs 保持一致）──────────────────────
 function normalizeFilename(rawFilename) {
   const decoded = decodeURIComponent(rawFilename);
-  return decoded
-    .replace(/[^a-zA-Z0-9_.\-]/g, '_') // 特殊字符替换为 _
-    .replace(/_+/g, '_');               // 合并连续下划线
+  const dotIdx  = decoded.lastIndexOf('.');
+  const stem    = dotIdx >= 0 ? decoded.slice(0, dotIdx) : decoded;
+  const ext     = dotIdx >= 0 ? decoded.slice(dotIdx)    : '';
+  const normalizedStem = stem
+    .replace(/[^a-zA-Z0-9]/g, '_') // 特殊字符（含 - .）全替换为 _
+    .replace(/_+/g, '_')            // 合并连续下划线
+    .replace(/^_+|_+$/g, '');       // 去除头尾下划线
+  return normalizedStem + ext;
 }
 
 // ── 步骤 1：重命名目录中不符合规范的文件 ────────────────────────────────────

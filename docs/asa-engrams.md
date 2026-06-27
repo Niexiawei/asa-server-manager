@@ -177,7 +177,7 @@
 | Fur Chestpiece | 毛皮胸甲 | EngramEntry_FurShirt_C | 170 |
 | Fur Gauntlets | 毛皮手套 | EngramEntry_FurGloves_C | 167 |
 | Fur Leggings | 毛皮护腿 | EngramEntry_FurPants_C | 169 |
-| GPS |  | EngramEntry_GPS_C | 304 |
+| GPS | GPS | EngramEntry_GPS_C | 304 |
 | Gacha Saddle | 嘎查鞍 | EngramEntry_GachaSaddle_C | 522 |
 | Gallimimus Saddle | 似鸡龙鞍 | EngramEntry_Saddle_Galli_C | 208 |
 | Gas Collector | 气体收集器 | EngramEntry_GasCollector_C | 506 |
@@ -196,10 +196,10 @@
 | Giant Stone Hatchframe | 巨型石制天窗框 | EngramEntry_StoneCeilingWithTrapdoorGiant_C | 251 |
 | Giganotosaurus Saddle | 南方巨兽龙鞍 | EngramEntry_Saddle_Gigant_C | 410 |
 | Gigantoraptor Saddle | 巨盗龙鞍 | EngramEntry_Saddle_Gigantoraptor_C | 40 |
-| Glider Suit Skin |  | EngramEntry_Glider_C | 499 |
+| Glider Suit Skin | 滑翔服皮肤 | EngramEntry_Glider_C | 499 |
 | Glow Stick | 荧光棒 | EngramEntry_Glowstick_C | 500 |
 | Goo Gun | 黏液枪 | EngramEntry_Steampunk_GooGun_C | 18 |
-| GPS |  | EngramEntry_GPS_C | 304 |
+| GPS | GPS | EngramEntry_GPS_C | 304 |
 | Grappling Hook | 爪钩 | EngramEntry_GrapplingHook_C | 325 |
 | Gravestone | 墓碑 | EngramEntry_Gravestone_C | 54 |
 | Greenhouse Ceiling | 温室天花板 | EngramEntry_GreenhouseCeiling_C | 300 |
@@ -658,7 +658,7 @@
 | Yi Ling Saddle | 翎翼龙鞍 | EngramEntry_Saddle_YiLing_C | 35 |
 | Yutyrannus Saddle | 羽王龙鞍 | EngramEntry_Saddle_Yuty_C | 464 |
 | Zip-Line Anchor | 滑索锚具 | EngramEntry_ZiplineAmmo_C | 492 |
-| Zip-Line Motor Attachment Skin |  | EngramEntry_ZiplineMotor_C | 493 |
+| Zip-Line Motor Attachment Skin | 滑索摩托附件皮肤 | EngramEntry_ZiplineMotor_C | 493 |
 
 ### ASA 新增印痕
 
@@ -698,7 +698,7 @@
 | Drawing Paper | 绘图纸 | EngramEntry_Frontier_DrawingSheet_C | 1 |
 | Fancy Armchair | 豪华手扶椅 | EngramEntry_Frontier_FancyArmchair_C | 0 |
 | Fancy Sofa | 豪华沙发 | EngramEntry_Frontier_FancyCouch_C | 0 |
-| Frontier Lamp |  | EngramEntry_Frontier_OilLamp_C | 12 |
+| Frontier Lamp | 边境灯 | EngramEntry_Frontier_OilLamp_C | 12 |
 | Locomotive | 火车 | EngramEntry_Frontier_Train_Car_C | 35 |
 | Plant Pot | 花盆 | EngramEntry_Frontier_PlantPot_C | 13 |
 | Platform Cart | 拉货车 | EngramEntry_Frontier_Saddle_Carriage_C | 10 |
@@ -713,10 +713,10 @@
 | Train Platform Car | 火车厢 | EngramEntry_Frontier_Train_Platform_C | 35 |
 | Train Track | 火车轨道 | EngramEntry_Frontier_Train_TracksAuto_C | 10 |
 | Treasure Chest | 藏宝箱 | EngramEntry_Frontier_TreasureCache_C | 8 |
-| Water Reservoir (Frontier Adventure Pack) |  | EngramEntry_Frontier_WaterTank_Large_C | 25 |
+| Water Reservoir (Frontier Adventure Pack) | 蓄水池(边境冒险包) | EngramEntry_Frontier_WaterTank_Large_C | 25 |
 | Windmill | 风车 | EngramEntry_Frontier_Windmill_C | 20 |
 | Wooden Hanging Sign | 木制吊挂招牌 | EngramEntry_Frontier_Sign_Hanging_C | 5 |
-| Wooden Scaffolding |  | EngramEntry_Frontier_Scaffolding_C | 1 |
+| Wooden Scaffolding | 木质脚手架 | EngramEntry_Frontier_Scaffolding_C | 1 |
 
 ### Steampunk 蒸汽朋克印痕
 
@@ -773,7 +773,7 @@
 | Arctic Scout Boots | 极地侦察靴 | EngramEntry_ArcticBoots_C | 9 |
 | Arctic Scout Chestpiece | 极地侦察胸甲 | EngramEntry_ArcticShirt_C | 10 |
 | Arctic Scout Gauntlets | 极地侦察护手 | EngramEntry_ArcticGloves_C | 9 |
-| Arctic Scout Mask |  | EngramEntry_ArcticHelmet_C | 10 |
+| Arctic Scout Mask | 极地侦察面具 | EngramEntry_ArcticHelmet_C | 10 |
 | Arctic Scout Leggings | 极地侦察护腿 | EngramEntry_ArcticPants_C | 10 |
 | Aureliax Saddle | 寒辉雪龙鞍 | EngramEntry_LostColony_Saddle_SnowDragon_C | 40 |
 | Bloodforge | 血铸熔炉 | EngramEntry_LostColony_Bloodforge_C | 20 |
@@ -786,7 +786,7 @@
 | Malwyn Saddle | 诡狱狐鞍 | EngramEntry_LostColony_Saddle_DevilFox_C | 40 |
 | Medical Stand | 医疗支架 | EngramEntry_LostColony_MedicalStand_C | 20 |
 | Ossidon Saddle | 奥西顿鞍 | EngramEntry_LostColony_Saddle_SnowMonster_C | 40 |
-| Pet Display |  | EngramEntry_LostColony_ShoulderPetDisplayStand_C | 20 |
+| Pet Display | 宠物展示架 | EngramEntry_LostColony_ShoulderPetDisplayStand_C | 20 |
 | Tek Bunker | 泰克地堡 | EngramEntry_LostColony_TekBunker_C | 60 |
 | Tek Spear | 泰克矛 | EngramEntry_LostColony_TekSpear_C | 0 |
 | Template Hammer | 模板锤 | EngramEntry_ClipboardHammer_C | 5 |

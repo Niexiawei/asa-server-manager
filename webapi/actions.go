@@ -259,6 +259,10 @@ func (s *APIServer) setupRoutes() {
 	// Batch operation endpoints
 	batchmanage.RegisterBatchRoutes(s.engine)
 
+	// Icon endpoints
+	s.engine.GET("/api/icons/creature", s.getCreatureIcon)
+	s.engine.GET("/api/icons/items", s.getItemIcon)
+
 	distFs := app.GetDistFs()
 	fs, err := static.EmbedFolder(distFs, "dist")
 	if err != nil {

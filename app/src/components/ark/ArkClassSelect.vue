@@ -12,11 +12,21 @@
       :popup-props="{ overlayInnerStyle: { maxHeight: '320px' } }"
       @change="onChange"
       @create="onCreate"
-  />
+  >
+    <template #valueDisplay="data">
+      <div class="ark-option-row">
+        <t-image class="ark-option-icon" :src="data.iconUrl"
+          :fallback="iconFallback"
+        ></t-image>
+        <span>{{ data.label }}</span>
+      </div>
+    </template>
+  </t-select>
 </template>
 
 <script setup>
 import {computed, ref, watch} from 'vue'
+import iconFallback from '@/assets/static_404.png?url'
 
 const props = defineProps({
   modelValue: {type: String, default: ''},
@@ -56,17 +66,30 @@ const loadDataset = async (name) => {
 watch(() => props.dataset, (name) => loadDataset(name), {immediate: true})
 
 const options = computed(() => {
-  const list = records.value.map((r) => ({
-    // 当前 TDesign 版本不支持顶层 option 插槽，故把名称与 ClassName 合并到 label 里展示
-    label: `${r.name} (${r.className})`,
-    value: r.className,
-    name: r.name,
-    className: r.className,
-  }))
+  const ds = props.dataset
+  const list = records.value.map((r) => {
+    let iconUrl = null
+    if (r.rawName) {
+      if (ds === 'creatures') {
+        iconUrl = `http://127.0.0.1:19193/api/icons/creature?name=${encodeURIComponent(r.rawName)}`
+      } else if (ds === 'items') {
+        iconUrl = `http://127.0.0.1:19193/api/icons/items?name=${encodeURIComponent(r.rawName)}`
+      } else {
+        iconUrl = `http://127.0.0.1:19193/api/icons/items?name=${encodeURIComponent(r.rawName)}`
+      }
+    }
+    return {
+      label: `${r.name} (${r.className})`,
+      value: r.className,
+      name: r.name,
+      className: r.className,
+      iconUrl,
+    }
+  })
   // 若当前值不在数据集中（Mod 物种或文件已有的自定义 ClassName），补一个占位项保证可回显
   const cur = props.modelValue
   if (cur && !list.some((o) => o.value === cur)) {
-    list.unshift({label: cur, value: cur, name: cur, className: cur})
+    list.unshift({label: cur, value: cur, name: cur, className: cur, iconUrl: null})
   }
   return list
 })
@@ -83,3 +106,18 @@ const filterMethod = (words, option) => {
 const onChange = (val) => emit('update:modelValue', val || '')
 const onCreate = (val) => emit('update:modelValue', String(val).trim())
 </script>
+
+<style scoped>
+.ark-option-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ark-option-icon {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+</style>

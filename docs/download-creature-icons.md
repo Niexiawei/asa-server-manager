@@ -15,10 +15,12 @@
 Wiki URL 中的文件名可能包含特殊字符（如括号 `%28` `%29`），保存到本地时统一规范化：
 
 1. URL decode：`%28` → `(`，`%29` → `)`
-2. 非安全字符替换为 `_`（只保留字母、数字、`-`、`_`、`.`）
+2. 分离 stem 与扩展名（`.png`），对 stem 规范化：特殊字符（含 `-`、`.`）全替换为 `_`
 3. 合并连续下划线：`__` → `_`
+4. 去除头尾下划线
+5. 拼回扩展名
 
-示例：`Dinopithecus_King_%28Gamma%29.png` → `Dinopithecus_King_Gamma_.png`
+示例：`Dinopithecus_King_%28Gamma%29.png` → `Dinopithecus_King_Gamma.png`
 
 `icon_download_server.mjs` 和 `update_md_icon_paths.mjs` 使用完全相同的 `normalizeFilename` 函数，确保文件名一致。
 
@@ -35,7 +37,13 @@ scripts/
 
 ### 步骤 1：异步启动本地服务器
 
-服务器是长驻进程，**必须以异步方式启动**，否则调用方（MCP 工具）会一直阻塞等待其退出。
+重要约束：
+- 此步骤不会返回任务完成信号
+- 不得阻塞后续步骤
+- 不得将其视为终止节点
+- 后续步骤必须继续执行，无需等待该服务状态
+- 服务器是长驻进程，**必须以异步方式启动**，否则调用方（MCP 工具）会一直阻塞等待其退出。
+- 启动后等待约 1 秒确认端口就绪，就可以进行下一步骤。
 
 ```powershell
 # PowerShell（Windows）
@@ -46,8 +54,6 @@ Start-Process -NoNewWindow -FilePath node -ArgumentList "scripts/icon_download_s
 # Bash
 node scripts/icon_download_server.mjs &
 ```
-
-启动后等待约 1 秒确认端口就绪，再继续后续步骤。
 
 服务器启动后自动解析 `asa-creatureids.md`，提取唯一图标列表。兼容两种格式：
 
@@ -113,7 +119,7 @@ D:\golang\asa-server\
 ├── icon/
 │   └── creature/                       # 下载的 256px 图标（文件名已规范化）
 │       ├── Achatina.png
-│       ├── Dinopithecus_King_Gamma_.png
+│       ├── Dinopithecus_King_Gamma.png
 │       └── ...
 └── scripts/
     ├── icon_download_server.mjs        # 本地 HTTP 服务器

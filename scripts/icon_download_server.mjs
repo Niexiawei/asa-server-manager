@@ -25,12 +25,17 @@ const ICON_DIR = path.join(ROOT, 'icon', 'creature');
 const MD_PATH  = path.join(ROOT, 'docs', 'asa-creatureids.md');
 const PORT     = 19194;
 
-// ── 文件名规范化：decode URL 编码后将特殊字符替换为下划线 ──────────────────────
+// ── 文件名规范化：decode URL 编码后对 stem 部分规范化，保留扩展名 ────────────
 function normalizeFilename(rawFilename) {
   const decoded = decodeURIComponent(rawFilename);
-  return decoded
-    .replace(/[^a-zA-Z0-9_.\-]/g, '_') // 特殊字符替换为 _
-    .replace(/_+/g, '_');               // 合并连续下划线
+  const dotIdx  = decoded.lastIndexOf('.');
+  const stem    = dotIdx >= 0 ? decoded.slice(0, dotIdx) : decoded;
+  const ext     = dotIdx >= 0 ? decoded.slice(dotIdx)    : '';
+  const normalizedStem = stem
+    .replace(/[^a-zA-Z0-9]/g, '_') // 特殊字符（含 - .）全替换为 _
+    .replace(/_+/g, '_')            // 合并连续下划线
+    .replace(/^_+|_+$/g, '');       // 去除头尾下划线
+  return normalizedStem + ext;
 }
 
 // ── 解析 Markdown ────────────────────────────────────────────────────────────

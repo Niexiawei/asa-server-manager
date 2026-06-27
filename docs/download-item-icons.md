@@ -21,14 +21,10 @@
 https://ark.wiki.gg/images/thumb/Absorbent_Substrate.png/256px-Absorbent_Substrate.png
 ```
 
-本地保存使用 **Class Name** 作为文件名：
+本地保存使用规范化的 **Name** 作为文件名：特殊字符（含空格）全替换为 `_`，合并连续下划线，去除头尾下划线。
 ```
-icon/items/PrimalItemResource_SubstrateAbsorbent_C.png
-```
-
-**Class Name 为空时的兜底规则**：若某物品的 Class Name 为空或 `-`，则使用规范化的物品名称作为文件名（与生物图标方案一致）：空格替换为 `_`，非安全字符替换为 `_`，合并连续下划线。
-```
-"Some Item (Special)" → Some_Item_Special_.png
+"Absorbent Substrate"  → Absorbent_Substrate.png
+"Some Item (Special)"  → Some_Item_Special.png
 ```
 
 ## 分类页面路径
@@ -74,7 +70,13 @@ scripts/
 
 ### 步骤 1：异步启动本地服务器
 
-服务器是长驻进程，**必须以异步方式启动**，否则调用方会一直阻塞等待其退出。
+重要约束：
+- 此步骤不会返回任务完成信号
+- 不得阻塞后续步骤
+- 不得将其视为终止节点
+- 后续步骤必须继续执行，无需等待该服务状态
+- 服务器是长驻进程，**必须以异步方式启动**，否则调用方（MCP 工具）会一直阻塞等待其退出。
+- 启动后等待约 1 秒确认端口就绪，就可以进行下一步骤。
 
 ```powershell
 # PowerShell（Windows）
@@ -85,8 +87,6 @@ Start-Process -NoNewWindow -FilePath node -ArgumentList "scripts/item_icon_downl
 # Bash
 node scripts/item_icon_download_server.mjs &
 ```
-
-启动后等待约 1 秒确认端口就绪。
 
 服务器接口：
 - `GET /existing` — 返回已存在文件名列表，供浏览器脚本过滤
@@ -108,9 +108,7 @@ node scripts/item_icon_download_server.mjs &
 1. `GET localhost:19195/existing` — 获取已存在文件名集合
 2. 从当前页面 DOM 中提取所有 `a[href*="/wiki/Item_IDs/"]` 链接，动态获取分类列表
 3. 逐分类请求 `https://ark.wiki.gg/wiki/Item_IDs/{Category}?action=raw`，获取原始 wiki 文本
-4. 解析 `{{Id item|Name|...|ClassName|...}}` 提取物品名称与 Class Name，按以下规则确定本地文件名：
-   - Class Name 有值：使用 `{ClassName}.png`
-   - Class Name 为空或 `-`：使用规范化的名称 `normalizeFilename(Name).png`（空格→`_`，特殊字符→`_`，合并连续`_`）
+4. 解析 `{{Id item|Name|...|ClassName|...}}` 提取物品名称，使用 `normalizeFilename(Name).png` 作为本地文件名（特殊字符→`_`，合并连续`_`，去除头尾`_`）
 5. 过滤已存在文件，仅下载缺失图标
 6. 批量下载 256px 图标（并发 5，每批间隔 250ms，失败自动重试 3 次）
 7. 每张图下载后 `POST localhost:19195/save/{localFile}` 写入磁盘
@@ -122,19 +120,17 @@ node scripts/item_icon_download_server.mjs &
 node scripts/update_item_md_icon_paths.mjs
 ```
 
-扫描 `asa-itemsids.md` 中 Icon 列仍为远程 URL 的行，若对应 `{ClassName}.png` 已存在于 `icon/items/`，则替换为本地路径：
+扫描 `asa-itemsids.md` 中 Icon 列仍为远程 URL 的行，若对应文件已存在于 `icon/items/`，则替换为本地路径：
 
 ```
 # 替换前
 ![Absorbent Substrate](https://ark.wiki.gg/images/thumb/Absorbent_Substrate.png/30px-...)
 
 # 替换后
-![Absorbent Substrate](../icon/items/PrimalItemResource_SubstrateAbsorbent_C.png)
+![Absorbent Substrate](../icon/items/Absorbent_Substrate.png)
 ```
 
-文件名规则与步骤 3 完全一致：
-- Class Name 有值：使用 `{ClassName}.png`
-- Class Name 为空或 `-`：从同行 `Name` 列读取，经 `normalizeFilename` 处理后作为文件名
+文件名规则与步骤 3 完全一致：从 `Name` 列读取，经 `normalizeFilename` 处理（特殊字符→`_`，合并连续`_`，去除头尾`_`）后作为文件名。
 
 未下载成功的条目保留原 URL 不动。
 
@@ -152,8 +148,8 @@ D:\golang\asa-server\
 │   ├── asa-itemsids.md                  # 物品 ID 文档
 │   └── download-item-icons.md           # 本文档
 ├── icon/
-│   └── items/                           # 下载的 256px 图标（以 ClassName 命名）
-│       ├── PrimalItemResource_SubstrateAbsorbent_C.png
+│   └── items/                           # 下载的 256px 图标（以规范化 Name 命名）
+│       ├── Absorbent_Substrate.png
 │       └── ...
 └── scripts/
     ├── item_icon_download_server.mjs    # 本地 HTTP 服务器

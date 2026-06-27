@@ -65,7 +65,7 @@ function extract(md, classCol, extraCols, nameCol = '名称', zhCol = null) {
     seen.add(className)
     const zh = zhCol != null && colIdx[zhCol] != null ? cells[colIdx[zhCol]]?.trim() : ''
     const name = zh && zh !== '-' ? `${zh}(${rawName})` : rawName
-    const row = { name, className, category: colIdx['分类'] != null ? cells[colIdx['分类']] : '' }
+    const row = { name, className, category: colIdx['分类'] != null ? cells[colIdx['分类']] : '', rawName }
     for (const [key, col] of Object.entries(extraCols || {})) {
       row[key] = colIdx[col] != null ? cells[colIdx[col]] : ''
     }
@@ -91,7 +91,7 @@ function extractEngrams(md) {
     seen.add(className)
     const zh = zi != null ? cells[zi]?.trim() : ''
     const name = zh && zh !== '-' ? `${zh}(${item})` : item
-    out.push({ name, className, index: ii != null ? (parseInt(cells[ii], 10) || 0) : 0 })
+    out.push({ name, className, index: ii != null ? (parseInt(cells[ii], 10) || 0) : 0, rawName: item })
   })
   return out
 }

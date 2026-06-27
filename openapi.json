@@ -2123,6 +2123,78 @@
           }
         }
       }
+    },
+    "/api/icons/creature": {
+      "get": {
+        "summary": "Get creature icon",
+        "description": "Returns the 256px PNG icon for a creature by its raw display name. The name is normalized (special characters replaced with `_`, consecutive underscores merged, leading/trailing underscores trimmed) before looking up the embedded icon file.",
+        "tags": ["Icons"],
+        "operationId": "getCreatureIcon",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "query",
+            "required": true,
+            "description": "Raw creature display name, e.g. `Alpha T-Rex`, `Dinopithecus King (Gamma)`",
+            "schema": {
+              "type": "string",
+              "example": "Alpha T-Rex"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PNG icon image",
+            "content": {
+              "image/png": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Icon not found for the given name"
+          }
+        }
+      }
+    },
+    "/api/icons/items": {
+      "get": {
+        "summary": "Get item icon",
+        "description": "Returns the 256px PNG icon for an item by its raw display name. The name is normalized (special characters replaced with `_`, consecutive underscores merged, leading/trailing underscores trimmed) before looking up the embedded icon file.",
+        "tags": ["Icons"],
+        "operationId": "getItemIcon",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "query",
+            "required": true,
+            "description": "Raw item display name, e.g. `Absorbent Substrate`, `Some Item (Special)`",
+            "schema": {
+              "type": "string",
+              "example": "Absorbent Substrate"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PNG icon image",
+            "content": {
+              "image/png": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Icon not found for the given name"
+          }
+        }
+      }
     }
   },
   "components": {
