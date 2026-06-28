@@ -195,7 +195,6 @@ func (s *APIServer) setupRoutes() {
 		server.GET("/:name/stop", s.stopServer)
 		server.GET("/:name/restart", s.restartServer)
 		server.GET("/:name/force-stop", s.forceStopServer)
-		server.GET("/:name/info", s.streamInstanceInfo)
 
 		// Batch operations (registered via batchmanage package)
 		// Server update endpoints

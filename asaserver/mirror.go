@@ -41,6 +41,10 @@ var (
 	elevated    bool
 	elevatedErr error
 	once        sync.Once
+
+	// mirrorSyncMu 序列化所有实例的镜像同步操作，防止并发 Walk ServerFilesDir 时
+	// 因 os.ReadDir 瞬态竞争导致 containsExeFiles 返回错误结果，进而创建出错误的 junction
+	mirrorSyncMu sync.Mutex
 )
 
 func IsElevated() bool {
@@ -72,6 +76,9 @@ func InstanceMirrorDir(instanceName string) string {
 // SyncInstanceMirror 同步实例镜像目录
 // 如果镜像不存在则创建，存在则增量同步
 func SyncInstanceMirror(instanceName string, cfg *InstanceConfig) (string, error) {
+	mirrorSyncMu.Lock()
+	defer mirrorSyncMu.Unlock()
+
 	mirrorDir := InstanceMirrorDir(instanceName)
 
 	// 检查实例 Config 目录是否存在且非空
@@ -524,6 +531,36 @@ func CleanupMirrorCache(instanceName string) error {
 	return CleanupInstanceMirror(instanceName)
 }
 
+// VerifyAndRepairInstanceMirror 校验镜像关键路径的完整性，不完整时自动清理并重建一次
+// 返回最终有效的 mirrorDir，或错误
+//
+// 关键路径：ShooterGame/Binaries/Win64 必须可访问。
+// 该目录在以下情况会缺失或失效：
+//   - 并发创建时 containsExeFiles 因 os.ReadDir 竞态返回 false，目录被错误地建成 junction
+//   - junction 目标在 ARK 更新过程中被临时移除
+func VerifyAndRepairInstanceMirror(instanceName string, cfg *InstanceConfig, mirrorDir string) (string, error) {
+	exeWorkDir := filepath.Join(mirrorDir, "ShooterGame/Binaries/Win64")
+	if _, err := os.Stat(exeWorkDir); err == nil {
+		return mirrorDir, nil
+	}
+
+	logger.GetLogger().Warnf("Mirror integrity check failed for %s, recreating mirror...", instanceName)
+	_ = CleanupInstanceMirror(instanceName)
+
+	newMirrorDir, err := SyncInstanceMirror(instanceName, cfg)
+	if err != nil {
+		return "", fmt.Errorf("failed to recreate instance mirror: %w", err)
+	}
+
+	exeWorkDir = filepath.Join(newMirrorDir, "ShooterGame/Binaries/Win64")
+	if _, err := os.Stat(exeWorkDir); err != nil {
+		return "", fmt.Errorf("mirror integrity check failed after recreate, %s not found: %w", exeWorkDir, err)
+	}
+
+	logger.GetLogger().Infof("Mirror recreated successfully for instance %s", instanceName)
+	return newMirrorDir, nil
+}
+
 // ==================== 增量同步相关 ====================
 
 // syncMirrorEntries 增量同步镜像目录
@@ -674,8 +711,13 @@ func collectSourceEntries(srcDir string, exceptionTargets map[string]string) ([]
 			return nil
 		}
 
-		// 文件在真实目录中（exe 目录或 exception 中间目录下的文件）
-		entries = append(entries, mirrorEntry{RelPath: relPath, EntryType: EntryTypeFile})
+		// 按实际创建行为区分：exe 文件被复制（EntryTypeFile），其他文件被符号链接（EntryTypeSymlink）
+		// 与 processFile / syncEntry 的实际行为保持一致，避免增量同步产生虚假的类型不匹配
+		entryType := EntryTypeSymlink
+		if exeFiles[filepath.Base(path)] {
+			entryType = EntryTypeFile
+		}
+		entries = append(entries, mirrorEntry{RelPath: relPath, EntryType: entryType})
 		return nil
 	})
 
@@ -812,7 +854,24 @@ func reconcileEntry(srcDir, mirrorDir string, srcEntry, mirrorEntryItem mirrorEn
 
 	// 检查类型是否匹配
 	if srcEntry.EntryType != mirrorEntryItem.EntryType {
-		// 类型变化，删除旧的，创建新的
+		// 特殊情形：source=Symlink（非 exe 文件的意图类型）但 mirror=File
+		// 这是 createFileSymlink 无权限时 fallback 到 copyFile 的合法结果，内容正确即可
+		if srcEntry.EntryType == EntryTypeSymlink && mirrorEntryItem.EntryType == EntryTypeFile {
+			srcMD5, err := fileMD5(srcPath)
+			if err != nil {
+				return fmt.Errorf("failed to compute source MD5 for %s: %w", srcPath, err)
+			}
+			dstMD5, err := fileMD5(mirrorPath)
+			if err != nil {
+				return fmt.Errorf("failed to compute mirror MD5 for %s: %w", mirrorPath, err)
+			}
+			if srcMD5 != dstMD5 {
+				logger.GetLogger().Infof("File content changed (fallback copy): %s, recopying", srcEntry.RelPath)
+				return copyFile(srcPath, mirrorPath)
+			}
+			return nil
+		}
+		// 真正的类型变更，删除旧的重建
 		logger.GetLogger().Infof("Entry type changed for %s, recreating", srcEntry.RelPath)
 		_ = removeMirrorEntry(mirrorDir, mirrorEntryItem)
 		return syncEntry(srcDir, mirrorDir, srcEntry, exceptionTargets)

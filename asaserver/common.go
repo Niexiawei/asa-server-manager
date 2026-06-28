@@ -418,6 +418,7 @@ func WaitArkApiRunServer(ctx context.Context, port int) (uint32, error) {
 			}
 		}
 	}()
+
 	select {
 	case err := <-processErr:
 		return 0, err

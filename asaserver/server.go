@@ -347,6 +347,14 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 		return wrappedErr
 	}
 
+	// 校验镜像关键路径完整性，不完整时自动重建
+	mirrorDir, err = VerifyAndRepairInstanceMirror(instanceName, config, mirrorDir)
+	if err != nil {
+		startErr = err
+		return err
+	}
+	exeWorkDir := filepath.Join(mirrorDir, "ShooterGame/Binaries/Win64")
+
 	// Build the command
 	// Quote parameters that may contain special characters to prevent parsing issues
 	mapParam := fmt.Sprintf("%s?listen?SessionName=%s?ServerPassword=%s?RCONEnabled=True?ServerAdminPassword=%s?AltSaveDirectoryName=%s",
@@ -385,36 +393,30 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 			// Use the first resolved IPv4 address
 			ipv4Addr := ipv4Addrs[0]
 
-			// Check if -ip or -serverip are already in CustomStartParameters
-			customParams := strings.Fields(config.CustomStartParameters)
 			ipFound := false
 			serverIpFound := false
 
-			// Look for existing -ip and -serverip parameters to replace them
-			for i, param := range customParams {
+			// Replace -ip and -serverip in-place within existing args
+			for i, param := range args {
 				if strings.HasPrefix(param, "-ip=") {
-					customParams[i] = fmt.Sprintf("-ip=%s", ipv4Addr)
+					args[i] = fmt.Sprintf("-ip=%s", ipv4Addr)
 					ipFound = true
-				} else if param == "-ip" && i+1 < len(customParams) {
-					customParams[i+1] = ipv4Addr
+				} else if param == "-ip" && i+1 < len(args) {
+					args[i+1] = ipv4Addr
 					ipFound = true
 				} else if strings.HasPrefix(param, "-serverip=") {
-					customParams[i] = fmt.Sprintf("-serverip=%s", ipv4Addr)
+					args[i] = fmt.Sprintf("-serverip=%s", ipv4Addr)
 					serverIpFound = true
-				} else if param == "-serverip" && i+1 < len(customParams) {
-					customParams[i+1] = ipv4Addr
+				} else if param == "-serverip" && i+1 < len(args) {
+					args[i+1] = ipv4Addr
 					serverIpFound = true
 				}
 			}
 
-			// If we found and replaced parameters in CustomStartParameters, rebuild args
-			if ipFound || serverIpFound {
-				// Rebuild args with mapParam and modified custom parameters
-				args = []string{mapParam}
-				args = append(args, customParams...)
-			} else {
-				// Add the parameters if they weren't found in CustomStartParameters
+			if !ipFound {
 				args = append(args, fmt.Sprintf("-ip=%s", ipv4Addr))
+			}
+			if !serverIpFound {
 				args = append(args, fmt.Sprintf("-serverip=%s", ipv4Addr))
 			}
 		} else {
@@ -470,9 +472,6 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 		logger.GetLogger().Infof("Created log file: %s", gameLogPath)
 	}
 
-	// 设置进程工作目录为镜像内的 exe 目录
-	exeWorkDir := filepath.Join(mirrorDir, "ShooterGame/Binaries/Win64")
-
 	if arkAsaApiRunning {
 		logWriter := &LogWriter{
 			loggerFn: func(msg string) {
@@ -491,6 +490,7 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 			startErr = fmt.Errorf("failed to create pty: %w", err)
 			return startErr
 		}
+
 		c := pp.Command(arkExe, args...)
 		c.Dir = exeWorkDir
 		if err := c.Start(); err != nil {
@@ -503,7 +503,7 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 		go arkApiCleanConsoleOutput(pp, logWriter)
 		logger.GetLogger().Infof("[%s] Redirecting AsaApiLoader output to logger", instanceName)
 
-		_pid, err := WaitArkApiRunServer(ctx, config.QueryPort)
+		_pid, err := WaitArkApiRunServer(ctx, config.Port)
 		if err != nil {
 			startErr = fmt.Errorf("failed to start server: %w", err)
 			return startErr

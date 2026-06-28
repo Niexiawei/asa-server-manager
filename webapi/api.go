@@ -753,105 +753,6 @@ func (s *APIServer) streamServerInfo(c *gin.Context) {
 	})
 }
 
-// streamInstanceInfo streams instance resource information (CPU, Memory) via SSE every 2000ms
-func (s *APIServer) streamInstanceInfo(c *gin.Context) {
-	instanceName := c.Param("name")
-
-	// Set SSE headers
-	c.Header("Content-Type", "text/event-stream")
-	c.Header("Cache-Control", "no-cache")
-	c.Header("Connection", "keep-alive")
-	c.Header("Access-Control-Allow-Origin", "*")
-	c.Header("Access-Control-Allow-Headers", "Content-Type")
-
-	// Create ticker for 2000ms interval
-	ticker := time.NewTicker(2000 * time.Millisecond)
-	defer ticker.Stop()
-
-	// Stream instance info
-	c.Stream(func(w io.Writer) bool {
-		select {
-		case <-ticker.C:
-			//// Get PID by port
-			//pid, err := asaserver.GetPIDByPort(config.Port)
-			//if err != nil {
-			//	fmt.Fprintf(w, "data:{\"error\":\"Failed to get PID: %v\",\"instance\":\"%s\",\"running\":false}", err, instanceName)
-			//	return true
-			//}
-
-			// Load instance configuration to get port
-			pid, err := asaserver.GetInstancePID(instanceName)
-			if err != nil {
-				fmt.Fprintf(w, "data: {\"error\":\"Failed to load instance config: %v\"}\n\n", err)
-				return true
-			}
-
-			// Get process info
-			processInfo, err := serverinfo.GetProcessInfo(int32(pid))
-			if err != nil {
-				fmt.Fprintf(w, "data: {\"error\":\"Failed to get process info: %v\",\"instance\":\"%s\",\"pid\":%d,\"running\":false}\n\n", err, instanceName, pid)
-				return true
-			}
-
-			// Get system CPU info to calculate total CPU usage
-			cpuInfo, err := serverinfo.GetCPUInfo()
-			if err != nil {
-				fmt.Fprintf(w, "data: {\"error\":\"Failed to get CPU info: %v\"}\n\n", err)
-				return true
-			}
-
-			// Get system memory info
-			memInfo, err := serverinfo.GetMemoryInfo()
-			if err != nil {
-				fmt.Fprintf(w, "data: {\"error\":\"Failed to get memory info: %v\"}\n\n", err)
-				return true
-			}
-
-			// Calculate total CPU usage: instance CPU% / 100% * core count
-			totalCPUUsage := (processInfo.CPUPercent / 100.0) * float64(cpuInfo.CoreCount)
-
-			// Build response data
-			data := map[string]interface{}{
-				"timestamp": time.Now().Unix(),
-				"instance":  instanceName,
-				"running":   true,
-				"pid":       pid,
-				"cpu_cores": cpuInfo.CoreCount,
-				"memory": map[string]interface{}{
-					"total":    memInfo.Total,
-					"total_gb": float64(memInfo.Total) / (1024 * 1024 * 1024),
-				},
-				"process": map[string]interface{}{
-					"name":              processInfo.Name,
-					"cpu_percent":       processInfo.CPUPercent,
-					"cpu_total_percent": totalCPUUsage,
-					"memory_used":       processInfo.MemoryUsed,
-					"memory_percent":    processInfo.MemoryPercent,
-					"memory_used_mb":    float64(processInfo.MemoryUsed) / (1024 * 1024),
-					"memory_used_gb":    float64(processInfo.MemoryUsed) / (1024 * 1024 * 1024),
-				},
-			}
-
-			// Convert to JSON
-			jsonData, err := json.Marshal(data)
-			if err != nil {
-				fmt.Fprintf(w, "data: {\"error\":\"Failed to marshal JSON: %v\"}\n\n", err)
-				return true
-			}
-
-			// Send SSE formatted data
-			fmt.Fprintf(w, "data: %s\n\n", jsonData)
-			return true
-
-		case <-c.Request.Context().Done():
-			// Client disconnected
-			return false
-		case <-s.serverCtx.Done():
-			return false
-		}
-	})
-}
-
 // streamAllInstancesInfo streams resource information for all running servers via SSE every 2000ms
 func (s *APIServer) streamAllInstancesInfo(c *gin.Context) {
 	// Set SSE headers
@@ -919,8 +820,8 @@ func (s *APIServer) streamAllInstancesInfo(c *gin.Context) {
 				}
 
 				// Calculate total CPU usage: instance CPU% / 100% * core count
-				totalCPUUsage := (processInfo.CPUPercent / 100.0) * float64(cpuInfo.CoreCount)
-
+				totalCPUUsage := (processInfo.CPUPercent / float64(cpuInfo.CoreCount*100)) * 100
+				
 				// Build instance data
 				instanceData := map[string]interface{}{
 					"instance":          instanceName,
