@@ -45,10 +45,6 @@ export const SETTINGS_REGISTRY = [
     label: 'PvP 区域建筑伤害倍率', tip: 'PvP 区域内对建筑造成伤害的倍率，默认 6。',
   },
   {
-    key: 'PvPDinoDecay', file: 'gus', type: 'bool', default: false, inverse: false, group: 'pvp',
-    label: 'PvP 驯养衰减（ORP 期间）', tip: 'True 时在离线保护（ORP）激活期间驯养生物也会衰减。',
-  },
-  {
     key: 'IncreasePvPRespawnIntervalBaseAmount', file: 'gus', type: 'float', default: 0.0, inverse: false, group: 'pvp',
     label: 'PvP 重生间隔基础值（秒）', tip: '连续 PvP 死亡后额外增加的重生等待基础秒数。',
   },
@@ -288,6 +284,10 @@ export const SETTINGS_REGISTRY = [
   {
     key: 'DisableDinoDecayPvE', file: 'gus', type: 'bool', default: false, inverse: false, group: 'dino_rule',
     label: '禁用 PvE 恐龙自动放生', tip: 'True 时禁用 PvE 模式下驯服生物的自动衰减放生机制。',
+  },
+  {
+    key: 'PvPDinoDecay', file: 'gus', type: 'bool', default: false, inverse: false, group: 'dino_rule',
+    label: 'PvP 驯养衰减（ORP 期间）', tip: 'True 时在离线保护（ORP）激活期间驯养生物也会衰减。',
   },
   {
     key: 'AutoDestroyDecayedDinos', file: 'gus', type: 'bool', default: false, inverse: false, group: 'dino_rule',

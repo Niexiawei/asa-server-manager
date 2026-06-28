@@ -3,6 +3,7 @@
 
 // Configuration
 const CHANGE_THRESHOLD = 0.5;
+const RECONNECT_INTERVAL = 10000; // Reconnect interval 10 seconds
 
 // Store all connected ports
 const ports = new Set();
@@ -12,6 +13,10 @@ const subscribers = new Map();
 let eventSource = null;
 // API base URL
 let API_BASE_URL = '';
+
+// Reconnect state
+let isReconnecting = false;
+let reconnectTimer = null;
 
 // Handle new port connections
 self.onconnect = (event) => {
@@ -103,6 +108,7 @@ function startSSEConnection() {
 
     eventSource.onopen = () => {
       console.log('[SharedWorker] SSE connection established');
+      stopReconnect();
       broadcastToAllPorts({
         type: 'SSE_CONNECTED'
       });
@@ -138,14 +144,59 @@ function startSSEConnection() {
     };
 
     eventSource.onerror = (error) => {
-      console.error('[SharedWorker] SSE connection error:', error);
-      closeSSEConnection();
-      broadcastErrorToAllPorts('SSE connection error');
+      if (eventSource.readyState === EventSource.CLOSED) {
+        console.error('[SharedWorker] SSE connection closed, will reconnect');
+        closeSSEConnection();
+        broadcastErrorToAllPorts('SSE connection error');
+        startReconnect();
+      }
+      // readyState === CONNECTING means browser is auto-retrying, no action needed
     };
   } catch (error) {
     console.error('[SharedWorker] Failed to start SSE connection:', error);
     broadcastErrorToAllPorts('Failed to start monitoring');
+    startReconnect();
   }
+}
+
+// Start auto-reconnect
+function startReconnect() {
+  if (isReconnecting) {
+    return;
+  }
+  isReconnecting = true;
+  console.log('[SharedWorker] Starting auto-reconnect (interval: ' + RECONNECT_INTERVAL + 'ms)');
+
+  broadcastToAllPorts({ type: 'SSE_RECONNECTING' });
+
+  // Attempt immediately
+  attemptReconnect();
+
+  // Then retry on interval
+  reconnectTimer = setInterval(() => {
+    if (!eventSource && isReconnecting) {
+      attemptReconnect();
+    }
+  }, RECONNECT_INTERVAL);
+}
+
+// Attempt a single reconnect
+function attemptReconnect() {
+  if (eventSource) {
+    return; // Already connected
+  }
+  console.log('[SharedWorker] Attempting to reconnect...');
+  broadcastToAllPorts({ type: 'SSE_RECONNECT_ATTEMPT' });
+  startSSEConnection();
+}
+
+// Stop auto-reconnect
+function stopReconnect() {
+  if (reconnectTimer) {
+    clearInterval(reconnectTimer);
+    reconnectTimer = null;
+  }
+  isReconnecting = false;
 }
 
 // Format instance data for sending to component
@@ -189,7 +240,7 @@ function formatInstanceData(instanceData, fullData) {
 // Format memory bytes to readable format
 function formatMemory(bytes) {
   if (!bytes) return '-';
-  
+
   // Helper function to format number to max 4 digits
   function formatToMax4Digits(value) {
     // First try the value as is (if integer)
@@ -197,39 +248,39 @@ function formatMemory(bytes) {
     if (intValue === value && intValue.toString().length <= 4) {
       return value.toString();
     }
-    
+
     // Try with 2 decimal places
     let formatted = value.toFixed(2);
     // Check if the numeric part (without decimal point) has at most 4 digits
     if (formatted.replace('.', '').length <= 4) {
       return formatted;
     }
-    
+
     // Try with 1 decimal place
     formatted = value.toFixed(1);
     if (formatted.replace('.', '').length <= 4) {
       return formatted;
     }
-    
+
     // Use integer value if it has 4 or fewer digits
     if (intValue.toString().length <= 4) {
       return intValue.toString();
     }
-    
+
     // If integer part has more than 4 digits, truncate to 4 digits
     if (intValue.toString().length > 4) {
       return intValue.toString().substring(0, 4);
     }
-    
+
     // Fallback
     return value.toFixed(0);
   }
-  
+
   const mb = bytes / (1024 * 1024);
   if (mb < 1024) {
     return `${formatToMax4Digits(mb)} MB`;
   }
-  
+
   const gb = mb / 1024;
   return `${formatToMax4Digits(gb)} GB`;
 }
@@ -278,6 +329,7 @@ function closeSSEConnection() {
 // Close all connections
 function closeAllConnections() {
   console.log('[SharedWorker] Closing all connections');
+  stopReconnect();
   closeSSEConnection();
   ports.clear();
   subscribers.clear();

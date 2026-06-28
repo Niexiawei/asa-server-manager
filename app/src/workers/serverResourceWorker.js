@@ -3,11 +3,16 @@
 
 // Configuration
 const CHANGE_THRESHOLD = 0.5; // Only update when change exceeds this percentage
+const RECONNECT_INTERVAL = 10000; // Reconnect interval 10 seconds
 
 // Store for active SSE connections
 const eventSources = new Map();
 // Store for previous values to detect changes
 const previousValues = new Map();
+
+// Reconnect state
+let isReconnecting = false;
+let reconnectTimer = null;
 
 // Extract API base URL from main thread message
 let API_BASE_URL = '';
@@ -46,17 +51,25 @@ function startServerMonitoring() {
     const eventSource = new EventSource(`${API_BASE_URL}/api/server/info`);
     eventSources.set(SERVER_MONITOR_KEY, eventSource);
 
+    eventSource.onopen = () => {
+      console.log('[ServerResourceWorker] SSE connection established');
+      stopReconnect();
+      self.postMessage({
+        type: 'SSE_CONNECTED'
+      });
+    };
+
     eventSource.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        
+
         // Check for significant changes before sending to main thread
         const shouldUpdate = checkForSignificantServerChanges(data);
-        
+
         if (shouldUpdate) {
           // Update previous values
           updatePreviousServerValues(data);
-          
+
           // Send updated data to main thread
           self.postMessage({
             type: 'RESOURCE_UPDATE',
@@ -65,7 +78,7 @@ function startServerMonitoring() {
         }
       } catch (error) {
         console.error('Failed to parse server resource info:', error);
-        
+
         self.postMessage({
           type: 'ERROR',
           payload: { error: 'Failed to parse server resource info' }
@@ -74,23 +87,26 @@ function startServerMonitoring() {
     };
 
     eventSource.onerror = (error) => {
-      console.error('Server SSE connection error:', error);
-      
-      self.postMessage({
-        type: 'ERROR',
-        payload: { error: 'SSE connection error' }
-      });
-      
-      stopServerMonitoring();
+      if (eventSource.readyState === EventSource.CLOSED) {
+        console.error('[ServerResourceWorker] SSE connection closed, will reconnect');
+        stopServerMonitoring();
+        self.postMessage({
+          type: 'ERROR',
+          payload: { error: 'SSE connection error' }
+        });
+        startReconnect();
+      }
+      // readyState === CONNECTING means browser is auto-retrying, no action needed
     };
 
   } catch (error) {
     console.error('Failed to start server resource monitoring:', error);
-    
+
     self.postMessage({
       type: 'ERROR',
       payload: { error: 'Failed to start server monitoring' }
     });
+    startReconnect();
   }
 }
 
@@ -107,11 +123,50 @@ function stopServerMonitoring() {
 
 // Close all connections
 function closeAllConnections() {
+  stopReconnect();
   eventSources.forEach((eventSource) => {
     eventSource.close();
   });
   eventSources.clear();
   previousValues.clear();
+}
+
+// Start auto-reconnect
+function startReconnect() {
+  if (isReconnecting) {
+    return;
+  }
+  isReconnecting = true;
+  console.log('[ServerResourceWorker] Starting auto-reconnect (interval: ' + RECONNECT_INTERVAL + 'ms)');
+
+  // Attempt immediately
+  attemptReconnect();
+
+  // Then retry on interval
+  reconnectTimer = setInterval(() => {
+    if (!eventSources.has('server_monitor') && isReconnecting) {
+      attemptReconnect();
+    }
+  }, RECONNECT_INTERVAL);
+}
+
+// Attempt a single reconnect
+function attemptReconnect() {
+  if (eventSources.has('server_monitor')) {
+    return; // Already connected
+  }
+  console.log('[ServerResourceWorker] Attempting to reconnect...');
+  self.postMessage({ type: 'RECONNECT_ATTEMPT' });
+  startServerMonitoring();
+}
+
+// Stop auto-reconnect
+function stopReconnect() {
+  if (reconnectTimer) {
+    clearInterval(reconnectTimer);
+    reconnectTimer = null;
+  }
+  isReconnecting = false;
 }
 
 // Check if server data has significant changes compared to previous values

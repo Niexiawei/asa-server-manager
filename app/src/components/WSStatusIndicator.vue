@@ -1,44 +1,32 @@
 <template>
-  <t-popup
-      trigger="click"
-      :content-style="{ padding: '0' }"
-  >
-    <template #title>
-      <div class="ws-status-title">
-        <span>WebSocket状态</span>
-      </div>
-    </template>
-    <template #content>
-      <div class="ws-status-content">
-        <div class="ws-status-item">
-          <t-tag size="large" :theme="wsConnected ? 'success' : 'danger'">
-            {{ wsConnected ? '已连接' : '已断开' }}
-          </t-tag>
-        </div>
-        <div class="ws-status-actions">
-          <t-button
-              size="small"
-              :disabled="wsConnected"
-              @click="reconnect"
-              :loading="reconnecting"
-          >
-            重连
-          </t-button>
-        </div>
-      </div>
-    </template>
-
-    <!-- 状态指示器 -->
-    <div class="ws-status-indicator" :class="{ connected: wsConnected, disconnected: !wsConnected }">
-      <div class="status-dot" :style="{ backgroundColor: wsConnected ? '#52c41a' : '#f53f3f' }"></div>
-      <span class="status-text">{{ wsConnected ? '已连接' : '已断开' }}</span>
-    </div>
-  </t-popup>
+  <!-- 状态指示器 -->
+  <div class="ws-status-indicator">
+    <t-tooltip>
+      <template #content>
+        {{wsConnected ? 'WebSocket连接正常':'WebSocket连接断开'}}
+      </template>
+      <t-button variant="text" :loading="reconnecting"
+                @click="reconnect"
+      >
+        <template #icon>
+          <LinkIcon v-if="wsConnected"
+                    stroke-color="#56c08d"
+                    size="20px"
+          />
+          <LinkUnlinkIcon v-else
+                          stroke-color="#f6685d"
+                          size="20px"
+          />
+        </template>
+      </t-button>
+    </t-tooltip>
+  </div>
 </template>
 
 <script setup>
 import {ref, onMounted, onUnmounted} from 'vue'
 import {wsConnected, reconnectWS} from '@/utils/wsManager.js'
+import {LinkIcon, LinkUnlinkIcon} from "tdesign-icons-vue-next";
 
 const reconnecting = ref(false)
 
@@ -66,63 +54,6 @@ onUnmounted(() => {
 
 <style scoped lang="less">
 .ws-status-indicator {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 8px;
-  border-radius: 4px;
-  cursor: pointer;
-  user-select: none;
-}
 
-.ws-status-indicator.connected {
-  background-color: #f6ffed;
-  border: 1px solid #b7eb8f;
-}
-
-.ws-status-indicator.disconnected {
-  background-color: #fff2f0;
-  border: 1px solid #ffccc7;
-}
-
-.status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-}
-
-.status-text {
-  font-size: 12px;
-  color: #666;
-}
-
-.ws-status-title {
-  border-bottom: 1px solid #e8e8e8;
-  text-align: center;
-  padding: 6px 0;
-}
-
-.ws-status-content {
-  padding: 12px;
-  width: 120px;
-
-  > div {
-    width: 100%;
-  }
-}
-
-.ws-status-item {
-  margin-bottom: 12px;
-
-  :deep(.t-tag) {
-    width: 100%;
-    text-align: center;
-    display: inline-block;
-  }
-}
-
-.ws-status-actions {
-  display: flex;
-  justify-content: flex-end;
 }
 </style>
