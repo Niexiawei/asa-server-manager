@@ -50,7 +50,7 @@
             </t-button>
             <t-button
                 @click="clearLogs"
-                :disabled="systemLogs.length === 0"
+                :disabled="(vllRef?.itemCount ?? 0) === 0"
             >
               清空日志
             </t-button>
@@ -60,26 +60,30 @@
             >{{ isStreaming ? '监听中' : '已停止' }}
             </t-tag>
           </t-space>
-          <div class="log-count">日志行数: {{ systemLogs.length }}</div>
+          <div class="log-count">日志行数: {{ vllRef?.itemCount ?? 0 }}</div>
         </div>
 
         <div class="log-viewer">
-          <div class="log-container" ref="logContainer">
-            <div
-                v-for="(log, index) in systemLogs"
-                :key="index"
-                class="log-line"
-                :class="`log-level-${log.level}`"
-            >
-              <span class="log-number">{{ index + 1 }}</span>
-              <span class="log-time">{{ log.time }}</span>
-              <span class="log-level" :class="`level-${log.level}`">{{ log.level }}</span>
-              <span class="log-text">{{ log.msg }}</span>
-            </div>
-            <div v-if="systemLogs.length === 0" class="log-empty">
-              暂无日志。{{ isStreaming ? "" : '点击"开始监听"按钮开始实时查看系统日志。' }}
-            </div>
-          </div>
+          <VirtualLogList
+              ref="vllRef"
+              class="log-vll"
+              :estimated-item-height="28"
+              :buffer="400"
+          >
+            <template #item="{ item, index }">
+              <div class="log-line" :class="`log-level-${item.level}`">
+                <span class="log-number">{{ index + 1 }}</span>
+                <span class="log-time">{{ item.time }}</span>
+                <span class="log-level" :class="`level-${item.level}`">{{ item.level }}</span>
+                <span class="log-text">{{ item.msg }}</span>
+              </div>
+            </template>
+            <template #empty>
+              <div class="log-empty">
+                暂无日志。{{ isStreaming ? '' : '点击"开始监听"按钮开始实时查看系统日志。' }}
+              </div>
+            </template>
+          </VirtualLogList>
         </div>
       </div>
     </div>
@@ -91,19 +95,19 @@ import * as api from '@/apis/api.js'
 import * as monaco from 'monaco-editor'
 import dayjs from 'dayjs'
 import {ref, onMounted, onBeforeUnmount, nextTick, shallowRef} from 'vue'
-import {CheckIcon, CloseIcon} from 'tdesign-icons-vue-next';
+import {CheckIcon, CloseIcon} from 'tdesign-icons-vue-next'
+import VirtualLogList from '@/components/VirtualLogList.vue'
 
 const syncthingStatus = ref('stopped')
 const syncthingConfig = ref('')
 const saving = ref(false)
-const systemLogs = ref([])
 const isStreaming = ref(false)
 const statusCheckInterval = ref(null)
 const statusStreamStop = ref(null)
 const stopStreamFn = ref(null)
 const editor = shallowRef(null)
 const editorContainer = ref(null)
-const logContainer = ref(null)
+const vllRef = ref(null)
 
 const initializeSyncthing = async () => {
   try {
@@ -280,12 +284,7 @@ const startLogStream = () => {
         const parsedLog = parseLogLine(log)
         // 只显示包含 [syncthing] 的日志
         if (isSyncthingLog(parsedLog.msg)) {
-          systemLogs.value.push(parsedLog)
-          nextTick(() => {
-            if (logContainer.value) {
-              logContainer.value.scrollTop = logContainer.value.scrollHeight
-            }
-          })
+          vllRef.value?.push(parsedLog)
         }
       },
       (error) => {
@@ -308,7 +307,7 @@ const stopLogStream = () => {
 }
 
 const clearLogs = () => {
-  systemLogs.value = []
+  vllRef.value?.clear()
 }
 
 onMounted(() => {
@@ -446,23 +445,34 @@ onBeforeUnmount(() => {
   height: calc(100% - 62px);
   flex: 1;
   overflow: hidden;
+
+  :deep(.vll-viewport::-webkit-scrollbar) {
+    width: 8px;
+  }
+
+  :deep(.vll-viewport::-webkit-scrollbar-track) {
+    background: #2a2a2a;
+  }
+
+  :deep(.vll-viewport::-webkit-scrollbar-thumb) {
+    background: #555;
+    border-radius: 4px;
+
+    &:hover {
+      background: #777;
+    }
+  }
 }
 
-.log-container {
-  height: 100%;
-  overflow-y: auto;
-  padding: 15px;
-  box-sizing: border-box;
+.log-vll {
   font-family: 'Courier New', monospace;
   font-size: 14px;
   color: var(--color-white);
-  white-space: pre-wrap;
-  word-wrap: break-word;
-  line-height: 1.5;
 }
 
 .log-line {
   display: flex;
+  padding: 2px 15px;
   margin-bottom: 2px;
   white-space: pre-wrap;
   word-break: break-word;
@@ -534,24 +544,6 @@ onBeforeUnmount(() => {
   color: #666;
   padding: 40px;
   font-size: 14px;
-}
-
-/* 滚动条样式 */
-.log-container::-webkit-scrollbar {
-  width: 8px;
-}
-
-.log-container::-webkit-scrollbar-track {
-  background: #2a2a2a;
-}
-
-.log-container::-webkit-scrollbar-thumb {
-  background: #555;
-  border-radius: 4px;
-}
-
-.log-container::-webkit-scrollbar-thumb:hover {
-  background: #777;
 }
 
 @media (max-width: 1200px) {

@@ -1324,7 +1324,10 @@ onUnmounted(() => {
 }
 
 .log-viewer-card {
-  height: 65vh !important;
+  //height: 70vh !important;
+  :deep(.log-viewer) {
+    height: 70vh !important;
+  }
 }
 
 .config-files-collapse {

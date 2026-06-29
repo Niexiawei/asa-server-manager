@@ -256,9 +256,6 @@ func (m *SaveDataManager) cacheAndBroadcast(instanceName string, snap *arkmonito
 		"data": cached,
 	})
 	broadcaster.Broadcast(dataMsg)
-
-	logger.GetLogger().Infof("Save monitor updated %s: %d players, %d tribes",
-		instanceName, len(snap.Players), len(snap.Tribes))
 }
 
 // Stop closes the BadgerDB and all monitors

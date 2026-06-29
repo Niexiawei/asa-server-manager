@@ -20,16 +20,15 @@
         </t-button>
         <t-button
             @click="clearLogs"
-            :disabled="logs.length === 0"
+            :disabled="(vllRef?.itemCount ?? 0) === 0"
         >
           清空日志
         </t-button>
         <t-divider layout="vertical" style="height: 30px"/>
-        <t-tag :color="isStreaming ? 'green' : 'gray'"
-        >
+        <t-tag :color="isStreaming ? 'green' : 'gray'">
           {{ isStreaming ? '监听中' : '已停止' }}
         </t-tag>
-        <span style="font-size: 16px">日志行数: {{ logs.length }}</span>
+        <span style="font-size: 16px">日志行数: {{ vllRef?.itemCount ?? 0 }}</span>
       </t-space>
       <t-switch v-model="autoScroll"
                 size="large"
@@ -37,48 +36,35 @@
       ></t-switch>
     </div>
 
-    <div class="log-container" ref="logContainerRef">
-      <t-list
-          ref="listRef"
-          :split="false"
-          :style="{
-          height: `${height}px`
-        }"
-          :scroll="{
-          type: 'virtual',
-          rowHeight: 30,
-          bufferSize: 10,
-          threshold: 10
-        }"
+    <div class="log-container">
+      <VirtualLogList
+          ref="vllRef"
+          :auto-scroll="autoScroll"
           class="log-content"
+          :estimated-item-height="28"
+          :buffer="400"
       >
-        <template v-if="logs?.length > 0">
-          <t-list-item v-for="(item,index) in logs" :key="index">
-            <div class="log-line">
-              <span class="log-number">{{ index + 1 }}</span>
-              <span class="log-text">{{ item }}</span>
-            </div>
-          </t-list-item>
+        <template #item="{ item, index }">
+          <div class="log-line">
+            <span class="log-number">{{ index + 1 }}</span>
+            <span class="log-text">{{ item }}</span>
+          </div>
         </template>
-        <template v-else>
-          <div class="empty-logs"
-               :style="{
-            marginTop: (height / 2 ) - 100 + 'px'
-            }"
-          >
+        <template #empty>
+          <div class="empty-logs">
             <t-empty description="暂无日志"/>
           </div>
         </template>
-      </t-list>
+      </VirtualLogList>
     </div>
   </div>
 </template>
 
 <script setup>
-import {ref, onMounted, onUnmounted, nextTick, watch, computed, useTemplateRef} from 'vue'
+import {ref, nextTick, watch} from 'vue'
 import {streamInstanceLogs} from '@/apis/api.js'
-import {useElementSize} from "@vueuse/core"
-import {serverStore, getInstanceStatus} from '@/store/serverStore.js';
+import {getInstanceStatus} from '@/store/serverStore.js'
+import VirtualLogList from '@/components/VirtualLogList.vue'
 
 const props = defineProps({
   instanceName: {
@@ -87,64 +73,31 @@ const props = defineProps({
   }
 })
 
-const el = useTemplateRef('logContainerRef')
-const {width, height} = useElementSize(el)
-
 const autoScroll = ref(true)
-const logs = ref([])
 const isStreaming = ref(false)
-const listRef = ref(null)
+const vllRef = ref(null)
 let stopLogStream_func = null
-let resizeObserver = null
-let scrollInterval = null
 
-
-scrollInterval = setInterval(() => {
-  scrollToBottom()
-}, 500)
-
-
-// 滚动到底部
-const scrollToBottom = () => {
-  if (!autoScroll.value) {
-    return
-  }
-
-  if (logs.value?.length - 1 < 0) {
-    return
-  }
-
-  listRef.value?.scrollTo({
-    index: logs.value?.length - 1,
-    behavior: 'smooth',
-  })
-}
+// 自动滚动开关打开时立即回到底部
+watch(autoScroll, (val) => {
+  if (val) vllRef.value?.scrollToBottom()
+})
 
 // 开始监听日志
 const startLogStream = () => {
   isStreaming.value = true
-  logs.value = []
+  vllRef.value?.clear()
 
   stopLogStream_func = streamInstanceLogs(
       props.instanceName,
-      // onLog 回调
-      (line) => {
-        logs.value.push(line)
-      },
-      // onError 回调
+      (line) => vllRef.value?.push(line),
       (error) => {
         console.error('日志流错误:', error)
       },
-      // onClose 回调
       () => {
         isStreaming.value = false
       }
   )
-
-  // 首次加载后滚动到底部
-  setTimeout(() => {
-    scrollToBottom()
-  }, 100)
 }
 
 // 停止日志流监听
@@ -166,7 +119,6 @@ watch(
       }
     },
     (newVal) => {
-      // 判断是否应该监听日志
       const shouldMonitor = newVal.isStartingOrRunning === true ||
           ['starting', 'started', 'stopping', 'restarting', 'restarted'].includes(newVal.status)
 
@@ -181,30 +133,19 @@ watch(
 
 // 清空日志
 const clearLogs = () => {
-  logs.value = []
+  vllRef.value?.clear()
 }
 
-// 组件卸载时清理资源
-onUnmounted(() => {
-  if (isStreaming.value) {
-    stopLogStream()
-  }
-  if (scrollInterval) {
-    clearInterval(scrollInterval)
-  }
-})
-
-// 暴露函数给父组件
+// 暴露给父组件
 defineExpose({
   startLogStream,
   stopLogStream,
   clearLogs,
-  // 暴露状态供父组件检查
   get isStreaming() {
     return isStreaming.value
   },
   get logs() {
-    return logs.value
+    return vllRef.value?.getItems() ?? []
   }
 })
 </script>
@@ -233,27 +174,30 @@ defineExpose({
   display: flex;
   min-height: 0;
   overflow: hidden;
+  background: #1a1a1a;
+
+  :deep(.vll-viewport::-webkit-scrollbar) {
+    width: 8px;
+  }
+
+  :deep(.vll-viewport::-webkit-scrollbar-track) {
+    background: #2a2a2a;
+  }
+
+  :deep(.vll-viewport::-webkit-scrollbar-thumb) {
+    background: #555;
+    border-radius: 4px;
+
+    &:hover {
+      background: #777;
+    }
+  }
 }
 
 .log-content {
   flex: 1;
   font-size: 14px;
-  background: #1a1a1a !important;
   color: #e0e0e0;
-  height: 100%;
-  box-sizing: border-box;
-
-  &::-webkit-scrollbar-thumb {
-    background-color: rgba(255, 255, 255, 0.7);
-
-    &:hover {
-      background-color: rgba(255, 255, 255, 0.7);
-    }
-  }
-
-  :deep(.t-list-item) {
-    padding: 2px 0 !important;
-  }
 }
 
 .log-line {
@@ -263,7 +207,7 @@ defineExpose({
   word-break: break-word;
   line-height: 1.5;
   min-height: 28px;
-  align-items: center;
+  align-items: flex-start;
   box-sizing: border-box;
 }
 
@@ -286,46 +230,7 @@ defineExpose({
   display: flex;
   justify-content: center;
   align-items: center;
-  height: 100%;
+  width: 100%;
   color: #999;
-}
-
-/* 虚拟列表样式 */
-:deep(.t-list) {
-  background-color: transparent;
-  border: none;
-}
-
-:deep(.t-list__empty) {
-  color: #999;
-}
-
-:deep(.t-virtual-list) {
-  overflow-y: auto;
-  background-color: #1a1a1a;
-  padding: 0 !important;
-}
-
-:deep(.t-virtual-list__content) {
-  padding: 15px !important;
-  box-sizing: border-box;
-}
-
-/* 滚动条样式 */
-:deep(.t-virtual-list::-webkit-scrollbar) {
-  width: 8px;
-}
-
-:deep(.t-virtual-list::-webkit-scrollbar-track) {
-  background: #2a2a2a;
-}
-
-:deep(.t-virtual-list::-webkit-scrollbar-thumb) {
-  background: #555;
-  border-radius: 4px;
-}
-
-:deep(.t-virtual-list::-webkit-scrollbar-thumb:hover) {
-  background: #777;
 }
 </style>
