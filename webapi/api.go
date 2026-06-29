@@ -3,6 +3,7 @@ package webapi
 import (
 	"asa-server/asaserver"
 	"asa-server/backup"
+	"asa-server/common/tail"
 	"asa-server/logger"
 	"asa-server/parseserver"
 	"asa-server/serverinfo"
@@ -821,7 +822,7 @@ func (s *APIServer) streamAllInstancesInfo(c *gin.Context) {
 
 				// Calculate total CPU usage: instance CPU% / 100% * core count
 				totalCPUUsage := (processInfo.CPUPercent / float64(cpuInfo.CoreCount*100)) * 100
-				
+
 				// Build instance data
 				instanceData := map[string]interface{}{
 					"instance":          instanceName,
@@ -951,6 +952,12 @@ func (s *APIServer) streamSystemLogs(c *gin.Context) {
 		return
 	}
 
+	tailer, logChan, err := tail.NewTailer(logPath, 500)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, StatusResponse{Success: false, Error: err.Error()})
+		return
+	}
+
 	// Set SSE headers
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
@@ -958,39 +965,23 @@ func (s *APIServer) streamSystemLogs(c *gin.Context) {
 	c.Header("Access-Control-Allow-Origin", "*")
 	c.Header("Access-Control-Allow-Headers", "Content-Type")
 
-	// Create a channel to receive log lines with larger buffer to prevent message loss
-	logChan := make(chan string, 100)
-	done := make(chan struct{})
+	tailer.Start()
+	defer tailer.Stop()
 
-	// Start tailing the log file, reading the last 500 lines first
-	stopMonitoring := asaserver.TailLogFileWithLines(logPath, 500, func(line string) {
-		select {
-		case logChan <- line:
-		case <-done:
-			return
-		}
-	})
-
-	defer func() {
-		close(done)
-		stopMonitoring()
-	}()
-
-	// Stream new log lines as they arrive
-	for {
+	c.Stream(func(w io.Writer) bool {
 		select {
 		case line, ok := <-logChan:
 			if !ok {
-				return
+				return false
 			}
-			fmt.Fprintf(c.Writer, "data: %s\n\n", line)
-			c.Writer.Flush()
+			fmt.Fprintf(w, "data: %s\n\n", line)
+			return true
 		case <-c.Request.Context().Done():
-			return
+			return false
 		case <-s.serverCtx.Done():
-			return
+			return false
 		}
-	}
+	})
 }
 
 // getServerConfigs returns both Game.ini and GameUserSettings.ini from the base server directory
