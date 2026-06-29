@@ -56,15 +56,29 @@
                 <span class="field-label">地图：</span>{{ inst.config?.MapName || '-' }}
               </span>
               <span class="inst-field inst-mods" title="Mod" v-if="inst.config?.ModIDs">
-                <span class="field-label">Mod：</span>
-                <t-tag
-                    v-for="modId in inst.config.ModIDs.split(',').map(m => m.trim()).filter(Boolean)"
-                    :key="modId"
-                    size="small"
-                    theme="primary"
-                    variant="light"
-                    class="mod-tag"
-                >{{ getModName(modId) || modId }}</t-tag>
+                <t-popup trigger="hover" placement="right-bottom"
+                         overlayClassName="inst-mods-popup"
+                         showArrow
+                >
+                  <span
+                      class="field-label">Mod:
+                  <t-link theme="primary">({{
+                      inst.config.ModIDs.split(',').map(m => m.trim()).filter(Boolean).length
+                    }})</t-link>
+                </span>
+                  <template #content>
+                    <div class="mod-list">
+                      <t-tag
+                          v-for="modId in inst.config.ModIDs.split(',').map(m => m.trim()).filter(Boolean)"
+                          :key="modId"
+                          size="small"
+                          theme="primary"
+                          variant="light"
+                          class="mod-tag"
+                      >{{ getModName(modId) || modId }}</t-tag>
+                    </div>
+                  </template>
+                </t-popup>
               </span>
             </div>
           </template>
@@ -463,6 +477,13 @@ onBeforeUnmount(() => {
 <style scoped lang="less">
 .mb-3 {
   margin-bottom: 12px;
+}
+
+.mod-list {
+  display: flex;
+  max-width: 600px;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .select-header {

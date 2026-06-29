@@ -273,14 +273,29 @@ function scrollToBottom(smooth = true) {
   nextTick(() => {
     const el = viewportRef.value
     if (!el) return
-    const target = el.scrollHeight - el.clientHeight
-    if (Math.abs(el.scrollTop - target) < 1) { mode.value = 'anchored'; return }
+    const startTarget = el.scrollHeight - el.clientHeight
+    if (Math.abs(el.scrollTop - startTarget) < 1) { mode.value = 'anchored'; return }
+
     if (smooth) {
-      _startSmoothScroll(el, target)
+      const distFromBottom = startTarget - el.scrollTop
+      if (mode.value === 'anchored' && distFromBottom > viewportHeight.value) {
+        // anchored 模式下距底部超过一屏：topSpacer 是大片空白，动画前段会全部滑过空白区
+        // 先切为 free 模式，让 visibleRange 根据 scrollTop.value 渲染当前位置的日志
+        mode.value = 'free'
+        scrollTop.value = el.scrollTop
+        nextTick(() => {
+          // 等 Vue 更新 DOM（spacer 重算）后再取准确的 scrollHeight
+          const target = el.scrollHeight - el.clientHeight
+          _startSmoothScroll(el, target)
+        })
+      } else {
+        // 近距离（≤ 一屏）或已在 free 模式：直接启动，onScroll 会追踪 scrollTop.value
+        _startSmoothScroll(el, startTarget)
+      }
     } else {
       mode.value = 'anchored'
       _isPinning = true
-      el.scrollTop = target
+      el.scrollTop = startTarget
     }
   })
 }

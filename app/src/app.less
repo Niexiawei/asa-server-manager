@@ -23,7 +23,7 @@
 .server-manager-log-viewer {
   .t-dialog__body {
     height: 600px;
-    padding: var(--td-comp-paddingTB-l) 0 0 0 !important;
+    padding: 0 !important;
   }
 }
 
@@ -97,5 +97,23 @@
 .server-cfg-edit-dialog {
   .t-dialog__body--fullscreen {
     overflow: hidden;
+  }
+}
+
+.t-dialog--default {
+  padding: var(--td-comp-paddingTB-l) var(--td-comp-paddingLR-l);
+
+  .t-dialog__header {
+    padding-bottom: var(--td-comp-paddingTB-l);
+  }
+
+  .t-dialog__body {
+    padding: 0;
+  }
+}
+
+.inst-mods-popup {
+  .t-popup__content {
+    padding: var(--td-comp-paddingTB-l) var(--td-comp-paddingTB-l);
   }
 }
