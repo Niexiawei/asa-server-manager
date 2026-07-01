@@ -10,6 +10,7 @@
       destroy-on-close
       top="5vh"
       draggable
+      attach="body"
   >
     <!-- 批量操作状态提示 -->
     <t-alert v-if="batchRunning" theme="info" :message="batchStatusText" class="mb-3"/>
@@ -138,6 +139,7 @@
       :close-on-overlay-click="!batchRunning"
       :close-btn="!batchRunning"
       @close="onBatchLogClose"
+      attach="body"
   >
     <div class="update-log-container">
       <div id="batchLogContainer" class="update-log">
@@ -363,10 +365,12 @@ function updateProgressFromLog() {
 }
 
 function onBatchCompleted() {
+  if (!batchRunning.value) return
   batchRunning.value = false
   if (batchLogCloseFn) {
-    batchLogCloseFn()
+    const closeFn = batchLogCloseFn
     batchLogCloseFn = null
+    closeFn()
   }
   emits('refresh')
   selectedInstances.value = []
