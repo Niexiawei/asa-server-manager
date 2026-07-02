@@ -138,15 +138,22 @@ type WriteStateReply struct {
 
 // ========== 进程控制 RPC（不做 CAS，调用方已完成 CAS 后调用）==========
 
-// StartProcess：启动进程（非阻塞，spawn 后立即返回；状态变更由守护进程监控推送）
-type StartProcessArgs  struct{ Name string `msgpack:"name"` }
+// StartProcess：启动进程。
+// WaitStartup=true  → WithWaitServerCompleted，阻塞到服务器完全可用（task.go 使用）
+// WaitStartup=false → 阻塞到初始化阶段成功（StatusStarting），之后立即返回（batchmanage 使用）
+// 两种模式均使用 WithStatePreset（CAS 已由调用方完成）。
+type StartProcessArgs struct {
+    Name        string `msgpack:"name"`
+    WaitStartup bool   `msgpack:"wait_startup"`
+}
 type StartProcessReply struct{ Error string `msgpack:"error"` }
 
-// StopProcess：停止进程（阻塞到进程退出）
+// StopProcess：停止进程（阻塞到进程完全退出）。等同于 StopServer(WithStatePreset)。
 type StopProcessArgs  struct{ Name string `msgpack:"name"` }
 type StopProcessReply struct{ Error string `msgpack:"error"` }
 
-// RestartProcess：重启进程（阻塞到重启完成）
+// RestartProcess：重启进程（阻塞到重启完成）。
+// 等同于 RestartServer(WithStatePreset, WithRestartStartupCompletion(noop))。
 type RestartProcessArgs  struct{ Name string `msgpack:"name"` }
 type RestartProcessReply struct{ Error string `msgpack:"error"` }
 
@@ -296,18 +303,28 @@ func (s *InstanceService) WriteState(ctx context.Context, args *WriteStateArgs, 
 
 // ========== 进程控制 RPC（不做 CAS，调用方已完成 CAS）==========
 
-// StartProcess 启动进程，spawn 后立即返回（不等待服务完全启动）。
-// 内部监控 goroutine 持续跟踪启动进度，通过推送通知主进程。
+// StartProcess 对应两种调用模式：
+//
+//   WaitStartup=true  ← task.go runStartServerTask 使用
+//     等价于：StartServer(WithWaitServerCompleted, WithStatePreset)
+//     阻塞到 StatusStarted（服务器完全可用），RPC 客户端需配置足够长的 ReadTimeout（建议 10min+）
+//
+//   WaitStartup=false ← batchmanage executeInstance 使用
+//     等价于：StartServer(WithStatePreset)
+//     阻塞到 StatusStarting（初始化阶段通过）后返回，后续状态由守护进程监控 goroutine 推送
 func (s *InstanceService) StartProcess(ctx context.Context, args *StartProcessArgs, reply *StartProcessReply) error {
-    // WithStatePreset：CAS 已由调用方完成，跳过内部 CAS
-    // 不使用 WithWaitServerCompleted：spawn 后立即返回，监控 goroutine 在后台持续跟踪
-    if err := asaserver.StartServer(args.Name, asaserver.WithStatePreset()); err != nil {
+    opts := []asaserver.StartServerOptionsFunc{asaserver.WithStatePreset()}
+    if args.WaitStartup {
+        opts = append(opts, asaserver.WithWaitServerCompleted())
+    }
+    if err := asaserver.StartServer(args.Name, opts...); err != nil {
         reply.Error = err.Error()
     }
     return nil
 }
 
-// StopProcess 停止进程（阻塞到进程退出）。
+// StopProcess 与 task.go runStopServerTask 完全一致：StopServer(WithStatePreset)。
+// 阻塞到进程完全退出（RCON DoExit / taskkill + 最长 5min 超时）。
 func (s *InstanceService) StopProcess(ctx context.Context, args *StopProcessArgs, reply *StopProcessReply) error {
     if err := asaserver.StopServer(args.Name, asaserver.WithStatePreset()); err != nil {
         reply.Error = err.Error()
@@ -315,7 +332,9 @@ func (s *InstanceService) StopProcess(ctx context.Context, args *StopProcessArgs
     return nil
 }
 
-// RestartProcess 重启进程（阻塞到重启完成）。
+// RestartProcess 与 task.go runRestartServerTask 完全一致：
+// RestartServer(WithStatePreset, WithRestartStartupCompletion(noop))。
+// RestartServer 内部自动追加 WithWaitServerCompleted，阻塞到重启完成。
 func (s *InstanceService) RestartProcess(ctx context.Context, args *RestartProcessArgs, reply *RestartProcessReply) error {
     if err := asaserver.RestartServer(args.Name,
         asaserver.WithStatePreset(),
@@ -462,9 +481,13 @@ func (c *Client) WriteState(ctx context.Context, name string, status InstanceSta
 
 // ========== 进程控制 ==========
 
-func (c *Client) StartProcess(ctx context.Context, name string) error {
+// StartProcess 启动进程。
+// waitStartup=true  → 阻塞到 StatusStarted（task.go 使用，ctx 应设置 10min+ 超时）
+// waitStartup=false → 阻塞到 StatusStarting（batchmanage 使用，通常几秒返回）
+func (c *Client) StartProcess(ctx context.Context, name string, waitStartup bool) error {
     reply := &StartProcessReply{}
-    if err := c.c.Call(ctx, ServiceName, "StartProcess", &StartProcessArgs{Name: name}, reply); err != nil {
+    if err := c.c.Call(ctx, ServiceName, "StartProcess",
+        &StartProcessArgs{Name: name, WaitStartup: waitStartup}, reply); err != nil {
         return err
     }
     if reply.Error != "" {
@@ -713,6 +736,60 @@ asa-server.exe api
 
 > **守护进程必须在 `NewClient` 之前就绪**，`ensureDaemonRunning()` 在步骤 ② 保证了这一点（最长等 15s）。若 15s 内未就绪则主进程 `log.Fatalf` 退出。
 
+**主服务退出时序（正常情况）**：
+
+```
+主服务收到 SIGINT / SIGTERM，或用户通过 UI 停止服务
+  │
+  ├─ apiServer.Stop()                [webapi/actions.go]
+  │     ├─ batchmanage.Shutdown()    ← 等待当前批量任务结束
+  │     ├─ serverCtxStop()           ← 取消 context，所有 SSE/WS handler 退出
+  │     ├─ CloseAllClients()         ← 关闭 WebSocket 连接
+  │     ├─ saveDataManager.Stop()
+  │     ├─ s.instanceMgrClient.Close()  ← 断开 RPC TCP 连接（仅断连，不发 ShutdownDaemon）
+  │     └─ asaserver.CloseStateManager()  ← 关闭只读 BadgerDB
+  │
+  └─ 主进程退出
+       守护进程：TCP 连接断开 → listenerConns 中该连接在下次 SendMessage 时自动清理
+       守护进程：继续运行，持有所有游戏服务器进程句柄，游戏服务器不受影响
+```
+
+**主服务重启后重连**：
+
+```
+asa-server.exe api（再次启动）
+  │
+  ├─ ensureDaemonRunning()
+  │     检测 :19194 → 已监听 → 直接返回（不重复启动守护进程）
+  │
+  └─ webapi/actions.go Start()
+        instancemgr.NewClient()
+          Connect("tcp", "127.0.0.1:19194")   ← 重新建立 TCP 连接
+          RegisterListener RPC                 ← 守护进程记录新连接，推送通路恢复
+```
+
+**主动停止守护进程**（仅在需要完全关停时使用，如系统维护）：
+
+```
+主服务通过 HTTP 接口或 CLI 触发 → ShutdownDaemon RPC
+  │
+  ├─ 守护进程 ShutdownDaemon handler 被调用
+  │     reply.OK = true → RPC 回包发出
+  │     200ms 后调用 shutdownFn()（context cancel）
+  │
+  ├─ RunDaemon 的 <-ctx.Done() 解除阻塞
+  │     rpcSrv.Shutdown()   ← 等待在途 RPC 完成后关闭监听
+  │     CloseStateManager() ← 关闭 BadgerDB
+  │     进程退出
+  │
+  └─ 游戏服务器进程：守护进程退出不主动 kill 游戏进程
+         PTY 句柄关闭 → 依赖 AsaApiLoader.exe 的进程会退出（同原有行为）
+         直接 exec 启动的进程：因 Job Object 已随守护进程关闭而被系统回收
+         ⚠ 因此 ShutdownDaemon 前应确认所有游戏服务器已手动停止
+```
+
+> **设计原则**：守护进程的生命周期**独立于主服务**。主服务崩溃、更新、重启均不影响守护进程。只有主服务**主动调用 `ShutdownDaemon` RPC** 才会停止守护进程。`webapi/actions.go` 的 `Stop()` 方法只关闭 RPC 连接，**不调用 `ShutdownDaemon`**。
+
 ---
 
 ### 4.3 `asaserver/state_manager.go` — 新增只读初始化
@@ -753,7 +830,12 @@ func (s *APIServer) Start() error {
 }
 
 func (s *APIServer) Stop() error {
-    if s.instanceMgrClient != nil { s.instanceMgrClient.Close() }
+    // ...
+    if s.instanceMgrClient != nil {
+        // 只断开 RPC 连接，不调用 ShutdownDaemon
+        // 守护进程会继续运行，持有所有游戏服务器进程句柄
+        s.instanceMgrClient.Close()
+    }
     // ...
 }
 ```
@@ -879,14 +961,20 @@ func batchDoCAS(instanceName string, opType BatchOperationType, client *instance
 ```go
 err = asaserver.StartServer(instanceName, asaserver.WithStatePreset())
 err = asaserver.StopServer(instanceName, asaserver.WithStatePreset())
-err = asaserver.RestartServer(instanceName, asaserver.WithStatePreset(), ...)
+err = asaserver.RestartServer(instanceName, asaserver.WithStatePreset(), asaserver.WithRestartStartupCompletion(func(string){}))
 ```
 
-改为：
+改为（行为与原来完全一致）：
 ```go
-err = op.client.StartProcess(op.ctx, instanceName)    // 非阻塞，spawn 后返回
-err = op.client.StopProcess(op.ctx, instanceName)     // 阻塞到停止
-err = op.client.RestartProcess(op.ctx, instanceName)  // 阻塞到重启完成
+// waitStartup=false → 守护进程内部调用 StartServer(WithStatePreset)，不含 WithWaitServerCompleted
+// 阻塞到 StatusStarting 后返回，与 batchmanage 原有调用行为一致
+err = op.client.StartProcess(op.ctx, instanceName, false)
+
+// StopServer(WithStatePreset) 行为一致：阻塞到进程完全退出
+err = op.client.StopProcess(op.ctx, instanceName)
+
+// RestartServer(WithStatePreset, WithRestartStartupCompletion(noop)) 行为一致
+err = op.client.RestartProcess(op.ctx, instanceName)
 ```
 
 **变更三：`BatchManager` 持有 client 引用**
@@ -914,27 +1002,36 @@ func Initialize(client *instancemgr.Client) {
 task runner 函数保留，只将内部的 `asaserver.*` 调用替换为 RPC：
 
 ```go
-// runStartServerTask：结构不变，内部从 asaserver.StartServer 改为 RPC
+// runStartServerTask：结构不变，内部调用从 asaserver.StartServer 改为 StartProcess RPC。
+// 原来：asaserver.StartServer(name, WithWaitServerCompleted(), WithStatePreset())
+// 改为：StartProcess(ctx, name, waitStartup=true) → 守护进程内部同样使用 WithWaitServerCompleted
+// 行为完全一致：阻塞到 StatusStarted，由调用方在 goroutine 中执行。
 func (s *APIServer) runStartServerTask(name string) {
-    // 原来：asaserver.StartServer(name, WithWaitServerCompleted(), WithStatePreset())
-    // 改为（RPC 同步，StartProcess 内部不含 WithWaitServerCompleted，spawn 后返回）：
-    if err := s.instanceMgrClient.StartProcess(context.Background(), name); err != nil {
+    ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute) // 与原来阻塞行为一致
+    defer cancel()
+    if err := s.instanceMgrClient.StartProcess(ctx, name, true); err != nil {
         logger.GetLogger().Errorf("failed to start server '%s': %v", name, err)
     }
 }
 
-// runStopServerTask：结构不变，内部从 asaserver.StopServer 改为 RPC
+// runStopServerTask：结构不变。
+// 原来：asaserver.StopServer(name, WithStatePreset())
+// 改为：StopProcess RPC → 守护进程内部同样使用 StopServer(WithStatePreset)，行为完全一致。
 func (s *APIServer) runStopServerTask(name string) {
-    // 原来：asaserver.StopServer(name, WithStatePreset())
-    if err := s.instanceMgrClient.StopProcess(context.Background(), name); err != nil {
+    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+    defer cancel()
+    if err := s.instanceMgrClient.StopProcess(ctx, name); err != nil {
         logger.GetLogger().Errorf("failed to stop server '%s': %v", name, err)
     }
 }
 
-// runRestartServerTask：结构不变，内部从 asaserver.RestartServer 改为 RPC
+// runRestartServerTask：结构不变。
+// 原来：asaserver.RestartServer(name, WithStatePreset(), WithRestartStartupCompletion(noop))
+// 改为：RestartProcess RPC → 守护进程内部调用完全相同的 RestartServer 参数，行为完全一致。
 func (s *APIServer) runRestartServerTask(name string) {
-    // 原来：asaserver.RestartServer(name, WithStatePreset(), WithRestartStartupCompletion(...))
-    if err := s.instanceMgrClient.RestartProcess(context.Background(), name); err != nil {
+    ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
+    defer cancel()
+    if err := s.instanceMgrClient.RestartProcess(ctx, name); err != nil {
         logger.GetLogger().Errorf("failed to restart server '%s': %v", name, err)
     }
 }
@@ -1003,10 +1100,14 @@ batchmanage.runBatchOperation
 
 2. **CAS RPC 延迟**：`CompareAndSwapState` 是一次 RPC 往返（~1ms 局域内 TCP），远快于之前 `StartInstance` 内部做 CAS + 进程启动的合并等待。前端响应延迟从"进程启动时间"缩短到"一次 RPC 往返"。
 
-3. **StartProcess 非阻塞**：`asaserver.StartServer(WithStatePreset())` 不含 `WithWaitServerCompleted`，spawn 后立即返回。状态进展（starting → started）通过守护进程内部监控 goroutine 写入 BadgerDB，并经双向推送通知主进程。
+3. **StartProcess 两种模式，与现有调用完全对应**：
+   - `WaitStartup=true`（task.go）：守护进程内部 `StartServer(WithWaitServerCompleted, WithStatePreset)`，阻塞到 `StatusStarted`，与原 `runStartServerTask` 行为完全一致。RPC 客户端 ctx 需设置 15min+ 超时。
+   - `WaitStartup=false`（batchmanage）：守护进程内部 `StartServer(WithStatePreset)`（不含 `WithWaitServerCompleted`），阻塞到 `StatusStarting` 后返回，与原 `executeInstance` 行为完全一致。
 
-4. **StopProcess / RestartProcess 阻塞**：`StopServer` 和 `RestartServer` 本身是阻塞的（RCON/taskkill + 等待），RPC 调用端（webapi/batchmanage）通过 goroutine 异步调用。
+4. **StopProcess / RestartProcess 均阻塞**：`StopServer` 阻塞到进程退出（最长 5min），`RestartServer` 内部自动追加 `WithWaitServerCompleted` 阻塞到重启完成。调用方（task runner / batchmanage）均在 goroutine 或同步批量循环中调用，行为与重构前一致。
 
 5. **BatchManager 注入 client**：`batchmanage.Initialize()` 改为接收 `*instancemgr.Client`，在 `webapi/actions.go` 的 `InitializationBasicComponents()` 中注入。
 
 6. **连接重连**：主进程重启后重新调用 `NewClient` + `RegisterListener` 恢复推送通路。守护进程的旧 `listenerConns` 在下次 `SendMessage` 失败时自动清理。
+
+7. **守护进程生命周期独立于主服务**：主服务正常退出（`Stop()`）只关闭 RPC 连接，不终止守护进程。守护进程在主服务崩溃、更新、重启期间持续运行，游戏服务器不掉线。只有主服务主动调用 `ShutdownDaemon` RPC 才会停止守护进程；停止前应确保所有游戏服务器已停止，否则 PTY 句柄随守护进程关闭，依赖 PTY 的游戏进程将退出。

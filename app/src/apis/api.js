@@ -70,9 +70,9 @@ export function createBackup(name) {
     return apiClient.post(`/api/backup/${name}`, {})
 }
 
-// 列出所有备份
-export function listBackups() {
-    return apiClient.get('/api/backup')
+// 列出指定实例的备份
+export function listBackups(name) {
+    return apiClient.get(`/api/backup/${name}`)
 }
 
 // 恢复备份（可选择恢复的内容）
@@ -81,7 +81,6 @@ export function restoreBackup(name, backupFile, options = {}) {
         backup_file: backupFile
     }
 
-    // 如果提供了选项参数，添加到请求体
     if (options.restoreWorldfile !== undefined) {
         requestBody.restore_worldfile = options.restoreWorldfile
     }
@@ -93,6 +92,11 @@ export function restoreBackup(name, backupFile, options = {}) {
     }
 
     return apiClient.post(`/api/backup/${name}/restore`, requestBody)
+}
+
+// 删除备份文件
+export function deleteBackup(name, filename) {
+    return apiClient.delete(`/api/backup/${name}/${encodeURIComponent(filename)}`)
 }
 
 // 获取 Game.ini 配置文件内容
@@ -148,11 +152,6 @@ export function syncInstanceConfig(sourceInstance, targetInstances, syncCustomSt
         sync_custom_start_parameters: syncCustomStartParameters,
         sync_enable_asa_plugin: syncEnableAsaPlugin,
     })
-}
-
-// 同步游戏配置（Game.ini 和 GameUserSettings.ini）
-export function syncGameConfig(instances) {
-    return apiClient.post('/api/config/sync', {instances})
 }
 
 // FRP 管理接口

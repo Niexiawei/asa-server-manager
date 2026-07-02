@@ -81,10 +81,6 @@ type ConfigFileRequest struct {
 	Content string `json:"content" binding:"required"`
 }
 
-type SyncConfigRequest struct {
-	Instances []string `json:"instances" binding:"required,min=1"`
-}
-
 type SyncInstanceConfigRequest struct {
 	SourceInstance              string   `json:"source_instance" binding:"required"`
 	TargetInstances             []string `json:"target_instances" binding:"required,min=1"`
@@ -513,9 +509,18 @@ func (s *APIServer) backupInstance(c *gin.Context) {
 	})
 }
 
-// listBackups returns all available backups
+// listBackups returns available backup filenames for the given instance
 func (s *APIServer) listBackups(c *gin.Context) {
-	backups, err := backup.GetAvailableBackups()
+	name := c.Param("name")
+	if name == "" {
+		c.JSON(http.StatusBadRequest, StatusResponse{
+			Success: false,
+			Error:   "instance name is required",
+		})
+		return
+	}
+
+	backups, err := backup.GetAvailableBackups(name)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, StatusResponse{
 			Success: false,
@@ -534,8 +539,9 @@ func (s *APIServer) listBackups(c *gin.Context) {
 	})
 }
 
-// restoreBackup restores a backup to an instance
-// If instance doesn't exist, creates it automatically
+// restoreBackup restores a backup to an instance.
+// The backup file is looked up by filename inside the instance's backup directory.
+// Before restoring, a latest snapshot of the current state is created automatically.
 func (s *APIServer) restoreBackup(c *gin.Context) {
 	name := c.Param("name")
 
@@ -548,8 +554,6 @@ func (s *APIServer) restoreBackup(c *gin.Context) {
 		return
 	}
 
-	// If name is empty from URL, try to use name from backup metadata
-	// For now, name must be provided in URL
 	if name == "" {
 		c.JSON(http.StatusBadRequest, StatusResponse{
 			Success: false,
@@ -558,34 +562,40 @@ func (s *APIServer) restoreBackup(c *gin.Context) {
 		return
 	}
 
-	// Build restore options based on request parameters
+	// Resolve filename to full path within the instance's backup directory
+	backupPath := filepath.Join(asaserver.InstancesDir, name, "backup", req.BackupFile)
+	if _, err := os.Stat(backupPath); err != nil {
+		c.JSON(http.StatusNotFound, StatusResponse{
+			Success: false,
+			Error:   fmt.Sprintf("backup file not found: %s", req.BackupFile),
+		})
+		return
+	}
+
+	// Save current state as latest snapshot before restoring (best-effort)
+	if err := backup.BackupLatestSnapshot(name); err != nil {
+		logger.GetLogger().Warnf("Failed to create latest snapshot before restore for '%s': %v", name, err)
+	}
+
 	var optFuncs []backup.RestoreOptionFunc
 
-	// Default behavior: restore all if no parameters specified
-	// If any parameter is specified, use explicit values
 	hasExplicitOptions := req.RestoreWorldfile != nil || req.RestoreInstanceConfig != nil || req.RestoreGameConfig != nil
 
 	if !hasExplicitOptions {
-		// No parameters specified - restore everything
 		optFuncs = append(optFuncs, backup.WithRestoreAll())
 	} else {
-		// Parameters specified - use explicit values with defaults to false
-		restoreWorldfile := req.RestoreWorldfile != nil && *req.RestoreWorldfile
-		restoreInstanceConfig := req.RestoreInstanceConfig != nil && *req.RestoreInstanceConfig
-		restoreGameConfig := req.RestoreGameConfig != nil && *req.RestoreGameConfig
-
-		if restoreWorldfile {
+		if req.RestoreWorldfile != nil && *req.RestoreWorldfile {
 			optFuncs = append(optFuncs, backup.WithRestoreWorldfile())
 		}
-		if restoreInstanceConfig {
+		if req.RestoreInstanceConfig != nil && *req.RestoreInstanceConfig {
 			optFuncs = append(optFuncs, backup.WithRestoreInstanceConfig())
 		}
-		if restoreGameConfig {
+		if req.RestoreGameConfig != nil && *req.RestoreGameConfig {
 			optFuncs = append(optFuncs, backup.WithRestoreGameConfig())
 		}
 	}
 
-	if err := backup.RestoreBackupToInstance(name, req.BackupFile, optFuncs...); err != nil {
+	if err := backup.RestoreBackupToInstance(name, backupPath, optFuncs...); err != nil {
 		c.JSON(http.StatusInternalServerError, StatusResponse{
 			Success: false,
 			Error:   err.Error(),
@@ -596,6 +606,33 @@ func (s *APIServer) restoreBackup(c *gin.Context) {
 	c.JSON(http.StatusOK, StatusResponse{
 		Success: true,
 		Message: fmt.Sprintf("Instance '%s' restored successfully", name),
+	})
+}
+
+// deleteBackup deletes a specific backup file for an instance.
+func (s *APIServer) deleteBackup(c *gin.Context) {
+	name := c.Param("name")
+	file := c.Param("file")
+
+	if name == "" || file == "" {
+		c.JSON(http.StatusBadRequest, StatusResponse{
+			Success: false,
+			Error:   "instance name and file name are required",
+		})
+		return
+	}
+
+	if err := backup.DeleteBackup(name, file); err != nil {
+		c.JSON(http.StatusInternalServerError, StatusResponse{
+			Success: false,
+			Error:   err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, StatusResponse{
+		Success: true,
+		Message: fmt.Sprintf("Backup '%s' deleted successfully", file),
 	})
 }
 
@@ -1364,59 +1401,6 @@ func (s *APIServer) updateInstanceConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, StatusResponse{
 		Success: true,
 		Message: fmt.Sprintf("Instance config updated successfully for '%s'", instanceName),
-	})
-}
-
-// syncGameConfig syncs game configuration files (Game.ini and GameUserSettings.ini) from base server to instances
-func (s *APIServer) syncGameConfig(c *gin.Context) {
-	var req SyncConfigRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, StatusResponse{
-			Success: false,
-			Error:   err.Error(),
-		})
-		return
-	}
-
-	if len(req.Instances) == 0 {
-		c.JSON(http.StatusBadRequest, StatusResponse{
-			Success: false,
-			Error:   "At least one instance name is required",
-		})
-		return
-	}
-
-	// Sync config for each instance
-	var failedInstances []string
-	var successInstances []string
-
-	for _, instanceName := range req.Instances {
-		if err := asaserver.SyncGameConfigToInstance(instanceName); err != nil {
-			logger.GetLogger().Errorf("Failed to sync config for instance '%s': %v", instanceName, err)
-			failedInstances = append(failedInstances, instanceName)
-		} else {
-			logger.GetLogger().Infof("Successfully synced game configuration for instance '%s'", instanceName)
-			successInstances = append(successInstances, instanceName)
-		}
-	}
-
-	// Return results
-	if len(failedInstances) > 0 {
-		c.JSON(http.StatusInternalServerError, StatusResponse{
-			Success: false,
-			Message: fmt.Sprintf("%d of %d instances synced successfully", len(successInstances), len(req.Instances)),
-			Error:   fmt.Sprintf("failed to sync configuration for instances: %v", failedInstances),
-		})
-		return
-	}
-
-	c.JSON(http.StatusOK, StatusResponse{
-		Success: true,
-		Message: fmt.Sprintf("Configuration synced successfully for %d instances", len(successInstances)),
-		Data: gin.H{
-			"synced_instances": successInstances,
-			"count":            len(successInstances),
-		},
 	})
 }
 

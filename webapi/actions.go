@@ -210,8 +210,9 @@ func (s *APIServer) setupRoutes() {
 	backup := s.engine.Group("/api/backup")
 	{
 		backup.POST("/:name", s.backupInstance)
-		backup.GET("", s.listBackups)
+		backup.GET("/:name", s.listBackups)
 		backup.POST("/:name/restore", s.restoreBackup)
+		backup.DELETE("/:name/:file", s.deleteBackup)
 	}
 
 	// Logs endpoints
@@ -232,7 +233,6 @@ func (s *APIServer) setupRoutes() {
 		config.POST("/:name/game-user-settings", s.uploadGameUserSettings)
 		config.PUT("/:name/game-ini", s.updateGameIni)
 		config.PUT("/:name/game-user-settings", s.updateGameUserSettings)
-		config.POST("/sync", s.syncGameConfig)
 		config.POST("/sync-instance", s.syncInstanceConfig)
 	}
 

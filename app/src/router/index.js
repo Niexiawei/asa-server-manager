@@ -1,7 +1,6 @@
 import {createRouter, createWebHashHistory, createWebHistory} from 'vue-router'
 import ServerManager from '@/views/ServerManager.vue'
 import InstanceDetail from '@/views/InstanceDetail.vue'
-import ServerControl from '@/views/ServerController/ServerControl.vue'
 import SystemLogs from '@/views/SystemLogs.vue'
 import FRPManager from '@/views/FRPManager.vue'
 
@@ -15,11 +14,6 @@ const routes = [
         path: '/instance/:name',
         name: 'InstanceDetail',
         component: InstanceDetail
-    },
-    {
-        path: '/control',
-        name: 'ServerControl',
-        component: ServerControl
     },
     {
         path: '/system-logs',

@@ -11,9 +11,6 @@
               <t-menu-item value="manager">
                 <span>服务器管理</span>
               </t-menu-item>
-              <t-menu-item value="control">
-                <span>服务器控制</span>
-              </t-menu-item>
               <t-menu-item value="frp-manager">
                 <span>FRP管理</span>
               </t-menu-item>
@@ -83,8 +80,6 @@ provide('addTab', addTab)
 watch(() => route.path, (newPath) => {
   if (newPath === '/') {
     currentRoute.value = 'manager';
-  } else if (newPath === '/control') {
-    currentRoute.value = 'control';
   } else if (newPath === '/system-logs') {
     currentRoute.value = 'system-logs';
   } else if (newPath === '/frp-manager') {
@@ -102,11 +97,6 @@ const handleMenuClick = (value) => {
     case "manager":
       router.push({
         path: '/'
-      })
-      break
-    case "control":
-      router.push({
-        path: '/control'
       })
       break
     case "system-logs":
