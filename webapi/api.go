@@ -71,10 +71,7 @@ type BackupRequest struct {
 }
 
 type RestoreRequest struct {
-	BackupFile            string `json:"backup_file" binding:"required"`
-	RestoreWorldfile      *bool  `json:"restore_worldfile,omitempty"`
-	RestoreInstanceConfig *bool  `json:"restore_instance_config,omitempty"`
-	RestoreGameConfig     *bool  `json:"restore_game_config,omitempty"`
+	BackupFile string `json:"backup_file" binding:"required"`
 }
 
 type ConfigFileRequest struct {
@@ -577,25 +574,7 @@ func (s *APIServer) restoreBackup(c *gin.Context) {
 		logger.GetLogger().Warnf("Failed to create latest snapshot before restore for '%s': %v", name, err)
 	}
 
-	var optFuncs []backup.RestoreOptionFunc
-
-	hasExplicitOptions := req.RestoreWorldfile != nil || req.RestoreInstanceConfig != nil || req.RestoreGameConfig != nil
-
-	if !hasExplicitOptions {
-		optFuncs = append(optFuncs, backup.WithRestoreAll())
-	} else {
-		if req.RestoreWorldfile != nil && *req.RestoreWorldfile {
-			optFuncs = append(optFuncs, backup.WithRestoreWorldfile())
-		}
-		if req.RestoreInstanceConfig != nil && *req.RestoreInstanceConfig {
-			optFuncs = append(optFuncs, backup.WithRestoreInstanceConfig())
-		}
-		if req.RestoreGameConfig != nil && *req.RestoreGameConfig {
-			optFuncs = append(optFuncs, backup.WithRestoreGameConfig())
-		}
-	}
-
-	if err := backup.RestoreBackupToInstance(name, backupPath, optFuncs...); err != nil {
+	if err := backup.RestoreBackupToInstance(name, backupPath); err != nil {
 		c.JSON(http.StatusInternalServerError, StatusResponse{
 			Success: false,
 			Error:   err.Error(),

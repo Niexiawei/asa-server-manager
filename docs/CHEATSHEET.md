@@ -77,7 +77,7 @@ ASA Server Manager 命令、配置、常用操作速查。
 │       └── server.log
 ├── server-files/                      # ARK 服务器安装
 ├── steamcmd/                          # SteamCMD
-├── backups/                           # 备份（.tar.zstd）
+├── backups/                           # 备份（.zstd）
 ├── frp/                               # frpc.exe + 配置
 ├── syncthing/                         # syncthing.exe + 配置
 ├── database_file/                     # BadgerDB 状态数据
@@ -158,7 +158,7 @@ Get-ChildItem instances\*\instance_config.ini | Select-String "Port|RCONPort|Que
 
 ### 备份格式
 
-备份文件使用 `.tar.zstd` 格式（tar + zstd 压缩），存放在 `{BaseDir}/backups/` 目录。
+备份文件使用 `.zstd` 格式（tar + zstd 压缩，仅世界存档），存放在 `{BaseDir}/backups/` 目录。
 
 ---
 

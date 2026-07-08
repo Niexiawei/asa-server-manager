@@ -78,9 +78,8 @@ asa-server/
 - Default port: **19193**
 
 ### `backup` - Backup/Restore
-- Format: `.tar.zstd` (tar + zstd compression)
-- Naming: `{instanceName}_{timestamp}.tar.zstd`
-- Functional options pattern for selective restore (`WithWorldFile()`, `WithInstanceConfig()`, `WithGameConfig()`)
+- Format: `.zstd` (tar + zstd compression, world save only — instance/game config is synced via the separate `/api/config/sync*` feature, not backed up here)
+- Naming: `{instanceName}_{timestamp}.zstd`
 
 ### `frpmanage` / `syncthingmanage` - Embedded Binaries
 - Both embed `.exe` files via `//go:embed`
@@ -123,7 +122,7 @@ app --> webapi (embedded SPA served by Gin)
 │       └── server.log
 ├── server-files/            # Base ARK server installation
 ├── steamcmd/                # SteamCMD
-├── backups/                 # Backup archives (.tar.zstd)
+├── backups/                 # Backup archives (.zstd)
 ├── frp/                     # Extracted frpc.exe
 ├── syncthing/               # Extracted syncthing.exe
 ├── database_file/           # BadgerDB state

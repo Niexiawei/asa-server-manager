@@ -752,7 +752,7 @@
     "/api/backup/{name}/restore": {
       "post": {
         "summary": "Restore a backup to instance",
-        "description": "Restores a backup file to a server instance. If the instance does not exist, it will be created automatically. You can selectively restore components using the optional parameters. Defaults to restoring all components (worldfile, instance config, and game config).",
+        "description": "Restores the worldfile (SaveDir content) from a backup file to a server instance. If the instance does not exist, it will be created automatically.",
         "tags": ["Backup"],
         "operationId": "restoreBackup",
         "parameters": [
@@ -774,31 +774,10 @@
                 "$ref": "#/components/schemas/RestoreRequest"
               },
               "examples": {
-                "restore_all": {
-                  "summary": "Restore all components (default)",
+                "restore_worldfile": {
+                  "summary": "Restore worldfile",
                   "value": {
-                    "backup_file": "/path/to/backup.tar.zstd",
-                    "restore_worldfile": true,
-                    "restore_instance_config": true,
-                    "restore_game_config": true
-                  }
-                },
-                "restore_worldfile_only": {
-                  "summary": "Restore only worldfile",
-                  "value": {
-                    "backup_file": "/path/to/backup.tar.zstd",
-                    "restore_worldfile": true,
-                    "restore_instance_config": false,
-                    "restore_game_config": false
-                  }
-                },
-                "restore_worldfile_and_config": {
-                  "summary": "Restore worldfile and instance config",
-                  "value": {
-                    "backup_file": "/path/to/backup.tar.zstd",
-                    "restore_worldfile": true,
-                    "restore_instance_config": true,
-                    "restore_game_config": false
+                    "backup_file": "/path/to/backup.zstd"
                   }
                 }
               }
@@ -2376,22 +2355,7 @@
         "properties": {
           "backup_file": {
             "type": "string",
-            "description": "Path to the backup file"
-          },
-          "restore_worldfile": {
-            "type": "boolean",
-            "description": "Restore worldfile (SaveDir content). Defaults to true",
-            "example": true
-          },
-          "restore_instance_config": {
-            "type": "boolean",
-            "description": "Restore instance_config.ini file. Defaults to true",
-            "example": true
-          },
-          "restore_game_config": {
-            "type": "boolean",
-            "description": "Restore game config files (Config directory). Defaults to true",
-            "example": true
+            "description": "Path to the backup file. Restoring always replaces the worldfile (SaveDir content) only"
           }
         },
         "required": ["backup_file"]

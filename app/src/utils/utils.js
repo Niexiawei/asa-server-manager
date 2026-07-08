@@ -28,7 +28,17 @@ export function buildEventSourceUrl(url) {
         return urlJoin(proxyTarget, url)
     }
 
-    return urlJoin(protocol + "//"+ window.location.host, window.location.pathname, url)
+    return urlJoin(protocol + "//" + window.location.host, window.location.pathname, url)
+}
+
+export function getSSEBaseUrl() {
+    // In production mode, use current host
+    const protocol = location.protocol
+    // In development mode, connect directly to backend server
+    if (import.meta.env.DEV) {
+        return import.meta.env.VITE_PROXY_TARGET || 'http://localhost:19193'
+    }
+    return protocol + "//" + window.location.host, window.location.pathname
 }
 
 function urlJoin(...args) {

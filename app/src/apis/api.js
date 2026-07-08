@@ -75,23 +75,11 @@ export function listBackups(name) {
     return apiClient.get(`/api/backup/${name}`)
 }
 
-// 恢复备份（可选择恢复的内容）
-export function restoreBackup(name, backupFile, options = {}) {
-    const requestBody = {
+// 恢复备份（仅恢复世界存档）
+export function restoreBackup(name, backupFile) {
+    return apiClient.post(`/api/backup/${name}/restore`, {
         backup_file: backupFile
-    }
-
-    if (options.restoreWorldfile !== undefined) {
-        requestBody.restore_worldfile = options.restoreWorldfile
-    }
-    if (options.restoreInstanceConfig !== undefined) {
-        requestBody.restore_instance_config = options.restoreInstanceConfig
-    }
-    if (options.restoreGameConfig !== undefined) {
-        requestBody.restore_game_config = options.restoreGameConfig
-    }
-
-    return apiClient.post(`/api/backup/${name}/restore`, requestBody)
+    })
 }
 
 // 删除备份文件

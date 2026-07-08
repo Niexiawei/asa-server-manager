@@ -94,8 +94,8 @@
 <script setup>
 import {ref, watch, onUnmounted, onMounted} from 'vue'
 import {ErrorCircleFilledIcon} from 'tdesign-icons-vue-next'
-import {serverStore, getInstanceStatus} from '@/store/serverStore.js'
-import {API_BASE_URL} from '@/apis/api.js'
+import {getInstanceStatus} from '@/store/serverStore.js'
+import {getSSEBaseUrl} from "@/utils/utils.js";
 
 const props = defineProps({
   instanceName: {
@@ -120,6 +120,7 @@ let workerInitialized = false
 const getSharedWorker = () => {
   if (!sharedWorker) {
     try {
+      let url = getSSEBaseUrl()
       console.log('[ResourceMonitor] Creating SharedWorker')
       sharedWorker = new SharedWorker(new URL('@/workers/sharedResourceWorker.js', import.meta.url))
       workerPort = sharedWorker.port
@@ -152,7 +153,7 @@ const getSharedWorker = () => {
       // 初始化 SharedWorker
       workerPort.postMessage({
         type: 'INIT',
-        payload: {apiBaseUrl: API_BASE_URL}
+        payload: {apiBaseUrl: url}
       })
 
       workerInitialized = true

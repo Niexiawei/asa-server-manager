@@ -120,7 +120,7 @@ asa-server/
 │       └── server.log
 ├── server-files/            # ARK 服务器安装目录
 ├── steamcmd/                # SteamCMD
-├── backups/                 # 备份文件（.tar.zstd）
+├── backups/                 # 备份文件（.zstd）
 ├── frp/                     # 提取的 frpc.exe
 ├── syncthing/               # 提取的 syncthing.exe
 ├── database_file/           # BadgerDB 状态数据

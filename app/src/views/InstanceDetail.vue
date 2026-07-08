@@ -297,7 +297,7 @@
                   <t-card size="small" :bordered="true">
                     <template #header>
                       <div style="display:flex; align-items:center; gap:6px">
-                        <t-tag v-if="item.endsWith('_latest.tar.zstd')" theme="warning" size="small">latest</t-tag>
+                        <t-tag v-if="item.endsWith('_latest.zstd')" theme="warning" size="small">latest</t-tag>
                         <t-tag v-else theme="default" size="small">备份</t-tag>
                       </div>
                     </template>
@@ -1101,7 +1101,7 @@ const createBackupHandler = async () => {
 }
 
 const restoreBackupHandler = (filename) => {
-  const isLatest = filename.endsWith('_latest.tar.zstd')
+  const isLatest = filename.endsWith('_latest.zstd')
   const label = isLatest ? '「latest 快照」' : `"${filename}"`
   let d = DialogPlugin.confirm({
     header: '确认恢复备份',
@@ -1127,7 +1127,7 @@ const restoreBackupHandler = (filename) => {
 }
 
 const deleteBackupHandler = (filename) => {
-  const isLatest = filename.endsWith('_latest.tar.zstd')
+  const isLatest = filename.endsWith('_latest.zstd')
   let d = DialogPlugin.confirm({
     header: '确认删除备份',
     body: isLatest

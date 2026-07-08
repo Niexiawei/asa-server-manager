@@ -86,7 +86,7 @@
 <script setup>
 import {ref, onMounted, onUnmounted} from 'vue'
 import {DashboardIcon, ErrorCircleFilledIcon} from 'tdesign-icons-vue-next'
-import {API_BASE_URL} from '@/apis/api.js'
+import {getSSEBaseUrl} from "@/utils/utils.js";
 
 const isMonitoring = ref(false)
 const resourceData = ref(null)
@@ -95,12 +95,12 @@ let worker = null
 // 创建 Web Worker
 const createWorker = () => {
   if (worker) return
-
+  let url = getSSEBaseUrl()
   try {
     worker = new Worker(new URL('@/workers/serverResourceWorker.js', import.meta.url))
 
     // Initialize worker with API base URL
-    worker.postMessage({type: 'INIT', payload: {apiBaseUrl: API_BASE_URL}})
+    worker.postMessage({type: 'INIT', payload: {apiBaseUrl: url}})
 
     // Handle messages from worker
     worker.onmessage = (event) => {

@@ -67,7 +67,7 @@ ASA Server Manager 系统架构文档。
 |---|---|---|
 | `asaserver` | **核心包** — 实例生命周期管理、配置读写、RCON 通信、SteamCMD 安装、状态管理 | `server.go`, `config.go`, `common.go`, `state_manager.go`, `installer.go` |
 | `asaserverv2` | 核心包 v2（重构中） — 实例管理新实现，含 mirror、force_stop 等 | `server.go`, `common.go`, `force_stop.go`, `mirror.go` |
-| `backup` | tar+zstd 备份/恢复，函数选项模式（`WithRestoreWorldfile()`, `WithRestoreInstanceConfig()` 等） | 包内文件 |
+| `backup` | tar+zstd 备份/恢复，仅备份世界存档（配置备份是配置同步功能的职责） | 包内文件 |
 
 ### 系统集成
 
@@ -304,7 +304,7 @@ processjob.AssignProcessToJob(job, process)
 │       └── server.log             # 实例日志
 ├── server-files/           # ARK 服务器安装目录（SteamCMD App ID 2430930）
 ├── steamcmd/               # SteamCMD 安装目录
-├── backups/                # 备份文件（.tar.zstd）
+├── backups/                # 备份文件（.zstd）
 ├── frp/                    # 提取的 frpc.exe + 配置
 ├── syncthing/              # 提取的 syncthing.exe + 配置
 ├── database_file/          # BadgerDB 状态数据库

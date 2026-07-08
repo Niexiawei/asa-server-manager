@@ -15,7 +15,7 @@ import (
 	"github.com/klauspost/compress/zstd"
 )
 
-// createArchive packs the instance's Save/, instance_config.ini and Config/ into archivePath.
+// createArchive packs the instance's Save/ directory into archivePath.
 // On failure the partial archive is removed.
 func createArchive(instanceName, archivePath string) error {
 	instanceBaseDir := filepath.Join(asaserver.InstancesDir, instanceName)
@@ -42,22 +42,6 @@ func createArchive(instanceName, archivePath string) error {
 		return fmt.Errorf("failed to add SaveDir to archive: %w", err)
 	}
 
-	configFile := filepath.Join(instanceBaseDir, "instance_config.ini")
-	if _, err := os.Stat(configFile); err == nil {
-		if err := addFileToTar(tarWriter, configFile, "instance_config.ini"); err != nil {
-			os.Remove(archivePath)
-			return fmt.Errorf("failed to add instance_config.ini to archive: %w", err)
-		}
-	}
-
-	configDir := filepath.Join(instanceBaseDir, "Config")
-	if _, err := os.Stat(configDir); err == nil {
-		if err := addFilesToTar(tarWriter, configDir, "instanceconfig"); err != nil {
-			os.Remove(archivePath)
-			return fmt.Errorf("failed to add Config directory to archive: %w", err)
-		}
-	}
-
 	return nil
 }
 
@@ -65,7 +49,7 @@ func createArchive(instanceName, archivePath string) error {
 // Oldest by modification time are removed first.
 func pruneOldBackups(instanceName string) error {
 	backupDir := filepath.Join(asaserver.InstancesDir, instanceName, "backup")
-	latestName := instanceName + "_latest.tar.zstd"
+	latestName := instanceName + "_latest.zstd"
 
 	entries, err := os.ReadDir(backupDir)
 	if err != nil {
@@ -132,7 +116,7 @@ func BackupInstanceWorld(instanceName string) error {
 	}
 
 	timestamp := time.Now().Format("2006-01-02_15-04-05")
-	archiveName := fmt.Sprintf("%s_%s.tar.zstd", instanceName, timestamp)
+	archiveName := fmt.Sprintf("%s_%s.zstd", instanceName, timestamp)
 	archivePath := filepath.Join(backupDir, archiveName)
 
 	logger.GetLogger().Infof("Creating backup for instance '%s': %s", instanceName, archiveName)
@@ -152,7 +136,7 @@ func BackupLatestSnapshot(instanceName string) error {
 		return fmt.Errorf("failed to create backup directory: %w", err)
 	}
 
-	latestPath := filepath.Join(backupDir, instanceName+"_latest.tar.zstd")
+	latestPath := filepath.Join(backupDir, instanceName+"_latest.zstd")
 	logger.GetLogger().Infof("Creating latest snapshot for instance '%s'", instanceName)
 	return createArchive(instanceName, latestPath)
 }
@@ -166,65 +150,9 @@ func DeleteBackup(instanceName, filename string) error {
 	return os.Remove(backupPath)
 }
 
-// RestoreOption defines which components to restore from backup
-type RestoreOption struct {
-	RestoreWorldfile      bool // Restore worldfile (SaveDir content)
-	RestoreInstanceConfig bool // Restore instance_config.ini
-	RestoreGameConfig     bool // Restore instanceconfig (Config directory)
-}
-
-// RestoreOptionFunc is a function that modifies RestoreOption
-type RestoreOptionFunc func(*RestoreOption)
-
-// WithRestoreWorldfile enables restoring worldfile
-func WithRestoreWorldfile() RestoreOptionFunc {
-	return func(opt *RestoreOption) {
-		opt.RestoreWorldfile = true
-	}
-}
-
-// WithRestoreInstanceConfig enables restoring instance_config.ini
-func WithRestoreInstanceConfig() RestoreOptionFunc {
-	return func(opt *RestoreOption) {
-		opt.RestoreInstanceConfig = true
-	}
-}
-
-// WithRestoreGameConfig enables restoring game config (Config directory)
-func WithRestoreGameConfig() RestoreOptionFunc {
-	return func(opt *RestoreOption) {
-		opt.RestoreGameConfig = true
-	}
-}
-
-// WithRestoreAll enables restoring all components
-func WithRestoreAll() RestoreOptionFunc {
-	return func(opt *RestoreOption) {
-		opt.RestoreWorldfile = true
-		opt.RestoreInstanceConfig = true
-		opt.RestoreGameConfig = true
-	}
-}
-
-// NewRestoreOption creates a default RestoreOption with all components enabled
-func NewRestoreOption(optFuncs ...RestoreOptionFunc) *RestoreOption {
-	opt := &RestoreOption{
-		RestoreWorldfile:      false,
-		RestoreInstanceConfig: false,
-		RestoreGameConfig:     false,
-	}
-
-	for _, fn := range optFuncs {
-		fn(opt)
-	}
-
-	return opt
-}
-
-// RestoreBackupToInstance restores a backup to an instance.
+// RestoreBackupToInstance restores the world save from a backup to an instance.
 // backupFile must be a full absolute path to the archive.
-func RestoreBackupToInstance(instanceName string, backupFile string, optFuncs ...RestoreOptionFunc) error {
-	options := NewRestoreOption(optFuncs...)
+func RestoreBackupToInstance(instanceName string, backupFile string) error {
 	if instanceName == "" {
 		return fmt.Errorf("instance name cannot be empty")
 	}
@@ -289,27 +217,15 @@ func RestoreBackupToInstance(instanceName string, backupFile string, optFuncs ..
 			return fmt.Errorf("failed to read tar archive: %w", err)
 		}
 
-		var target string
 		name := header.Name
-
-		switch {
-		case options.RestoreWorldfile && len(name) > 9 && name[0:9] == "worldfile":
-			relPath := name[9:]
-			if len(relPath) > 0 && relPath[0] == '/' {
-				relPath = relPath[1:]
-			}
-			target = filepath.Join(asaserver.InstancesDir, instanceName, "Save", relPath)
-		case options.RestoreInstanceConfig && name == "instance_config.ini":
-			target = filepath.Join(instanceBaseDir, "instance_config.ini")
-		case options.RestoreGameConfig && len(name) > 14 && name[0:14] == "instanceconfig":
-			relPath := name[14:]
-			if len(relPath) > 0 && relPath[0] == '/' {
-				relPath = relPath[1:]
-			}
-			target = filepath.Join(instanceBaseDir, "Config", relPath)
-		default:
+		if len(name) <= 9 || name[0:9] != "worldfile" {
 			continue
 		}
+		relPath := name[9:]
+		if len(relPath) > 0 && relPath[0] == '/' {
+			relPath = relPath[1:]
+		}
+		target := filepath.Join(asaserver.InstancesDir, instanceName, "Save", relPath)
 
 		if header.Typeflag == tar.TypeDir {
 			if err := os.MkdirAll(target, 0755); err != nil {
@@ -358,37 +274,6 @@ func GetAvailableBackups(instanceName string) ([]string, error) {
 	}
 
 	return backups, nil
-}
-
-// addFileToTar adds a single file to a tar archive
-func addFileToTar(tw *tar.Writer, filePath string, archiveName string) error {
-	file, err := os.Open(filePath)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	info, err := file.Stat()
-	if err != nil {
-		return err
-	}
-
-	header, err := tar.FileInfoHeader(info, "")
-	if err != nil {
-		return err
-	}
-
-	header.Name = archiveName
-
-	if err := tw.WriteHeader(header); err != nil {
-		return err
-	}
-
-	if _, err := io.Copy(tw, file); err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // addFilesToTar recursively adds files to a tar archive

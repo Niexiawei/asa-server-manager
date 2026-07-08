@@ -15,7 +15,7 @@
     "dayjs": "^1.11.19",
     "monaco-editor": "^0.44.0",
     "tdesign-icons-vue-next": "^0.4.2",
-    "tdesign-vue-next": "^1.18.2",
+    "tdesign-vue-next": "^1.20.3",
     "vue": "^3.3.4",
     "vue-router": "^4.6.3",
     "vue-web-terminal": "^3.4.1"
