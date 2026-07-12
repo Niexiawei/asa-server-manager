@@ -24,6 +24,17 @@ var exeFiles = map[string]bool{
 	"AsaApiLoader.exe":      true,
 }
 
+// win64RelPath 是需要完整复制（真实目录 + 真实文件副本，而非 symlink）的目录。
+// 该目录在启动过程中会生成缓存文件，必须与源目录隔离，否则缓存写入原目录
+// 导致镜像读取不到缓存而无法启动。
+const win64RelPath = "ShooterGame/Binaries/Win64"
+
+// isUnderWin64 判断相对路径是否位于 Win64 复制目录内（含目录本身）。
+// relPath 使用 forward slash。
+func isUnderWin64(relPath string) bool {
+	return relPath == win64RelPath || strings.HasPrefix(relPath, win64RelPath+"/")
+}
+
 // mirrorEntryType 条目类型
 const (
 	EntryTypeDirectory = iota
@@ -252,6 +263,12 @@ func processDirectory(srcPath, mirrorPath, relPath string, _ os.FileInfo, except
 		return false, os.MkdirAll(mirrorPath, 0755)
 	}
 
+	// Win64 复制目录：目录本身及其所有子目录都必须是真实目录
+	// （用于容纳复制的文件与运行时缓存），创建真实目录并递归下钻
+	if isUnderWin64(relPath) {
+		return false, os.MkdirAll(mirrorPath, 0755)
+	}
+
 	// 检查是否包含需要复制的 exe 文件（如 Win64 目录包含 ArkAscendedServer.exe）
 	if containsExeFiles(srcPath) {
 		// 创建真实目录，Walk 会递归进入处理 exe 文件
@@ -282,12 +299,17 @@ func containsExeFiles(dirPath string) bool {
 }
 
 // processFile 处理文件条目
-func processFile(srcPath, mirrorPath, _ string, info os.FileInfo) error {
+func processFile(srcPath, mirrorPath, relPath string, info os.FileInfo) error {
 	// 检查父目录是否已经是 junction
 	// 如果是，文件通过 junction 即可访问，无需处理
 	parentDir := filepath.Dir(mirrorPath)
 	if isJunctionOrSymlink(parentDir) {
 		return nil // 父目录是 junction，文件已可访问
+	}
+
+	// Win64 复制目录内的所有文件都完整复制（隔离启动期缓存）
+	if isUnderWin64(relPath) {
+		return copyFile(srcPath, mirrorPath)
 	}
 
 	// 检查是否是 exe 文件需要复制
@@ -681,6 +703,12 @@ func collectSourceEntries(srcDir string, exceptionTargets map[string]string) ([]
 				return nil
 			}
 
+			// Win64 复制目录及其子目录 → 真实目录，需递归
+			if isUnderWin64(relPath) {
+				entries = append(entries, mirrorEntry{RelPath: relPath, EntryType: EntryTypeDirectory})
+				return nil
+			}
+
 			// 检查是否包含 exe 文件
 			if containsExeFiles(path) {
 				entries = append(entries, mirrorEntry{RelPath: relPath, EntryType: EntryTypeDirectory})
@@ -703,7 +731,7 @@ func collectSourceEntries(srcDir string, exceptionTargets map[string]string) ([]
 		// 但 Walk 还是会访问到，我们需要跳过
 		// 通过检查父目录是否会被 junction 来判断
 		parentIsJunction := false
-		if !isExceptionOrIntermediateDir(parentRelPath, exceptionTargets) && !containsExeFiles(parentDir) {
+		if !isExceptionOrIntermediateDir(parentRelPath, exceptionTargets) && !containsExeFiles(parentDir) && !isUnderWin64(relPath) {
 			parentIsJunction = true
 		}
 		if parentIsJunction {
@@ -711,10 +739,10 @@ func collectSourceEntries(srcDir string, exceptionTargets map[string]string) ([]
 			return nil
 		}
 
-		// 按实际创建行为区分：exe 文件被复制（EntryTypeFile），其他文件被符号链接（EntryTypeSymlink）
+		// 按实际创建行为区分：exe 文件与 Win64 目录内文件被复制（EntryTypeFile），其他文件被符号链接（EntryTypeSymlink）
 		// 与 processFile / syncEntry 的实际行为保持一致，避免增量同步产生虚假的类型不匹配
 		entryType := EntryTypeSymlink
-		if exeFiles[filepath.Base(path)] {
+		if exeFiles[filepath.Base(path)] || isUnderWin64(relPath) {
 			entryType = EntryTypeFile
 		}
 		entries = append(entries, mirrorEntry{RelPath: relPath, EntryType: entryType})
@@ -814,6 +842,10 @@ func syncEntry(srcDir, mirrorDir string, entry mirrorEntry, exceptionTargets map
 		if isExceptionOrIntermediateDir(entry.RelPath, exceptionTargets) {
 			return os.MkdirAll(mirrorPath, 0755)
 		}
+		// Win64 复制目录及其子目录 → 真实目录
+		if isUnderWin64(entry.RelPath) {
+			return os.MkdirAll(mirrorPath, 0755)
+		}
 		// 检查是否包含 exe 文件
 		if containsExeFiles(srcPath) {
 			return os.MkdirAll(mirrorPath, 0755)
@@ -824,7 +856,7 @@ func syncEntry(srcDir, mirrorDir string, entry mirrorEntry, exceptionTargets map
 
 	// 文件
 	fileName := filepath.Base(entry.RelPath)
-	if exeFiles[fileName] {
+	if exeFiles[fileName] || isUnderWin64(entry.RelPath) {
 		return copyFile(srcPath, mirrorPath)
 	}
 

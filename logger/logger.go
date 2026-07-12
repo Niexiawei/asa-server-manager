@@ -133,7 +133,7 @@ func fileWriterByPath(path string) zapcore.WriteSyncer {
 		MaxSize:    15,       // maximum file size (MB)
 		MaxBackups: 10,       // maximum number of old files
 		MaxAge:     7,        // maximum number of days for old documents
-		Compress:   true,     // whether to compress and archive old files
+		Compress:   false,    // whether to compress and archive old files
 	})
 	return zapcore.AddSync(ws)
 }

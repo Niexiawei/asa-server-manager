@@ -477,9 +477,6 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 			loggerFn: func(msg string) {
 				msg = strings.TrimRight(msg, "\n\r")
 				if msg != "" {
-					if strings.Contains(msg, "Info/GameAnalytics") {
-						return
-					}
 					logger.GetArkApiLogger().Infof("[%s][AsaApiLoader] %s", instanceName, msg)
 				}
 			},

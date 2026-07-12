@@ -49,8 +49,10 @@ instances/<name>/                          ← 每实例本地存储
 |--------------|----------|----------|------|
 | **Exception target 目录**（Config/Logs/SaveDir） | NTFS Junction → 实例本地目录 | — | 游戏引擎需要 per-instance 读写 |
 | **包含 exception 子目录的父目录** | 真实目录（不 symlink） | — | 需要容纳下级 junction |
+| **`Binaries/Win64` 目录及其所有子目录** | 真实目录（不 junction） | — | 需要容纳整体复制的文件与启动期缓存 |
 | **包含 exe 文件的目录** | 真实目录（不 symlink） | — | Windows exe 不能从 symlink 运行 |
 | **其他普通目录** | NTFS Junction → 原始目录 | — | 节省磁盘空间，免复制 |
+| **`Binaries/Win64` 内的所有文件**（exe / .dll / .pak / .ucas 等） | 真实文件复制（`copyFile`），**不 symlink** | 复制失败则报错 | 启动过程中会在 Win64 内生成缓存文件，symlink 会使缓存落回原目录导致镜像读不到缓存而无法启动，故整体复制隔离 |
 | **exe 文件**（ArkAscendedServer.exe 等） | 真实文件复制（`copyFile`） | 复制失败则报错 | Windows exe 不能从 symlink 路径可靠运行 |
 | **其他普通文件** | 文件 symlink → 原始文件 | **自动回退到 `copyFile` 完整复制** | 无 symlink 权限时仍需保证文件可用 |
 
@@ -227,11 +229,13 @@ func IsElevated() bool {
    ├── 对每个目录调用 processDirectory()
    │     ├── 是 exception target → 创建 junction 到实例本地目录，跳过递归
    │     ├── 有 exception 子目录 → 创建真实目录，继续递归
+   │     ├── 位于 Binaries/Win64 内（含子目录） → 创建真实目录，继续递归
    │     ├── 包含 exe 文件 → 创建真实目录，继续递归
    │     └── 其他 → 创建 junction 到原始目录，跳过递归
    │
    └── 对每个文件调用 processFile()
          ├── 父目录是 junction → 跳过（通过 junction 已可访问）
+         ├── 位于 Binaries/Win64 内 → 复制文件（整体复制，隔离缓存）
          ├── 文件是 exe → 复制文件
          └── 其他 → 创建文件 symlink
 
@@ -252,11 +256,29 @@ func IsElevated() bool {
      ├── Insert (源有、镜像无) → 创建新条目
      ├── Delete (镜像有、源无) → 安全删除
      └── Match (两者都有)     → reconcileEntry 校验
-           ├── 真实文件 → MD5 校验，不匹配则重新复制
+           ├── 真实文件（含 Binaries/Win64 内所有文件） → 逐文件 MD5 校验，不匹配则从原文件覆盖复制到镜像
            ├── Symlink → 检查目标是否正确 / 是否断裂，不正确则重建
            └── Junction → 通过 os.Lstat 检查，不正确则重建
 4. 补充缺失的 exception targets
 ```
+
+#### 删除同步（源目录删除文件 → 镜像同步删除）
+
+当源 `server-files` 删除了某些文件/目录后，下次增量同步会命中 `diff.Delete`（源无、镜像有），调用 `removeMirrorEntry`（`mirror.go`）按条目类型**安全删除**：
+
+| 镜像条目类型 | 删除方式 | 说明 |
+|--------------|----------|------|
+| junction / symlink | `os.Remove` | 只删链接本身，**不删链接目标** |
+| 真实文件（`EntryTypeFile`，含 `Binaries/Win64` 复制文件） | `os.Remove` | 删除镜像内的真实副本 |
+| 真实目录 | `os.RemoveAll` | 游戏运行时可能在其中写入，强制清除 |
+
+各目录类型的删除表现：
+
+- **`Binaries/Win64` 内**：源删除某文件 → `collectSourceEntries` 不再产出该条目 → 镜像内的真实副本在下次同步时被删除。
+- **junction 目录（如 `Content/`）**：镜像只是一个 junction，不逐文件追踪，源删除通过 junction 天然透传，无需同步动作。
+- **exception target（Config/Logs/Save）**：junction 指向实例本地目录，与源 `server-files` 无关，不受源删除影响。
+
+**边界**：游戏运行期在镜像 Win64 内新生成、而源目录本就没有的缓存文件，属于「源无、镜像有」，会在下次同步时被 `diff.Delete` 清除——这是预期行为（缓存每次启动重新生成），不影响启动。删除同步仅发生在**镜像已存在的增量同步**路径；首次全量创建（`createInstanceMirror`）从空目录按源构建，不涉及「多余文件」删除。
 
 ### 4.3 清理 (`CleanupInstanceMirror`)
 
@@ -316,20 +338,20 @@ v2 时间线：
 
 | 内容 | 处理方式 | 空间占用 |
 |------|----------|----------|
-| exe 文件 (ArkAscendedServer.exe 等) | 复制 | ~200-500MB × 实例数 |
+| `Binaries/Win64` 目录（含 exe / dll 等全部文件） | 整体复制 | ~Win64 目录实际大小 × 实例数 |
 | 包含 exe 的目录结构 | 真实目录 | 微量（目录项） |
 | Exception target 目录 | Junction | 0（链接） |
 | Content/ 等资源目录 | Junction | 0（链接） |
 | 普通文件 | Symlink | 0（链接） |
 | Config/Logs/Save | 真实文件（实例独立） | 取决于实际使用 |
 
-**结论**：每个实例的额外磁盘开销主要是 exe 副本（~200-500MB），其他均为链接。
+**结论**：每个实例的额外磁盘开销主要是 `Binaries/Win64` 目录的整体副本（用于隔离启动期缓存），其他体量的 `Content/` 等资源目录仍为 junction/symlink，不占额外空间。
 
 ### 6.2 增量同步开销
 
 首次创建镜像后，后续启动只需进行增量同步：
 - 源/镜像文件列表对比：毫秒级
-- MD5 校验：仅对已存在的真实文件（exe）进行，通常 <10 个文件
+- MD5 校验：对 `Binaries/Win64` 目录内所有真实文件逐一校验，不一致则从原文件覆盖复制
 - 仅在 server-files 更新（如游戏版本更新）后才有实际文件操作
 
 ## 七、容错机制

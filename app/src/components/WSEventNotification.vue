@@ -122,19 +122,19 @@ function formatTime(timestamp) {
 
 // 获取事件类型的样式类
 function getEventClass(eventType) {
+  if (eventType.includes('failed')) return 'event-error'
   if (eventType.includes('started')) return 'event-success'
   if (eventType.includes('stopped')) return 'event-warning'
-  if (eventType.includes('failed')) return 'event-error'
-  if (eventType.includes('starting')) return 'event-info'
+  if (eventType.includes('starting') || eventType.includes('initialization')) return 'event-info'
   return 'event-default'
 }
 
 // 获取时间轴点的颜色
 function getEventColor(eventType) {
+  if (eventType.includes('failed')) return '#f5222d'
   if (eventType.includes('started')) return '#52c41a'
   if (eventType.includes('stopped')) return '#faad14'
-  if (eventType.includes('failed')) return '#f5222d'
-  if (eventType.includes('starting')) return '#1890ff'
+  if (eventType.includes('starting') || eventType.includes('initialization')) return '#1890ff'
   return '#8c8c8c'
 }
 

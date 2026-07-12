@@ -31,6 +31,16 @@ function createEventMessage(type = 'ping', extraData = {}) {
     };
 }
 
+// 摘除 socket 的所有回调，丢弃旧连接前调用，防止其异步事件（尤其 onclose）
+// 干扰新连接或触发多余重连
+function detachSocket(ws) {
+    if (!ws) return;
+    ws.onopen = null;
+    ws.onmessage = null;
+    ws.onerror = null;
+    ws.onclose = null;
+}
+
 // 建立 WebSocket 连接
 function connectWebSocket(wsUrl) {
     // 防重入守卫：如果已有活跃连接或正在连接中，跳过
@@ -39,21 +49,27 @@ function connectWebSocket(wsUrl) {
         return;
     }
 
-    // 清理可能残留的旧连接（CLOSED/CLOSING 状态）
+    // 清理可能残留的旧连接（CLOSED/CLOSING 状态）：先摘回调再关闭，
+    // 避免其异步 onclose 在新连接建立后清空引用/触发重连
     if (wsConnection) {
+        detachSocket(wsConnection);
         try { wsConnection.close(); } catch (e) { /* ignore */ }
         wsConnection = null;
     }
 
     isIntentionalDisconnect = false;
     try {
-        wsConnection = new WebSocket(wsUrl);
+        // 使用局部引用 ws，所有回调用 `ws !== wsConnection` 做身份守卫：
+        // 非当前连接（僵尸连接）触发的事件一律忽略，从根源杜绝重复投递与旧 close 干扰
+        const ws = new WebSocket(wsUrl);
+        wsConnection = ws;
 
-        wsConnection.onopen = () => {
+        ws.onopen = () => {
+            if (ws !== wsConnection) return;
             console.log('[WebSocket Worker] Connected with client ID:', clientId);
             // 发送初始化消息，包含客户端 ID
             const initMessage = createEventMessage('heartbeat');
-            wsConnection.send(JSON.stringify(initMessage));
+            ws.send(JSON.stringify(initMessage));
 
             // 启动心跳
             startHeartbeat();
@@ -65,7 +81,8 @@ function connectWebSocket(wsUrl) {
             });
         };
 
-        wsConnection.onmessage = (event) => {
+        ws.onmessage = (event) => {
+            if (ws !== wsConnection) return; // 僵尸连接的消息直接丢弃
             try {
                 const message = JSON.parse(event.data);
                 console.log('[WebSocket Worker] Message received:', message);
@@ -84,7 +101,8 @@ function connectWebSocket(wsUrl) {
             }
         };
 
-        wsConnection.onerror = (error) => {
+        ws.onerror = (error) => {
+            if (ws !== wsConnection) return;
             console.error('[WebSocket Worker] Error:', error);
             stopHeartbeat();
 
@@ -94,7 +112,8 @@ function connectWebSocket(wsUrl) {
             });
         };
 
-        wsConnection.onclose = () => {
+        ws.onclose = () => {
+            if (ws !== wsConnection) return; // 非当前连接的 close 不清引用、不重连
             console.log('[WebSocket Worker] Closed');
             wsConnection = null;
             stopHeartbeat();
@@ -123,6 +142,7 @@ function disconnectWebSocket() {
     stopHeartbeat();
     stopReconnect();
     if (wsConnection) {
+        detachSocket(wsConnection);
         wsConnection.close();
         wsConnection = null;
     }
@@ -266,6 +286,7 @@ self.onmessage = function(event) {
             stopReconnect();
             stopHeartbeat();
             if (wsConnection) {
+                detachSocket(wsConnection);
                 try { wsConnection.close(); } catch (e) { /* ignore */ }
                 wsConnection = null;
             }

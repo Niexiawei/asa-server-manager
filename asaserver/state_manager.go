@@ -160,10 +160,18 @@ func (sm *StateManager) getAllRecordsForInstance(instanceName string) ([]string,
 	return keys, err
 }
 
-// WriteState 写入实例状态
+// WriteState 写入实例状态。
+// 去重：若最新一条状态的 Status 与 ErrorMessage 均与待写入状态一致，则跳过写入，避免重复记录。
 func (sm *StateManager) WriteState(state InstanceState) error {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
+
+	if latest, err := sm.getLatestStateLocked(state.InstanceName); err == nil && latest != nil {
+		if latest.Status == state.Status && latest.ErrorMessage == state.ErrorMessage {
+			return nil // 与上一状态完全一致，跳过写入
+		}
+	}
+
 	return sm.writeStateLocked(state)
 }
 

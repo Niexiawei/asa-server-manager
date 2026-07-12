@@ -137,6 +137,8 @@ const handleServerEvent = (event) => {
 
   // 只有实例相关的状态变化事件才需要刷新列表
   const statusChangeEvents = [
+    'server_start_initialization',
+    'server_start_initialization_successful',
     'server_starting',
     'server_started',
     'server_stopping',

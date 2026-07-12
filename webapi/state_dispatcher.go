@@ -44,9 +44,13 @@ func broadcastInstanceStateChange(state asaserver.InstanceState) {
 func stateToEventFields(state asaserver.InstanceState) (eventType, status, message string) {
 	name := state.InstanceName
 	switch state.Status {
-	case asaserver.StatusStartStartInitialization,
-		asaserver.StatusStartStartInitializationSuccessful,
-		asaserver.StatusStarting:
+	case asaserver.StatusStartStartInitialization:
+		return "server_start_initialization", "start_initialization",
+			fmt.Sprintf("Server '%s' is initializing", name)
+	case asaserver.StatusStartStartInitializationSuccessful:
+		return "server_start_initialization_successful", "start_initialization_successful",
+			fmt.Sprintf("Server '%s' initialized, waiting to start", name)
+	case asaserver.StatusStarting:
 		return "server_starting", "starting", fmt.Sprintf("Server '%s' is starting", name)
 	case asaserver.StatusStarted:
 		return "server_started", "started", fmt.Sprintf("Server '%s' started successfully", name)
