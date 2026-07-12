@@ -247,7 +247,15 @@ import {
 import BatchOperationDialog from '@/components/BatchOperationDialog.vue'
 import ServerUpdateDialog from '@/components/ServerUpdateDialog.vue'
 import {MessagePlugin, DialogPlugin, NotifyPlugin} from 'tdesign-vue-next';
-import {CheckIcon, CloseIcon, FileCopyIcon, LoadingIcon, MoreIcon} from 'tdesign-icons-vue-next';
+import {
+  CheckIcon,
+  CloseIcon,
+  FileCopyIcon,
+  LoadingIcon,
+  MoreIcon,
+  StopCircleIcon,
+  TaskChecked1Icon
+} from 'tdesign-icons-vue-next';
 import {initServer, serverStore, addRestartPending} from '@/store/serverStore.js'
 import {
   canForceStop,
@@ -299,7 +307,7 @@ const selectedSourceInstance = ref('')
 // 状态辅助函数（标签展示）
 const renderInstanceTitle = (instance) => {
   return h('div', {style: {display: 'flex', alignItems: 'center', gap: '8px'}}, [
-    h(instance.running ? CheckIcon : CloseIcon, {style: {color: instance.running ? '#00b42a' : '#f53f3f'}}),
+    h(instance.running ? TaskChecked1Icon : StopCircleIcon, {style: {color: instance.running ? '#00b42a' : '#f53f3f'}}),
     h('span', instance.name)
   ])
 }
