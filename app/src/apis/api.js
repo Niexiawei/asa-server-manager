@@ -65,26 +65,26 @@ export function forceStopServer(name) {
     return apiClient.get(`/api/server/${name}/force-stop`)
 }
 
-// 创建备份
-export function createBackup(name) {
-    return apiClient.post(`/api/backup/${name}`, {})
+// 创建世界存档备份
+export function createWorldBackup(name) {
+    return apiClient.post(`/api/backup/world/${name}`, {})
 }
 
-// 列出指定实例的备份
-export function listBackups(name) {
-    return apiClient.get(`/api/backup/${name}`)
+// 列出指定实例的世界存档备份
+export function listWorldBackups(name) {
+    return apiClient.get(`/api/backup/world/${name}`)
 }
 
-// 恢复备份（仅恢复世界存档）
-export function restoreBackup(name, backupFile) {
-    return apiClient.post(`/api/backup/${name}/restore`, {
+// 恢复世界存档备份
+export function restoreWorldBackup(name, backupFile) {
+    return apiClient.post(`/api/backup/world/${name}/restore`, {
         backup_file: backupFile
     })
 }
 
-// 删除备份文件
-export function deleteBackup(name, filename) {
-    return apiClient.delete(`/api/backup/${name}/${encodeURIComponent(filename)}`)
+// 删除世界存档备份文件
+export function deleteWorldBackup(name, filename) {
+    return apiClient.delete(`/api/backup/world/${name}/${encodeURIComponent(filename)}`)
 }
 
 // 获取 Game.ini 配置文件内容

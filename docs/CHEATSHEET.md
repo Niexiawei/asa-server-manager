@@ -187,8 +187,8 @@ curl http://localhost:19193/api/server/server1/stop
 # 获取实例配置
 curl http://localhost:19193/api/instances/server1/config
 
-# 创建备份
-curl -X POST http://localhost:19193/api/backup/server1
+# 创建世界存档备份
+curl -X POST http://localhost:19193/api/backup/world/server1
 
 # 更新服务器
 curl http://localhost:19193/api/server/update

@@ -199,16 +199,16 @@ data: {"cpu_usage": 35.0, "memory_total": 17179869184, "memory_used": 8589934592
 
 ## 备份/恢复
 
-### `POST /api/backup/:name`
+### `POST /api/backup/world/:name`
 
 为指定实例创建世界存档备份（仅 `Save/` 目录，不含实例/游戏配置——配置备份由配置同步功能负责）。
 
 **格式**: `.zstd`（tar + zstd 压缩）
 **命名**: `{instanceName}_{timestamp}.zstd`
 
-### `GET /api/backup`
+### `GET /api/backup/world/:name`
 
-列出所有可用备份。
+列出指定实例的所有可用世界存档备份。
 
 **响应**:
 ```json
@@ -218,9 +218,9 @@ data: {"cpu_usage": 35.0, "memory_total": 17179869184, "memory_used": 8589934592
 }
 ```
 
-### `POST /api/backup/:name/restore`
+### `POST /api/backup/world/:name/restore`
 
-恢复备份到实例（仅恢复世界存档）。如果实例不存在会自动创建。
+恢复世界存档备份到实例（仅恢复世界存档）。如果实例不存在会自动创建。
 
 **请求体**:
 ```json

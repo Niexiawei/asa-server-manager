@@ -70,7 +70,7 @@ type RCONCommandRequest struct {
 type BackupRequest struct {
 }
 
-type RestoreRequest struct {
+type RestoreWorldBackupRequest struct {
 	BackupFile string `json:"backup_file" binding:"required"`
 }
 
@@ -488,8 +488,8 @@ func (s *APIServer) forceStopServer(c *gin.Context) {
 	})
 }
 
-// backupInstance creates a backup of a server instance
-func (s *APIServer) backupInstance(c *gin.Context) {
+// backupInstanceWorld creates a world-save backup of a server instance
+func (s *APIServer) backupInstanceWorld(c *gin.Context) {
 	name := c.Param("name")
 
 	if err := backup.BackupInstanceWorld(name); err != nil {
@@ -506,8 +506,8 @@ func (s *APIServer) backupInstance(c *gin.Context) {
 	})
 }
 
-// listBackups returns available backup filenames for the given instance
-func (s *APIServer) listBackups(c *gin.Context) {
+// listWorldBackups returns available world-save backup filenames for the given instance
+func (s *APIServer) listWorldBackups(c *gin.Context) {
 	name := c.Param("name")
 	if name == "" {
 		c.JSON(http.StatusBadRequest, StatusResponse{
@@ -517,7 +517,7 @@ func (s *APIServer) listBackups(c *gin.Context) {
 		return
 	}
 
-	backups, err := backup.GetAvailableBackups(name)
+	backups, err := backup.GetAvailableWorldBackups(name)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, StatusResponse{
 			Success: false,
@@ -536,13 +536,13 @@ func (s *APIServer) listBackups(c *gin.Context) {
 	})
 }
 
-// restoreBackup restores a backup to an instance.
+// restoreWorldBackup restores a world-save backup to an instance.
 // The backup file is looked up by filename inside the instance's backup directory.
 // Before restoring, a latest snapshot of the current state is created automatically.
-func (s *APIServer) restoreBackup(c *gin.Context) {
+func (s *APIServer) restoreWorldBackup(c *gin.Context) {
 	name := c.Param("name")
 
-	var req RestoreRequest
+	var req RestoreWorldBackupRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, StatusResponse{
 			Success: false,
@@ -570,11 +570,11 @@ func (s *APIServer) restoreBackup(c *gin.Context) {
 	}
 
 	// Save current state as latest snapshot before restoring (best-effort)
-	if err := backup.BackupLatestSnapshot(name); err != nil {
+	if err := backup.BackupLatestWorldSnapshot(name); err != nil {
 		logger.GetLogger().Warnf("Failed to create latest snapshot before restore for '%s': %v", name, err)
 	}
 
-	if err := backup.RestoreBackupToInstance(name, backupPath); err != nil {
+	if err := backup.RestoreInstanceWorld(name, backupPath); err != nil {
 		c.JSON(http.StatusInternalServerError, StatusResponse{
 			Success: false,
 			Error:   err.Error(),
@@ -588,8 +588,8 @@ func (s *APIServer) restoreBackup(c *gin.Context) {
 	})
 }
 
-// deleteBackup deletes a specific backup file for an instance.
-func (s *APIServer) deleteBackup(c *gin.Context) {
+// deleteWorldBackup deletes a specific world-save backup file for an instance.
+func (s *APIServer) deleteWorldBackup(c *gin.Context) {
 	name := c.Param("name")
 	file := c.Param("file")
 
@@ -601,7 +601,7 @@ func (s *APIServer) deleteBackup(c *gin.Context) {
 		return
 	}
 
-	if err := backup.DeleteBackup(name, file); err != nil {
+	if err := backup.DeleteWorldBackup(name, file); err != nil {
 		c.JSON(http.StatusInternalServerError, StatusResponse{
 			Success: false,
 			Error:   err.Error(),

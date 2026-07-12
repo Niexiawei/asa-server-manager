@@ -661,11 +661,11 @@
         }
       }
     },
-    "/api/backup/{name}": {
+    "/api/backup/world/{name}": {
       "post": {
-        "summary": "Create a backup of instance world",
+        "summary": "Create a world-save backup of an instance",
         "tags": ["Backup"],
-        "operationId": "backupInstance",
+        "operationId": "backupInstanceWorld",
         "parameters": [
           {
             "name": "name",
@@ -718,13 +718,21 @@
             }
           }
         }
-      }
-    },
-    "/api/backup": {
+      },
       "get": {
-        "summary": "List all backups",
+        "summary": "List world-save backups for an instance",
         "tags": ["Backup"],
-        "operationId": "listBackups",
+        "operationId": "listWorldBackups",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "List of backups",
@@ -749,12 +757,12 @@
         }
       }
     },
-    "/api/backup/{name}/restore": {
+    "/api/backup/world/{name}/restore": {
       "post": {
-        "summary": "Restore a backup to instance",
+        "summary": "Restore a world-save backup to an instance",
         "description": "Restores the worldfile (SaveDir content) from a backup file to a server instance. If the instance does not exist, it will be created automatically.",
         "tags": ["Backup"],
-        "operationId": "restoreBackup",
+        "operationId": "restoreWorldBackup",
         "parameters": [
           {
             "name": "name",
@@ -771,7 +779,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/RestoreRequest"
+                "$ref": "#/components/schemas/RestoreWorldBackupRequest"
               },
               "examples": {
                 "restore_worldfile": {
@@ -2350,7 +2358,7 @@
         },
         "required": ["world_folder"]
       },
-      "RestoreRequest": {
+      "RestoreWorldBackupRequest": {
         "type": "object",
         "properties": {
           "backup_file": {

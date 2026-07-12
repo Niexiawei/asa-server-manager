@@ -439,10 +439,10 @@ import {
   updateInstanceConfig,
   uploadGameIniFile,
   uploadGameUserSettingsFile,
-  createBackup,
-  listBackups,
-  restoreBackup,
-  deleteBackup
+  createWorldBackup,
+  listWorldBackups,
+  restoreWorldBackup,
+  deleteWorldBackup
 } from '@/apis/api.js'
 import {getInstanceStatus, initServer, addRestartPending} from '@/store/serverStore.js'
 import {
@@ -1070,7 +1070,7 @@ const backupListLoading = ref(false)
 const fetchBackups = async () => {
   backupListLoading.value = true
   try {
-    const data = await listBackups(instanceName)
+    const data = await listWorldBackups(instanceName)
     if (data.success) {
       backups.value = data.data?.backups || []
     } else {
@@ -1086,7 +1086,7 @@ const fetchBackups = async () => {
 const createBackupHandler = async () => {
   backupLoading.value = true
   try {
-    const data = await createBackup(instanceName)
+    const data = await createWorldBackup(instanceName)
     if (data.success) {
       MessagePlugin.success('备份创建成功')
       await fetchBackups()
@@ -1112,7 +1112,7 @@ const restoreBackupHandler = (filename) => {
     onConfirm: async () => {
       d.hide()
       try {
-        const data = await restoreBackup(instanceName, filename)
+        const data = await restoreWorldBackup(instanceName, filename)
         if (data.success) {
           MessagePlugin.success('备份恢复成功，latest 快照已更新')
           await fetchBackups()
@@ -1139,7 +1139,7 @@ const deleteBackupHandler = (filename) => {
     onConfirm: async () => {
       d.hide()
       try {
-        const data = await deleteBackup(instanceName, filename)
+        const data = await deleteWorldBackup(instanceName, filename)
         if (data.success) {
           MessagePlugin.success('备份已删除')
           await fetchBackups()

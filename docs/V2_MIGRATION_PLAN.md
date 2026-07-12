@@ -437,7 +437,7 @@ asaserver/
 
 ## 八、备份/恢复功能配套更新
 
-`backup/backup.go` 中的 `BackupInstanceWorld` 和 `RestoreBackupToInstance` 需要更新存档路径：
+`backup/backup.go` 中的 `BackupInstanceWorld` 和 `RestoreInstanceWorld` 需要更新存档路径：
 
 ```go
 // v1:
@@ -447,4 +447,4 @@ savePath := filepath.Join(ServerFilesDir, "ShooterGame/Saved", config.SaveDir)
 savePath := filepath.Join(InstancesDir, instanceName, "Save")
 ```
 
-同样，`RestoreBackupToInstance` 中恢复文件的目标路径也需要同步更新。
+同样，`RestoreInstanceWorld` 中恢复文件的目标路径也需要同步更新。

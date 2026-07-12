@@ -15,9 +15,10 @@ import (
 	"github.com/klauspost/compress/zstd"
 )
 
-// createArchive packs the instance's Save/ directory into archivePath.
+// createWorldArchive packs the instance's Save/ directory into archivePath.
+// The archive contains only world-save content, unwrapped at the tar root.
 // On failure the partial archive is removed.
-func createArchive(instanceName, archivePath string) error {
+func createWorldArchive(instanceName, archivePath string) error {
 	instanceBaseDir := filepath.Join(asaserver.InstancesDir, instanceName)
 	savePath := filepath.Join(instanceBaseDir, "Save")
 
@@ -37,7 +38,7 @@ func createArchive(instanceName, archivePath string) error {
 	tarWriter := tar.NewWriter(zstdWriter)
 	defer tarWriter.Close()
 
-	if err := addFilesToTar(tarWriter, savePath, "worldfile"); err != nil {
+	if err := addFilesToTar(tarWriter, savePath); err != nil {
 		os.Remove(archivePath)
 		return fmt.Errorf("failed to add SaveDir to archive: %w", err)
 	}
@@ -45,9 +46,9 @@ func createArchive(instanceName, archivePath string) error {
 	return nil
 }
 
-// pruneOldBackups keeps at most 10 regular backups (latest snapshot excluded).
+// pruneOldWorldBackups keeps at most 10 regular backups (latest snapshot excluded).
 // Oldest by modification time are removed first.
-func pruneOldBackups(instanceName string) error {
+func pruneOldWorldBackups(instanceName string) error {
 	backupDir := filepath.Join(asaserver.InstancesDir, instanceName, "backup")
 	latestName := instanceName + "_latest.zstd"
 
@@ -120,17 +121,17 @@ func BackupInstanceWorld(instanceName string) error {
 	archivePath := filepath.Join(backupDir, archiveName)
 
 	logger.GetLogger().Infof("Creating backup for instance '%s': %s", instanceName, archiveName)
-	if err := createArchive(instanceName, archivePath); err != nil {
+	if err := createWorldArchive(instanceName, archivePath); err != nil {
 		return err
 	}
 	logger.GetLogger().Infof("Backup created: %s", archivePath)
 
-	return pruneOldBackups(instanceName)
+	return pruneOldWorldBackups(instanceName)
 }
 
-// BackupLatestSnapshot creates or overwrites the latest snapshot for an instance.
+// BackupLatestWorldSnapshot creates or overwrites the latest snapshot for an instance.
 // Called automatically before restoring to preserve the current state.
-func BackupLatestSnapshot(instanceName string) error {
+func BackupLatestWorldSnapshot(instanceName string) error {
 	backupDir := filepath.Join(asaserver.InstancesDir, instanceName, "backup")
 	if err := os.MkdirAll(backupDir, 0755); err != nil {
 		return fmt.Errorf("failed to create backup directory: %w", err)
@@ -138,11 +139,11 @@ func BackupLatestSnapshot(instanceName string) error {
 
 	latestPath := filepath.Join(backupDir, instanceName+"_latest.zstd")
 	logger.GetLogger().Infof("Creating latest snapshot for instance '%s'", instanceName)
-	return createArchive(instanceName, latestPath)
+	return createWorldArchive(instanceName, latestPath)
 }
 
-// DeleteBackup deletes a specific backup file from the instance's backup directory.
-func DeleteBackup(instanceName, filename string) error {
+// DeleteWorldBackup deletes a specific backup file from the instance's backup directory.
+func DeleteWorldBackup(instanceName, filename string) error {
 	backupPath := filepath.Join(asaserver.InstancesDir, instanceName, "backup", filename)
 	if _, err := os.Stat(backupPath); err != nil {
 		return fmt.Errorf("backup file not found: %s", filename)
@@ -150,9 +151,9 @@ func DeleteBackup(instanceName, filename string) error {
 	return os.Remove(backupPath)
 }
 
-// RestoreBackupToInstance restores the world save from a backup to an instance.
+// RestoreInstanceWorld restores the world save from a backup to an instance.
 // backupFile must be a full absolute path to the archive.
-func RestoreBackupToInstance(instanceName string, backupFile string) error {
+func RestoreInstanceWorld(instanceName string, backupFile string) error {
 	if instanceName == "" {
 		return fmt.Errorf("instance name cannot be empty")
 	}
@@ -217,15 +218,7 @@ func RestoreBackupToInstance(instanceName string, backupFile string) error {
 			return fmt.Errorf("failed to read tar archive: %w", err)
 		}
 
-		name := header.Name
-		if len(name) <= 9 || name[0:9] != "worldfile" {
-			continue
-		}
-		relPath := name[9:]
-		if len(relPath) > 0 && relPath[0] == '/' {
-			relPath = relPath[1:]
-		}
-		target := filepath.Join(asaserver.InstancesDir, instanceName, "Save", relPath)
+		target := filepath.Join(asaserver.InstancesDir, instanceName, "Save", header.Name)
 
 		if header.Typeflag == tar.TypeDir {
 			if err := os.MkdirAll(target, 0755); err != nil {
@@ -255,8 +248,8 @@ func RestoreBackupToInstance(instanceName string, backupFile string) error {
 	return nil
 }
 
-// GetAvailableBackups returns a list of available backup filenames for the given instance.
-func GetAvailableBackups(instanceName string) ([]string, error) {
+// GetAvailableWorldBackups returns a list of available backup filenames for the given instance.
+func GetAvailableWorldBackups(instanceName string) ([]string, error) {
 	backupDir := filepath.Join(asaserver.InstancesDir, instanceName, "backup")
 	entries, err := os.ReadDir(backupDir)
 	if err != nil {
@@ -276,8 +269,9 @@ func GetAvailableBackups(instanceName string) ([]string, error) {
 	return backups, nil
 }
 
-// addFilesToTar recursively adds files to a tar archive
-func addFilesToTar(tw *tar.Writer, basePath string, prefix string) error {
+// addFilesToTar recursively adds files to a tar archive, rooted at basePath
+// (the walk root itself is not written as an entry).
+func addFilesToTar(tw *tar.Writer, basePath string) error {
 	return filepath.Walk(basePath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -288,12 +282,16 @@ func addFilesToTar(tw *tar.Writer, basePath string, prefix string) error {
 			return err
 		}
 
+		if relPath == "." {
+			return nil
+		}
+
 		header, err := tar.FileInfoHeader(info, "")
 		if err != nil {
 			return err
 		}
 
-		header.Name = prefix + "/" + filepath.ToSlash(relPath)
+		header.Name = filepath.ToSlash(relPath)
 
 		if info.IsDir() && !strings.HasSuffix(header.Name, "/") {
 			header.Name += "/"

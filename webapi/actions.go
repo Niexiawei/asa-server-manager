@@ -206,13 +206,13 @@ func (s *APIServer) setupRoutes() {
 		server.GET("/all-info", s.streamAllInstancesInfo)
 	}
 
-	// Backup/Restore endpoints
-	backup := s.engine.Group("/api/backup")
+	// Backup/Restore endpoints (world save)
+	worldBackup := s.engine.Group("/api/backup/world")
 	{
-		backup.POST("/:name", s.backupInstance)
-		backup.GET("/:name", s.listBackups)
-		backup.POST("/:name/restore", s.restoreBackup)
-		backup.DELETE("/:name/:file", s.deleteBackup)
+		worldBackup.POST("/:name", s.backupInstanceWorld)
+		worldBackup.GET("/:name", s.listWorldBackups)
+		worldBackup.POST("/:name/restore", s.restoreWorldBackup)
+		worldBackup.DELETE("/:name/:file", s.deleteWorldBackup)
 	}
 
 	// Logs endpoints

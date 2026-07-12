@@ -146,8 +146,8 @@ app --> webapi (embedded SPA served by Gin)
 | POST | `/api/server/update` | Update server (SSE) |
 | GET | `/api/server/info` | System resources (SSE, 2s interval) |
 | POST | `/api/rcon/:name/command` | Send RCON command |
-| POST/GET | `/api/backup/:name` | Create / list backups |
-| POST | `/api/backup/:name/restore` | Restore backup |
+| POST/GET | `/api/backup/world/:name` | Create / list world-save backups |
+| POST | `/api/backup/world/:name/restore` | Restore world-save backup |
 | GET | `/api/logs/:name` | Stream game logs (SSE) |
 | GET | `/api/logs` | Stream system logs (SSE) |
 | GET/PUT | `/api/config/:name/game-ini` | Read / write Game.ini |
