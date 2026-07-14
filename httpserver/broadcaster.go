@@ -49,15 +49,12 @@ func (tb *TaskBroadcaster) Start() bool {
 		close(tb.msgChan)
 	}
 	tb.msgChan = make(chan string, 100)
-	// Clear subscribers map and ensure it's initialized
+	// Do NOT close/clear existing subscribers here: Stop() already closed the previous
+	// task's subscribers, so any present now are fresh clients that subscribed before
+	// Start() (the intended Subscribe-first / TOCTOU-safe path in handleServerUpdate).
+	// Closing them would drop the very client that triggered this Start().
 	if tb.subscribers == nil {
 		tb.subscribers = make(map[chan<- string]bool)
-	} else {
-		// Close all remaining subscriber channels and clear the map in one loop
-		for subscriber := range tb.subscribers {
-			close(subscriber)
-			delete(tb.subscribers, subscriber)
-		}
 	}
 
 	tb.history = nil

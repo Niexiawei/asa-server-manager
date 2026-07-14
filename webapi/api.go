@@ -629,20 +629,14 @@ func (s *APIServer) handleServerUpdate(c *gin.Context) {
 	subscriber, unsubscribe := s.updateBroadcaster.Subscribe()
 	defer unsubscribe()
 
-	// Only start a new update task when none is running; reconnecting clients subscribe only
-	s.updateMu.Lock()
+	// Only start a new update task when none is running; reconnecting clients subscribe only.
+	// Start() atomically elects a single winner, so only that goroutine stores the cancel func.
 	if !s.updateBroadcaster.IsRunning() {
 		if s.updateBroadcaster.Start() {
 			ctx, cancel := context.WithCancel(context.Background())
-			s.updateCtx = ctx
-			s.updateCancel = cancel
-			s.updateMu.Unlock()
+			s.updateCancel.Store(&cancel)
 			go s.runUpdateTask(ctx)
-		} else {
-			s.updateMu.Unlock()
 		}
-	} else {
-		s.updateMu.Unlock()
 	}
 
 	// Replay history for late subscribers (e.g. page refresh)
@@ -682,11 +676,8 @@ func (s *APIServer) getUpdateStatus(c *gin.Context) {
 
 // cancelUpdate cancels the currently running update task
 func (s *APIServer) cancelUpdate(c *gin.Context) {
-	s.updateMu.Lock()
-	cancel := s.updateCancel
-	s.updateMu.Unlock()
-
-	if cancel == nil || !s.updateBroadcaster.IsRunning() {
+	cancelPtr := s.updateCancel.Load()
+	if cancelPtr == nil || !s.updateBroadcaster.IsRunning() {
 		c.JSON(http.StatusNotFound, StatusResponse{
 			Success: false,
 			Error:   "没有正在进行的更新",
@@ -694,7 +685,7 @@ func (s *APIServer) cancelUpdate(c *gin.Context) {
 		return
 	}
 
-	cancel()
+	(*cancelPtr)()
 	c.JSON(http.StatusOK, StatusResponse{
 		Success: true,
 		Message: "已发送取消指令",

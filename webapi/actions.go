@@ -17,7 +17,7 @@ import (
 	"net/http"
 	"os/signal"
 	"strings"
-	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -33,9 +33,7 @@ type APIServer struct {
 	port   int
 	// Task broadcasters for independent SSE streams
 	updateBroadcaster *httpserver.TaskBroadcaster
-	updateCtx         context.Context    // 当前更新任务的 context
-	updateCancel      context.CancelFunc // 取消函数
-	updateMu          sync.Mutex         // 保护 updateCtx/updateCancel
+	updateCancel      atomic.Pointer[context.CancelFunc] // 当前更新任务的取消函数（原子，无锁）
 	serverCtx         context.Context
 	serverCtxStop     func()
 	serverDone        chan struct{}

@@ -23,12 +23,11 @@ func (s *APIServer) runUpdateTask(ctx context.Context) {
 		}
 	}()
 
-	// Clean up update context on exit
+	// Clean up update cancel func on exit.
+	// This Store(nil) runs before the deferred Stop() (LIFO), so it happens-before
+	// running flips to false and thus before any subsequent Start() can store a new one.
 	defer func() {
-		s.updateMu.Lock()
-		s.updateCtx = nil
-		s.updateCancel = nil
-		s.updateMu.Unlock()
+		s.updateCancel.Store(nil)
 	}()
 
 	defer func() {

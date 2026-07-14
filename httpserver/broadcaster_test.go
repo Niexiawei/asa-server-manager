@@ -52,6 +52,41 @@ func TestTaskBroadcasterStartClearsHistory(t *testing.T) {
 	}
 }
 
+// TestTaskBroadcasterSubscribeBeforeStartSurvives mirrors handleServerUpdate's
+// Subscribe-first ordering: a client subscribes before the task is Start()ed. Start()
+// must NOT close that fresh subscriber, otherwise the SSE stream ends immediately.
+func TestTaskBroadcasterSubscribeBeforeStartSurvives(t *testing.T) {
+	tb := NewTaskBroadcaster()
+
+	// Subscribe BEFORE Start (the TOCTOU-safe path).
+	ch, unsubscribe := tb.Subscribe()
+	defer unsubscribe()
+
+	if !tb.Start() {
+		t.Fatal("expected Start to succeed")
+	}
+	defer tb.Stop()
+
+	tb.SendMessage("live")
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		select {
+		case msg, ok := <-ch:
+			if !ok {
+				t.Fatal("subscriber channel was closed by Start(); stream would disconnect immediately")
+			}
+			if msg != "live" {
+				t.Fatalf("expected live message, got %q", msg)
+			}
+			return
+		default:
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+	t.Fatal("expected pre-Start subscriber to receive message")
+}
+
 func TestTaskBroadcasterSubscribeReceivesMessages(t *testing.T) {
 	tb := NewTaskBroadcaster()
 	if !tb.Start() {
