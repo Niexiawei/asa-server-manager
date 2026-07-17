@@ -11,6 +11,7 @@ import (
 	"asa-server/pkg/winproc"
 	procpkg "asa-server/process"
 	"asa-server/serverinfo"
+	statepkg "asa-server/state"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -38,13 +39,13 @@ func validateInstanceName(name string) error {
 }
 
 type InstanceInfo struct {
-	Name          string                    `json:"name"`
-	Running       bool                      `json:"running"`
-	Config        interface{}               `json:"config,omitempty"`
-	Status        string                    `json:"status"`
-	StatusHistory []asaserver.InstanceState `json:"status_history"`
-	AsaVersion    string                    `json:"asaVersion,omitempty"`
-	Error         string                    `json:"error,omitempty"`
+	Name          string                   `json:"name"`
+	Running       bool                     `json:"running"`
+	Config        interface{}              `json:"config,omitempty"`
+	Status        string                   `json:"status"`
+	StatusHistory []statepkg.InstanceState `json:"status_history"`
+	AsaVersion    string                   `json:"asaVersion,omitempty"`
+	Error         string                   `json:"error,omitempty"`
 }
 
 type ListResponse struct {
@@ -116,8 +117,8 @@ func (s *APIServer) listInstances(c *gin.Context) {
 	for _, instanceName := range instances {
 		running, err := procpkg.IsServerRunning(instanceName)
 		config, cfgErr := cfgpkg.LoadInstanceConfig(instanceName)
-		_status, _ := asaserver.GetLatestInstanceState(instanceName)
-		history, _ := asaserver.GetInstanceStateHistory(instanceName, 200)
+		_status, _ := statepkg.GetLatestInstanceState(instanceName)
+		history, _ := statepkg.GetInstanceStateHistory(instanceName, 200)
 
 		info := InstanceInfo{
 			Name:          instanceName,
@@ -242,8 +243,8 @@ func (s *APIServer) getInstanceStatus(c *gin.Context) {
 	}
 	running, err := procpkg.IsServerRunning(name)
 	config, cfgErr := cfgpkg.LoadInstanceConfig(name)
-	_status, _ := asaserver.GetLatestInstanceState(name)
-	history, _ := asaserver.GetInstanceStateHistory(name, 200)
+	_status, _ := statepkg.GetLatestInstanceState(name)
+	history, _ := statepkg.GetInstanceStateHistory(name, 200)
 	info := InstanceInfo{
 		Name:          name,
 		Running:       running,
@@ -395,12 +396,12 @@ func (s *APIServer) startServer(c *gin.Context) {
 	}
 
 	// 同步 CAS：原子检查并设置状态，立即返回 409 如果不允许
-	ok, err := asaserver.CompareAndSwapInstanceState(instanceName,
-		[]asaserver.InstanceStatus{
-			asaserver.StatusStopped, asaserver.StatusStartFailed,
-			asaserver.StatusStopFailed, asaserver.StatusRestartFailed, "",
+	ok, err := statepkg.CompareAndSwapInstanceState(instanceName,
+		[]statepkg.InstanceStatus{
+			statepkg.StatusStopped, statepkg.StatusStartFailed,
+			statepkg.StatusStopFailed, statepkg.StatusRestartFailed, "",
 		},
-		asaserver.StatusStartStartInitialization)
+		statepkg.StatusStartStartInitialization)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, StatusResponse{
 			Success: false,
@@ -430,9 +431,9 @@ func (s *APIServer) stopServer(c *gin.Context) {
 	name := c.Param("name")
 
 	// 同步 CAS：原子检查并设置状态，立即返回 409 如果不允许
-	ok, err := asaserver.CompareAndSwapInstanceState(name,
-		[]asaserver.InstanceStatus{asaserver.StatusStarted},
-		asaserver.StatusStopping)
+	ok, err := statepkg.CompareAndSwapInstanceState(name,
+		[]statepkg.InstanceStatus{statepkg.StatusStarted},
+		statepkg.StatusStopping)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, StatusResponse{
 			Success: false,
@@ -461,9 +462,9 @@ func (s *APIServer) restartServer(c *gin.Context) {
 	name := c.Param("name")
 
 	// 同步 CAS：原子检查并设置状态，立即返回 409 如果不允许
-	ok, err := asaserver.CompareAndSwapInstanceState(name,
-		[]asaserver.InstanceStatus{asaserver.StatusStarted},
-		asaserver.StatusRestarting)
+	ok, err := statepkg.CompareAndSwapInstanceState(name,
+		[]statepkg.InstanceStatus{statepkg.StatusStarted},
+		statepkg.StatusRestarting)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, StatusResponse{
 			Success: false,

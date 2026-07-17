@@ -1,4 +1,4 @@
-package asaserver
+package mirror
 
 import cfgpkg "asa-server/config"
 

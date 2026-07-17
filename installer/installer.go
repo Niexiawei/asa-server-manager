@@ -1,4 +1,4 @@
-package asaserver
+package installer
 
 import cfgpkg "asa-server/config"
 
@@ -21,6 +21,35 @@ import (
 
 	"github.com/aymanbagabas/go-pty"
 )
+
+// findLatestLogFile finds the latest log file (ShooterGame.log or ShooterGame_N.log).
+// When multiple servers run, logs are named ShooterGame.log, ShooterGame_2.log, etc.
+func findLatestLogFile(logsDir string) (string, error) {
+	files, err := os.ReadDir(logsDir)
+	if err != nil {
+		return "", err
+	}
+
+	var logFiles []string
+	for _, file := range files {
+		if !file.IsDir() && strings.HasPrefix(file.Name(), "ShooterGame") && strings.HasSuffix(file.Name(), ".log") {
+			logFiles = append(logFiles, file.Name())
+		}
+	}
+
+	if len(logFiles) == 0 {
+		return "", fmt.Errorf("no ShooterGame log files found")
+	}
+
+	var latestLog string
+	for _, log := range logFiles {
+		if latestLog == "" || log > latestLog {
+			latestLog = log
+		}
+	}
+
+	return filepath.Join(logsDir, latestLog), nil
+}
 
 // DownloadAndExtractSteamCmd downloads and extracts SteamCMD to the steamcmd folder
 // outputCallback is an optional callback for streaming console output (implements os.Writer interface)
@@ -412,7 +441,7 @@ func VerifyServerInstallation(ctx context.Context, force bool) error {
 	pid := cmd.Process.Pid
 	logger.GetLogger().Infof("Server process started (PID: %d). Monitoring log file...", pid)
 
-	logFilePath, err := FindLatestLogFile(logsDir)
+	logFilePath, err := findLatestLogFile(logsDir)
 	if err != nil {
 		logger.GetLogger().Warnf("Warning: could not find log file initially - %v", err)
 		// Continue anyway, will wait for manual log generation

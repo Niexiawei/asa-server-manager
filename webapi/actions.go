@@ -2,13 +2,13 @@ package webapi
 
 import (
 	"asa-server/app"
-	"asa-server/asaserver"
 	"asa-server/batchmanage"
 	cfgpkg "asa-server/config"
 	"asa-server/frpmanage"
 	"asa-server/httpserver"
 	"asa-server/logger"
 	"asa-server/parseserver"
+	statepkg "asa-server/state"
 	"asa-server/syncthingmanage"
 	"context"
 	"errors"
@@ -90,7 +90,7 @@ func (s *APIServer) Start() error {
 		}
 	}
 
-	if err := asaserver.InitStateManager(cfgpkg.BaseDir); err != nil {
+	if err := statepkg.InitStateManager(cfgpkg.BaseDir); err != nil {
 		panic(err)
 	}
 	s.startStateChangeDispatcher(s.serverCtx)
@@ -164,7 +164,7 @@ func (s *APIServer) Stop() error {
 	}
 
 	log.Println("saveDataManager stopped")
-	if err := asaserver.CloseStateManager(); err != nil {
+	if err := statepkg.CloseStateManager(); err != nil {
 		logger.GetLogger().Warnf("Error closing state manager: %v", err)
 	}
 

@@ -1,8 +1,9 @@
 package actions
 
 import (
-	"asa-server/asaserver"
+	"asa-server/installer"
 	"asa-server/logger"
+	statepkg "asa-server/state"
 	"context"
 	"fmt"
 	"os"
@@ -15,12 +16,12 @@ func ActionUpdate(ctx context.Context, cmd *cli.Command) error {
 
 	stdoutFmt := os.Stdout
 	// Download and extract SteamCMD
-	if err := asaserver.DownloadAndExtractSteamCmd(ctx, stdoutFmt); err != nil {
+	if err := installer.DownloadAndExtractSteamCmd(ctx, stdoutFmt); err != nil {
 		return err
 	}
 
 	// Download and update ARK server
-	if err := asaserver.DownloadAndUpdateArkServer(ctx, stdoutFmt); err != nil {
+	if err := installer.DownloadAndUpdateArkServer(ctx, stdoutFmt); err != nil {
 		return err
 	}
 
@@ -28,7 +29,7 @@ func ActionUpdate(ctx context.Context, cmd *cli.Command) error {
 	forceServer := cmd.Bool("force-server")
 
 	// Verify server installation by running it to generate config files
-	if err := asaserver.VerifyServerInstallation(ctx, forceServer); err != nil {
+	if err := installer.VerifyServerInstallation(ctx, forceServer); err != nil {
 		return err
 	}
 
@@ -39,7 +40,7 @@ func ActionUpdate(ctx context.Context, cmd *cli.Command) error {
 // ActionStateClear 清空状态数据库
 func ActionStateClear(ctx context.Context, cmd *cli.Command) error {
 	fmt.Println("Clearing state database...")
-	if err := asaserver.ClearStateDatabase(); err != nil {
+	if err := statepkg.ClearStateDatabase(); err != nil {
 		return fmt.Errorf("failed to clear state database: %w", err)
 	}
 	fmt.Println("State database cleared successfully.")

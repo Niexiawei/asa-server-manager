@@ -1,5 +1,9 @@
 package asaserver
 
+import "asa-server/mirror"
+
+import statepkg "asa-server/state"
+
 import procpkg "asa-server/process"
 
 import cfgpkg "asa-server/config"
@@ -137,9 +141,9 @@ func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
 
 	if !tmpOpts.StatePreset {
 		// CAS: 原子检查状态并转换到 start_initialization
-		ok, err := CompareAndSwapInstanceState(instanceName,
-			[]InstanceStatus{StatusStopped, StatusStartFailed, StatusStopFailed, StatusRestartFailed, ""},
-			StatusStartStartInitialization)
+		ok, err := statepkg.CompareAndSwapInstanceState(instanceName,
+			[]statepkg.InstanceStatus{statepkg.StatusStopped, statepkg.StatusStartFailed, statepkg.StatusStopFailed, statepkg.StatusRestartFailed, ""},
+			statepkg.StatusStartStartInitialization)
 		if err != nil {
 			return fmt.Errorf("failed to check instance state: %w", err)
 		}
@@ -171,10 +175,10 @@ func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
 			logger.GetLogger().Warnf("服务器 %s 启动失败（网络错误），将重试 (%d/%d): %v", instanceName, attempt+1, retryCount, lastErr)
 			continue
 		}
-		_ = WriteInstanceState(instanceName, StatusStopped, "")
+		_ = statepkg.WriteInstanceState(instanceName, statepkg.StatusStopped, "")
 		return lastErr
 	}
-	_ = WriteInstanceState(instanceName, StatusStopped, "")
+	_ = statepkg.WriteInstanceState(instanceName, statepkg.StatusStopped, "")
 	return lastErr
 }
 
@@ -204,7 +208,7 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 
 	defer func() {
 		if startErr != nil {
-			_ = WriteInstanceState(instanceName, StatusStartFailed, startErr.Error())
+			_ = statepkg.WriteInstanceState(instanceName, statepkg.StatusStartFailed, startErr.Error())
 		}
 	}()
 
@@ -224,7 +228,7 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 	logger.GetLogger().Infof("Starting server for instance: %s", instanceName)
 
 	// 同步实例镜像目录（增量）
-	mirrorDir, err = SyncInstanceMirror(instanceName, config)
+	mirrorDir, err = mirror.SyncInstanceMirror(instanceName, config)
 	if err != nil {
 		wrappedErr := fmt.Errorf("failed to setup instance mirror: %w", err)
 		startErr = wrappedErr
@@ -232,7 +236,7 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 	}
 
 	// 校验镜像关键路径完整性，不完整时自动重建
-	mirrorDir, err = VerifyAndRepairInstanceMirror(instanceName, config, mirrorDir)
+	mirrorDir, err = mirror.VerifyAndRepairInstanceMirror(instanceName, config, mirrorDir)
 	if err != nil {
 		startErr = err
 		return err
@@ -414,21 +418,21 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 	go waitServerStartup(pid, gameLogPath, func(startup bool, err string) {
 		if startup {
 			if opts.OnRestartStartupComplete != nil {
-				_ = WriteInstanceState(instanceName, StatusRestarted, "")
+				_ = statepkg.WriteInstanceState(instanceName, statepkg.StatusRestarted, "")
 				opts.OnRestartStartupComplete(instanceName)
 			}
-			_ = WriteInstanceState(instanceName, StatusStarted, "")
+			_ = statepkg.WriteInstanceState(instanceName, statepkg.StatusStarted, "")
 			if opts.WaitServerCompleted {
 				startupSuccess <- true
 			}
 		} else {
-			_ = WriteInstanceState(instanceName, StatusStartFailed, err)
+			_ = statepkg.WriteInstanceState(instanceName, statepkg.StatusStartFailed, err)
 			initFailed <- fmt.Errorf("%s", err)
 		}
 	}, func() {
-		_ = WriteInstanceState(instanceName, StatusStartStartInitializationSuccessful, "")
+		_ = statepkg.WriteInstanceState(instanceName, statepkg.StatusStartStartInitializationSuccessful, "")
 		// v2: 不调用 confReset（镜像目录独立，无需恢复原始 Config）
-		_ = WriteInstanceState(instanceName, StatusStarting, "")
+		_ = statepkg.WriteInstanceState(instanceName, statepkg.StatusStarting, "")
 		initSuccessful <- true
 
 		if opts.GameInitializationSuccessful != nil {
@@ -465,9 +469,9 @@ func StopServer(instanceName string, options ...StartServerOptionsFunc) error {
 
 	if !opts.StatePreset {
 		// CAS: 原子检查状态并转换到 stopping
-		ok, err := CompareAndSwapInstanceState(instanceName,
-			[]InstanceStatus{StatusStarted},
-			StatusStopping)
+		ok, err := statepkg.CompareAndSwapInstanceState(instanceName,
+			[]statepkg.InstanceStatus{statepkg.StatusStarted},
+			statepkg.StatusStopping)
 		if err != nil {
 			return fmt.Errorf("failed to check instance state: %w", err)
 		}
@@ -492,13 +496,13 @@ func stopServerInternal(instanceName string) error {
 	defer func() {
 		if stopErr != nil {
 			// 保留失败记录（历史）
-			_ = WriteInstanceState(instanceName, StatusStopFailed, stopErr.Error())
+			_ = statepkg.WriteInstanceState(instanceName, statepkg.StatusStopFailed, stopErr.Error())
 			// 回滚到操作前状态：服务器仍在运行则为 started，已停止则为 stopped
-			rollbackStatus := StatusStopped
+			rollbackStatus := statepkg.StatusStopped
 			if running, err := procpkg.IsServerRunning(instanceName); err == nil && running {
-				rollbackStatus = StatusStarted
+				rollbackStatus = statepkg.StatusStarted
 			}
-			_ = WriteInstanceState(instanceName, rollbackStatus, "")
+			_ = statepkg.WriteInstanceState(instanceName, rollbackStatus, "")
 		}
 	}()
 
@@ -573,7 +577,7 @@ func stopServerInternal(instanceName string) error {
 		}
 	}
 
-	_ = WriteInstanceState(instanceName, StatusStopped, "")
+	_ = statepkg.WriteInstanceState(instanceName, statepkg.StatusStopped, "")
 	return nil
 }
 
@@ -592,9 +596,9 @@ func ForceStopServer(instanceName string) error {
 		killGameServer(pid2)
 	}
 	// 3. 重置状态为 stopped
-	_ = WriteInstanceState(instanceName, StatusStopped, "")
+	_ = statepkg.WriteInstanceState(instanceName, statepkg.StatusStopped, "")
 	// 4. 清理镜像目录
-	if err := CleanupInstanceMirror(instanceName); err != nil {
+	if err := mirror.CleanupInstanceMirror(instanceName); err != nil {
 		logger.GetLogger().Warnf("Failed to cleanup instance mirror for %s: %v", instanceName, err)
 	}
 	return nil
@@ -615,7 +619,7 @@ func KillServer(instanceName string) error {
 	if err != nil {
 		return err
 	}
-	_ = WriteInstanceState(instanceName, StatusStopped, "")
+	_ = statepkg.WriteInstanceState(instanceName, statepkg.StatusStopped, "")
 	return nil
 }
 
@@ -628,9 +632,9 @@ func RestartServer(instanceName string, options ...StartServerOptionsFunc) error
 
 	if !opts.StatePreset {
 		// CAS: 原子检查状态并转换到 restarting
-		ok, err := CompareAndSwapInstanceState(instanceName,
-			[]InstanceStatus{StatusStarted},
-			StatusRestarting)
+		ok, err := statepkg.CompareAndSwapInstanceState(instanceName,
+			[]statepkg.InstanceStatus{statepkg.StatusStarted},
+			statepkg.StatusRestarting)
 		if err != nil {
 			return fmt.Errorf("failed to check instance state: %w", err)
 		}
@@ -646,13 +650,13 @@ func RestartServer(instanceName string, options ...StartServerOptionsFunc) error
 	defer func() {
 		if restartErr != nil {
 			// 保留失败记录（历史）
-			_ = WriteInstanceState(instanceName, StatusRestartFailed, restartErr.Error())
+			_ = statepkg.WriteInstanceState(instanceName, statepkg.StatusRestartFailed, restartErr.Error())
 			// 回滚到操作前状态：服务器仍在运行则为 started，已停止则为 stopped
-			rollbackStatus := StatusStopped
+			rollbackStatus := statepkg.StatusStopped
 			if running, err := procpkg.IsServerRunning(instanceName); err == nil && running {
-				rollbackStatus = StatusStarted
+				rollbackStatus = statepkg.StatusStarted
 			}
-			_ = WriteInstanceState(instanceName, rollbackStatus, "")
+			_ = statepkg.WriteInstanceState(instanceName, rollbackStatus, "")
 		}
 	}()
 

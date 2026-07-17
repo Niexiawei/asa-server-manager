@@ -2,10 +2,10 @@ package main
 
 import (
 	"asa-server/actions"
-	"asa-server/asaserver"
 	cfgpkg "asa-server/config"
 	"asa-server/gui"
 	"asa-server/logger"
+	"asa-server/mirror"
 	"asa-server/pkg/winproc"
 	"asa-server/webapi"
 	"asa-server/winservice"
@@ -178,7 +178,7 @@ func isApiCommand(args []string) bool {
 
 // ensureAdminElevation 静默检测管理员权限并提权
 func ensureAdminElevation() {
-	if asaserver.IsElevated() {
+	if mirror.IsElevated() {
 		return // 已是管理员，无需提权
 	}
 

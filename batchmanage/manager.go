@@ -5,6 +5,7 @@ import (
 	cfgpkg "asa-server/config"
 	"asa-server/httpserver"
 	"asa-server/logger"
+	statepkg "asa-server/state"
 	"context"
 	"fmt"
 	"sync"
@@ -533,20 +534,20 @@ func (op *BatchOperation) GetLogBroadcaster() *LogBroadcaster {
 func batchDoCAS(instanceName string, opType BatchOperationType) (bool, error) {
 	switch opType {
 	case BatchStart:
-		return asaserver.CompareAndSwapInstanceState(instanceName,
-			[]asaserver.InstanceStatus{
-				asaserver.StatusStopped, asaserver.StatusStartFailed,
-				asaserver.StatusStopFailed, asaserver.StatusRestartFailed, "",
+		return statepkg.CompareAndSwapInstanceState(instanceName,
+			[]statepkg.InstanceStatus{
+				statepkg.StatusStopped, statepkg.StatusStartFailed,
+				statepkg.StatusStopFailed, statepkg.StatusRestartFailed, "",
 			},
-			asaserver.StatusStartStartInitialization)
+			statepkg.StatusStartStartInitialization)
 	case BatchStop:
-		return asaserver.CompareAndSwapInstanceState(instanceName,
-			[]asaserver.InstanceStatus{asaserver.StatusStarted},
-			asaserver.StatusStopping)
+		return statepkg.CompareAndSwapInstanceState(instanceName,
+			[]statepkg.InstanceStatus{statepkg.StatusStarted},
+			statepkg.StatusStopping)
 	case BatchRestart:
-		return asaserver.CompareAndSwapInstanceState(instanceName,
-			[]asaserver.InstanceStatus{asaserver.StatusStarted},
-			asaserver.StatusRestarting)
+		return statepkg.CompareAndSwapInstanceState(instanceName,
+			[]statepkg.InstanceStatus{statepkg.StatusStarted},
+			statepkg.StatusRestarting)
 	default:
 		return false, fmt.Errorf("unknown batch operation type: %s", opType)
 	}

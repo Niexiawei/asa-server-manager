@@ -1,5 +1,7 @@
 package asaserver
 
+import "asa-server/mirror"
+
 import cfgpkg "asa-server/config"
 
 import (
@@ -21,39 +23,6 @@ import (
 	"time"
 	"unicode/utf8"
 )
-
-// FindLatestLogFile finds the latest log file (ShooterGame.log or ShooterGame_N.log)
-// When multiple servers run, logs are named ShooterGame.log, ShooterGame_2.log, etc.
-func FindLatestLogFile(logsDir string) (string, error) {
-	// List all files in the logs directory
-	files, err := os.ReadDir(logsDir)
-	if err != nil {
-		return "", err
-	}
-
-	// Find the latest ShooterGame log file
-	var logFiles []string
-	for _, file := range files {
-		if !file.IsDir() && strings.HasPrefix(file.Name(), "ShooterGame") && strings.HasSuffix(file.Name(), ".log") {
-			logFiles = append(logFiles, file.Name())
-		}
-	}
-
-	if len(logFiles) == 0 {
-		return "", fmt.Errorf("no ShooterGame log files found")
-	}
-
-	// Sort to get the latest (highest numbered) log file
-	// ShooterGame.log comes first, then ShooterGame_2.log, ShooterGame_3.log, etc.
-	var latestLog string
-	for _, log := range logFiles {
-		if latestLog == "" || log > latestLog {
-			latestLog = log
-		}
-	}
-
-	return filepath.Join(logsDir, latestLog), nil
-}
 
 var ansiRegexp = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
 
@@ -540,7 +509,7 @@ var asaVersionCache sync.Map
 // 优先读取实例镜像目录的 exe；镜像不存在（实例从未启动）时回退到基础安装目录
 // 内置基于 modTime+size 的缓存，服务器更新后自动失效
 func GetInstanceAsaVersion(instanceName string) (string, error) {
-	arkExe := filepath.Join(InstanceMirrorDir(instanceName), "ShooterGame/Binaries/Win64/ArkAscendedServer.exe")
+	arkExe := filepath.Join(mirror.InstanceMirrorDir(instanceName), "ShooterGame/Binaries/Win64/ArkAscendedServer.exe")
 	stat, err := os.Stat(arkExe)
 	if err != nil {
 		arkExe = filepath.Join(cfgpkg.ServerFilesDir, "ShooterGame/Binaries/Win64/ArkAscendedServer.exe")

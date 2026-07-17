@@ -3,6 +3,7 @@ package webapi
 import (
 	"asa-server/asaserver"
 	"asa-server/httpserver"
+	"asa-server/installer"
 	"asa-server/logger"
 	"context"
 	"fmt"
@@ -57,7 +58,7 @@ func (s *APIServer) runUpdateTask(ctx context.Context) {
 		return
 	}
 	s.updateBroadcaster.SendMessage("Downloading and extracting SteamCMD...")
-	if err := asaserver.DownloadAndExtractSteamCmd(ctx, writer); err != nil {
+	if err := installer.DownloadAndExtractSteamCmd(ctx, writer); err != nil {
 		if ctx.Err() != nil {
 			cancelled = true
 			return // cancelled
@@ -71,7 +72,7 @@ func (s *APIServer) runUpdateTask(ctx context.Context) {
 		return
 	}
 	s.updateBroadcaster.SendMessage("Downloading and updating ARK server files...")
-	if err := asaserver.DownloadAndUpdateArkServer(ctx, writer); err != nil {
+	if err := installer.DownloadAndUpdateArkServer(ctx, writer); err != nil {
 		if ctx.Err() != nil {
 			cancelled = true
 			return // cancelled
@@ -85,7 +86,7 @@ func (s *APIServer) runUpdateTask(ctx context.Context) {
 		return
 	}
 	s.updateBroadcaster.SendMessage("Verifying server installation...")
-	if err := asaserver.VerifyServerInstallation(ctx, false); err != nil {
+	if err := installer.VerifyServerInstallation(ctx, false); err != nil {
 		if ctx.Err() != nil {
 			cancelled = true
 			return // cancelled
