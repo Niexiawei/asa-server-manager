@@ -1,5 +1,7 @@
 package asaserver
 
+import procpkg "asa-server/process"
+
 import cfgpkg "asa-server/config"
 
 import (
@@ -15,9 +17,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/aymanbagabas/go-pty"
@@ -57,72 +57,9 @@ func GetGameLogFilePath(instanceName string) (string, error) {
 // IsServerRunning checks if a server instance is running
 // It checks by verifying if both the game port and RCON port are listening
 // This uniquely identifies the specific server instance
-func IsServerRunning(instanceName string) (bool, error) {
-	// Load the instance configuration to get the ports
-	config, err := cfgpkg.LoadInstanceConfig(instanceName)
-
-	if err != nil {
-		return false, err
-	}
-
-	// Build the netstat command with port filtering for efficiency
-	// Check for both game port and RCON port in a single netstat query
-	cmd := exec.Command("netstat", "-ano")
-	// Hide the cmd window on Windows
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-
-	output, err := cmd.Output()
-	if err != nil {
-		return false, fmt.Errorf("failed to execute netstat: %w", err)
-	}
-
-	netstatOutput := string(output)
-
-	lines := strings.Split(netstatOutput, "\n")
-
-	portStr := fmt.Sprintf(":%d", config.Port)
-
-	for _, line := range lines {
-		if strings.Contains(line, portStr) {
-			// The last field in the line is the PID
-			fields := strings.Fields(line)
-			if len(fields) > 2 {
-				if !strings.Contains(fields[1], portStr) {
-					continue
-				}
-				pid, err := strconv.Atoi(fields[len(fields)-1])
-				if err == nil && pid > 0 {
-					return true, nil
-				}
-			}
-		}
-	}
-	//logger.GetLogger().Warnf("Game port :%d not found", config.Port)
-	return false, nil
-}
 
 // IsServerRunningByPID checks if a server instance is running by verifying if the saved PID process exists
 // This method retrieves the PID from the instance directory and checks if the process is still active
-func IsServerRunningByPID(instanceName string) (bool, error) {
-	// Retrieve the saved PID for the instance
-	pid, err := GetInstancePID(instanceName)
-	if err != nil {
-		return false, fmt.Errorf("failed to get instance PID: %w", err)
-	}
-
-	// Check if the process with this PID exists and is running
-	exited, err := winproc.IsProcessExited(uint32(pid))
-	if err != nil {
-		return false, fmt.Errorf("failed to check process status: %w", err)
-	}
-
-	// If process has exited, it's not running
-	if exited {
-		return false, nil
-	}
-
-	return true, nil
-}
 
 type StartServerOptions struct {
 	GameLogPathCallback          func(path string)
@@ -464,7 +401,7 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 		pid = cmd.Process.Pid
 	}
 
-	if err := SaveInstancePID(instanceName, pid); err != nil {
+	if err := procpkg.SaveInstancePID(instanceName, pid); err != nil {
 		logger.GetLogger().Warnf("Failed to save PID for instance %s: %v", instanceName, err)
 	}
 
@@ -558,14 +495,14 @@ func stopServerInternal(instanceName string) error {
 			_ = WriteInstanceState(instanceName, StatusStopFailed, stopErr.Error())
 			// 回滚到操作前状态：服务器仍在运行则为 started，已停止则为 stopped
 			rollbackStatus := StatusStopped
-			if running, err := IsServerRunning(instanceName); err == nil && running {
+			if running, err := procpkg.IsServerRunning(instanceName); err == nil && running {
 				rollbackStatus = StatusStarted
 			}
 			_ = WriteInstanceState(instanceName, rollbackStatus, "")
 		}
 	}()
 
-	running, err := IsServerRunning(instanceName)
+	running, err := procpkg.IsServerRunning(instanceName)
 	if err != nil || !running {
 		logger.GetLogger().Warnf("Server for instance %s is not running.", instanceName)
 		stopErr = fmt.Errorf("server for instance %s is not running", instanceName)
@@ -631,7 +568,7 @@ func stopServerInternal(instanceName string) error {
 
 	// Cleanup
 	if config.EnableAsaPlugin {
-		if pid2, pidErr := GetInstancePID(instanceName); pidErr == nil {
+		if pid2, pidErr := procpkg.GetInstancePID(instanceName); pidErr == nil {
 			_ = exec.Command("taskkill", "/F", "/PID", fmt.Sprintf("%d", pid2)).Run()
 		}
 	}
@@ -651,7 +588,7 @@ func ForceStopServer(instanceName string) error {
 		}
 	}
 	// 2. 尝试杀死已保存的 PID（插件进程，best effort）
-	if pid2, pidErr := GetInstancePID(instanceName); pidErr == nil && pid2 > 0 {
+	if pid2, pidErr := procpkg.GetInstancePID(instanceName); pidErr == nil && pid2 > 0 {
 		killGameServer(pid2)
 	}
 	// 3. 重置状态为 stopped
@@ -712,7 +649,7 @@ func RestartServer(instanceName string, options ...StartServerOptionsFunc) error
 			_ = WriteInstanceState(instanceName, StatusRestartFailed, restartErr.Error())
 			// 回滚到操作前状态：服务器仍在运行则为 started，已停止则为 stopped
 			rollbackStatus := StatusStopped
-			if running, err := IsServerRunning(instanceName); err == nil && running {
+			if running, err := procpkg.IsServerRunning(instanceName); err == nil && running {
 				rollbackStatus = StatusStarted
 			}
 			_ = WriteInstanceState(instanceName, rollbackStatus, "")
@@ -736,7 +673,7 @@ func RestartServer(instanceName string, options ...StartServerOptionsFunc) error
 
 // SendRCONCommand sends an RCON command to a server using gorcon/rcon library
 func SendRCONCommand(instanceName string, command string) (string, error) {
-	running, err := IsServerRunning(instanceName)
+	running, err := procpkg.IsServerRunning(instanceName)
 	if err != nil || !running {
 		return "", fmt.Errorf("server for instance %s is not running", instanceName)
 	}
@@ -799,7 +736,7 @@ func GetRunningInstances() ([]string, error) {
 
 	var running []string
 	for _, instanceName := range instances {
-		if isRunning, err := IsServerRunning(instanceName); err == nil && isRunning {
+		if isRunning, err := procpkg.IsServerRunning(instanceName); err == nil && isRunning {
 			running = append(running, instanceName)
 		}
 	}
@@ -808,33 +745,8 @@ func GetRunningInstances() ([]string, error) {
 }
 
 // SaveInstancePID saves the PID of a running instance to its directory
-func SaveInstancePID(instanceName string, pid int) error {
-	instanceDir := filepath.Join(cfgpkg.InstancesDir, instanceName)
-	if err := os.MkdirAll(instanceDir, 0755); err != nil {
-		return fmt.Errorf("failed to create instance directory: %w", err)
-	}
-
-	pidFile := filepath.Join(instanceDir, "pid")
-	return os.WriteFile(pidFile, []byte(strconv.Itoa(pid)), 0644)
-}
 
 // GetInstancePID retrieves the PID of a running instance from its directory
-func GetInstancePID(instanceName string) (int, error) {
-	instanceDir := filepath.Join(cfgpkg.InstancesDir, instanceName)
-	pidFile := filepath.Join(instanceDir, "pid")
-
-	data, err := os.ReadFile(pidFile)
-	if err != nil {
-		return 0, err
-	}
-
-	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
-	if err != nil {
-		return 0, fmt.Errorf("failed to parse PID: %w", err)
-	}
-
-	return pid, nil
-}
 
 // quotifyIfNeeded wraps a string in double quotes if it contains special characters
 // that could interfere with command-line parameter parsing

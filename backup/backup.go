@@ -2,9 +2,9 @@ package backup
 
 import (
 	"archive/tar"
-	"asa-server/asaserver"
 	cfgpkg "asa-server/config"
 	"asa-server/logger"
+	procpkg "asa-server/process"
 	"fmt"
 	"io"
 	"os"
@@ -159,7 +159,7 @@ func RestoreInstanceWorld(instanceName string, backupFile string) error {
 		return fmt.Errorf("instance name cannot be empty")
 	}
 
-	running, err := asaserver.IsServerRunning(instanceName)
+	running, err := procpkg.IsServerRunning(instanceName)
 	if err == nil && running {
 		logger.GetLogger().Warnf("Server for instance '%s' is running. Stop it before restoring a backup.", instanceName)
 		return fmt.Errorf("server is running")

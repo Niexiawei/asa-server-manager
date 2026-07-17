@@ -1,5 +1,7 @@
 package asaserver
 
+import procpkg "asa-server/process"
+
 import cfgpkg "asa-server/config"
 
 import (
@@ -13,7 +15,6 @@ import (
 	"time"
 
 	"asa-server/logger"
-	"asa-server/pkg/winproc"
 
 	"github.com/dgraph-io/badger/v4"
 )
@@ -727,7 +728,7 @@ func (sm *StateManager) recoverStuckStates() {
 
 	// 阶段2：锁外做进程存活检测（慢调用，不持锁）
 	for _, c := range candidates {
-		if isInstanceProcessAlive(c.name) {
+		if procpkg.IsInstanceProcessAlive(c.name) {
 			continue
 		}
 		// 阶段3：重新持锁并双检（防止采集后状态已被其它路径改写）
@@ -752,25 +753,6 @@ func (sm *StateManager) recoverStuckStates() {
 
 // isInstanceProcessAlive 检查实例进程是否存活
 // 使用端口检测 + PID 检测双重验证，这些函数不依赖 sm.mu，在锁内调用安全
-func isInstanceProcessAlive(instanceName string) bool {
-	// 方法 1：检查端口是否被监听
-	running, err := IsServerRunning(instanceName)
-	if err == nil && running {
-		return true
-	}
-
-	// 方法 2：检查进程是否存在
-	pid, err := GetInstancePID(instanceName)
-	if err != nil || pid <= 0 {
-		return false
-	}
-
-	exited, err := winproc.IsProcessExited(uint32(pid))
-	if err != nil {
-		return false
-	}
-	return !exited
-}
 
 // WaitForInstanceState 等待实例离开指定状态（包级函数，基于广播不轮询）
 func WaitForInstanceState(instanceName string, notInStates []InstanceStatus, timeout time.Duration) error {

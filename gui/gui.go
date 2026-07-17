@@ -1,9 +1,9 @@
 package gui
 
 import (
-	"asa-server/asaserver"
 	cfgpkg "asa-server/config"
 	"asa-server/logger"
+	procpkg "asa-server/process"
 	"asa-server/serverinfo"
 	"asa-server/webapi"
 	"asa-server/winservice"
@@ -192,7 +192,7 @@ func (g *GUIApp) fetchInstances() {
 
 	g.instances = make([]InstanceInfo, 0, len(instances))
 	for _, name := range instances {
-		running, err := asaserver.IsServerRunning(name)
+		running, err := procpkg.IsServerRunning(name)
 		if err != nil {
 			running = false
 		}

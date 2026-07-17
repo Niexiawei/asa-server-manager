@@ -9,6 +9,7 @@ import (
 	"asa-server/pkg/fsutil"
 	"asa-server/pkg/tail"
 	"asa-server/pkg/winproc"
+	procpkg "asa-server/process"
 	"asa-server/serverinfo"
 	"context"
 	"encoding/json"
@@ -113,7 +114,7 @@ func (s *APIServer) listInstances(c *gin.Context) {
 
 	var instanceInfos []InstanceInfo
 	for _, instanceName := range instances {
-		running, err := asaserver.IsServerRunning(instanceName)
+		running, err := procpkg.IsServerRunning(instanceName)
 		config, cfgErr := cfgpkg.LoadInstanceConfig(instanceName)
 		_status, _ := asaserver.GetLatestInstanceState(instanceName)
 		history, _ := asaserver.GetInstanceStateHistory(instanceName, 200)
@@ -239,7 +240,7 @@ func (s *APIServer) getInstanceStatus(c *gin.Context) {
 		})
 		return
 	}
-	running, err := asaserver.IsServerRunning(name)
+	running, err := procpkg.IsServerRunning(name)
 	config, cfgErr := cfgpkg.LoadInstanceConfig(name)
 	_status, _ := asaserver.GetLatestInstanceState(name)
 	history, _ := asaserver.GetInstanceStateHistory(name, 200)
@@ -282,7 +283,7 @@ func (s *APIServer) deleteInstance(c *gin.Context) {
 	}
 
 	// Stop instance if running
-	if running, _ := asaserver.IsServerRunning(name); running {
+	if running, _ := procpkg.IsServerRunning(name); running {
 		if err := asaserver.StopServer(name); err != nil {
 			c.JSON(http.StatusInternalServerError, StatusResponse{
 				Success: false,
@@ -338,7 +339,7 @@ func (s *APIServer) renameInstance(c *gin.Context) {
 	}
 
 	// Stop instance if running
-	if running, _ := asaserver.IsServerRunning(oldName); running {
+	if running, _ := procpkg.IsServerRunning(oldName); running {
 		if err := asaserver.StopServer(oldName); err != nil {
 			c.JSON(http.StatusInternalServerError, StatusResponse{
 				Success: false,
@@ -817,7 +818,7 @@ func (s *APIServer) streamAllInstancesInfo(c *gin.Context) {
 			for _, instanceName := range instances {
 
 				// Get PID for the instance
-				pid, err := asaserver.GetInstancePID(instanceName)
+				pid, err := procpkg.GetInstancePID(instanceName)
 				if err != nil {
 					continue
 				}

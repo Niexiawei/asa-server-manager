@@ -1,9 +1,9 @@
 package httpserver
 
 import (
-	"asa-server/asaserver"
 	cfgpkg "asa-server/config"
 	"asa-server/logger"
+	procpkg "asa-server/process"
 	"fmt"
 	"sync"
 	"time"
@@ -213,7 +213,7 @@ func rconExecuteCommand(instanceName string, command string) RCONResponse {
 	}
 
 	// Validate instance is running
-	running, err := asaserver.IsServerRunning(instanceName)
+	running, err := procpkg.IsServerRunning(instanceName)
 	if err != nil || !running {
 		return RCONResponse{
 			Success: false,
