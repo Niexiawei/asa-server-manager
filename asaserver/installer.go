@@ -1,5 +1,7 @@
 package asaserver
 
+import cfgpkg "asa-server/config"
+
 import (
 	"archive/zip"
 	"asa-server/logger"
@@ -30,7 +32,7 @@ func DownloadAndExtractSteamCmd(ctx context.Context, outputCallback ...io.Writer
 	}
 
 	// Check if SteamCMD is already installed and initialized
-	steamCmdExe := filepath.Join(SteamCmdDir, "steamcmd.exe")
+	steamCmdExe := filepath.Join(cfgpkg.SteamCmdDir, "steamcmd.exe")
 	if _, err := os.Stat(steamCmdExe); err == nil {
 		logMsg := "SteamCMD already installed."
 		logger.GetLogger().Info(logMsg)
@@ -51,8 +53,8 @@ func DownloadAndExtractSteamCmd(ctx context.Context, outputCallback ...io.Writer
 	}
 
 	// Download the SteamCMD zip file
-	zipPath := filepath.Join(SteamCmdDir, "steamcmd.zip")
-	if err := downloadFile(SteamCmdURL, zipPath); err != nil {
+	zipPath := filepath.Join(cfgpkg.SteamCmdDir, "steamcmd.zip")
+	if err := downloadFile(cfgpkg.SteamCmdURL, zipPath); err != nil {
 		return fmt.Errorf("failed to download SteamCMD: %w", err)
 	}
 
@@ -63,7 +65,7 @@ func DownloadAndExtractSteamCmd(ctx context.Context, outputCallback ...io.Writer
 	}
 
 	// Extract the zip file
-	if err := extractZip(zipPath, SteamCmdDir); err != nil {
+	if err := extractZip(zipPath, cfgpkg.SteamCmdDir); err != nil {
 		return fmt.Errorf("failed to extract SteamCMD: %w", err)
 	}
 
@@ -186,7 +188,7 @@ func extractZip(zipPath string, destDir string) error {
 // outputWriter is an optional io.Writer for streaming console output
 // This hides the cmd window and redirects output via the callback
 func initializeSteamCmd(ctx context.Context, outputWriter ...io.Writer) error {
-	steamCmdExe := filepath.Join(SteamCmdDir, "steamcmd.exe")
+	steamCmdExe := filepath.Join(cfgpkg.SteamCmdDir, "steamcmd.exe")
 
 	// Redirect stdout and stderr based on callback
 	var writer io.Writer
@@ -253,7 +255,7 @@ func DownloadAndUpdateArkServer(ctx context.Context, outputCallback ...io.Writer
 		outputWriter = outputCallback[0]
 	}
 
-	steamCmdExe := filepath.Join(SteamCmdDir, "steamcmd.exe")
+	steamCmdExe := filepath.Join(cfgpkg.SteamCmdDir, "steamcmd.exe")
 
 	// Check if steamcmd.exe exists
 	if _, err := os.Stat(steamCmdExe); err != nil {
@@ -267,7 +269,7 @@ func DownloadAndUpdateArkServer(ctx context.Context, outputCallback ...io.Writer
 	}
 
 	// Create server-files directory if it doesn't exist
-	if err := os.MkdirAll(ServerFilesDir, 0755); err != nil {
+	if err := os.MkdirAll(cfgpkg.ServerFilesDir, 0755); err != nil {
 		return fmt.Errorf("failed to create server-files directory: %w", err)
 	}
 	pp, err := pty.New()
@@ -276,14 +278,14 @@ func DownloadAndUpdateArkServer(ctx context.Context, outputCallback ...io.Writer
 	}
 
 	if outputWriter != nil {
-		outputWriter.Write([]byte(fmt.Sprintf("install to dir: %s", ServerFilesDir)))
+		outputWriter.Write([]byte(fmt.Sprintf("install to dir: %s", cfgpkg.ServerFilesDir)))
 	}
 
 	// Run SteamCMD with arguments to install/update ARK server
 	// App ID 2430930 is ARK: Survival Ascended
 	cmd := pp.Command(
 		steamCmdExe,
-		"+force_install_dir", ServerFilesDir,
+		"+force_install_dir", cfgpkg.ServerFilesDir,
 		"+login", "anonymous",
 		"+app_update", "2430930", "validate",
 		"+quit",
@@ -358,7 +360,7 @@ func DownloadAndUpdateArkServer(ctx context.Context, outputCallback ...io.Writer
 // If not, it runs the server to generate initial configuration files
 // force parameter: if true, will re-run server verification even if config exists
 func VerifyServerInstallation(ctx context.Context, force bool) error {
-	configDir := filepath.Join(ServerFilesDir, "ShooterGame/Saved/Config/WindowsServer")
+	configDir := filepath.Join(cfgpkg.ServerFilesDir, "ShooterGame/Saved/Config/WindowsServer")
 
 	// Check if configuration directory already exists
 	if _, err := os.Stat(configDir); err == nil && !force {
@@ -372,7 +374,7 @@ func VerifyServerInstallation(ctx context.Context, force bool) error {
 		}
 	}
 
-	arkExe := filepath.Join(ServerFilesDir, "ShooterGame/Binaries/Win64/ArkAscendedServer.exe")
+	arkExe := filepath.Join(cfgpkg.ServerFilesDir, "ShooterGame/Binaries/Win64/ArkAscendedServer.exe")
 
 	// Check if ArkAscendedServer.exe exists
 	if _, err := os.Stat(arkExe); err != nil {
@@ -386,7 +388,7 @@ func VerifyServerInstallation(ctx context.Context, force bool) error {
 	logger.GetLogger().Info("This may take 60 seconds...")
 
 	// Get the logs directory path
-	logsDir := filepath.Join(ServerFilesDir, "ShooterGame/Saved/Logs")
+	logsDir := filepath.Join(cfgpkg.ServerFilesDir, "ShooterGame/Saved/Logs")
 
 	// Start the server to generate config files
 	cmd := exec.Command(

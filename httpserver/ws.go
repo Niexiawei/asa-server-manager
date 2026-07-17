@@ -2,6 +2,7 @@ package httpserver
 
 import (
 	"asa-server/asaserver"
+	cfgpkg "asa-server/config"
 	"asa-server/logger"
 	"fmt"
 	"sync"
@@ -221,7 +222,7 @@ func rconExecuteCommand(instanceName string, command string) RCONResponse {
 	}
 
 	// Load instance config
-	config, err := asaserver.LoadInstanceConfig(instanceName)
+	config, err := cfgpkg.LoadInstanceConfig(instanceName)
 	if err != nil {
 		return RCONResponse{
 			Success: false,

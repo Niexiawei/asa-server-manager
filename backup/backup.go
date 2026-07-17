@@ -3,6 +3,7 @@ package backup
 import (
 	"archive/tar"
 	"asa-server/asaserver"
+	cfgpkg "asa-server/config"
 	"asa-server/logger"
 	"fmt"
 	"io"
@@ -19,7 +20,7 @@ import (
 // The archive contains only world-save content, unwrapped at the tar root.
 // On failure the partial archive is removed.
 func createWorldArchive(instanceName, archivePath string) error {
-	instanceBaseDir := filepath.Join(asaserver.InstancesDir, instanceName)
+	instanceBaseDir := filepath.Join(cfgpkg.InstancesDir, instanceName)
 	savePath := filepath.Join(instanceBaseDir, "Save")
 
 	zw, err := os.Create(archivePath)
@@ -49,7 +50,7 @@ func createWorldArchive(instanceName, archivePath string) error {
 // pruneOldWorldBackups keeps at most 10 regular backups (latest snapshot excluded).
 // Oldest by modification time are removed first.
 func pruneOldWorldBackups(instanceName string) error {
-	backupDir := filepath.Join(asaserver.InstancesDir, instanceName, "backup")
+	backupDir := filepath.Join(cfgpkg.InstancesDir, instanceName, "backup")
 	latestName := instanceName + "_latest.zstd"
 
 	entries, err := os.ReadDir(backupDir)
@@ -96,7 +97,7 @@ func pruneOldWorldBackups(instanceName string) error {
 
 // BackupInstanceWorld creates a timestamped backup of an instance and prunes old ones.
 func BackupInstanceWorld(instanceName string) error {
-	config, err := asaserver.LoadInstanceConfig(instanceName)
+	config, err := cfgpkg.LoadInstanceConfig(instanceName)
 	if err != nil {
 		return fmt.Errorf("failed to load instance config: %w", err)
 	}
@@ -106,12 +107,12 @@ func BackupInstanceWorld(instanceName string) error {
 		return fmt.Errorf("SaveDir not configured for instance '%s'", instanceName)
 	}
 
-	savePath := filepath.Join(asaserver.InstancesDir, instanceName, "Save")
+	savePath := filepath.Join(cfgpkg.InstancesDir, instanceName, "Save")
 	if _, err := os.Stat(savePath); err != nil {
 		return fmt.Errorf("SaveDir '%s' not found in instance '%s'", saveDir, instanceName)
 	}
 
-	backupDir := filepath.Join(asaserver.InstancesDir, instanceName, "backup")
+	backupDir := filepath.Join(cfgpkg.InstancesDir, instanceName, "backup")
 	if err := os.MkdirAll(backupDir, 0755); err != nil {
 		return fmt.Errorf("failed to create backup directory: %w", err)
 	}
@@ -132,7 +133,7 @@ func BackupInstanceWorld(instanceName string) error {
 // BackupLatestWorldSnapshot creates or overwrites the latest snapshot for an instance.
 // Called automatically before restoring to preserve the current state.
 func BackupLatestWorldSnapshot(instanceName string) error {
-	backupDir := filepath.Join(asaserver.InstancesDir, instanceName, "backup")
+	backupDir := filepath.Join(cfgpkg.InstancesDir, instanceName, "backup")
 	if err := os.MkdirAll(backupDir, 0755); err != nil {
 		return fmt.Errorf("failed to create backup directory: %w", err)
 	}
@@ -144,7 +145,7 @@ func BackupLatestWorldSnapshot(instanceName string) error {
 
 // DeleteWorldBackup deletes a specific backup file from the instance's backup directory.
 func DeleteWorldBackup(instanceName, filename string) error {
-	backupPath := filepath.Join(asaserver.InstancesDir, instanceName, "backup", filename)
+	backupPath := filepath.Join(cfgpkg.InstancesDir, instanceName, "backup", filename)
 	if _, err := os.Stat(backupPath); err != nil {
 		return fmt.Errorf("backup file not found: %s", filename)
 	}
@@ -168,20 +169,20 @@ func RestoreInstanceWorld(instanceName string, backupFile string) error {
 		return fmt.Errorf("backup file not found: %s", backupFile)
 	}
 
-	instanceBaseDir := filepath.Join(asaserver.InstancesDir, instanceName)
+	instanceBaseDir := filepath.Join(cfgpkg.InstancesDir, instanceName)
 	if _, err := os.Stat(instanceBaseDir); os.IsNotExist(err) {
 		logger.GetLogger().Infof("Instance '%s' does not exist. Creating new instance...", instanceName)
 		if err := os.MkdirAll(filepath.Join(instanceBaseDir, "Config"), 0755); err != nil {
 			return fmt.Errorf("failed to create instance directory: %w", err)
 		}
-		config := asaserver.CreateDefaultInstanceConfig(instanceName)
-		if err := asaserver.SaveInstanceConfig(instanceName, config); err != nil {
+		config := cfgpkg.CreateDefaultInstanceConfig(instanceName)
+		if err := cfgpkg.SaveInstanceConfig(instanceName, config); err != nil {
 			return fmt.Errorf("failed to create default instance config: %w", err)
 		}
 		logger.GetLogger().Infof("Instance '%s' created successfully", instanceName)
 	}
 
-	_, configLoadErr := asaserver.LoadInstanceConfig(instanceName)
+	_, configLoadErr := cfgpkg.LoadInstanceConfig(instanceName)
 	if configLoadErr != nil {
 		logger.GetLogger().Warnf("Failed to load instance config: %v (will use default)", configLoadErr)
 	}
@@ -218,7 +219,7 @@ func RestoreInstanceWorld(instanceName string, backupFile string) error {
 			return fmt.Errorf("failed to read tar archive: %w", err)
 		}
 
-		target := filepath.Join(asaserver.InstancesDir, instanceName, "Save", header.Name)
+		target := filepath.Join(cfgpkg.InstancesDir, instanceName, "Save", header.Name)
 
 		if header.Typeflag == tar.TypeDir {
 			if err := os.MkdirAll(target, 0755); err != nil {
@@ -250,7 +251,7 @@ func RestoreInstanceWorld(instanceName string, backupFile string) error {
 
 // GetAvailableWorldBackups returns a list of available backup filenames for the given instance.
 func GetAvailableWorldBackups(instanceName string) ([]string, error) {
-	backupDir := filepath.Join(asaserver.InstancesDir, instanceName, "backup")
+	backupDir := filepath.Join(cfgpkg.InstancesDir, instanceName, "backup")
 	entries, err := os.ReadDir(backupDir)
 	if err != nil {
 		if os.IsNotExist(err) {

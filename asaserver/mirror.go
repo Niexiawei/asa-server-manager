@@ -1,5 +1,7 @@
 package asaserver
 
+import cfgpkg "asa-server/config"
+
 import (
 	"fmt"
 	"os"
@@ -54,7 +56,7 @@ func isLogFile(name string) bool {
 // arkApiInstalled 判断源服务端是否安装了 ArkApi（Win64/ArkApi 目录存在）。
 // 未安装时不启用缓存特殊处理，走原有同步逻辑。
 func arkApiInstalled() bool {
-	p := filepath.Join(ServerFilesDir, filepath.FromSlash(arkApiRelPath))
+	p := filepath.Join(cfgpkg.ServerFilesDir, filepath.FromSlash(arkApiRelPath))
 	fi, err := os.Stat(p)
 	return err == nil && fi.IsDir()
 }
@@ -105,12 +107,12 @@ func IsElevated() bool {
 
 // InstanceMirrorDir 返回实例镜像目录路径
 func InstanceMirrorDir(instanceName string) string {
-	return filepath.Join(BaseDir, mirrorDirPrefix+instanceName)
+	return filepath.Join(cfgpkg.BaseDir, mirrorDirPrefix+instanceName)
 }
 
 // SyncInstanceMirror 同步实例镜像目录
 // 如果镜像不存在则创建，存在则增量同步
-func SyncInstanceMirror(instanceName string, cfg *InstanceConfig) (string, error) {
+func SyncInstanceMirror(instanceName string, cfg *cfgpkg.InstanceConfig) (string, error) {
 	mirrorSyncMu.Lock()
 	defer mirrorSyncMu.Unlock()
 
@@ -151,7 +153,7 @@ func SyncInstanceMirror(instanceName string, cfg *InstanceConfig) (string, error
 
 // validateInstanceConfig 验证实例 Config 目录
 func validateInstanceConfig(instanceName string) error {
-	instanceConfigDir := filepath.Join(InstancesDir, instanceName, "Config")
+	instanceConfigDir := filepath.Join(cfgpkg.InstancesDir, instanceName, "Config")
 	if _, err := os.Stat(instanceConfigDir); os.IsNotExist(err) {
 		return fmt.Errorf("instance config directory does not exist: %s, please create the instance first", instanceConfigDir)
 	}
@@ -164,8 +166,8 @@ func validateInstanceConfig(instanceName string) error {
 
 // ensureInstanceDirs 确保 Logs 和 Save 目录存在
 func ensureInstanceDirs(instanceName string) error {
-	instanceLogsDir := filepath.Join(InstancesDir, instanceName, "Logs")
-	instanceSaveDir := filepath.Join(InstancesDir, instanceName, "Save")
+	instanceLogsDir := filepath.Join(cfgpkg.InstancesDir, instanceName, "Logs")
+	instanceSaveDir := filepath.Join(cfgpkg.InstancesDir, instanceName, "Save")
 
 	for _, dir := range []string{instanceLogsDir, instanceSaveDir} {
 		if err := os.MkdirAll(dir, 0755); err != nil {
@@ -188,12 +190,12 @@ func createInstanceMirror(instanceName string, mirrorDir string, exceptionTarget
 	logger.GetLogger().Infof("Creating instance mirror at %s", mirrorDir)
 
 	// Walk server-files 目录树
-	err := filepath.Walk(ServerFilesDir, func(path string, info os.FileInfo, err error) error {
+	err := filepath.Walk(cfgpkg.ServerFilesDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 
-		relPath, err := filepath.Rel(ServerFilesDir, path)
+		relPath, err := filepath.Rel(cfgpkg.ServerFilesDir, path)
 		if err != nil {
 			return err
 		}
@@ -231,7 +233,7 @@ func createInstanceMirror(instanceName string, mirrorDir string, exceptionTarget
 	for relPath, target := range exceptionTargets {
 		mirrorPath := filepath.Join(mirrorDir, filepath.FromSlash(relPath))
 		if _, statErr := os.Stat(mirrorPath); os.IsNotExist(statErr) {
-			srcPath := filepath.Join(ServerFilesDir, filepath.FromSlash(relPath))
+			srcPath := filepath.Join(cfgpkg.ServerFilesDir, filepath.FromSlash(relPath))
 			if mkErr := os.MkdirAll(srcPath, 0755); mkErr != nil {
 				logger.GetLogger().Warnf("Failed to pre-create source dir %s: %v", srcPath, mkErr)
 			}
@@ -248,10 +250,10 @@ func createInstanceMirror(instanceName string, mirrorDir string, exceptionTarget
 }
 
 // buildExceptionTargets 构建例外路径到目标目录的映射
-func buildExceptionTargets(instanceName string, cfg *InstanceConfig) map[string]string {
+func buildExceptionTargets(instanceName string, cfg *cfgpkg.InstanceConfig) map[string]string {
 	targets := map[string]string{
-		"ShooterGame/Saved/Config/WindowsServer": filepath.Join(InstancesDir, instanceName, "Config"),
-		"ShooterGame/Saved/Logs":                 filepath.Join(InstancesDir, instanceName, "Logs"),
+		"ShooterGame/Saved/Config/WindowsServer": filepath.Join(cfgpkg.InstancesDir, instanceName, "Config"),
+		"ShooterGame/Saved/Logs":                 filepath.Join(cfgpkg.InstancesDir, instanceName, "Logs"),
 	}
 
 	// SaveDir 映射
@@ -259,7 +261,7 @@ func buildExceptionTargets(instanceName string, cfg *InstanceConfig) map[string]
 	if saveDir == "" {
 		saveDir = instanceName
 	}
-	targets["ShooterGame/Saved/"+saveDir] = filepath.Join(InstancesDir, instanceName, "Save")
+	targets["ShooterGame/Saved/"+saveDir] = filepath.Join(cfgpkg.InstancesDir, instanceName, "Save")
 
 	return targets
 }
@@ -555,7 +557,7 @@ func CleanupMirrorCache(instanceName string) error {
 // 该目录在以下情况会缺失或失效：
 //   - 并发创建时 containsExeFiles 因 os.ReadDir 竞态返回 false，目录被错误地建成 junction
 //   - junction 目标在 ARK 更新过程中被临时移除
-func VerifyAndRepairInstanceMirror(instanceName string, cfg *InstanceConfig, mirrorDir string) (string, error) {
+func VerifyAndRepairInstanceMirror(instanceName string, cfg *cfgpkg.InstanceConfig, mirrorDir string) (string, error) {
 	exeWorkDir := filepath.Join(mirrorDir, "ShooterGame/Binaries/Win64")
 	if _, err := os.Stat(exeWorkDir); err == nil {
 		return mirrorDir, nil
@@ -583,7 +585,7 @@ func VerifyAndRepairInstanceMirror(instanceName string, cfg *InstanceConfig, mir
 // syncMirrorEntries 增量同步镜像目录
 // 使用 diff 对比源目录和镜像目录，只处理差异
 func syncMirrorEntries(mirrorDir string, exceptionTargets map[string]string) error {
-	srcDir := ServerFilesDir
+	srcDir := cfgpkg.ServerFilesDir
 
 	// 收集源目录条目
 	sourceEntries, err := collectSourceEntries(srcDir, exceptionTargets)

@@ -1,5 +1,7 @@
 package asaserver
 
+import cfgpkg "asa-server/config"
+
 import (
 	"context"
 	"encoding/json"
@@ -791,7 +793,7 @@ func ClearStateDatabase() error {
 	if instanceStateManager != nil {
 		return fmt.Errorf("cannot clear state database while state manager is running")
 	}
-	dbPath := filepath.Join(BaseDir, "database_file", "state_db")
+	dbPath := filepath.Join(cfgpkg.BaseDir, "database_file", "state_db")
 	if err := os.RemoveAll(dbPath); err != nil {
 		return fmt.Errorf("failed to remove state database: %w", err)
 	}

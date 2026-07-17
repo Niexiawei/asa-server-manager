@@ -1,4 +1,4 @@
-package asaserver
+package config
 
 import (
 	"asa-server/logger"

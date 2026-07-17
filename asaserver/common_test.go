@@ -1,15 +1,16 @@
 package asaserver
 
 import (
+	cfgpkg "asa-server/config"
 	"asa-server/logger"
 	"fmt"
 	"testing"
 )
 
 func Test_SaveWorldSafely(t *testing.T) {
-	EnsureDirectories()
-	logger.InitLoggerWithBaseDir(BaseDir)
-	fmt.Println(BaseDir)
+	cfgpkg.EnsureDirectories()
+	logger.InitLoggerWithBaseDir(cfgpkg.BaseDir)
+	fmt.Println(cfgpkg.BaseDir)
 	err := SaveWorldSafely("ces99")
 	if err != nil {
 		t.Error(err)

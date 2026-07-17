@@ -3,10 +3,11 @@ package main
 import (
 	"asa-server/actions"
 	"asa-server/asaserver"
+	cfgpkg "asa-server/config"
 	"asa-server/gui"
 	"asa-server/logger"
-	"asa-server/webapi"
 	"asa-server/pkg/winproc"
+	"asa-server/webapi"
 	"asa-server/winservice"
 	"context"
 	"fmt"
@@ -43,11 +44,11 @@ func main() {
 		log.Fatal(err)
 	}
 
-	if err := asaserver.EnsureDirectories(); err != nil {
+	if err := cfgpkg.EnsureDirectories(); err != nil {
 		log.Fatal(err)
 	}
 
-	logger.InitLoggerWithBaseDir(asaserver.BaseDir)
+	logger.InitLoggerWithBaseDir(cfgpkg.BaseDir)
 
 	app := &cli.Command{
 		Name:    "asa-manager",

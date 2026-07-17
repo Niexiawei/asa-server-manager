@@ -1,5 +1,7 @@
 package asaserver
 
+import cfgpkg "asa-server/config"
+
 import (
 	"asa-server/logger"
 	"asa-server/pkg/tail"
@@ -155,7 +157,7 @@ func MonitorAndExtractModInfo(pctx context.Context, logPath string, instanceName
 		// Check if we've reached the completion marker
 		if strings.Contains(line, completionMarker) {
 			// Load existing mod info if file exists
-			modInfoPath := filepath.Join(BaseDir, "mod_info.json")
+			modInfoPath := filepath.Join(cfgpkg.BaseDir, "mod_info.json")
 			existingMods := make(map[string]string)
 
 			if _, err := os.Stat(modInfoPath); err == nil {
@@ -245,7 +247,7 @@ var (
 // then checks if the save file has been updated to ensure data persistence
 func SaveWorldSafely(instanceName string) error {
 	// Get instance configuration to determine save directory and map name
-	config, err := LoadInstanceConfig(instanceName)
+	config, err := cfgpkg.LoadInstanceConfig(instanceName)
 	if err != nil {
 		return fmt.Errorf("failed to load instance config: %w", err)
 	}
@@ -271,7 +273,7 @@ func SaveWorldSafely(instanceName string) error {
 	}
 
 	// v2: 存档路径改为实例本地目录
-	saveDirPath := filepath.Join(InstancesDir, instanceName, "Save", config.MapName)
+	saveDirPath := filepath.Join(cfgpkg.InstancesDir, instanceName, "Save", config.MapName)
 
 	// 确保存档目录存在
 	if err := os.MkdirAll(saveDirPath, 0755); err != nil {
@@ -541,7 +543,7 @@ func GetInstanceAsaVersion(instanceName string) (string, error) {
 	arkExe := filepath.Join(InstanceMirrorDir(instanceName), "ShooterGame/Binaries/Win64/ArkAscendedServer.exe")
 	stat, err := os.Stat(arkExe)
 	if err != nil {
-		arkExe = filepath.Join(ServerFilesDir, "ShooterGame/Binaries/Win64/ArkAscendedServer.exe")
+		arkExe = filepath.Join(cfgpkg.ServerFilesDir, "ShooterGame/Binaries/Win64/ArkAscendedServer.exe")
 		stat, err = os.Stat(arkExe)
 		if err != nil {
 			return "", fmt.Errorf("ArkAscendedServer.exe not found")

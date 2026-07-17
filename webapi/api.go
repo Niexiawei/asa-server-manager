@@ -3,12 +3,13 @@ package webapi
 import (
 	"asa-server/asaserver"
 	"asa-server/backup"
+	cfgpkg "asa-server/config"
 	"asa-server/logger"
 	"asa-server/parseserver"
 	"asa-server/pkg/fsutil"
 	"asa-server/pkg/tail"
-	"asa-server/serverinfo"
 	"asa-server/pkg/winproc"
+	"asa-server/serverinfo"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -100,7 +101,7 @@ func (s *APIServer) health(c *gin.Context) {
 
 // listInstances returns all available instances with their basic configuration
 func (s *APIServer) listInstances(c *gin.Context) {
-	instances, err := asaserver.GetAvailableInstances()
+	instances, err := cfgpkg.GetAvailableInstances()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, StatusResponse{
 			Success: false,
@@ -113,7 +114,7 @@ func (s *APIServer) listInstances(c *gin.Context) {
 	var instanceInfos []InstanceInfo
 	for _, instanceName := range instances {
 		running, err := asaserver.IsServerRunning(instanceName)
-		config, cfgErr := asaserver.LoadInstanceConfig(instanceName)
+		config, cfgErr := cfgpkg.LoadInstanceConfig(instanceName)
 		_status, _ := asaserver.GetLatestInstanceState(instanceName)
 		history, _ := asaserver.GetInstanceStateHistory(instanceName, 200)
 
@@ -169,7 +170,7 @@ func (s *APIServer) createInstance(c *gin.Context) {
 	}
 
 	// Create instance directory
-	instanceDir := filepath.Join(asaserver.InstancesDir, req.Name, "Config")
+	instanceDir := filepath.Join(cfgpkg.InstancesDir, req.Name, "Config")
 	if err := os.MkdirAll(instanceDir, 0755); err != nil {
 		c.JSON(http.StatusInternalServerError, StatusResponse{
 			Success: false,
@@ -179,7 +180,7 @@ func (s *APIServer) createInstance(c *gin.Context) {
 	}
 
 	// Copy base server configuration files to instance Config directory
-	baseConfigDir := filepath.Join(asaserver.ServerFilesDir, "ShooterGame/Saved/Config/WindowsServer")
+	baseConfigDir := filepath.Join(cfgpkg.ServerFilesDir, "ShooterGame/Saved/Config/WindowsServer")
 	if _, err := os.Stat(baseConfigDir); err == nil {
 		if err := fsutil.CopyDir(baseConfigDir, instanceDir); err != nil {
 			// Log warning but continue as this is not critical
@@ -187,11 +188,11 @@ func (s *APIServer) createInstance(c *gin.Context) {
 		}
 	} else {
 		// Create empty Game.ini if it doesn't exist
-		if err := asaserver.SaveGameIniContent(req.Name, ""); err != nil {
+		if err := cfgpkg.SaveGameIniContent(req.Name, ""); err != nil {
 			logger.GetLogger().Warnf("Failed to create Game.ini: %v", err)
 		}
 		// Create empty GameUserSettings.ini if it doesn't exist
-		if err := asaserver.SaveGameUserSettingsContent(req.Name, ""); err != nil {
+		if err := cfgpkg.SaveGameUserSettingsContent(req.Name, ""); err != nil {
 			logger.GetLogger().Warnf("Failed to create GameUserSettings.ini: %v", err)
 		}
 	}
@@ -199,22 +200,22 @@ func (s *APIServer) createInstance(c *gin.Context) {
 	// Check and create missing config files if directory exists but files don't
 	gameIniPath := filepath.Join(instanceDir, "Game.ini")
 	if _, err := os.Stat(gameIniPath); os.IsNotExist(err) {
-		if err := asaserver.SaveGameIniContent(req.Name, ""); err != nil {
+		if err := cfgpkg.SaveGameIniContent(req.Name, ""); err != nil {
 			logger.GetLogger().Warnf("Failed to create Game.ini: %v", err)
 		}
 	}
 
 	gameUserSettingsPath := filepath.Join(instanceDir, "GameUserSettings.ini")
 	if _, err := os.Stat(gameUserSettingsPath); os.IsNotExist(err) {
-		if err := asaserver.SaveGameUserSettingsContent(req.Name, ""); err != nil {
+		if err := cfgpkg.SaveGameUserSettingsContent(req.Name, ""); err != nil {
 			logger.GetLogger().Warnf("Failed to create GameUserSettings.ini: %v", err)
 		}
 	}
 
 	// Create default configuration
-	config := asaserver.CreateDefaultInstanceConfig(req.Name)
+	config := cfgpkg.CreateDefaultInstanceConfig(req.Name)
 
-	if err := asaserver.SaveInstanceConfig(req.Name, config); err != nil {
+	if err := cfgpkg.SaveInstanceConfig(req.Name, config); err != nil {
 		c.JSON(http.StatusInternalServerError, StatusResponse{
 			Success: false,
 			Error:   err.Error(),
@@ -239,7 +240,7 @@ func (s *APIServer) getInstanceStatus(c *gin.Context) {
 		return
 	}
 	running, err := asaserver.IsServerRunning(name)
-	config, cfgErr := asaserver.LoadInstanceConfig(name)
+	config, cfgErr := cfgpkg.LoadInstanceConfig(name)
 	_status, _ := asaserver.GetLatestInstanceState(name)
 	history, _ := asaserver.GetInstanceStateHistory(name, 200)
 	info := InstanceInfo{
@@ -292,7 +293,7 @@ func (s *APIServer) deleteInstance(c *gin.Context) {
 	}
 
 	// Delete instance directory
-	instanceDir := filepath.Join(asaserver.InstancesDir, name)
+	instanceDir := filepath.Join(cfgpkg.InstancesDir, name)
 	if err := os.RemoveAll(instanceDir); err != nil {
 		c.JSON(http.StatusInternalServerError, StatusResponse{
 			Success: false,
@@ -302,7 +303,7 @@ func (s *APIServer) deleteInstance(c *gin.Context) {
 	}
 
 	// Delete save directories (v2: save is under instances/<name>/Save)
-	savePath := filepath.Join(asaserver.InstancesDir, name, "Save")
+	savePath := filepath.Join(cfgpkg.InstancesDir, name, "Save")
 	os.RemoveAll(savePath)
 
 	c.JSON(http.StatusOK, StatusResponse{
@@ -348,8 +349,8 @@ func (s *APIServer) renameInstance(c *gin.Context) {
 	}
 
 	// Rename instance directory
-	oldPath := filepath.Join(asaserver.InstancesDir, oldName)
-	newPath := filepath.Join(asaserver.InstancesDir, req.NewName)
+	oldPath := filepath.Join(cfgpkg.InstancesDir, oldName)
+	newPath := filepath.Join(cfgpkg.InstancesDir, req.NewName)
 
 	if err := os.Rename(oldPath, newPath); err != nil {
 		c.JSON(http.StatusInternalServerError, StatusResponse{
@@ -360,17 +361,17 @@ func (s *APIServer) renameInstance(c *gin.Context) {
 	}
 
 	// Rename save directories (v2: save is under instances/<name>/Save)
-	oldSavePath := filepath.Join(asaserver.InstancesDir, oldName, "Save")
-	newSavePath := filepath.Join(asaserver.InstancesDir, req.NewName, "Save")
+	oldSavePath := filepath.Join(cfgpkg.InstancesDir, oldName, "Save")
+	newSavePath := filepath.Join(cfgpkg.InstancesDir, req.NewName, "Save")
 	if err := os.Rename(oldSavePath, newSavePath); err != nil {
 		logger.GetLogger().Warnf("Failed to rename save directory for instance %s: %v", oldName, err)
 	}
 
 	// Update SaveDir in configuration
-	config, err := asaserver.LoadInstanceConfig(req.NewName)
+	config, err := cfgpkg.LoadInstanceConfig(req.NewName)
 	if err == nil {
 		config.SaveDir = req.NewName
-		asaserver.SaveInstanceConfig(req.NewName, config)
+		cfgpkg.SaveInstanceConfig(req.NewName, config)
 	}
 
 	c.JSON(http.StatusOK, StatusResponse{
@@ -384,7 +385,7 @@ func (s *APIServer) startServer(c *gin.Context) {
 	instanceName := c.Param("name")
 
 	// Check for duplicate ports before acquiring state lock
-	if err := asaserver.CheckForDuplicatePorts(); err != nil {
+	if err := cfgpkg.CheckForDuplicatePorts(); err != nil {
 		c.JSON(http.StatusConflict, StatusResponse{
 			Success: false,
 			Error:   fmt.Sprintf("Port conflicts detected: %v", err),
@@ -570,7 +571,7 @@ func (s *APIServer) restoreWorldBackup(c *gin.Context) {
 	}
 
 	// Resolve filename to full path within the instance's backup directory
-	backupPath := filepath.Join(asaserver.InstancesDir, name, "backup", req.BackupFile)
+	backupPath := filepath.Join(cfgpkg.InstancesDir, name, "backup", req.BackupFile)
 	if _, err := os.Stat(backupPath); err != nil {
 		c.JSON(http.StatusNotFound, StatusResponse{
 			Success: false,
@@ -791,7 +792,7 @@ func (s *APIServer) streamAllInstancesInfo(c *gin.Context) {
 	c.Stream(func(w io.Writer) bool {
 		sendMsg := func(w io.Writer) bool {
 			// Get all available instances
-			instances, err := asaserver.GetAvailableInstances()
+			instances, err := cfgpkg.GetAvailableInstances()
 			if err != nil {
 				fmt.Fprintf(w, "data: {\"error\":\"Failed to get instances: %v\"}\n\n", err)
 				return true
@@ -996,8 +997,8 @@ func (s *APIServer) streamSystemLogs(c *gin.Context) {
 
 // getServerConfigs returns both Game.ini and GameUserSettings.ini from the base server directory
 func (s *APIServer) getServerConfigs(c *gin.Context) {
-	gameIniContent, gameIniErr := asaserver.GetServerGameIniContent()
-	gameUserSettingsContent, gameUserSettingsErr := asaserver.GetServerGameUserSettingsContent()
+	gameIniContent, gameIniErr := cfgpkg.GetServerGameIniContent()
+	gameUserSettingsContent, gameUserSettingsErr := cfgpkg.GetServerGameUserSettingsContent()
 
 	if gameIniErr != nil && gameUserSettingsErr != nil {
 		c.JSON(http.StatusNotFound, StatusResponse{
@@ -1038,8 +1039,8 @@ func (s *APIServer) getServerConfigs(c *gin.Context) {
 func (s *APIServer) getInstanceConfigs(c *gin.Context) {
 	instanceName := c.Param("name")
 
-	gameIniContent, gameIniErr := asaserver.GetGameIniContent(instanceName)
-	gameUserSettingsContent, gameUserSettingsErr := asaserver.GetGameUserSettingsContent(instanceName)
+	gameIniContent, gameIniErr := cfgpkg.GetGameIniContent(instanceName)
+	gameUserSettingsContent, gameUserSettingsErr := cfgpkg.GetGameUserSettingsContent(instanceName)
 
 	if gameIniErr != nil && gameUserSettingsErr != nil {
 		c.JSON(http.StatusNotFound, StatusResponse{
@@ -1080,7 +1081,7 @@ func (s *APIServer) getInstanceConfigs(c *gin.Context) {
 func (s *APIServer) getGameIni(c *gin.Context) {
 	instanceName := c.Param("name")
 
-	content, err := asaserver.GetGameIniContent(instanceName)
+	content, err := cfgpkg.GetGameIniContent(instanceName)
 	if err != nil {
 		c.JSON(http.StatusNotFound, StatusResponse{
 			Success: false,
@@ -1103,7 +1104,7 @@ func (s *APIServer) getGameIni(c *gin.Context) {
 func (s *APIServer) getGameUserSettings(c *gin.Context) {
 	instanceName := c.Param("name")
 
-	content, err := asaserver.GetGameUserSettingsContent(instanceName)
+	content, err := cfgpkg.GetGameUserSettingsContent(instanceName)
 	if err != nil {
 		c.JSON(http.StatusNotFound, StatusResponse{
 			Success: false,
@@ -1167,7 +1168,7 @@ func (s *APIServer) uploadGameIni(c *gin.Context) {
 	}
 
 	// Save the file content to the instance config directory
-	if err := asaserver.SaveGameIniContent(instanceName, string(content)); err != nil {
+	if err := cfgpkg.SaveGameIniContent(instanceName, string(content)); err != nil {
 		c.JSON(http.StatusInternalServerError, StatusResponse{
 			Success: false,
 			Error:   err.Error(),
@@ -1230,7 +1231,7 @@ func (s *APIServer) uploadGameUserSettings(c *gin.Context) {
 	}
 
 	// Save the file content to the instance config directory
-	if err := asaserver.SaveGameUserSettingsContent(instanceName, string(content)); err != nil {
+	if err := cfgpkg.SaveGameUserSettingsContent(instanceName, string(content)); err != nil {
 		c.JSON(http.StatusInternalServerError, StatusResponse{
 			Success: false,
 			Error:   err.Error(),
@@ -1271,7 +1272,7 @@ func (s *APIServer) updateGameIni(c *gin.Context) {
 	}
 
 	// Save the content to Game.ini
-	if err := asaserver.SaveGameIniContent(instanceName, req.Content); err != nil {
+	if err := cfgpkg.SaveGameIniContent(instanceName, req.Content); err != nil {
 		c.JSON(http.StatusInternalServerError, StatusResponse{
 			Success: false,
 			Error:   err.Error(),
@@ -1312,7 +1313,7 @@ func (s *APIServer) updateGameUserSettings(c *gin.Context) {
 	}
 
 	// Save the content to GameUserSettings.ini
-	if err := asaserver.SaveGameUserSettingsContent(instanceName, req.Content); err != nil {
+	if err := cfgpkg.SaveGameUserSettingsContent(instanceName, req.Content); err != nil {
 		c.JSON(http.StatusInternalServerError, StatusResponse{
 			Success: false,
 			Error:   err.Error(),
@@ -1334,7 +1335,7 @@ func (s *APIServer) updateGameUserSettings(c *gin.Context) {
 func (s *APIServer) getInstanceConfig(c *gin.Context) {
 	instanceName := c.Param("name")
 
-	config, err := asaserver.LoadInstanceConfig(instanceName)
+	config, err := cfgpkg.LoadInstanceConfig(instanceName)
 	if err != nil {
 		c.JSON(http.StatusNotFound, StatusResponse{
 			Success: false,
@@ -1354,7 +1355,7 @@ func (s *APIServer) getInstanceConfig(c *gin.Context) {
 func (s *APIServer) updateInstanceConfig(c *gin.Context) {
 	instanceName := c.Param("name")
 
-	var req asaserver.UpdateInstanceConfigRequest
+	var req cfgpkg.UpdateInstanceConfigRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, StatusResponse{
 			Success: false,
@@ -1363,7 +1364,7 @@ func (s *APIServer) updateInstanceConfig(c *gin.Context) {
 		return
 	}
 
-	if err := asaserver.UpdateInstanceConfig(instanceName, req); err != nil {
+	if err := cfgpkg.UpdateInstanceConfig(instanceName, req); err != nil {
 		c.JSON(http.StatusInternalServerError, StatusResponse{
 			Success: false,
 			Error:   err.Error(),
@@ -1396,23 +1397,23 @@ func (s *APIServer) syncInstanceConfig(c *gin.Context) {
 	}
 
 	var (
-		opts []asaserver.SetSyncInstanceConfig
+		opts []cfgpkg.SetSyncInstanceConfig
 	)
 
 	if req.OnlySyncServerGameINIConfig != nil {
-		opts = append(opts, asaserver.WithOnlySyncServerGameINIConfig(*req.OnlySyncServerGameINIConfig))
+		opts = append(opts, cfgpkg.WithOnlySyncServerGameINIConfig(*req.OnlySyncServerGameINIConfig))
 	}
 
 	if req.SyncCustomStartParameters != nil {
-		opts = append(opts, asaserver.WithSyncCustomStartParameters(*req.SyncCustomStartParameters))
+		opts = append(opts, cfgpkg.WithSyncCustomStartParameters(*req.SyncCustomStartParameters))
 	}
 
 	if req.SyncEnableAsaPlugin != nil {
-		opts = append(opts, asaserver.WithSyncEnableAsaPlugin(*req.SyncEnableAsaPlugin))
+		opts = append(opts, cfgpkg.WithSyncEnableAsaPlugin(*req.SyncEnableAsaPlugin))
 	}
 
 	// Sync config from source to each target instance
-	results := asaserver.SyncInstanceConfigToMultiple(req.SourceInstance, req.TargetInstances,
+	results := cfgpkg.SyncInstanceConfigToMultiple(req.SourceInstance, req.TargetInstances,
 		opts...,
 	)
 
@@ -1462,7 +1463,7 @@ func (s *APIServer) syncInstanceConfig(c *gin.Context) {
 // getModInfo returns the content of mod_info.json
 func (s *APIServer) getModInfo(c *gin.Context) {
 	// Construct the path to mod_info.json
-	modInfoPath := filepath.Join(asaserver.BaseDir, "mod_info.json")
+	modInfoPath := filepath.Join(cfgpkg.BaseDir, "mod_info.json")
 
 	// Check if the file exists
 	if _, err := os.Stat(modInfoPath); os.IsNotExist(err) {
@@ -1649,12 +1650,12 @@ func (s *APIServer) streamSaveData(c *gin.Context) {
 
 // findSaveFileByInstance finds the .ark save file for a given instance name
 func findSaveFileByInstance(instanceName string) (string, error) {
-	config, err := asaserver.LoadInstanceConfig(instanceName)
+	config, err := cfgpkg.LoadInstanceConfig(instanceName)
 	if err != nil {
 		return "", fmt.Errorf("failed to load instance config for %s: %w", instanceName, err)
 	}
 
-	saveDir := filepath.Join(asaserver.InstancesDir, instanceName, "Save", config.MapName)
+	saveDir := filepath.Join(cfgpkg.InstancesDir, instanceName, "Save", config.MapName)
 	savePath := filepath.Join(saveDir, config.MapName+".ark")
 	if _, err := os.Stat(savePath); err != nil {
 		return "", fmt.Errorf("save file not found for instance %s: %s", instanceName, savePath)

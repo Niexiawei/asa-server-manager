@@ -2,6 +2,7 @@ package gui
 
 import (
 	"asa-server/asaserver"
+	cfgpkg "asa-server/config"
 	"asa-server/logger"
 	"asa-server/serverinfo"
 	"asa-server/webapi"
@@ -184,7 +185,7 @@ func (g *GUIApp) stopResourceMonitoring() {
 
 // fetchInstances fetches the list of game server instances
 func (g *GUIApp) fetchInstances() {
-	instances, err := asaserver.GetAvailableInstances()
+	instances, err := cfgpkg.GetAvailableInstances()
 	if err != nil {
 		return
 	}

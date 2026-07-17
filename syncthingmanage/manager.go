@@ -46,7 +46,7 @@ var syncthingConfigDir string // Syncthing 配置文件和可执行文件目录
 
 // Initialize initializes the syncthing manager and extracts syncthing.exe, returns config directory path
 func Initialize(basedir string) (string, error) {
-	// Use asaserver.BaseDir instead of temp directory
+	// Use BaseDir instead of temp directory
 	dir := filepath.Join(basedir, "syncthing")
 
 	// Create syncthing directory if it doesn't exist

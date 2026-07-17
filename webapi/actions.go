@@ -4,6 +4,7 @@ import (
 	"asa-server/app"
 	"asa-server/asaserver"
 	"asa-server/batchmanage"
+	cfgpkg "asa-server/config"
 	"asa-server/frpmanage"
 	"asa-server/httpserver"
 	"asa-server/logger"
@@ -89,7 +90,7 @@ func (s *APIServer) Start() error {
 		}
 	}
 
-	if err := asaserver.InitStateManager(asaserver.BaseDir); err != nil {
+	if err := asaserver.InitStateManager(cfgpkg.BaseDir); err != nil {
 		panic(err)
 	}
 	s.startStateChangeDispatcher(s.serverCtx)
@@ -290,11 +291,11 @@ func (s *APIServer) setupRoutes() {
 
 func InitializationBasicComponents() {
 	// Initialize frpc manager
-	if _, err := frpmanage.Initialize(asaserver.BaseDir); err != nil {
+	if _, err := frpmanage.Initialize(cfgpkg.BaseDir); err != nil {
 		log.Fatal(err)
 	}
 	// Initialize syncthing manager
-	if _, err := syncthingmanage.Initialize(asaserver.BaseDir); err != nil {
+	if _, err := syncthingmanage.Initialize(cfgpkg.BaseDir); err != nil {
 		log.Fatal(err)
 	}
 	// Initialize batch manager

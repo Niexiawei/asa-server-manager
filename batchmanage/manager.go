@@ -2,6 +2,7 @@ package batchmanage
 
 import (
 	"asa-server/asaserver"
+	cfgpkg "asa-server/config"
 	"asa-server/httpserver"
 	"asa-server/logger"
 	"context"
@@ -205,7 +206,7 @@ func (bm *BatchManager) StartOperation(opType BatchOperationType, instances []st
 	// 如果没有指定实例，获取所有可用实例
 	if len(instances) == 0 {
 		var err error
-		instances, err = asaserver.GetAvailableInstances()
+		instances, err = cfgpkg.GetAvailableInstances()
 		if err != nil {
 			return nil, fmt.Errorf("failed to get available instances: %w", err)
 		}

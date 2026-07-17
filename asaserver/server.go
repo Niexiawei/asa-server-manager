@@ -1,5 +1,7 @@
 package asaserver
 
+import cfgpkg "asa-server/config"
+
 import (
 	"asa-server/logger"
 	"asa-server/pkg/console"
@@ -41,7 +43,7 @@ func (lw *LogWriter) Write(p []byte) (n int, err error) {
 // GetGameLogFilePath returns the full path to the log file for a given instance
 // v2: uses per-instance log directory under InstancesDir
 func GetGameLogFilePath(instanceName string) (string, error) {
-	logsDir := filepath.Join(InstancesDir, instanceName, "Logs")
+	logsDir := filepath.Join(cfgpkg.InstancesDir, instanceName, "Logs")
 	if err := os.MkdirAll(logsDir, 0755); err != nil {
 		return "", fmt.Errorf("failed to create logs directory: %w", err)
 	}
@@ -57,7 +59,7 @@ func GetGameLogFilePath(instanceName string) (string, error) {
 // This uniquely identifies the specific server instance
 func IsServerRunning(instanceName string) (bool, error) {
 	// Load the instance configuration to get the ports
-	config, err := LoadInstanceConfig(instanceName)
+	config, err := cfgpkg.LoadInstanceConfig(instanceName)
 
 	if err != nil {
 		return false, err
@@ -270,13 +272,13 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 	}()
 
 	// Check for duplicate ports
-	if err := CheckForDuplicatePorts(); err != nil {
+	if err := cfgpkg.CheckForDuplicatePorts(); err != nil {
 		logger.GetLogger().Errorf("Port conflicts detected: %v", err)
 		startErr = err
 		return err
 	}
 
-	config, err := LoadInstanceConfig(instanceName)
+	config, err := cfgpkg.LoadInstanceConfig(instanceName)
 	if err != nil {
 		startErr = err
 		return err
@@ -374,7 +376,7 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 	}
 
 	if config.ClusterID != "" {
-		clusterDir := filepath.Join(BaseDir, "clusters", config.ClusterID)
+		clusterDir := filepath.Join(cfgpkg.BaseDir, "clusters", config.ClusterID)
 		if strings.Contains(config.CustomStartParameters, "-ClusterDirOverride") {
 			args = append(args,
 				fmt.Sprintf("-ClusterId=%s", config.ClusterID),
@@ -573,7 +575,7 @@ func stopServerInternal(instanceName string) error {
 	logger.GetLogger().Infof("Stopping server for instance: %s", instanceName)
 	// Try graceful shutdown with RCON
 
-	config, configErr := LoadInstanceConfig(instanceName)
+	config, configErr := cfgpkg.LoadInstanceConfig(instanceName)
 	if configErr != nil {
 		stopErr = fmt.Errorf("failed to load instance config: %w", configErr)
 		return stopErr
@@ -642,7 +644,7 @@ func stopServerInternal(instanceName string) error {
 // v2: 不再需要 WaitForNoInitializing（每个实例的镜像独立）
 func ForceStopServer(instanceName string) error {
 	// 1. 通过 WMI 查找进程（best effort，端口未监听时也能找到）
-	cfg, err := LoadInstanceConfig(instanceName)
+	cfg, err := cfgpkg.LoadInstanceConfig(instanceName)
 	if err == nil {
 		if pid, pidErr := findServerPIDByPort(cfg.Port); pidErr == nil && pid > 0 {
 			killGameServer(pid)
@@ -663,7 +665,7 @@ func ForceStopServer(instanceName string) error {
 
 func KillServer(instanceName string) error {
 
-	cfg, err := LoadInstanceConfig(instanceName)
+	cfg, err := cfgpkg.LoadInstanceConfig(instanceName)
 	if err != nil {
 		return err
 	}
@@ -739,7 +741,7 @@ func SendRCONCommand(instanceName string, command string) (string, error) {
 		return "", fmt.Errorf("server for instance %s is not running", instanceName)
 	}
 
-	config, err := LoadInstanceConfig(instanceName)
+	config, err := cfgpkg.LoadInstanceConfig(instanceName)
 	if err != nil {
 		return "", err
 	}
@@ -790,7 +792,7 @@ func SendRCONCommand(instanceName string, command string) (string, error) {
 
 // GetRunningInstances returns a list of running instances
 func GetRunningInstances() ([]string, error) {
-	instances, err := GetAvailableInstances()
+	instances, err := cfgpkg.GetAvailableInstances()
 	if err != nil {
 		return nil, err
 	}
@@ -807,7 +809,7 @@ func GetRunningInstances() ([]string, error) {
 
 // SaveInstancePID saves the PID of a running instance to its directory
 func SaveInstancePID(instanceName string, pid int) error {
-	instanceDir := filepath.Join(InstancesDir, instanceName)
+	instanceDir := filepath.Join(cfgpkg.InstancesDir, instanceName)
 	if err := os.MkdirAll(instanceDir, 0755); err != nil {
 		return fmt.Errorf("failed to create instance directory: %w", err)
 	}
@@ -818,7 +820,7 @@ func SaveInstancePID(instanceName string, pid int) error {
 
 // GetInstancePID retrieves the PID of a running instance from its directory
 func GetInstancePID(instanceName string) (int, error) {
-	instanceDir := filepath.Join(InstancesDir, instanceName)
+	instanceDir := filepath.Join(cfgpkg.InstancesDir, instanceName)
 	pidFile := filepath.Join(instanceDir, "pid")
 
 	data, err := os.ReadFile(pidFile)
@@ -851,8 +853,8 @@ func quotifyIfNeeded(value string) string {
 // SyncGameConfigToInstance reads Game.ini and GameUserSettings.ini from the base server directory
 // and merges them with the instance's config files, only adding entries that don't exist in the instance files
 func SyncGameConfigToInstance(instanceName string) error {
-	baseConfigDir := filepath.Join(ServerFilesDir, "ShooterGame/Saved/Config/WindowsServer")
-	instanceConfigDir := filepath.Join(InstancesDir, instanceName, "Config")
+	baseConfigDir := filepath.Join(cfgpkg.ServerFilesDir, "ShooterGame/Saved/Config/WindowsServer")
+	instanceConfigDir := filepath.Join(cfgpkg.InstancesDir, instanceName, "Config")
 
 	// Ensure instance config directory exists
 	if err := os.MkdirAll(instanceConfigDir, 0755); err != nil {
