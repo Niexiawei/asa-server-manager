@@ -13,14 +13,14 @@
       @change="onChange"
       @create="onCreate"
   >
-    <template #valueDisplay="data">
-      <div class="ark-option-row">
-        <t-image class="ark-option-icon" :src="data.iconUrl"
-          :fallback="iconFallback"
-        ></t-image>
-        <span>{{ data.label }}</span>
-      </div>
-    </template>
+<!--    <template #valueDisplay="data">-->
+<!--      <div class="ark-option-row">-->
+<!--        <t-image class="ark-option-icon" :src="data.iconUrl"-->
+<!--                 :fallback="iconFallback"-->
+<!--        ></t-image>-->
+<!--        <div>{{ data.label }}</div>-->
+<!--      </div>-->
+<!--    </template>-->
   </t-select>
 </template>
 
@@ -107,11 +107,18 @@ const onChange = (val) => emit('update:modelValue', val || '')
 const onCreate = (val) => emit('update:modelValue', String(val).trim())
 </script>
 
-<style scoped>
+<style scoped lang="less">
 .ark-option-row {
   display: flex;
   align-items: center;
   gap: 6px;
+  width: 100%;
+
+  > div {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 }
 
 .ark-option-icon {

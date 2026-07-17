@@ -1,22 +1,22 @@
 <template>
   <!-- 服务器更新弹窗 -->
   <t-dialog
-    :visible="visible"
-    header="服务器更新"
-    :width="800"
-    :close-on-overlay-click="footerMode !== 'exit'"
-    :close-btn="footerMode !== 'exit'"
-    @close="onDialogClose"
-    @opened="onDialogOpened"
-    destroy-on-close
-    top="5vh"
-    draggable
+      :visible="visible"
+      header="服务器更新"
+      :width="800"
+      :close-on-overlay-click="footerMode !== 'exit'"
+      :close-btn="footerMode !== 'exit'"
+      @close="onDialogClose"
+      @opened="onDialogOpened"
+      destroy-on-close
+      top="5vh"
+      attach="body"
   >
     <!-- 更新状态提示 -->
-    <t-alert v-if="footerMode === 'exit'" theme="info" message="服务器更新进行中，请勿关闭页面..." class="mb-3" />
-    <t-alert v-if="updateCompleted" theme="success" message="服务器更新已完成" class="mb-3" />
-    <t-alert v-if="updateCancelled" theme="warning" message="服务器更新已取消" class="mb-3" />
-    <t-alert v-if="updateFailed" theme="error" message="服务器更新失败" class="mb-3" />
+    <t-alert v-if="footerMode === 'exit'" theme="info" message="服务器更新进行中，请勿关闭页面..." class="mb-3"/>
+    <t-alert v-if="updateCompleted" theme="success" message="服务器更新已完成" class="mb-3"/>
+    <t-alert v-if="updateCancelled" theme="warning" message="服务器更新已取消" class="mb-3"/>
+    <t-alert v-if="updateFailed" theme="error" message="服务器更新失败" class="mb-3"/>
 
     <!-- 日志区域 -->
     <div class="update-log-container">
@@ -25,10 +25,10 @@
           点击"开始更新"按钮启动服务器文件更新
         </div>
         <div
-          v-for="(log, index) in updateLogs"
-          :key="index"
-          class="log-line"
-          :class="{
+            v-for="(log, index) in updateLogs"
+            :key="index"
+            class="log-line"
+            :class="{
             'log-error': log.startsWith('Error:') || log.startsWith('错误:'),
             'log-success': log.includes('[COMPLETED]'),
             'log-cancelled': log.includes('[CANCELLED]'),
@@ -42,22 +42,25 @@
     <template #footer>
       <div class="action-bar">
         <t-button
-          v-if="footerMode === 'exit'"
-          theme="danger"
-          variant="outline"
-          @click="handleCancelUpdate"
-        >退出</t-button>
+            v-if="footerMode === 'exit'"
+            theme="danger"
+            variant="outline"
+            @click="handleCancelUpdate"
+        >退出
+        </t-button>
         <t-button
-          v-else-if="footerMode === 'close'"
-          theme="primary"
-          @click="handleCloseDialog"
-        >关闭</t-button>
+            v-else-if="footerMode === 'close'"
+            theme="primary"
+            @click="handleCloseDialog"
+        >关闭
+        </t-button>
         <t-button
-          v-else
-          theme="primary"
-          @click="handleStartUpdate"
-          :loading="startingUpdate"
-        >开始更新</t-button>
+            v-else
+            theme="primary"
+            @click="handleStartUpdate"
+            :loading="startingUpdate"
+        >开始更新
+        </t-button>
       </div>
     </template>
   </t-dialog>
@@ -183,18 +186,18 @@ async function handleStartUpdate() {
       updating.value = true
 
       await updateServerSSE(
-        handleUpdateLogMessage,
-        (error) => {
-          console.error('更新日志错误:', error)
-          handleUpdateLogMessage(error.startsWith('Error:') || error.startsWith('错误:') ? error : `错误: ${error}`)
-        },
-        () => {
-          onUpdatingFinished()
-          if (updateCompleted.value) {
-            MessagePlugin.success('服务器更新已完成')
+          handleUpdateLogMessage,
+          (error) => {
+            console.error('更新日志错误:', error)
+            handleUpdateLogMessage(error.startsWith('Error:') || error.startsWith('错误:') ? error : `错误: ${error}`)
+          },
+          () => {
+            onUpdatingFinished()
+            if (updateCompleted.value) {
+              MessagePlugin.success('服务器更新已完成')
+            }
+            emits('refresh')
           }
-          emits('refresh')
-        }
       )
 
       startingUpdate.value = false
@@ -246,14 +249,14 @@ function startSSESubscription() {
   updating.value = true
 
   sseCloseFn = updateServerSSE(
-    handleUpdateLogMessage,
-    (error) => {
-      console.error('更新日志 SSE 错误:', error)
-      handleUpdateLogMessage(error.startsWith('Error:') || error.startsWith('错误:') ? error : `错误: ${error}`)
-    },
-    () => {
-      onUpdatingFinished()
-    }
+      handleUpdateLogMessage,
+      (error) => {
+        console.error('更新日志 SSE 错误:', error)
+        handleUpdateLogMessage(error.startsWith('Error:') || error.startsWith('错误:') ? error : `错误: ${error}`)
+      },
+      () => {
+        onUpdatingFinished()
+      }
   )
 }
 

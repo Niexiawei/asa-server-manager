@@ -69,6 +69,33 @@ func (t *Tailer) Start() {
 	go t.loop()
 }
 
+// WithCallback tails logPath for the lifetime of ctx, invoking fn for each line.
+// The last lastNLines historical lines are replayed first (0 means tail new lines
+// only), followed by new lines as they appear. When ctx is cancelled the tailer is
+// stopped and its resources released automatically.
+func WithCallback(ctx context.Context, logPath string, lastNLines int, fn func(string)) error {
+	t, ch, err := NewTailer(logPath, lastNLines)
+	if err != nil {
+		return err
+	}
+	t.Start()
+	go func() {
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case line, ok := <-ch:
+				if !ok {
+					return
+				}
+				fn(line)
+			}
+		}
+	}()
+	return nil
+}
+
 // Stop cancels the background goroutine. The owned channel is closed when the
 // goroutine exits, so the consumer will see ok=false and can return cleanly.
 func (t *Tailer) Stop() {

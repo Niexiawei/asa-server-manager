@@ -2,6 +2,7 @@ package asaserver
 
 import (
 	"asa-server/common"
+	"asa-server/common/tail"
 	"asa-server/logger"
 	"asa-server/win32api"
 	"bufio"
@@ -19,8 +20,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
-
-	"github.com/fsnotify/fsnotify"
+	"unicode/utf8"
 )
 
 // GetPIDByPort finds the PID of the process listening on a specific port
@@ -55,167 +55,6 @@ func GetPIDByPort(port int) (int, error) {
 	}
 
 	return 0, fmt.Errorf("no process found listening on port %d", port)
-}
-
-func TailLogFileWithLinesContext(ctx context.Context, logPath string, lastNLines int, printFunc func(string)) {
-	if ctx.Err() != nil {
-		return
-	}
-
-	var (
-		stop func()
-	)
-	stop = TailLogFileWithLines(logPath, lastNLines, printFunc)
-
-	go func() {
-		select {
-		case <-ctx.Done():
-			stop()
-		}
-	}()
-}
-
-// TailLogFileWithLines monitors a log file in real-time asynchronously
-// Reads and returns the last N lines first, then monitors for new lines
-// Returns a stop function to terminate monitoring
-// The printFunc closure is called with each log line (historical lines + new lines)
-func TailLogFileWithLines(logPath string, lastNLines int, printFunc func(string)) func() {
-	ctx, cancel := context.WithCancel(context.Background())
-
-	go func() {
-		// Open file once in read-only mode
-		file, err := os.OpenFile(logPath, os.O_RDONLY, 0)
-		if err != nil {
-			printFunc("Failed to open log file: " + fmt.Sprintf("%v", err))
-			return
-		}
-
-		defer file.Close()
-		// First, read and send the last N lines from the file
-		lastLines, err := readLastNLines(logPath, lastNLines)
-		if err != nil {
-			printFunc("Failed to read last " + fmt.Sprintf("%d", lastNLines) + " lines: " + fmt.Sprintf("%v", err))
-			return
-		}
-		// Send the last N lines
-		for _, line := range lastLines {
-			if line != "" {
-				printFunc(line)
-			}
-		}
-
-		// Get the current file info and position to start monitoring from
-		// We need to get the file size after reading to ensure we start monitoring from the end of the content we just read
-		fileInfo, err := file.Stat()
-		if err != nil {
-			printFunc("Failed to get file info: " + fmt.Sprintf("%v", err))
-			return
-		}
-
-		lastPosition := fileInfo.Size()
-		// Create a watcher for file system events
-		watcher, err := fsnotify.NewWatcher()
-		if err != nil {
-			printFunc("Failed to create file watcher: " + fmt.Sprintf("%v", err))
-			return
-		}
-		defer watcher.Close()
-
-		// Watch the logs directory for changes
-		//logsDir := filepath.Dir(logPath)
-
-		if err := watcher.Add(logPath); err != nil {
-			printFunc("Failed to watch logs directory: " + fmt.Sprintf("%v", err))
-			return
-		}
-
-		for {
-			select {
-			case <-ctx.Done():
-				// Stop signal received
-				return
-			default:
-			}
-			// Read available content from the log file
-			if content, newPos, _, found := readNewLogContent(file, lastPosition); found {
-				if content != "" {
-					// Call the closure function to print each line
-					for _, line := range strings.Split(strings.TrimSuffix(content, "\n"), "\n") {
-						if line != "" {
-							printFunc(line)
-						}
-					}
-				}
-				lastPosition = newPos
-			}
-
-			// Wait for file system events or timeout
-			select {
-			case <-ctx.Done():
-				return
-			case event, ok := <-watcher.Events:
-				if !ok {
-					return
-				}
-				// React to Write and Create events on the log file
-				if event.Name == logPath && (event.Op&fsnotify.Write == fsnotify.Write || event.Op&fsnotify.Create == fsnotify.Create) {
-					// File was written to, continue loop to read new content
-					continue
-				}
-			case err, ok := <-watcher.Errors:
-				if !ok {
-					return
-				}
-				printFunc("Watcher error: " + fmt.Sprintf("%v", err))
-				return
-			case <-time.After(2000 * time.Millisecond):
-				// Periodic check for file updates
-				continue
-			}
-		}
-	}()
-
-	// Return the stop function
-	return func() {
-		cancel()
-	}
-}
-
-// readNewLogContent reads new content from log file starting at lastPosition
-func readNewLogContent(file *os.File, lastPosition int64) (string, int64, int, bool) {
-	// Get file info for size checking
-	fileInfo, err := file.Stat()
-	if err != nil || fileInfo.Size() == 0 {
-		return "", lastPosition, 0, false
-	}
-
-	// If file was truncated, restart from beginning
-	if lastPosition > fileInfo.Size() {
-		lastPosition = 0
-	}
-
-	// Seek to last position
-	if _, err := file.Seek(lastPosition, 0); err != nil {
-		return "", lastPosition, 0, false
-	}
-
-	// Read new content
-	var newLines []string
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		newLines = append(newLines, scanner.Text())
-	}
-
-	// Get new position
-	newPosition, _ := file.Seek(0, io.SeekCurrent)
-
-	// Join all lines with newlines
-	content := strings.Join(newLines, "\n")
-	if len(newLines) > 0 {
-		content += "\n"
-	}
-
-	return content, newPosition, len(newLines), true
 }
 
 // FindLatestLogFile finds the latest log file (ShooterGame.log or ShooterGame_N.log)
@@ -257,84 +96,6 @@ func FileExists(path string) bool {
 }
 
 var ansiRegexp = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
-
-// readLastNLines efficiently reads the last N lines from a file by reading from the end
-func readLastNLines(filePath string, n int) ([]string, error) {
-	file, err := os.Open(filePath)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	// Get file info to determine size
-	fileInfo, err := file.Stat()
-	if err != nil {
-		return nil, err
-	}
-	fileSize := fileInfo.Size()
-
-	if fileSize == 0 {
-		return []string{}, nil
-	}
-
-	// If file is smaller than a reasonable chunk size, just read it normally
-	const chunkSize = 4096
-	lines := []string{}
-	offset := fileSize
-	for len(lines) < n && offset > 0 {
-		// Calculate how much to read
-		readSize := int64(chunkSize)
-		if offset < readSize {
-			readSize = offset
-		}
-		offset -= readSize
-
-		// Seek to the position
-		_, err := file.Seek(offset, 0)
-		if err != nil {
-			return nil, err
-		}
-
-		// Read the chunk
-		chunk := make([]byte, readSize)
-		_, err = file.Read(chunk)
-		if err != nil && err != io.EOF {
-			return nil, err
-		}
-
-		// Count newlines in this chunk and process lines
-		chunkStr := string(chunk)
-		newLines := strings.Split(chunkStr, "\n")
-
-		// If this isn't the last chunk we're reading, the first element
-		// is a continuation of a line from the next chunk
-		if len(lines) > 0 && len(newLines) > 0 {
-			newLines[0] = newLines[0] + lines[0]
-			lines = lines[1:]
-		}
-
-		// Add the new lines to our result
-		for i := len(newLines) - 1; i >= 0; i-- {
-			if i == len(newLines)-1 && len(lines) == 0 && offset+readSize < fileSize {
-				// Skip the last line if this isn't the end of the file (it's incomplete)
-				continue
-			}
-			if strings.TrimSpace(newLines[i]) != "" || len(newLines[i]) > 0 {
-				lines = append([]string{newLines[i]}, lines...)
-				if len(lines) >= n {
-					break
-				}
-			}
-		}
-	}
-
-	// Return the last N lines (or all lines if less than N)
-	if len(lines) > n {
-		lines = lines[len(lines)-n:]
-	}
-
-	return lines, nil
-}
 
 func splitOnNewlineOrCR(data []byte, atEOF bool) (advance int, token []byte, err error) {
 	// 查找 \n 或 \r 的最早位置
@@ -448,7 +209,7 @@ func MonitorAndExtractModInfo(pctx context.Context, logPath string, instanceName
 	mods := make(map[string]string)
 
 	// Start monitoring the log file
-	TailLogFileWithLinesContext(ctx, logPath, 10, func(line string) {
+	if err := tail.WithCallback(ctx, logPath, 10, func(line string) {
 		// Check if we've reached the completion marker
 		if strings.Contains(line, completionMarker) {
 			// Load existing mod info if file exists
@@ -520,7 +281,10 @@ func MonitorAndExtractModInfo(pctx context.Context, logPath string, instanceName
 				logger.GetLogger().Debugf("Found mod in instance %s: %s (%s)", instanceName, modName, modID)
 			}
 		}
-	})
+	}); err != nil {
+		logger.GetLogger().Warnf("Failed to tail log for mod extraction (%s): %v", logPath, err)
+		return
+	}
 
 	select {
 	case <-ctx.Done():
@@ -658,7 +422,7 @@ func waitServerStopped(ctx context.Context, pid int, gameLogPath string,
 	}()
 
 	// Monitor log file for shutdown markers
-	TailLogFileWithLinesContext(ctxLocal, gameLogPath, 0, func(line string) {
+	if err := tail.WithCallback(ctxLocal, gameLogPath, 0, func(line string) {
 		mu.Lock()
 		if strings.Contains(line, "Closing by request") && !closingReceived {
 			closingReceived = true
@@ -673,7 +437,9 @@ func waitServerStopped(ctx context.Context, pid int, gameLogPath string,
 			return
 		}
 		mu.Unlock()
-	})
+	}); err != nil {
+		logger.GetLogger().Warnf("Failed to tail log for shutdown monitoring (%s): %v", gameLogPath, err)
+	}
 
 	<-stopped
 }
@@ -706,7 +472,7 @@ func waitServerStartup(pid int, gameLogPath string, callback waitServerStartupFu
 		}
 	}()
 
-	TailLogFileWithLinesContext(ctx, gameLogPath, 0, func(line string) {
+	if err := tail.WithCallback(ctx, gameLogPath, 0, func(line string) {
 		latestLogLineMu.Lock()
 		latestLogLine = line // H6 fix: protected by mutex
 		if strings.Contains(line, "ApiError: Failed (serverUnreachable)") {
@@ -722,7 +488,9 @@ func waitServerStartup(pid int, gameLogPath string, callback waitServerStartupFu
 		if strings.Contains(line, "Initialize Primal Game Data Override") {
 			successfullyCallback()
 		}
-	})
+	}); err != nil {
+		logger.GetLogger().Warnf("Failed to tail log for startup monitoring (%s): %v", gameLogPath, err)
+	}
 	<-startup
 }
 
@@ -783,4 +551,123 @@ func findServerPIDByPort(port int) (int, error) {
 		return 0, fmt.Errorf("no ArkAscendedServer process found with Port=%d", port)
 	}
 	return int(processes[0].ProcessId), nil
+}
+
+// asaVersionTarget "ArkVersion" 的 UTF-16LE 编码 + 结尾 0x0000
+var asaVersionTarget = []byte{
+	0x41, 0x00, 0x72, 0x00, 0x6B, 0x00, 0x56, 0x00, 0x65, 0x00, 0x72, 0x00, 0x73, 0x00, 0x69,
+	0x00, 0x6F, 0x00, 0x6E, 0x00, 0x00, 0x00,
+}
+
+// GetAsaVersion 从 ArkAscendedServer.exe 中提取 ASA 版本号
+// 通过搜索 UTF-16LE 编码的 "ArkVersion\0" 标记，读取其后的 UTF-16 版本字符串
+func GetAsaVersion(exePath string) (string, error) {
+	// 只读打开，不影响正在运行的服务器进程
+	file, err := os.Open(exePath)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	buffer := make([]byte, 1024*1024)
+	overlap := len(asaVersionTarget) - 1
+
+	// 分块扫描，块间保留 overlap 字节重叠，避免目标串跨块被漏掉
+	var fileOffset int64
+	var foundOffset int64 = -1
+	validLen, err := io.ReadFull(file, buffer)
+	if err != nil && err != io.ErrUnexpectedEOF && err != io.EOF {
+		return "", err
+	}
+
+	for {
+		if idx := bytes.Index(buffer[:validLen], asaVersionTarget); idx >= 0 {
+			foundOffset = fileOffset + int64(idx)
+			break
+		}
+
+		if validLen < len(buffer) {
+			break // EOF
+		}
+
+		copy(buffer, buffer[validLen-overlap:validLen])
+		fileOffset += int64(validLen - overlap)
+
+		n, err := io.ReadFull(file, buffer[overlap:])
+		if err != nil && err != io.ErrUnexpectedEOF && err != io.EOF {
+			return "", err
+		}
+		validLen = overlap + n
+	}
+
+	if foundOffset < 0 {
+		return "", fmt.Errorf("failed to find ArkVersion string in the executable")
+	}
+
+	// 读取标记后紧跟的 UTF-16LE 字符串，直到 0x0000 结束
+	if _, err := file.Seek(foundOffset+int64(len(asaVersionTarget)), io.SeekStart); err != nil {
+		return "", err
+	}
+
+	reader := bufio.NewReader(file)
+	var version strings.Builder
+	buf := make([]byte, 2)
+	for {
+		if _, err := io.ReadFull(reader, buf); err != nil {
+			break
+		}
+		unicodeVal := uint16(buf[0]) | uint16(buf[1])<<8
+		if unicodeVal == 0 {
+			break
+		}
+		r := rune(unicodeVal)
+		if !utf8.ValidRune(r) {
+			return "", fmt.Errorf("failed to convert UTF-16 code unit while reading version: %#06X", unicodeVal)
+		}
+		version.WriteRune(r)
+	}
+	return version.String(), nil
+}
+
+type asaVersionCacheEntry struct {
+	modTime time.Time
+	size    int64
+	version string
+}
+
+// asaVersionCache key: exe 路径 -> asaVersionCacheEntry
+var asaVersionCache sync.Map
+
+// GetInstanceAsaVersion 获取实例的 ASA 版本号
+// 优先读取实例镜像目录的 exe；镜像不存在（实例从未启动）时回退到基础安装目录
+// 内置基于 modTime+size 的缓存，服务器更新后自动失效
+func GetInstanceAsaVersion(instanceName string) (string, error) {
+	arkExe := filepath.Join(InstanceMirrorDir(instanceName), "ShooterGame/Binaries/Win64/ArkAscendedServer.exe")
+	stat, err := os.Stat(arkExe)
+	if err != nil {
+		arkExe = filepath.Join(ServerFilesDir, "ShooterGame/Binaries/Win64/ArkAscendedServer.exe")
+		stat, err = os.Stat(arkExe)
+		if err != nil {
+			return "", fmt.Errorf("ArkAscendedServer.exe not found")
+		}
+	}
+
+	// 缓存命中：modTime 和 size 均未变化
+	if v, ok := asaVersionCache.Load(arkExe); ok {
+		entry := v.(asaVersionCacheEntry)
+		if entry.modTime.Equal(stat.ModTime()) && entry.size == stat.Size() {
+			return entry.version, nil
+		}
+	}
+
+	version, err := GetAsaVersion(arkExe)
+	if err != nil {
+		return "", err
+	}
+	asaVersionCache.Store(arkExe, asaVersionCacheEntry{
+		modTime: stat.ModTime(),
+		size:    stat.Size(),
+		version: version,
+	})
+	return version, nil
 }

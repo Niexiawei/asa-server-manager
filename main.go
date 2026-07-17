@@ -13,6 +13,7 @@ import (
 	"log"
 	"os"
 	"runtime"
+	"slices"
 	"strings"
 
 	"github.com/kardianos/service"
@@ -204,12 +205,7 @@ func quoteArg(arg string) string {
 // hasArgFlag 扫描 os.Args[1:] 检查是否包含指定标志
 // 用于在 app.Run() 之前检测 CLI 标志（因此时 CLI 尚未解析）
 func hasArgFlag(flag string) bool {
-	for _, arg := range os.Args[1:] {
-		if arg == flag {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(os.Args[1:], flag)
 }
 
 // buildElevatedArgs 构建提权重启的参数串

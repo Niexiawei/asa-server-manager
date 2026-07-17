@@ -35,6 +35,31 @@ func isUnderWin64(relPath string) bool {
 	return relPath == win64RelPath || strings.HasPrefix(relPath, win64RelPath+"/")
 }
 
+// arkApiRelPath 是 ArkApi hook 插件目录；arkApiCacheRelPath 是其运行期缓存目录。
+// ArkApi 在运行期会向 Cache 写入 hook 缓存，这些文件与源目录不一致或多出属正常现象，
+// 增量同步时应保留，仅补齐缺失的文件。
+const arkApiRelPath = win64RelPath + "/ArkApi"
+const arkApiCacheRelPath = arkApiRelPath + "/Cache"
+
+// isUnderArkApiCache 判断相对路径是否位于 ArkApi 运行期缓存目录内（含目录本身）。
+func isUnderArkApiCache(relPath string) bool {
+	return relPath == arkApiCacheRelPath || strings.HasPrefix(relPath, arkApiCacheRelPath+"/")
+}
+
+// isLogFile 判断是否为日志文件（.log，大小写不敏感）。
+// 日志文件无需镜像：既不复制，也不参与增量 diff（避免运行期日志造成差异抖动）。
+func isLogFile(name string) bool {
+	return strings.HasSuffix(strings.ToLower(name), ".log")
+}
+
+// arkApiInstalled 判断源服务端是否安装了 ArkApi（Win64/ArkApi 目录存在）。
+// 未安装时不启用缓存特殊处理，走原有同步逻辑。
+func arkApiInstalled() bool {
+	p := filepath.Join(ServerFilesDir, filepath.FromSlash(arkApiRelPath))
+	fi, err := os.Stat(p)
+	return err == nil && fi.IsDir()
+}
+
 // mirrorEntryType 条目类型
 const (
 	EntryTypeDirectory = iota
@@ -300,6 +325,11 @@ func containsExeFiles(dirPath string) bool {
 
 // processFile 处理文件条目
 func processFile(srcPath, mirrorPath, relPath string, info os.FileInfo) error {
+	// 日志文件无需镜像，直接忽略
+	if isLogFile(info.Name()) {
+		return nil
+	}
+
 	// 检查父目录是否已经是 junction
 	// 如果是，文件通过 junction 即可访问，无需处理
 	parentDir := filepath.Dir(mirrorPath)
@@ -604,6 +634,9 @@ func syncMirrorEntries(mirrorDir string, exceptionTargets map[string]string) err
 
 	logger.GetLogger().Infof("Syncing mirror: %d source entries, %d mirror entries", len(sourceEntries), len(mirrorEntries))
 
+	// 仅当源端安装了 ArkApi 时，才对其 Cache 目录启用运行期缓存保护
+	arkApiCache := arkApiInstalled()
+
 	// 使用 diff 对比
 	edits := diff.EditsFunc(sourceEntries, mirrorEntries,
 		func(a, b mirrorEntry) bool {
@@ -615,17 +648,26 @@ func syncMirrorEntries(mirrorDir string, exceptionTargets map[string]string) err
 	removed := 0
 	updated := 0
 
+	// znkr.io/diff 语义（x=源, y=镜像）：
+	//   Delete → 元素在 edit.X（源有、镜像缺），edit.Y 为零值 → 应在镜像新增
+	//   Insert → 元素在 edit.Y（镜像有、源缺），edit.X 为零值 → 应从镜像删除
+	//   Match  → edit.X / edit.Y 均为匹配元素
 	for _, edit := range edits {
 		switch edit.Op {
-		case diff.Insert:
-			// 源有、镜像无 → 创建
+		case diff.Delete:
+			// 源有、镜像无 → 创建（ArkApi Cache 缺失的文件同样需要补齐）
 			if err := syncEntry(srcDir, mirrorDir, edit.X, exceptionTargets); err != nil {
 				logger.GetLogger().Warnf("Failed to sync entry %s: %v", edit.X.RelPath, err)
 			} else {
 				added++
 			}
-		case diff.Delete:
+		case diff.Insert:
 			// 镜像有、源无 → 删除
+			// ArkApi Cache 内多出的文件是 hook 运行期缓存，属正常现象，保留不删
+			if arkApiCache && isUnderArkApiCache(edit.Y.RelPath) {
+				logger.GetLogger().Debugf("Keeping ArkApi runtime cache entry: %s", edit.Y.RelPath)
+				continue
+			}
 			if err := removeMirrorEntry(mirrorDir, edit.Y); err != nil {
 				logger.GetLogger().Warnf("Failed to remove mirror entry %s: %v", edit.Y.RelPath, err)
 			} else {
@@ -633,6 +675,11 @@ func syncMirrorEntries(mirrorDir string, exceptionTargets map[string]string) err
 			}
 		case diff.Match:
 			// 两边都有 → 检查是否需要更新
+			// ArkApi Cache 内文件内容不一致是 hook 运行期缓存造成的，属正常现象，不回写覆盖
+			if arkApiCache && isUnderArkApiCache(edit.X.RelPath) {
+				logger.GetLogger().Debugf("Skipping reconcile for ArkApi runtime cache entry: %s", edit.X.RelPath)
+				continue
+			}
 			if err := reconcileEntry(srcDir, mirrorDir, edit.X, edit.Y, exceptionTargets); err != nil {
 				logger.GetLogger().Warnf("Failed to reconcile entry %s: %v", edit.X.RelPath, err)
 			} else {
@@ -721,6 +768,11 @@ func collectSourceEntries(srcDir string, exceptionTargets map[string]string) ([]
 		}
 
 		// 文件
+		// 日志文件不参与镜像同步
+		if isLogFile(info.Name()) {
+			return nil
+		}
+
 		parentDir := filepath.Dir(path)
 		parentRelPath := filepath.ToSlash(filepath.Dir(filepath.FromSlash(relPath)))
 		if parentRelPath == "." {
@@ -788,6 +840,11 @@ func collectMirrorEntries(mirrorDir string) ([]mirrorEntry, error) {
 			return nil
 		}
 		if relPath == "." {
+			return nil
+		}
+
+		// 日志文件不参与镜像同步（与源端收集保持一致，避免运行期日志造成差异抖动）
+		if !info.IsDir() && isLogFile(info.Name()) {
 			return nil
 		}
 
@@ -883,6 +940,17 @@ func removeMirrorEntry(mirrorDir string, entry mirrorEntry) error {
 func reconcileEntry(srcDir, mirrorDir string, srcEntry, mirrorEntryItem mirrorEntry, exceptionTargets map[string]string) error {
 	srcPath := filepath.Join(srcDir, filepath.FromSlash(srcEntry.RelPath))
 	mirrorPath := filepath.Join(mirrorDir, filepath.FromSlash(mirrorEntryItem.RelPath))
+
+	// 镜像侧条目在"收集"与"处理"之间可能被外部动作删除或替换，导致后续读取报缺失。
+	// 此时按缺失处理，直接从源重建并返回，避免把瞬时状态误报为 reconcile 失败。
+	// os.IsNotExist 在 Windows 上同时覆盖 ERROR_FILE_NOT_FOUND 与 ERROR_PATH_NOT_FOUND。
+	if _, err := os.Lstat(mirrorPath); err != nil {
+		if os.IsNotExist(err) {
+			logger.GetLogger().Debugf("Mirror entry missing during reconcile, recreating: %s", mirrorEntryItem.RelPath)
+			return syncEntry(srcDir, mirrorDir, srcEntry, exceptionTargets)
+		}
+		return fmt.Errorf("failed to stat mirror entry %s: %w", mirrorPath, err)
+	}
 
 	// 检查类型是否匹配
 	if srcEntry.EntryType != mirrorEntryItem.EntryType {

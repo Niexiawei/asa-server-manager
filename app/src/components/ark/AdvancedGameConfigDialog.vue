@@ -1,13 +1,12 @@
 <template>
-  <t-dialog
+  <t-drawer
       :visible="visible"
       header="服务器规则配置"
-      mode="full-screen"
       :confirm-btn="{ content: '保存到 Game.ini', loading: saving, theme: 'primary' }"
       cancel-btn="取消"
       @confirm="handleConfirm"
       @close="handleClose"
-      dialogClassName="server-cfg-edit-dialog"
+      size="80%"
   >
     <div class="adv-body">
       <!-- 信息band：保留说明 + 已配置统计 -->
@@ -71,7 +70,7 @@
         </t-collapse>
       </div>
     </div>
-  </t-dialog>
+  </t-drawer>
 </template>
 
 <script setup>

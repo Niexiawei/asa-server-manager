@@ -798,6 +798,10 @@ const fetchInstanceConfig = async () => {
           label: '启用ASA插件',
           value: config.EnableAsaPlugin ? '是' : '否',
           type: 'boolean'
+        },
+        {
+          label: '服务器版本',
+          value: "v" + instance?.asaVersion
         }
       ]
 

@@ -12,7 +12,7 @@
       </template>
       <t-empty v-if="instances.length === 0" description="暂无实例，请创建新实例"/>
       <div v-else class="instance-list"
-        :style="{
+           :style="{
           height: `calc(${mainCarHeight}px - 80px)`,
         }"
       >
@@ -45,6 +45,10 @@
                   <div class="info-item" v-if="instance.config?.ServerName">
                     <span class="label">服务器名称:</span>
                     <span class="value">{{ instance.config.ServerName }}</span>
+                  </div>
+                  <div class="info-item" v-if="instance?.asaVersion">
+                    <span class="label">服务器版本:</span>
+                    <span class="value">v{{ instance?.asaVersion }}</span>
                   </div>
                   <div class="info-item">
                     <span class="label">状态:</span>
@@ -297,7 +301,7 @@ const modInfo = ref([])
 const modInfoLoading = ref(false)
 
 const mainCarRef = ref()
-const {height:mainCarHeight} = useElementBounding(mainCarRef)
+const {height: mainCarHeight} = useElementBounding(mainCarRef)
 
 const logViewerRef = ref()
 const masonryRef = ref()
@@ -308,7 +312,7 @@ const selectedSourceInstance = ref('')
 const renderInstanceTitle = (instance) => {
   return h('div', {style: {display: 'flex', alignItems: 'center', gap: '8px'}}, [
     h(instance.running ? TaskChecked1Icon : StopCircleIcon, {style: {color: instance.running ? '#00b42a' : '#f53f3f'}}),
-    h('span', instance.name)
+    h('span', `${instance.name}`)
   ])
 }
 

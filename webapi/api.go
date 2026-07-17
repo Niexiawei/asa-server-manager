@@ -40,6 +40,7 @@ type InstanceInfo struct {
 	Config        interface{}               `json:"config,omitempty"`
 	Status        string                    `json:"status"`
 	StatusHistory []asaserver.InstanceState `json:"status_history"`
+	AsaVersion    string                    `json:"asaVersion,omitempty"`
 	Error         string                    `json:"error,omitempty"`
 }
 
@@ -124,6 +125,10 @@ func (s *APIServer) listInstances(c *gin.Context) {
 
 		if cfgErr == nil {
 			info.Config = config
+		}
+
+		if version, versionErr := asaserver.GetInstanceAsaVersion(instanceName); versionErr == nil {
+			info.AsaVersion = version
 		}
 
 		if err != nil {
@@ -245,6 +250,10 @@ func (s *APIServer) getInstanceStatus(c *gin.Context) {
 
 	if cfgErr == nil {
 		info.Config = config
+	}
+
+	if version, versionErr := asaserver.GetInstanceAsaVersion(name); versionErr == nil {
+		info.AsaVersion = version
 	}
 
 	if err != nil && cfgErr != nil {
@@ -910,39 +919,32 @@ func (s *APIServer) streamInstanceLogs(c *gin.Context) {
 		return
 	}
 
-	// Create a channel to receive log lines with larger buffer to prevent message loss
-	logChan := make(chan string, 100)
-	done := make(chan struct{})
+	// Start tailing the log file, reading the last 200 lines first
+	tailer, logChan, err := tail.NewTailer(logPath, 200)
+	if err != nil {
+		fmt.Fprintf(c.Writer, "data: %s\n\n", "failed to tail log file")
+		c.Writer.Flush()
+		return
+	}
 
-	// Start tailing the log file, reading the last 500 lines first
-	stopMonitoring := asaserver.TailLogFileWithLines(logPath, 200, func(line string) {
-		select {
-		case logChan <- line:
-		case <-done:
-			return
-		}
-	})
-
-	defer func() {
-		close(done)
-		stopMonitoring()
-	}()
+	tailer.Start()
+	defer tailer.Stop()
 
 	// Stream new log lines as they arrive
-	for {
+	c.Stream(func(w io.Writer) bool {
 		select {
 		case line, ok := <-logChan:
 			if !ok {
-				return
+				return false
 			}
-			fmt.Fprintf(c.Writer, "data: %s\n\n", line)
-			c.Writer.Flush()
+			fmt.Fprintf(w, "data: %s\n\n", line)
+			return true
 		case <-c.Request.Context().Done():
-			return
+			return false
 		case <-s.serverCtx.Done():
-			return
+			return false
 		}
-	}
+	})
 }
 
 // streamSystemLogs streams system logs via Server-Sent Events (SSE)
