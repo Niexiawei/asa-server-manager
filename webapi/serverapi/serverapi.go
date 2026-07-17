@@ -2,35 +2,36 @@ package serverapi
 
 import (
 	cfgpkg "asa-server/config"
-	"asa-server/httpserver"
 	"asa-server/installer"
 	instancepkg "asa-server/instance"
 	"asa-server/logger"
+	"asa-server/pkg/serverinfo"
 	"asa-server/pkg/winproc"
 	procpkg "asa-server/process"
-	"asa-server/serverinfo"
+	"asa-server/realtime"
 	statepkg "asa-server/state"
 	"asa-server/webapi/apiresp"
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/gin-gonic/gin"
 	"io"
 	"net/http"
 	"sync/atomic"
 	"time"
+
+	"github.com/gin-gonic/gin"
 )
 
 type Handler struct {
 	serverCtx         context.Context
-	updateBroadcaster *httpserver.TaskBroadcaster
+	updateBroadcaster *realtime.TaskBroadcaster
 	updateCancel      atomic.Pointer[context.CancelFunc]
 }
 
 func NewHandler(serverCtx context.Context) *Handler {
 	return &Handler{
 		serverCtx:         serverCtx,
-		updateBroadcaster: httpserver.NewTaskBroadcaster(),
+		updateBroadcaster: realtime.NewTaskBroadcaster(),
 	}
 }
 
@@ -432,14 +433,14 @@ func (h *Handler) streamAllInstancesInfo(c *gin.Context) {
 func (h *Handler) runUpdateTask(ctx context.Context) {
 	defer h.updateBroadcaster.Stop()
 
-	httpserver.BroadcastUpdateStarted()
+	realtime.BroadcastUpdateStarted()
 
 	cancelled := false
 	defer func() {
 		if cancelled {
-			httpserver.BroadcastUpdateCancelled()
+			realtime.BroadcastUpdateCancelled()
 		} else {
-			httpserver.BroadcastUpdateCompleted()
+			realtime.BroadcastUpdateCompleted()
 		}
 	}()
 
@@ -458,7 +459,7 @@ func (h *Handler) runUpdateTask(ctx context.Context) {
 	}()
 
 	// Create progress writer
-	writer := &httpserver.UpdateProgressWriter{Broadcaster: h.updateBroadcaster}
+	writer := &realtime.UpdateProgressWriter{Broadcaster: h.updateBroadcaster}
 
 	// Check context before each step
 	checkCancelled := func() bool {

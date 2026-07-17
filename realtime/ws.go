@@ -1,4 +1,4 @@
-package httpserver
+package realtime
 
 import (
 	cfgpkg "asa-server/config"

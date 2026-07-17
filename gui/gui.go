@@ -3,8 +3,8 @@ package gui
 import (
 	cfgpkg "asa-server/config"
 	"asa-server/logger"
+	"asa-server/pkg/serverinfo"
 	procpkg "asa-server/process"
-	"asa-server/serverinfo"
 	"asa-server/webapi"
 	"asa-server/winservice"
 	"context"

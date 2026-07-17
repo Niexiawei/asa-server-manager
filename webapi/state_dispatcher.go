@@ -1,7 +1,7 @@
 package webapi
 
 import (
-	"asa-server/httpserver"
+	"asa-server/realtime"
 	statepkg "asa-server/state"
 	"context"
 	"fmt"
@@ -38,7 +38,7 @@ func broadcastInstanceStateChange(state statepkg.InstanceState) {
 	if state.ErrorMessage != "" {
 		data["error"] = state.ErrorMessage
 	}
-	httpserver.BroadcastServerEventWithData(eventType, state.InstanceName, message, status, data)
+	realtime.BroadcastServerEventWithData(eventType, state.InstanceName, message, status, data)
 }
 
 func stateToEventFields(state statepkg.InstanceState) (eventType, status, message string) {

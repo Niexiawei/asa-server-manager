@@ -1,8 +1,8 @@
 package syncthingmanage
 
 import (
+	"asa-server/pkg/processjob"
 	"asa-server/pkg/winproc"
-	"asa-server/processjob"
 	"bufio"
 	"context"
 	"crypto/md5"

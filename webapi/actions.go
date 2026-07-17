@@ -5,9 +5,9 @@ import (
 	"asa-server/batchmanage"
 	cfgpkg "asa-server/config"
 	"asa-server/frpmanage"
-	"asa-server/httpserver"
 	"asa-server/logger"
 	"asa-server/parseserver"
+	"asa-server/realtime"
 	statepkg "asa-server/state"
 	"asa-server/syncthingmanage"
 	"asa-server/webapi/backupapi"
@@ -48,8 +48,8 @@ var ApiServerPort = 19193
 
 // NewAPIServer creates a new API server instance
 func NewAPIServer() *APIServer {
-	hub := httpserver.NewHub()
-	httpserver.SetGlobalHub(hub)
+	hub := realtime.NewHub()
+	realtime.SetGlobalHub(hub)
 	InitializationBasicComponents()
 	gin.SetMode(gin.ReleaseMode)
 	engine := gin.Default()
@@ -156,7 +156,7 @@ func (s *APIServer) Stop() error {
 	s.serverCtxStop()
 
 	// 2. 关闭所有 WebSocket 长连接
-	httpserver.GetGlobalHub().CloseAllClients()
+	realtime.GetGlobalHub().CloseAllClients()
 
 	<-s.serverDone
 	log.Println("stopping saveDataManager ...")
@@ -186,8 +186,8 @@ func (s *APIServer) setupRoutes() {
 	iconapi.NewHandler().RegisterRouter(s.engine)
 
 	// WebSocket endpoints
-	s.engine.GET("/api/ws/events", httpserver.HandleServerEvents)
-	s.engine.GET("/api/ws/rcon", httpserver.HandleRCONEvents)
+	s.engine.GET("/api/ws/events", realtime.HandleServerEvents)
+	s.engine.GET("/api/ws/rcon", realtime.HandleRCONEvents)
 
 	// FRP endpoints
 	frpmanage.RegisterFRPRoutes(s.engine)

@@ -2,9 +2,9 @@ package batchmanage
 
 import (
 	cfgpkg "asa-server/config"
-	"asa-server/httpserver"
 	instancepkg "asa-server/instance"
 	"asa-server/logger"
+	"asa-server/realtime"
 	statepkg "asa-server/state"
 	"context"
 	"fmt"
@@ -379,7 +379,7 @@ func (bm *BatchManager) runBatchOperation(op *BatchOperation) {
 	// 通知批量操作开始
 	opTypeStr := string(op.Type)
 	totalInstances := len(op.Instances)
-	httpserver.BroadcastBatchOperationStarted(opTypeStr, totalInstances)
+	realtime.BroadcastBatchOperationStarted(opTypeStr, totalInstances)
 	op.sendLog("info", fmt.Sprintf("Batch %s started with %d instances", opTypeStr, totalInstances), "")
 
 	var succeeded, failed int
@@ -393,7 +393,7 @@ func (bm *BatchManager) runBatchOperation(op *BatchOperation) {
 			op.mu.Lock()
 			op.Status = "cancelled"
 			op.mu.Unlock()
-			httpserver.BroadcastBatchOperationCompleted(opTypeStr, succeeded, failed, totalInstances)
+			realtime.BroadcastBatchOperationCompleted(opTypeStr, succeeded, failed, totalInstances)
 			op.sendLog("completed", fmt.Sprintf("[COMPLETED] %d/%d succeeded, %d failed (cancelled)", succeeded, totalInstances, failed), "")
 			return
 		default:
@@ -447,7 +447,7 @@ func (bm *BatchManager) runBatchOperation(op *BatchOperation) {
 		}
 
 		done := succeeded + failed
-		httpserver.BroadcastBatchProgress(opTypeStr, done, totalInstances, instanceName)
+		realtime.BroadcastBatchProgress(opTypeStr, done, totalInstances, instanceName)
 
 		// 延迟等待（非最后一个）
 		if op.DelayBetween > 0 && i < len(op.Instances)-1 {
@@ -461,7 +461,7 @@ func (bm *BatchManager) runBatchOperation(op *BatchOperation) {
 	}
 
 	// 完成通知
-	httpserver.BroadcastBatchOperationCompleted(opTypeStr, succeeded, failed, totalInstances)
+	realtime.BroadcastBatchOperationCompleted(opTypeStr, succeeded, failed, totalInstances)
 	op.sendLog("completed", fmt.Sprintf("[COMPLETED] %d/%d succeeded, %d failed", succeeded, totalInstances, failed), "")
 }
 
