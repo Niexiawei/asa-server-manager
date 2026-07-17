@@ -3,9 +3,10 @@ package webapi
 import (
 	"asa-server/asaserver"
 	"asa-server/backup"
-	"asa-server/common/tail"
 	"asa-server/logger"
 	"asa-server/parseserver"
+	"asa-server/pkg/fsutil"
+	"asa-server/pkg/tail"
 	"asa-server/serverinfo"
 	"asa-server/win32api"
 	"context"
@@ -180,7 +181,7 @@ func (s *APIServer) createInstance(c *gin.Context) {
 	// Copy base server configuration files to instance Config directory
 	baseConfigDir := filepath.Join(asaserver.ServerFilesDir, "ShooterGame/Saved/Config/WindowsServer")
 	if _, err := os.Stat(baseConfigDir); err == nil {
-		if err := asaserver.CopyDir(baseConfigDir, instanceDir); err != nil {
+		if err := fsutil.CopyDir(baseConfigDir, instanceDir); err != nil {
 			// Log warning but continue as this is not critical
 			logger.GetLogger().Warnf("Failed to copy base server configuration: %v", err)
 		}

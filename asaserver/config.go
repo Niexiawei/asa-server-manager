@@ -1,6 +1,7 @@
 package asaserver
 
 import (
+	"asa-server/pkg/fsutil"
 	"bufio"
 	"fmt"
 	"io"
@@ -338,7 +339,7 @@ func GetAvailableInstances() ([]string, error) {
 
 // CreateDefaultInstanceConfig creates a default instance configuration
 func CreateDefaultInstanceConfig(instanceName string) *InstanceConfig {
-	
+
 	return &InstanceConfig{
 		ServerName:            fmt.Sprintf("ARK Server %s", instanceName),
 		ServerPassword:        "",
@@ -607,7 +608,7 @@ func SyncInstanceConfigFromSource(sourceInstanceName, targetInstanceName string,
 
 		if entry.IsDir() {
 			// Recursively copy directories
-			if err := CopyDir(srcPath, dstPath); err != nil {
+			if err := fsutil.CopyDir(srcPath, dstPath); err != nil {
 				return fmt.Errorf("failed to copy directory %s: %w", entry.Name(), err)
 			}
 		} else {

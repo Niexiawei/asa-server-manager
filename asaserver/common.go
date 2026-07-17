@@ -2,8 +2,8 @@ package asaserver
 
 import (
 	"asa-server/common"
-	"asa-server/common/tail"
 	"asa-server/logger"
+	"asa-server/pkg/tail"
 	"asa-server/win32api"
 	"bufio"
 	"bytes"
@@ -88,11 +88,6 @@ func FindLatestLogFile(logsDir string) (string, error) {
 	}
 
 	return filepath.Join(logsDir, latestLog), nil
-}
-
-func FileExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil || !os.IsNotExist(err)
 }
 
 var ansiRegexp = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
@@ -492,52 +487,6 @@ func waitServerStartup(pid int, gameLogPath string, callback waitServerStartupFu
 		logger.GetLogger().Warnf("Failed to tail log for startup monitoring (%s): %v", gameLogPath, err)
 	}
 	<-startup
-}
-
-func arkApiCleanConsoleOutput(r io.Reader, w io.Writer) error {
-	// 匹配 ANSI 转义序列以及上面提到的控制符
-	// 包括 ESC [ ? ... h/l/m 等序列
-	ansiRegexp := regexp.MustCompile(`\x1b\[[0-9;?]*[a-zA-Z]`)
-	// 去除其它 C0 控制字符（保留换行符 \n）
-	ctrlRegexp := regexp.MustCompile(`[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]`)
-	scanner := bufio.NewScanner(r)
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		// 去掉 ANSI / 控制字符
-		line = ansiRegexp.ReplaceAll(line, []byte{})
-		line = ctrlRegexp.ReplaceAll(line, []byte{})
-
-		// 输出，保证每行以换行符结尾
-		line = bytes.TrimRight(line, " \t")
-		if _, err := w.Write(append(line, '\n')); err != nil {
-			return err
-		}
-	}
-	return scanner.Err()
-}
-
-func steamcmdCleanConsoleOutput(r io.Reader, w io.Writer) error {
-	// 匹配 ANSI 转义序列以及上面提到的控制符
-	// 包括 ESC [ ? ... h/l/m 等序列
-	ansiRegexp := regexp.MustCompile(`\x1b\[[0-9;?]*[a-zA-Z]`)
-	// 去除其它 C0 控制字符（保留换行符 \n）
-	ctrlRegexp := regexp.MustCompile(`[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]`)
-
-	scanner := bufio.NewScanner(r)
-	for scanner.Scan() {
-		line := scanner.Bytes()
-
-		// 去掉 ANSI / 控制字符
-		line = ansiRegexp.ReplaceAll(line, []byte{})
-		line = ctrlRegexp.ReplaceAll(line, []byte{})
-
-		// 输出，保证每行以换行符结尾
-		line = bytes.TrimRight(line, " \t")
-		if _, err := w.Write(append(line, '\n')); err != nil {
-			return err
-		}
-	}
-	return scanner.Err()
 }
 
 // findServerPIDByPort 通过 WMI 查询 ArkAscendedServer.exe 进程命令行中的端口来查找 PID

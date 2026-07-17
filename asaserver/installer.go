@@ -3,6 +3,7 @@ package asaserver
 import (
 	"archive/zip"
 	"asa-server/logger"
+	"asa-server/pkg/console"
 	"bufio"
 	"bytes"
 	"context"
@@ -210,7 +211,7 @@ func initializeSteamCmd(ctx context.Context, outputWriter ...io.Writer) error {
 	}
 
 	if writer != nil {
-		go steamcmdCleanConsoleOutput(pp, writer)
+		go console.CleanConsoleOutput(pp, writer)
 	}
 
 	// Start and wait with context cancellation support

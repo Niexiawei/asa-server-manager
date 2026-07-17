@@ -1,9 +1,7 @@
 package asaserver
 
 import (
-	"crypto/md5"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -11,6 +9,7 @@ import (
 	"sync"
 
 	"asa-server/logger"
+	"asa-server/pkg/fsutil"
 
 	"golang.org/x/sys/windows"
 	"znkr.io/diff"
@@ -339,13 +338,13 @@ func processFile(srcPath, mirrorPath, relPath string, info os.FileInfo) error {
 
 	// Win64 复制目录内的所有文件都完整复制（隔离启动期缓存）
 	if isUnderWin64(relPath) {
-		return copyFile(srcPath, mirrorPath)
+		return fsutil.CopyFile(srcPath, mirrorPath)
 	}
 
 	// 检查是否是 exe 文件需要复制
 	fileName := info.Name()
 	if exeFiles[fileName] {
-		return copyFile(srcPath, mirrorPath)
+		return fsutil.CopyFile(srcPath, mirrorPath)
 	}
 
 	// 其他文件：创建文件符号链接
@@ -424,44 +423,10 @@ func createFileSymlink(linkPath, targetPath string) error {
 		} else {
 			logger.GetLogger().Debugf("No admin, fallback copy: %s", linkPath)
 		}
-		return copyFile(targetPath, linkPath)
+		return fsutil.CopyFile(targetPath, linkPath)
 	}
 
 	logger.GetLogger().Debugf("Created file symlink: %s -> %s", linkPath, absTarget)
-	return nil
-}
-
-// copyFile 复制单个文件
-func copyFile(src, dst string) error {
-	// 确保目标的父目录存在
-	parentDir := filepath.Dir(dst)
-	if err := os.MkdirAll(parentDir, 0755); err != nil {
-		return fmt.Errorf("failed to create parent directory: %w", err)
-	}
-
-	srcFile, err := os.Open(src)
-	if err != nil {
-		return fmt.Errorf("failed to open source file %s: %w", src, err)
-	}
-	defer srcFile.Close()
-
-	dstFile, err := os.Create(dst)
-	if err != nil {
-		return fmt.Errorf("failed to create destination file %s: %w", dst, err)
-	}
-	defer dstFile.Close()
-
-	if _, err := io.Copy(dstFile, srcFile); err != nil {
-		return fmt.Errorf("failed to copy file %s -> %s: %w", src, dst, err)
-	}
-
-	// 保留文件权限
-	srcInfo, err := os.Stat(src)
-	if err == nil {
-		_ = os.Chmod(dst, srcInfo.Mode())
-	}
-
-	logger.GetLogger().Debugf("Copied file: %s -> %s", src, dst)
 	return nil
 }
 
@@ -914,7 +879,7 @@ func syncEntry(srcDir, mirrorDir string, entry mirrorEntry, exceptionTargets map
 	// 文件
 	fileName := filepath.Base(entry.RelPath)
 	if exeFiles[fileName] || isUnderWin64(entry.RelPath) {
-		return copyFile(srcPath, mirrorPath)
+		return fsutil.CopyFile(srcPath, mirrorPath)
 	}
 
 	return createFileSymlink(mirrorPath, srcPath)
@@ -957,17 +922,17 @@ func reconcileEntry(srcDir, mirrorDir string, srcEntry, mirrorEntryItem mirrorEn
 		// 特殊情形：source=Symlink（非 exe 文件的意图类型）但 mirror=File
 		// 这是 createFileSymlink 无权限时 fallback 到 copyFile 的合法结果，内容正确即可
 		if srcEntry.EntryType == EntryTypeSymlink && mirrorEntryItem.EntryType == EntryTypeFile {
-			srcMD5, err := fileMD5(srcPath)
+			srcMD5, err := fsutil.FileMD5(srcPath)
 			if err != nil {
 				return fmt.Errorf("failed to compute source MD5 for %s: %w", srcPath, err)
 			}
-			dstMD5, err := fileMD5(mirrorPath)
+			dstMD5, err := fsutil.FileMD5(mirrorPath)
 			if err != nil {
 				return fmt.Errorf("failed to compute mirror MD5 for %s: %w", mirrorPath, err)
 			}
 			if srcMD5 != dstMD5 {
 				logger.GetLogger().Infof("File content changed (fallback copy): %s, recopying", srcEntry.RelPath)
-				return copyFile(srcPath, mirrorPath)
+				return fsutil.CopyFile(srcPath, mirrorPath)
 			}
 			return nil
 		}
@@ -981,17 +946,17 @@ func reconcileEntry(srcDir, mirrorDir string, srcEntry, mirrorEntryItem mirrorEn
 	if mirrorEntryItem.EntryType == EntryTypeFile {
 		if !isJunctionOrSymlink(mirrorPath) {
 			// 真实文件，比较 MD5
-			srcMD5, err := fileMD5(srcPath)
+			srcMD5, err := fsutil.FileMD5(srcPath)
 			if err != nil {
 				return fmt.Errorf("failed to compute source MD5 for %s: %w", srcPath, err)
 			}
-			dstMD5, err := fileMD5(mirrorPath)
+			dstMD5, err := fsutil.FileMD5(mirrorPath)
 			if err != nil {
 				return fmt.Errorf("failed to compute mirror MD5 for %s: %w", mirrorPath, err)
 			}
 			if srcMD5 != dstMD5 {
 				logger.GetLogger().Infof("File changed (MD5 mismatch): %s, recopying", srcEntry.RelPath)
-				return copyFile(srcPath, mirrorPath)
+				return fsutil.CopyFile(srcPath, mirrorPath)
 			}
 		}
 	}
@@ -1032,22 +997,6 @@ func reconcileEntry(srcDir, mirrorDir string, srcEntry, mirrorEntryItem mirrorEn
 }
 
 // fileMD5 计算文件的 MD5 哈希
-func fileMD5(path string) ([md5.Size]byte, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return [md5.Size]byte{}, err
-	}
-	defer f.Close()
-
-	h := md5.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return [md5.Size]byte{}, err
-	}
-
-	var result [md5.Size]byte
-	copy(result[:], h.Sum(nil))
-	return result, nil
-}
 
 // isRealFile 检查路径是否是真实文件（非 symlink/junction）
 func isRealFile(path string) bool {

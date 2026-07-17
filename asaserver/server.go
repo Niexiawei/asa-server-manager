@@ -1,8 +1,10 @@
 package asaserver
 
 import (
-	"asa-server/common"
 	"asa-server/logger"
+	"asa-server/pkg/console"
+	"asa-server/pkg/fsutil"
+	"asa-server/pkg/netutil"
 	"asa-server/win32api"
 	"context"
 	"fmt"
@@ -34,34 +36,6 @@ func (lw *LogWriter) Write(p []byte) (n int, err error) {
 		lw.loggerFn(string(p))
 	}
 	return len(p), nil
-}
-
-// removeANSIEscapes removes ANSI escape sequences from a string
-func removeANSIEscapes(s string) string {
-	// This regex pattern matches ANSI escape sequences
-	// Including color codes, cursor movement, and other control sequences
-	var result strings.Builder
-	i := 0
-	for i < len(s) {
-		// Check if this is the start of an escape sequence
-		if s[i] == '\x1b' && i+1 < len(s) && s[i+1] == '[' {
-			// Skip the escape sequence
-			i += 2
-			// Skip until we find a letter or other terminator
-			for i < len(s) {
-				c := s[i]
-				if (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '@' {
-					i++
-					break
-				}
-				i++
-			}
-		} else {
-			result.WriteByte(s[i])
-			i++
-		}
-	}
-	return strings.TrimSpace(result.String())
 }
 
 // GetGameLogFilePath returns the full path to the log file for a given instance
@@ -146,35 +120,6 @@ func IsServerRunningByPID(instanceName string) (bool, error) {
 	}
 
 	return true, nil
-}
-
-// CopyDir copies a directory recursively
-func CopyDir(src, dst string) error {
-	entries, err := os.ReadDir(src)
-	if err != nil {
-		return err
-	}
-
-	if err := os.MkdirAll(dst, 0755); err != nil {
-		return err
-	}
-
-	for _, entry := range entries {
-		srcPath := filepath.Join(src, entry.Name())
-		dstPath := filepath.Join(dst, entry.Name())
-
-		if entry.IsDir() {
-			if err := CopyDir(srcPath, dstPath); err != nil {
-				return err
-			}
-		} else {
-			if err := copyFile(srcPath, dstPath); err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
 }
 
 type StartServerOptions struct {
@@ -389,7 +334,7 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 	// Handle BindDomain resolution and IP parameter injection
 	if config.BindDomain != "" {
 		// Resolve domain to IPv4 addresses
-		if ipv4Addrs, err := common.ResolveDomainToIPv4(config.BindDomain); err == nil && len(ipv4Addrs) > 0 {
+		if ipv4Addrs, err := netutil.ResolveDomainToIPv4(config.BindDomain); err == nil && len(ipv4Addrs) > 0 {
 			// Use the first resolved IPv4 address
 			ipv4Addr := ipv4Addrs[0]
 
@@ -446,7 +391,7 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 
 	if config.EnableAsaPlugin {
 		arkApiExe := filepath.Join(mirrorDir, "ShooterGame/Binaries/Win64/AsaApiLoader.exe")
-		if FileExists(arkApiExe) {
+		if fsutil.FileExists(arkApiExe) {
 			arkExe = arkApiExe
 			arkAsaApiRunning = true
 		}
@@ -497,7 +442,7 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 		}
 		// PTY 跟随 AsaApiLoader 进程生命周期，不在函数返回时关闭
 		go func() { _ = c.Wait(); _ = pp.Close() }()
-		go arkApiCleanConsoleOutput(pp, logWriter)
+		go console.CleanConsoleOutput(pp, logWriter)
 		logger.GetLogger().Infof("[%s] Redirecting AsaApiLoader output to logger", instanceName)
 
 		_pid, err := WaitArkApiRunServer(ctx, config.Port)
