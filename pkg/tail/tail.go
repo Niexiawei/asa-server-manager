@@ -121,7 +121,10 @@ func (t *Tailer) loop() {
 			}
 			if filepath.Clean(event.Name) == filepath.Clean(t.logPath) {
 				if event.Op&(fsnotify.Create|fsnotify.Write|fsnotify.Rename|fsnotify.Remove) != 0 {
-					t.resetState()
+					// 写事件即时读取并回调：readNewLines 从当前 offset 读增量，
+					// 内部通过 fileKey 比对自带轮转检测（轮转时会重置 offset 从头读），
+					// 因此对所有事件类型都正确，无需在此单独 resetState。
+					t.readNewLines()
 				}
 			}
 
