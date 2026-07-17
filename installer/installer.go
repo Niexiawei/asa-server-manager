@@ -1,9 +1,8 @@
 package installer
 
-import cfgpkg "asa-server/config"
-
 import (
 	"archive/zip"
+	cfgpkg "asa-server/config"
 	"asa-server/logger"
 	"asa-server/pkg/console"
 	"bufio"

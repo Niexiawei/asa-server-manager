@@ -1,9 +1,5 @@
 package state
 
-import procpkg "asa-server/process"
-
-import cfgpkg "asa-server/config"
-
 import (
 	"context"
 	"encoding/json"
@@ -14,7 +10,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	cfgpkg "asa-server/config"
 	"asa-server/logger"
+	procpkg "asa-server/process"
 
 	"github.com/dgraph-io/badger/v4"
 )

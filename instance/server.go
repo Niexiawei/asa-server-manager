@@ -1,19 +1,15 @@
 package instance
 
-import "asa-server/mirror"
-
-import statepkg "asa-server/state"
-
-import procpkg "asa-server/process"
-
-import cfgpkg "asa-server/config"
-
 import (
+	cfgpkg "asa-server/config"
 	"asa-server/logger"
+	"asa-server/mirror"
 	"asa-server/pkg/console"
 	"asa-server/pkg/fsutil"
 	"asa-server/pkg/netutil"
 	"asa-server/pkg/winproc"
+	procpkg "asa-server/process"
+	statepkg "asa-server/state"
 	"context"
 	"fmt"
 	"io"

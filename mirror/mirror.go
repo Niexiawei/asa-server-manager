@@ -1,7 +1,5 @@
 package mirror
 
-import cfgpkg "asa-server/config"
-
 import (
 	"fmt"
 	"os"
@@ -10,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	cfgpkg "asa-server/config"
 	"asa-server/logger"
 	"asa-server/pkg/fsutil"
 

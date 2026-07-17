@@ -1,11 +1,9 @@
 package instance
 
-import "asa-server/mirror"
-
-import cfgpkg "asa-server/config"
-
 import (
+	cfgpkg "asa-server/config"
 	"asa-server/logger"
+	"asa-server/mirror"
 	"asa-server/pkg/tail"
 	"asa-server/pkg/winproc"
 	"bufio"
