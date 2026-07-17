@@ -1,10 +1,9 @@
 package asaserver
 
 import (
-	"asa-server/common"
 	"asa-server/logger"
 	"asa-server/pkg/tail"
-	"asa-server/win32api"
+	"asa-server/pkg/winproc"
 	"bufio"
 	"bytes"
 	"context"
@@ -15,47 +14,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 	"unicode/utf8"
 )
-
-// GetPIDByPort finds the PID of the process listening on a specific port
-func GetPIDByPort(port int) (int, error) {
-	cmd := exec.Command("netstat", "-ano")
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-
-	output, err := cmd.Output()
-	if err != nil {
-		return 0, fmt.Errorf("failed to execute netstat: %w", err)
-	}
-
-	netstatOutput := string(output)
-	portStr := fmt.Sprintf(":%d", port)
-
-	// Split output into lines and search for the port
-	lines := strings.Split(netstatOutput, "\n")
-	for _, line := range lines {
-		if strings.Contains(line, portStr) {
-			// The last field in the line is the PID
-			fields := strings.Fields(line)
-			if len(fields) > 2 {
-				if !strings.Contains(fields[1], portStr) {
-					continue
-				}
-				pid, err := strconv.Atoi(fields[len(fields)-1])
-				if err == nil && pid > 0 {
-					return pid, nil
-				}
-			}
-		}
-	}
-
-	return 0, fmt.Errorf("no process found listening on port %d", port)
-}
 
 // FindLatestLogFile finds the latest log file (ShooterGame.log or ShooterGame_N.log)
 // When multiple servers run, logs are named ShooterGame.log, ShooterGame_2.log, etc.
@@ -114,22 +77,6 @@ func dropSep(b []byte, sep byte) []byte {
 	return b
 }
 
-func WaitGamePidExit(ctx context.Context, pid int) bool {
-	for {
-		select {
-		case <-ctx.Done():
-			return false
-			// Startup completed successfully via log detection
-		case <-time.After(500 * time.Millisecond):
-			// Check if process is still running before timing out
-			if exited, _ := win32api.IsProcessExited(uint32(pid)); exited {
-				// Process is still running, consider it a success
-				return true
-			}
-		}
-	}
-}
-
 func killGameServer(pid int) {
 	if err := exec.Command("taskkill", "/PID", fmt.Sprintf("%d", pid)).Run(); err != nil {
 		logger.GetLogger().Warnf("failed to kill process PID %d: %s", pid, err.Error())
@@ -152,7 +99,7 @@ func WaitArkApiRunServer(ctx context.Context, port int) (uint32, error) {
 			if ctx.Err() != nil {
 				return
 			}
-			process, err := common.QueryProcess("ArkAscendedServer.exe", fmt.Sprintf("Port=%d", port))
+			process, err := winproc.QueryProcess("ArkAscendedServer.exe", fmt.Sprintf("Port=%d", port))
 			if err != nil {
 				select {
 				case processErr <- err:
@@ -408,7 +355,7 @@ func waitServerStopped(ctx context.Context, pid int, gameLogPath string,
 
 	// Monitor process exit
 	go func() {
-		if exited := WaitGamePidExit(ctxLocal, pid); exited {
+		if exited := winproc.WaitProcessExit(ctxLocal, pid, 500*time.Millisecond); exited {
 			mu.Lock()
 			processExited = true
 			mu.Unlock()
@@ -455,7 +402,7 @@ func waitServerStartup(pid int, gameLogPath string, callback waitServerStartupFu
 	}
 
 	go func() {
-		if exited := WaitGamePidExit(ctx, pid); exited {
+		if exited := winproc.WaitProcessExit(ctx, pid, 500*time.Millisecond); exited {
 			latestLogLineMu.Lock()
 			logLine := latestLogLine
 			if networkErrLine != "" {
@@ -492,7 +439,7 @@ func waitServerStartup(pid int, gameLogPath string, callback waitServerStartupFu
 // findServerPIDByPort 通过 WMI 查询 ArkAscendedServer.exe 进程命令行中的端口来查找 PID
 // 不依赖端口是否被监听，适用于启动中等过渡状态
 func findServerPIDByPort(port int) (int, error) {
-	processes, err := common.QueryProcess("ArkAscendedServer.exe", fmt.Sprintf("Port=%d", port))
+	processes, err := winproc.QueryProcess("ArkAscendedServer.exe", fmt.Sprintf("Port=%d", port))
 	if err != nil {
 		return 0, fmt.Errorf("WMI query failed: %w", err)
 	}

@@ -1,4 +1,4 @@
-package win32api
+package winproc
 
 import (
 	"fmt"
@@ -230,9 +230,9 @@ func RunAsAdmin(args string) error {
 	argPtr, _ := syscall.UTF16PtrFromString(args)
 
 	ret, _, callErr := procShellExecuteW.Call(
-		0,                             // hwnd: 无父窗口
-		uintptr(unsafe.Pointer(verb)), // operation: "runas"
-		uintptr(unsafe.Pointer(file)), // file: 当前可执行文件
+		0,                               // hwnd: 无父窗口
+		uintptr(unsafe.Pointer(verb)),   // operation: "runas"
+		uintptr(unsafe.Pointer(file)),   // file: 当前可执行文件
 		uintptr(unsafe.Pointer(argPtr)), // parameters: 参数
 		0,                               // directory: nil（继承当前目录）
 		SW_SHOWNORMAL,                   // showcmd

@@ -1,7 +1,7 @@
 package syncthingmanage
 
 import (
-	"asa-server/common"
+	"asa-server/pkg/winproc"
 	"asa-server/processjob"
 	"bufio"
 	"context"
@@ -153,7 +153,7 @@ func (m *SyncthingManager) asyncStart() {
 	}()
 
 	go func() {
-		if exited := common.WaitGamePidExit(ctx, m.cmdPid); exited {
+		if exited := winproc.WaitProcessExit(ctx, m.cmdPid, 2*time.Second); exited {
 			cancel()
 			job.Close()
 		}

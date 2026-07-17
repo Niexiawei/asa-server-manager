@@ -1,4 +1,4 @@
-package win32api
+package winproc
 
 import (
 	"fmt"

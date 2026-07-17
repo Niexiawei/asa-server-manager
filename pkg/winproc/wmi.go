@@ -1,7 +1,6 @@
-package common
+package winproc
 
 import (
-	"asa-server/win32api"
 	"context"
 	"fmt"
 	"strings"
@@ -10,22 +9,27 @@ import (
 	"github.com/microsoft/wmi/pkg/base/instance"
 )
 
-func WaitGamePidExit(ctx context.Context, pid int) bool {
+// WaitProcessExit blocks until the process with the given pid has exited or ctx is done.
+// It polls process liveness every interval. Returns true once the process has exited,
+// false if ctx was cancelled first.
+//
+// NOTE: previously this existed as two同名 functions with different poll intervals
+// (asaserver 500ms for the ARK game process, common 2s for syncthing). They are unified
+// here with an explicit interval parameter so callers keep their original cadence.
+func WaitProcessExit(ctx context.Context, pid int, interval time.Duration) bool {
 	for {
 		select {
 		case <-ctx.Done():
 			return false
-			// Startup completed successfully via log detection
-		case <-time.After(2 * time.Second):
-			// Check if process is still running before timing out
-			if exited, _ := win32api.IsProcessExited(uint32(pid)); exited {
-				// Process is still running, consider it a success
+		case <-time.After(interval):
+			if exited, _ := IsProcessExited(uint32(pid)); exited {
 				return true
 			}
 		}
 	}
 }
 
+// Win32Process is a subset of Win32_Process WMI properties.
 type Win32Process struct {
 	Name        string
 	ProcessId   uint32

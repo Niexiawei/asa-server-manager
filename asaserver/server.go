@@ -5,7 +5,7 @@ import (
 	"asa-server/pkg/console"
 	"asa-server/pkg/fsutil"
 	"asa-server/pkg/netutil"
-	"asa-server/win32api"
+	"asa-server/pkg/winproc"
 	"context"
 	"fmt"
 	"io"
@@ -109,7 +109,7 @@ func IsServerRunningByPID(instanceName string) (bool, error) {
 	}
 
 	// Check if the process with this PID exists and is running
-	exited, err := win32api.IsProcessExited(uint32(pid))
+	exited, err := winproc.IsProcessExited(uint32(pid))
 	if err != nil {
 		return false, fmt.Errorf("failed to check process status: %w", err)
 	}
@@ -578,7 +578,7 @@ func stopServerInternal(instanceName string) error {
 		stopErr = fmt.Errorf("failed to load instance config: %w", configErr)
 		return stopErr
 	}
-	pid, err = GetPIDByPort(config.Port)
+	pid, err = winproc.GetPIDByPort(config.Port)
 	if err != nil {
 		stopErr = fmt.Errorf("failed to find process PID: %w", err)
 		return stopErr
@@ -667,7 +667,7 @@ func KillServer(instanceName string) error {
 	if err != nil {
 		return err
 	}
-	pid, err := GetPIDByPort(cfg.Port)
+	pid, err := winproc.GetPIDByPort(cfg.Port)
 	if err != nil {
 		return err
 	}

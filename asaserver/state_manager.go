@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"asa-server/logger"
-	"asa-server/win32api"
+	"asa-server/pkg/winproc"
 
 	"github.com/dgraph-io/badger/v4"
 )
@@ -763,7 +763,7 @@ func isInstanceProcessAlive(instanceName string) bool {
 		return false
 	}
 
-	exited, err := win32api.IsProcessExited(uint32(pid))
+	exited, err := winproc.IsProcessExited(uint32(pid))
 	if err != nil {
 		return false
 	}

@@ -6,7 +6,7 @@ import (
 	"asa-server/gui"
 	"asa-server/logger"
 	"asa-server/webapi"
-	"asa-server/win32api"
+	"asa-server/pkg/winproc"
 	"asa-server/winservice"
 	"context"
 	"fmt"
@@ -184,7 +184,7 @@ func ensureAdminElevation() {
 	// 构建参数并提权重启
 	argStr := buildElevatedArgs()
 
-	if err := win32api.RunAsAdmin(argStr); err != nil {
+	if err := winproc.RunAsAdmin(argStr); err != nil {
 		logger.GetStdout().Warnf("管理员提权失败: %v", err)
 		logger.GetStdout().Warnf("[警告] 将以非管理员模式继续运行，镜像启动将使用文件复制模式，占用更多磁盘空间")
 		os.Exit(1)

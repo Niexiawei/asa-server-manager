@@ -8,7 +8,7 @@ import (
 	"asa-server/pkg/fsutil"
 	"asa-server/pkg/tail"
 	"asa-server/serverinfo"
-	"asa-server/win32api"
+	"asa-server/pkg/winproc"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -821,7 +821,7 @@ func (s *APIServer) streamAllInstancesInfo(c *gin.Context) {
 					continue
 				}
 
-				exited, err := win32api.IsProcessExited(uint32(pid))
+				exited, err := winproc.IsProcessExited(uint32(pid))
 				if err != nil {
 					continue
 				}
