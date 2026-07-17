@@ -1,9 +1,9 @@
 package webapi
 
 import (
-	"asa-server/asaserver"
 	"asa-server/backup"
 	cfgpkg "asa-server/config"
+	instancepkg "asa-server/instance"
 	"asa-server/logger"
 	"asa-server/parseserver"
 	"asa-server/pkg/fsutil"
@@ -131,7 +131,7 @@ func (s *APIServer) listInstances(c *gin.Context) {
 			info.Config = config
 		}
 
-		if version, versionErr := asaserver.GetInstanceAsaVersion(instanceName); versionErr == nil {
+		if version, versionErr := instancepkg.GetInstanceAsaVersion(instanceName); versionErr == nil {
 			info.AsaVersion = version
 		}
 
@@ -256,7 +256,7 @@ func (s *APIServer) getInstanceStatus(c *gin.Context) {
 		info.Config = config
 	}
 
-	if version, versionErr := asaserver.GetInstanceAsaVersion(name); versionErr == nil {
+	if version, versionErr := instancepkg.GetInstanceAsaVersion(name); versionErr == nil {
 		info.AsaVersion = version
 	}
 
@@ -285,7 +285,7 @@ func (s *APIServer) deleteInstance(c *gin.Context) {
 
 	// Stop instance if running
 	if running, _ := procpkg.IsServerRunning(name); running {
-		if err := asaserver.StopServer(name); err != nil {
+		if err := instancepkg.StopServer(name); err != nil {
 			c.JSON(http.StatusInternalServerError, StatusResponse{
 				Success: false,
 				Error:   fmt.Sprintf("Failed to stop server: %v", err),
@@ -341,7 +341,7 @@ func (s *APIServer) renameInstance(c *gin.Context) {
 
 	// Stop instance if running
 	if running, _ := procpkg.IsServerRunning(oldName); running {
-		if err := asaserver.StopServer(oldName); err != nil {
+		if err := instancepkg.StopServer(oldName); err != nil {
 			c.JSON(http.StatusInternalServerError, StatusResponse{
 				Success: false,
 				Error:   fmt.Sprintf("Failed to stop server: %v", err),
@@ -491,7 +491,7 @@ func (s *APIServer) restartServer(c *gin.Context) {
 // forceStopServer force stops a server instance (bypasses state check)
 func (s *APIServer) forceStopServer(c *gin.Context) {
 	name := c.Param("name")
-	if err := asaserver.ForceStopServer(name); err != nil {
+	if err := instancepkg.ForceStopServer(name); err != nil {
 		c.JSON(http.StatusInternalServerError, StatusResponse{Success: false, Error: err.Error()})
 		return
 	}
@@ -909,7 +909,7 @@ func (s *APIServer) streamInstanceLogs(c *gin.Context) {
 	c.Header("Access-Control-Allow-Origin", "*")
 	c.Header("Access-Control-Allow-Headers", "Content-Type")
 	// Get the log file path for the instance (v2: direct path, no polling needed)
-	logPath, err := asaserver.GetGameLogFilePath(instanceName)
+	logPath, err := instancepkg.GetGameLogFilePath(instanceName)
 	if err != nil {
 		fmt.Fprintf(c.Writer, "data: %s\n\n", "failed to get log file path")
 		c.Writer.Flush()
@@ -1488,7 +1488,7 @@ func (s *APIServer) getModInfo(c *gin.Context) {
 	defer file.Close()
 
 	// Decode JSON content
-	var modInfo []asaserver.ModInfo
+	var modInfo []instancepkg.ModInfo
 	decoder := json.NewDecoder(file)
 	if err := decoder.Decode(&modInfo); err != nil {
 		c.JSON(http.StatusInternalServerError, StatusResponse{

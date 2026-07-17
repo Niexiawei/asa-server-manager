@@ -1,4 +1,4 @@
-package asaserver
+package instance
 
 import (
 	cfgpkg "asa-server/config"

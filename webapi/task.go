@@ -1,9 +1,9 @@
 package webapi
 
 import (
-	"asa-server/asaserver"
 	"asa-server/httpserver"
 	"asa-server/installer"
+	instancepkg "asa-server/instance"
 	"asa-server/logger"
 	"context"
 	"fmt"
@@ -101,9 +101,9 @@ func (s *APIServer) runUpdateTask(ctx context.Context) {
 
 // runStartServerTask monitors a single server startup process
 func (s *APIServer) runStartServerTask(name string) {
-	if err := asaserver.StartServer(name,
-		asaserver.WithWaitServerCompleted(),
-		asaserver.WithStatePreset(),
+	if err := instancepkg.StartServer(name,
+		instancepkg.WithWaitServerCompleted(),
+		instancepkg.WithStatePreset(),
 	); err != nil {
 		logger.GetLogger().Errorf("failed to start server '%s': %v", name, err)
 	}
@@ -111,16 +111,16 @@ func (s *APIServer) runStartServerTask(name string) {
 
 // runStopServerTask stops a server instance asynchronously
 func (s *APIServer) runStopServerTask(name string) {
-	if err := asaserver.StopServer(name, asaserver.WithStatePreset()); err != nil {
+	if err := instancepkg.StopServer(name, instancepkg.WithStatePreset()); err != nil {
 		logger.GetLogger().Errorf("failed to stop server '%s': %v", name, err)
 	}
 }
 
 // runRestartServerTask restarts a server instance asynchronously
 func (s *APIServer) runRestartServerTask(name string) {
-	if err := asaserver.RestartServer(name,
-		asaserver.WithStatePreset(),
-		asaserver.WithRestartStartupCompletion(func(string) {}), // 写 StatusRestarted 状态供 dispatcher 推送
+	if err := instancepkg.RestartServer(name,
+		instancepkg.WithStatePreset(),
+		instancepkg.WithRestartStartupCompletion(func(string) {}), // 写 StatusRestarted 状态供 dispatcher 推送
 	); err != nil {
 		logger.GetLogger().Errorf("failed to restart server '%s': %v", name, err)
 	}

@@ -1,9 +1,9 @@
 package batchmanage
 
 import (
-	"asa-server/asaserver"
 	cfgpkg "asa-server/config"
 	"asa-server/httpserver"
+	instancepkg "asa-server/instance"
 	"asa-server/logger"
 	statepkg "asa-server/state"
 	"context"
@@ -474,19 +474,19 @@ func (op *BatchOperation) executeInstance(instanceName string, opType BatchOpera
 	case BatchStart:
 		actionVerb = "starting"
 		op.sendLog("info", fmt.Sprintf("Starting instance '%s'...", instanceName), instanceName)
-		err = asaserver.StartServer(instanceName, asaserver.WithStatePreset())
+		err = instancepkg.StartServer(instanceName, instancepkg.WithStatePreset())
 
 	case BatchStop:
 		actionVerb = "stopping"
 		op.sendLog("info", fmt.Sprintf("Stopping instance '%s'...", instanceName), instanceName)
-		err = asaserver.StopServer(instanceName, asaserver.WithStatePreset())
+		err = instancepkg.StopServer(instanceName, instancepkg.WithStatePreset())
 
 	case BatchRestart:
 		actionVerb = "restarting"
 		op.sendLog("info", fmt.Sprintf("Restarting instance '%s'...", instanceName), instanceName)
-		err = asaserver.RestartServer(instanceName,
-			asaserver.WithStatePreset(),
-			asaserver.WithRestartStartupCompletion(func(string) {}), // 写 StatusRestarted 状态供 dispatcher 推送
+		err = instancepkg.RestartServer(instanceName,
+			instancepkg.WithStatePreset(),
+			instancepkg.WithRestartStartupCompletion(func(string) {}), // 写 StatusRestarted 状态供 dispatcher 推送
 		)
 	}
 	if err != nil {
