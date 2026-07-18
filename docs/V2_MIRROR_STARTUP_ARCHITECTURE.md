@@ -11,10 +11,10 @@ v2 启动方式的核心改进是将 v1 的**共享目录 + 全局 NTFS Junction
 ```
 server-files/                              ← 原始服务器文件（只读）
 ├── ShooterGame/
-│   ├── Binaries/Win64/
-│   │   ├── ArkAscendedServer.exe          ← exe 文件（需复制到镜像）
-│   │   └── AsaApiLoader.exe              ← exe 文件（需复制到镜像）
-│   ├── Content/                           ← 非 exe 文件（可 symlink）
+│   ├── Binaries/Win64/                    ← 整个目录需完整复制到镜像（隔离启动期缓存）
+│   │   ├── ArkAscendedServer.exe
+│   │   └── AsaApiLoader.exe
+│   ├── Content/                           ← 资源文件（可 symlink / junction）
 │   └── Saved/
 │       ├── Config/WindowsServer/          ← exception target → junction 到实例 Config
 │       ├── Logs/                          ← exception target → junction 到实例 Logs
@@ -22,8 +22,8 @@ server-files/                              ← 原始服务器文件（只读）
 
 server-files-tmp-<instanceName>/           ← 每实例独立镜像
 ├── ShooterGame/
-│   ├── Binaries/Win64/
-│   │   ├── ArkAscendedServer.exe          ← 真实文件副本
+│   ├── Binaries/Win64/                    ← 真实目录，内部所有文件均为真实副本
+│   │   ├── ArkAscendedServer.exe
 │   │   └── AsaApiLoader.exe
 │   ├── Content/ → (junction → server-files/ShooterGame/Content/)
 │   └── Saved/
@@ -43,18 +43,28 @@ instances/<name>/                          ← 每实例本地存储
         └── <MapName>.ark
 ```
 
-### 2.2 三级文件处理策略
+### 2.2 文件处理策略
 
-| 文件/目录类型 | 处理方式 | 失败回退 | 原因 |
-|--------------|----------|----------|------|
-| **Exception target 目录**（Config/Logs/SaveDir） | NTFS Junction → 实例本地目录 | — | 游戏引擎需要 per-instance 读写 |
-| **包含 exception 子目录的父目录** | 真实目录（不 symlink） | — | 需要容纳下级 junction |
-| **`Binaries/Win64` 目录及其所有子目录** | 真实目录（不 junction） | — | 需要容纳整体复制的文件与启动期缓存 |
-| **包含 exe 文件的目录** | 真实目录（不 symlink） | — | Windows exe 不能从 symlink 运行 |
-| **其他普通目录** | NTFS Junction → 原始目录 | — | 节省磁盘空间，免复制 |
-| **`Binaries/Win64` 内的所有文件**（exe / .dll / .pak / .ucas 等） | 真实文件复制（`copyFile`），**不 symlink** | 复制失败则报错 | 启动过程中会在 Win64 内生成缓存文件，symlink 会使缓存落回原目录导致镜像读不到缓存而无法启动，故整体复制隔离 |
-| **exe 文件**（ArkAscendedServer.exe 等） | 真实文件复制（`copyFile`） | 复制失败则报错 | Windows exe 不能从 symlink 路径可靠运行 |
-| **其他普通文件** | 文件 symlink → 原始文件 | **自动回退到 `copyFile` 完整复制** | 无 symlink 权限时仍需保证文件可用 |
+> **变更说明**：早期版本对「exe 文件」和「包含 exe 的目录」有单独的复制特判（`exeFiles` / `containsExeFiles`）。
+> 由于两个 exe（`ArkAscendedServer.exe` / `AsaApiLoader.exe`）都位于 `Binaries/Win64` 内，而该目录现已**整体完整复制**，
+> exe 特判被 `isUnderWin64` 判断完全覆盖，属冗余，已移除。现在的策略只按「是否位于 `Binaries/Win64` 内」区分。
+
+**目录**：
+
+| 目录类型 | 处理方式 | 原因 |
+|----------|----------|------|
+| **Exception target 目录**（Config/Logs/SaveDir） | NTFS Junction → 实例本地目录 | 游戏引擎需要 per-instance 读写 |
+| **包含 exception 子目录的父目录** | 真实目录（不 junction） | 需要容纳下级 junction |
+| **`Binaries/Win64` 目录及其所有子目录** | 真实目录（不 junction） | 需要容纳整体复制的文件与启动期缓存 |
+| **其他普通目录** | NTFS Junction → 原始目录 | 节省磁盘空间，免复制 |
+
+**文件**：
+
+| 文件类型 | 处理方式 | 失败回退 | 原因 |
+|----------|----------|----------|------|
+| **`.log` 日志文件** | 跳过，不镜像 | — | 运行期日志会造成增量 diff 抖动 |
+| **`Binaries/Win64` 内的所有文件**（exe / .dll / .pak / .ucas 等） | 真实文件复制（`fsutil.CopyFile`），**不 symlink** | 复制失败则报错 | 启动过程中会在 Win64 内生成缓存文件，symlink 会使缓存落回原目录导致镜像读不到缓存而无法启动，故整体复制隔离 |
+| **其他普通文件** | 文件 symlink → 原始文件 | **自动回退到 `fsutil.CopyFile` 完整复制** | 无 symlink 权限时仍需保证文件可用 |
 
 ### 2.3 Exception Targets（例外目标）
 
@@ -120,7 +130,7 @@ Windows 对文件 symlink 的权限要求比目录 junction 严格得多。`os.S
 **v2 的回退策略**：当 `os.Symlink` 创建文件 symlink 失败时，自动回退到 `copyFile` 将文件完整复制到镜像中。这确保了即使在无 symlink 权限的环境下，镜像目录也能正常工作。
 
 ```go
-// mirror.go:348-373 — createFileSymlink 带 copy 回退
+// mirror.go — createFileSymlink 带 copy 回退
 func createFileSymlink(linkPath, targetPath string) error {
     absTarget, _ := filepath.Abs(targetPath)
 
@@ -138,7 +148,7 @@ func createFileSymlink(linkPath, targetPath string) error {
             // 普通用户 → 预期行为，记录调试信息
             logger.Debugf("No admin, fallback copy: %s", linkPath)
         }
-        return copyFile(targetPath, linkPath)  // 完整复制文件
+        return fsutil.CopyFile(targetPath, linkPath)  // 完整复制文件
     }
 
     // symlink 成功
@@ -161,7 +171,7 @@ createFileSymlink(linkPath, targetPath)
     │           │     ├── 是 → 记录 WARN（管理员仍失败，异常情况）
     │           │     └── 否 → 记录 DEBUG（普通用户，预期行为）
     │           │
-    │           └── copyFile(targetPath, linkPath)  ← 回退到完整复制
+    │           └── fsutil.CopyFile(targetPath, linkPath)  ← 回退到完整复制
     │                 │
     │                 ├── 创建父目录
     │                 ├── os.Open(src) + os.Create(dst)
@@ -171,13 +181,14 @@ createFileSymlink(linkPath, targetPath)
 
 #### 哪些文件会被回退复制？
 
-在镜像创建流程中，只有**非 exe 的普通文件**会走 `createFileSymlink` 路径：
+在镜像创建流程中，只有**位于 `Binaries/Win64` 之外的普通文件**会走 `createFileSymlink` 路径：
 
 | 文件类型 | 处理方式 | 走 symlink+copy 回退？ |
 |----------|----------|----------------------|
-| exe 文件（ArkAscendedServer.exe 等） | 直接 `copyFile` | ❌ 不走，直接复制 |
-| 非 exe 普通文件（.dll, .pak, .ucas 等） | `createFileSymlink` → 失败时 copy | ✅ 是 |
+| `Binaries/Win64` 内的文件（含 exe / dll 等） | 直接 `fsutil.CopyFile`（整体复制） | ❌ 不走，直接复制 |
+| Win64 外的普通文件（.pak, .ucas 等） | `createFileSymlink` → 失败时 copy | ✅ 是 |
 | 父目录是 junction 的文件 | 跳过（通过 junction 已可访问） | ❌ 不走 |
+| `.log` 日志文件 | 跳过，不镜像 | ❌ 不走 |
 
 #### 回退复制的代价
 
@@ -222,7 +233,7 @@ func IsElevated() bool {
 
 ### 4.1 全量创建 (`createInstanceMirror`)
 
-首次启动实例时，遍历整个 `server-files/` 目录树，根据三级策略创建 junction/symlink/real file：
+首次启动实例时，遍历整个 `server-files/` 目录树，根据 §2.2 的处理策略创建 junction/symlink/real file：
 
 ```
 1. filepath.Walk(server-files/)
@@ -230,14 +241,13 @@ func IsElevated() bool {
    │     ├── 是 exception target → 创建 junction 到实例本地目录，跳过递归
    │     ├── 有 exception 子目录 → 创建真实目录，继续递归
    │     ├── 位于 Binaries/Win64 内（含子目录） → 创建真实目录，继续递归
-   │     ├── 包含 exe 文件 → 创建真实目录，继续递归
    │     └── 其他 → 创建 junction 到原始目录，跳过递归
    │
    └── 对每个文件调用 processFile()
+         ├── 是 .log 日志文件 → 跳过（不镜像）
          ├── 父目录是 junction → 跳过（通过 junction 已可访问）
-         ├── 位于 Binaries/Win64 内 → 复制文件（整体复制，隔离缓存）
-         ├── 文件是 exe → 复制文件
-         └── 其他 → 创建文件 symlink
+         ├── 位于 Binaries/Win64 内 → 复制文件（fsutil.CopyFile，整体复制隔离缓存）
+         └── 其他 → 创建文件 symlink（失败回退复制）
 
 2. 补充缺失的 exception targets
    ├── 如果 instances/<name>/Config 不存在 → 创建目录 + junction
@@ -339,7 +349,6 @@ v2 时间线：
 | 内容 | 处理方式 | 空间占用 |
 |------|----------|----------|
 | `Binaries/Win64` 目录（含 exe / dll 等全部文件） | 整体复制 | ~Win64 目录实际大小 × 实例数 |
-| 包含 exe 的目录结构 | 真实目录 | 微量（目录项） |
 | Exception target 目录 | Junction | 0（链接） |
 | Content/ 等资源目录 | Junction | 0（链接） |
 | 普通文件 | Symlink | 0（链接） |
