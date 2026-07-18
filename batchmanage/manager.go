@@ -1,9 +1,11 @@
 package batchmanage
 
 import (
-	"asa-server/asaserver"
-	"asa-server/httpserver"
+	cfgpkg "asa-server/config"
+	instancepkg "asa-server/instance"
 	"asa-server/logger"
+	"asa-server/realtime"
+	statepkg "asa-server/state"
 	"context"
 	"fmt"
 	"sync"
@@ -205,7 +207,7 @@ func (bm *BatchManager) StartOperation(opType BatchOperationType, instances []st
 	// 如果没有指定实例，获取所有可用实例
 	if len(instances) == 0 {
 		var err error
-		instances, err = asaserver.GetAvailableInstances()
+		instances, err = cfgpkg.GetAvailableInstances()
 		if err != nil {
 			return nil, fmt.Errorf("failed to get available instances: %w", err)
 		}
@@ -377,7 +379,7 @@ func (bm *BatchManager) runBatchOperation(op *BatchOperation) {
 	// 通知批量操作开始
 	opTypeStr := string(op.Type)
 	totalInstances := len(op.Instances)
-	httpserver.BroadcastBatchOperationStarted(opTypeStr, totalInstances)
+	realtime.BroadcastBatchOperationStarted(opTypeStr, totalInstances)
 	op.sendLog("info", fmt.Sprintf("Batch %s started with %d instances", opTypeStr, totalInstances), "")
 
 	var succeeded, failed int
@@ -391,7 +393,7 @@ func (bm *BatchManager) runBatchOperation(op *BatchOperation) {
 			op.mu.Lock()
 			op.Status = "cancelled"
 			op.mu.Unlock()
-			httpserver.BroadcastBatchOperationCompleted(opTypeStr, succeeded, failed, totalInstances)
+			realtime.BroadcastBatchOperationCompleted(opTypeStr, succeeded, failed, totalInstances)
 			op.sendLog("completed", fmt.Sprintf("[COMPLETED] %d/%d succeeded, %d failed (cancelled)", succeeded, totalInstances, failed), "")
 			return
 		default:
@@ -445,7 +447,7 @@ func (bm *BatchManager) runBatchOperation(op *BatchOperation) {
 		}
 
 		done := succeeded + failed
-		httpserver.BroadcastBatchProgress(opTypeStr, done, totalInstances, instanceName)
+		realtime.BroadcastBatchProgress(opTypeStr, done, totalInstances, instanceName)
 
 		// 延迟等待（非最后一个）
 		if op.DelayBetween > 0 && i < len(op.Instances)-1 {
@@ -459,7 +461,7 @@ func (bm *BatchManager) runBatchOperation(op *BatchOperation) {
 	}
 
 	// 完成通知
-	httpserver.BroadcastBatchOperationCompleted(opTypeStr, succeeded, failed, totalInstances)
+	realtime.BroadcastBatchOperationCompleted(opTypeStr, succeeded, failed, totalInstances)
 	op.sendLog("completed", fmt.Sprintf("[COMPLETED] %d/%d succeeded, %d failed", succeeded, totalInstances, failed), "")
 }
 
@@ -472,19 +474,19 @@ func (op *BatchOperation) executeInstance(instanceName string, opType BatchOpera
 	case BatchStart:
 		actionVerb = "starting"
 		op.sendLog("info", fmt.Sprintf("Starting instance '%s'...", instanceName), instanceName)
-		err = asaserver.StartServer(instanceName, asaserver.WithStatePreset())
+		err = instancepkg.StartServer(instanceName, instancepkg.WithStatePreset())
 
 	case BatchStop:
 		actionVerb = "stopping"
 		op.sendLog("info", fmt.Sprintf("Stopping instance '%s'...", instanceName), instanceName)
-		err = asaserver.StopServer(instanceName, asaserver.WithStatePreset())
+		err = instancepkg.StopServer(instanceName, instancepkg.WithStatePreset())
 
 	case BatchRestart:
 		actionVerb = "restarting"
 		op.sendLog("info", fmt.Sprintf("Restarting instance '%s'...", instanceName), instanceName)
-		err = asaserver.RestartServer(instanceName,
-			asaserver.WithStatePreset(),
-			asaserver.WithRestartStartupCompletion(func(string) {}), // 写 StatusRestarted 状态供 dispatcher 推送
+		err = instancepkg.RestartServer(instanceName,
+			instancepkg.WithStatePreset(),
+			instancepkg.WithRestartStartupCompletion(func(string) {}), // 写 StatusRestarted 状态供 dispatcher 推送
 		)
 	}
 	if err != nil {
@@ -532,20 +534,20 @@ func (op *BatchOperation) GetLogBroadcaster() *LogBroadcaster {
 func batchDoCAS(instanceName string, opType BatchOperationType) (bool, error) {
 	switch opType {
 	case BatchStart:
-		return asaserver.CompareAndSwapInstanceState(instanceName,
-			[]asaserver.InstanceStatus{
-				asaserver.StatusStopped, asaserver.StatusStartFailed,
-				asaserver.StatusStopFailed, asaserver.StatusRestartFailed, "",
+		return statepkg.CompareAndSwapInstanceState(instanceName,
+			[]statepkg.InstanceStatus{
+				statepkg.StatusStopped, statepkg.StatusStartFailed,
+				statepkg.StatusStopFailed, statepkg.StatusRestartFailed, "",
 			},
-			asaserver.StatusStartStartInitialization)
+			statepkg.StatusStartStartInitialization)
 	case BatchStop:
-		return asaserver.CompareAndSwapInstanceState(instanceName,
-			[]asaserver.InstanceStatus{asaserver.StatusStarted},
-			asaserver.StatusStopping)
+		return statepkg.CompareAndSwapInstanceState(instanceName,
+			[]statepkg.InstanceStatus{statepkg.StatusStarted},
+			statepkg.StatusStopping)
 	case BatchRestart:
-		return asaserver.CompareAndSwapInstanceState(instanceName,
-			[]asaserver.InstanceStatus{asaserver.StatusStarted},
-			asaserver.StatusRestarting)
+		return statepkg.CompareAndSwapInstanceState(instanceName,
+			[]statepkg.InstanceStatus{statepkg.StatusStarted},
+			statepkg.StatusRestarting)
 	default:
 		return false, fmt.Errorf("unknown batch operation type: %s", opType)
 	}

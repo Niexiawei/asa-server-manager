@@ -1,0 +1,203 @@
+package realtime
+
+import (
+	"sync"
+)
+
+// UpdateProgressWriter writes progress messages to a broadcaster
+type UpdateProgressWriter struct {
+	Broadcaster *TaskBroadcaster
+}
+
+func (w *UpdateProgressWriter) Write(p []byte) (n int, err error) {
+	w.Broadcaster.SendMessage(string(p))
+	return len(p), nil
+}
+
+// TaskBroadcaster manages broadcast subscriptions for a specific task
+type TaskBroadcaster struct {
+	msgChan     chan string
+	subscribers map[chan<- string]bool
+	history     []string
+	mu          sync.RWMutex
+	running     bool
+	wg          sync.WaitGroup
+}
+
+const maxTaskBroadcasterHistory = 200
+
+// NewTaskBroadcaster creates a new task broadcaster
+func NewTaskBroadcaster() *TaskBroadcaster {
+	return &TaskBroadcaster{
+		msgChan:     make(chan string, 100),
+		subscribers: make(map[chan<- string]bool),
+	}
+}
+
+// Start marks the task as running
+func (tb *TaskBroadcaster) Start() bool {
+	tb.mu.Lock()
+	defer tb.mu.Unlock()
+	if tb.running {
+		return false
+	}
+
+	// Always recreate msgChan when starting - this ensures we have a fresh channel
+	// This fixes the "send on closed channel" panic when restarting a task
+	if tb.msgChan != nil {
+		// Close the old channel if it's not nil
+		close(tb.msgChan)
+	}
+	tb.msgChan = make(chan string, 100)
+	// Do NOT close/clear existing subscribers here: Stop() already closed the previous
+	// task's subscribers, so any present now are fresh clients that subscribed before
+	// Start() (the intended Subscribe-first / TOCTOU-safe path in handleServerUpdate).
+	// Closing them would drop the very client that triggered this Start().
+	if tb.subscribers == nil {
+		tb.subscribers = make(map[chan<- string]bool)
+	}
+
+	tb.history = nil
+	tb.running = true
+	// Start the broadcaster goroutine
+	tb.wg.Add(1)
+	go tb.broadcast()
+	return true
+}
+
+// SendMessage sends a message to all subscribers
+func (tb *TaskBroadcaster) SendMessage(msg string) {
+	tb.mu.Lock()
+	if !tb.running {
+		tb.mu.Unlock()
+		return
+	}
+	if len(tb.history) >= maxTaskBroadcasterHistory {
+		tb.history = tb.history[1:]
+	}
+	tb.history = append(tb.history, msg)
+	msgChan := tb.msgChan
+	tb.mu.Unlock()
+
+	if msgChan == nil {
+		return
+	}
+
+	// C9 fix: recover from send-on-closed-channel panic.
+	// Between releasing the lock above and the send below, Stop() could
+	// close msgChan. A select/default does NOT protect against closed channels.
+	defer func() { recover() }()
+
+	select {
+	case msgChan <- msg:
+	default:
+		// Channel is full, skip
+	}
+}
+
+// Subscribe registers a new subscriber
+// Returns a channel to receive messages and a function to unsubscribe
+func (tb *TaskBroadcaster) Subscribe() (chan string, func()) {
+	subscriber := make(chan string, 50)
+
+	tb.mu.Lock()
+	tb.subscribers[subscriber] = true
+	tb.mu.Unlock()
+
+	unsubscribe := func() {
+		tb.mu.Lock()
+		_, exists := tb.subscribers[subscriber]
+		if exists {
+			delete(tb.subscribers, subscriber)
+			tb.mu.Unlock()
+			close(subscriber)
+		} else {
+			tb.mu.Unlock()
+		}
+	}
+
+	return subscriber, unsubscribe
+}
+
+// Stop marks the task as completed and closes all subscriber channels
+func (tb *TaskBroadcaster) Stop() {
+	tb.mu.Lock()
+
+	// Only stop if we're actually running
+	if !tb.running {
+		tb.mu.Unlock()
+		return
+	}
+
+	tb.running = false
+
+	// Close the message channel
+	if tb.msgChan != nil {
+		close(tb.msgChan)
+		tb.msgChan = nil
+	}
+	tb.mu.Unlock()
+
+	tb.wg.Wait()
+
+	tb.mu.Lock()
+	// Close all subscriber channels and clear the map
+	for subscriber := range tb.subscribers {
+		delete(tb.subscribers, subscriber)
+		close(subscriber)
+	}
+	// Clear the subscribers map to ensure it's empty for the next run
+	// This isn't strictly necessary since we delete each entry, but it's safe
+	tb.subscribers = make(map[chan<- string]bool)
+	tb.mu.Unlock()
+}
+
+// broadcast distributes messages to all subscribers
+func (tb *TaskBroadcaster) broadcast() {
+	defer tb.wg.Done()
+
+	tb.mu.RLock()
+	ch := tb.msgChan
+	tb.mu.RUnlock()
+	if ch == nil {
+		return
+	}
+
+	for msg := range ch {
+		tb.mu.RLock()
+		// Create a copy of subscribers to avoid issues if map changes during iteration
+		subscribers := make([]chan<- string, 0, len(tb.subscribers))
+		for subscriber := range tb.subscribers {
+			subscribers = append(subscribers, subscriber)
+		}
+		tb.mu.RUnlock()
+
+		// Send message to all subscribers with non-blocking send
+		for _, subscriber := range subscribers {
+			select {
+			case subscriber <- msg:
+			default:
+				// Skip if channel is full or closed
+			}
+		}
+	}
+}
+
+// IsRunning checks if the task is running
+func (tb *TaskBroadcaster) IsRunning() bool {
+	tb.mu.RLock()
+	defer tb.mu.RUnlock()
+	return tb.running
+}
+
+// GetHistory returns a copy of message history for late SSE subscribers
+func (tb *TaskBroadcaster) GetHistory() []string {
+	tb.mu.RLock()
+	defer tb.mu.RUnlock()
+	if len(tb.history) == 0 {
+		return nil
+	}
+	out := make([]string, len(tb.history))
+	copy(out, tb.history)
+	return out
+}

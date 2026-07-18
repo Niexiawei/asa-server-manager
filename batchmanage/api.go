@@ -241,4 +241,3 @@ func skipBatchInstance(c *gin.Context) {
 		})
 	}
 }
-

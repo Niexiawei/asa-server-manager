@@ -2,13 +2,21 @@ package webapi
 
 import (
 	"asa-server/app"
-	"asa-server/asaserver"
 	"asa-server/batchmanage"
+	cfgpkg "asa-server/config"
 	"asa-server/frpmanage"
-	"asa-server/httpserver"
 	"asa-server/logger"
 	"asa-server/parseserver"
+	"asa-server/realtime"
+	statepkg "asa-server/state"
 	"asa-server/syncthingmanage"
+	"asa-server/webapi/backupapi"
+	"asa-server/webapi/configapi"
+	"asa-server/webapi/iconapi"
+	"asa-server/webapi/instanceapi"
+	"asa-server/webapi/logapi"
+	"asa-server/webapi/saveapi"
+	"asa-server/webapi/serverapi"
 	"context"
 	"errors"
 	"fmt"
@@ -17,7 +25,6 @@ import (
 	"net/http"
 	"os/signal"
 	"strings"
-	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -29,23 +36,20 @@ import (
 
 // APIServer represents the HTTP API server for ARK Server Ascended Instance Management
 type APIServer struct {
-	engine *gin.Engine
-	port   int
-	// Task broadcasters for independent SSE streams
-	updateBroadcaster *httpserver.TaskBroadcaster
-	updateCancel      atomic.Pointer[context.CancelFunc] // 当前更新任务的取消函数（原子，无锁）
-	serverCtx         context.Context
-	serverCtxStop     func()
-	serverDone        chan struct{}
-	saveDataManager   *parseserver.SaveDataManager
+	engine          *gin.Engine
+	port            int
+	serverCtx       context.Context
+	serverCtxStop   func()
+	serverDone      chan struct{}
+	saveDataManager *parseserver.SaveDataManager
 }
 
 var ApiServerPort = 19193
 
 // NewAPIServer creates a new API server instance
 func NewAPIServer() *APIServer {
-	hub := httpserver.NewHub()
-	httpserver.SetGlobalHub(hub)
+	hub := realtime.NewHub()
+	realtime.SetGlobalHub(hub)
 	InitializationBasicComponents()
 	gin.SetMode(gin.ReleaseMode)
 	engine := gin.Default()
@@ -57,13 +61,12 @@ func NewAPIServer() *APIServer {
 	}
 
 	server := &APIServer{
-		engine:            engine,
-		port:              ApiServerPort,
-		updateBroadcaster: httpserver.NewTaskBroadcaster(),
-		serverCtx:         ctx,
-		serverCtxStop:     cancel,
-		serverDone:        make(chan struct{}, 1),
-		saveDataManager:   saveDataManager,
+		engine:          engine,
+		port:            ApiServerPort,
+		serverCtx:       ctx,
+		serverCtxStop:   cancel,
+		serverDone:      make(chan struct{}, 1),
+		saveDataManager: saveDataManager,
 	}
 
 	// Setup routes
@@ -89,7 +92,7 @@ func (s *APIServer) Start() error {
 		}
 	}
 
-	if err := asaserver.InitStateManager(asaserver.BaseDir); err != nil {
+	if err := statepkg.InitStateManager(cfgpkg.BaseDir); err != nil {
 		panic(err)
 	}
 	s.startStateChangeDispatcher(s.serverCtx)
@@ -153,7 +156,7 @@ func (s *APIServer) Stop() error {
 	s.serverCtxStop()
 
 	// 2. 关闭所有 WebSocket 长连接
-	httpserver.GetGlobalHub().CloseAllClients()
+	realtime.GetGlobalHub().CloseAllClients()
 
 	<-s.serverDone
 	log.Println("stopping saveDataManager ...")
@@ -163,7 +166,7 @@ func (s *APIServer) Stop() error {
 	}
 
 	log.Println("saveDataManager stopped")
-	if err := asaserver.CloseStateManager(); err != nil {
+	if err := statepkg.CloseStateManager(); err != nil {
 		logger.GetLogger().Warnf("Error closing state manager: %v", err)
 	}
 
@@ -173,81 +176,18 @@ func (s *APIServer) Stop() error {
 // setupRoutes configures all API endpoints
 func (s *APIServer) setupRoutes() {
 
-	s.engine.GET("/health", s.health)
-	// Instance management endpoints
-	instances := s.engine.Group("/api/instances")
-	{
-		instances.GET("", s.listInstances)
-		instances.POST("", s.createInstance)
-		instances.GET("/:name", s.getInstanceStatus)
-		instances.DELETE("/:name", s.deleteInstance)
-		instances.PUT("/:name", s.renameInstance)
-		instances.GET("/:name/config", s.getInstanceConfig)
-		instances.PATCH("/:name/config", s.updateInstanceConfig)
-	}
+	// Domain handlers register their own routes (each package exposes RegisterRouter)
+	instanceapi.NewHandler().RegisterRouter(s.engine)
+	serverapi.NewHandler(s.serverCtx).RegisterRouter(s.engine)
+	backupapi.NewHandler().RegisterRouter(s.engine)
+	configapi.NewHandler().RegisterRouter(s.engine)
+	saveapi.NewHandler(s.serverCtx, s.saveDataManager).RegisterRouter(s.engine)
+	logapi.NewHandler(s.serverCtx).RegisterRouter(s.engine)
+	iconapi.NewHandler().RegisterRouter(s.engine)
 
-	// Server control endpoints
-	server := s.engine.Group("/api/server")
-	{
-		server.GET("/:name/start", s.startServer)
-		server.GET("/:name/stop", s.stopServer)
-		server.GET("/:name/restart", s.restartServer)
-		server.GET("/:name/force-stop", s.forceStopServer)
-
-		// Batch operations (registered via batchmanage package)
-		// Server update endpoints
-		server.GET("/update", s.handleServerUpdate)
-		server.GET("/update/status", s.getUpdateStatus)
-		server.POST("/update/cancel", s.cancelUpdate)
-		// Server info endpoints
-		server.GET("/info", s.streamServerInfo)
-		server.GET("/all-info", s.streamAllInstancesInfo)
-	}
-
-	// Backup/Restore endpoints (world save)
-	worldBackup := s.engine.Group("/api/backup/world")
-	{
-		worldBackup.POST("/:name", s.backupInstanceWorld)
-		worldBackup.GET("/:name", s.listWorldBackups)
-		worldBackup.POST("/:name/restore", s.restoreWorldBackup)
-		worldBackup.DELETE("/:name/:file", s.deleteWorldBackup)
-	}
-
-	// Logs endpoints
-	logs := s.engine.Group("/api/logs")
-	{
-		logs.GET("/:name", s.streamInstanceLogs)
-		logs.GET("", s.streamSystemLogs)
-	}
-
-	// Config file endpoints
-	config := s.engine.Group("/api/config")
-	{
-		config.GET("/server/configs", s.getServerConfigs)
-		config.GET("/:name/configs", s.getInstanceConfigs)
-		config.GET("/:name/game-ini", s.getGameIni)
-		config.GET("/:name/game-user-settings", s.getGameUserSettings)
-		config.POST("/:name/game-ini", s.uploadGameIni)
-		config.POST("/:name/game-user-settings", s.uploadGameUserSettings)
-		config.PUT("/:name/game-ini", s.updateGameIni)
-		config.PUT("/:name/game-user-settings", s.updateGameUserSettings)
-		config.POST("/sync-instance", s.syncInstanceConfig)
-	}
-
-	// Save parse endpoints
-	save := s.engine.Group("/api/save")
-	{
-		save.GET("/:instance/players", s.getSavePlayers)
-		save.GET("/:instance/tribes", s.getSaveTribes)
-		save.GET("/:instance/all", s.getSaveAll)
-		save.GET("/:instance/stream", s.streamSaveData)
-	}
-
-	// Mod info endpoint
-	s.engine.GET("/api/mod-info", s.getModInfo)
 	// WebSocket endpoints
-	s.engine.GET("/api/ws/events", httpserver.HandleServerEvents)
-	s.engine.GET("/api/ws/rcon", httpserver.HandleRCONEvents)
+	s.engine.GET("/api/ws/events", realtime.HandleServerEvents)
+	s.engine.GET("/api/ws/rcon", realtime.HandleRCONEvents)
 
 	// FRP endpoints
 	frpmanage.RegisterFRPRoutes(s.engine)
@@ -255,10 +195,6 @@ func (s *APIServer) setupRoutes() {
 
 	// Batch operation endpoints
 	batchmanage.RegisterBatchRoutes(s.engine)
-
-	// Icon endpoints
-	s.engine.GET("/api/icons/creature", s.getCreatureIcon)
-	s.engine.GET("/api/icons/items", s.getItemIcon)
 
 	distFs := app.GetDistFs()
 	fs, err := static.EmbedFolder(distFs, "dist")
@@ -290,11 +226,11 @@ func (s *APIServer) setupRoutes() {
 
 func InitializationBasicComponents() {
 	// Initialize frpc manager
-	if _, err := frpmanage.Initialize(asaserver.BaseDir); err != nil {
+	if _, err := frpmanage.Initialize(cfgpkg.BaseDir); err != nil {
 		log.Fatal(err)
 	}
 	// Initialize syncthing manager
-	if _, err := syncthingmanage.Initialize(asaserver.BaseDir); err != nil {
+	if _, err := syncthingmanage.Initialize(cfgpkg.BaseDir); err != nil {
 		log.Fatal(err)
 	}
 	// Initialize batch manager

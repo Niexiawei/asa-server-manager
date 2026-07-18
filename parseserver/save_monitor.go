@@ -1,7 +1,7 @@
 package parseserver
 
 import (
-	"asa-server/asaserver"
+	cfgpkg "asa-server/config"
 	"asa-server/logger"
 	"context"
 	"encoding/json"
@@ -86,7 +86,7 @@ func (b *SaveBroadcaster) Stop() {
 
 // NewSaveDataManager creates a new SaveDataManager with its own BadgerDB instance
 func NewSaveDataManager() (*SaveDataManager, error) {
-	dbPath := filepath.Join(asaserver.BaseDir, "database_file", "arkworldsave")
+	dbPath := filepath.Join(cfgpkg.BaseDir, "database_file", "arkworldsave")
 	opts := badger.DefaultOptions(dbPath).
 		WithLogger(nil).
 		WithNumVersionsToKeep(1)
@@ -148,14 +148,14 @@ func (m *SaveDataManager) GetCached(instanceName string) (*CachedSaveData, error
 
 // Start begins monitoring all instance save directories for changes using arkmonitor
 func (m *SaveDataManager) Start(_ context.Context) {
-	instances, err := asaserver.GetAvailableInstances()
+	instances, err := cfgpkg.GetAvailableInstances()
 	if err != nil {
 		logger.GetLogger().Errorf("Failed to get instances for save monitoring: %v", err)
 		return
 	}
 
 	for _, instanceName := range instances {
-		config, err := asaserver.LoadInstanceConfig(instanceName)
+		config, err := cfgpkg.LoadInstanceConfig(instanceName)
 		if err != nil {
 			continue
 		}
@@ -165,7 +165,7 @@ func (m *SaveDataManager) Start(_ context.Context) {
 			continue
 		}
 
-		arkPath := filepath.Join(asaserver.InstancesDir, instanceName, "Save",
+		arkPath := filepath.Join(cfgpkg.InstancesDir, instanceName, "Save",
 			dirMapName, config.MapName+".ark")
 
 		if err := m.startMonitor(instanceName, arkPath); err != nil {

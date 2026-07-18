@@ -1,8 +1,8 @@
 package syncthingmanage
 
 import (
-	"asa-server/common"
-	"asa-server/processjob"
+	"asa-server/pkg/processjob"
+	"asa-server/pkg/winproc"
 	"bufio"
 	"context"
 	"crypto/md5"
@@ -46,7 +46,7 @@ var syncthingConfigDir string // Syncthing 配置文件和可执行文件目录
 
 // Initialize initializes the syncthing manager and extracts syncthing.exe, returns config directory path
 func Initialize(basedir string) (string, error) {
-	// Use asaserver.BaseDir instead of temp directory
+	// Use BaseDir instead of temp directory
 	dir := filepath.Join(basedir, "syncthing")
 
 	// Create syncthing directory if it doesn't exist
@@ -153,7 +153,7 @@ func (m *SyncthingManager) asyncStart() {
 	}()
 
 	go func() {
-		if exited := common.WaitGamePidExit(ctx, m.cmdPid); exited {
+		if exited := winproc.WaitProcessExit(ctx, m.cmdPid, 2*time.Second); exited {
 			cancel()
 			job.Close()
 		}

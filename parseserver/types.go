@@ -23,7 +23,7 @@ type SaveData struct {
 
 // CachedSaveData contains the monitored snapshot data (used by cache and SSE broadcast)
 type CachedSaveData struct {
-	Players   map[int]*arkmonitor.PlayerSnapshot   `json:"players,omitempty"`
-	Tribes    map[int]*arkmonitor.TribeSnapshot     `json:"tribes,omitempty"`
-	Timestamp time.Time                              `json:"timestamp"`
+	Players   map[int]*arkmonitor.PlayerSnapshot `json:"players,omitempty"`
+	Tribes    map[int]*arkmonitor.TribeSnapshot  `json:"tribes,omitempty"`
+	Timestamp time.Time                          `json:"timestamp"`
 }

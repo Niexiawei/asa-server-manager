@@ -42,7 +42,7 @@ var frpConfigDir string // FRP 配置文件和可执行文件目录
 
 // Initialize initializes the frpc manager and extracts frpc.exe, returns config directory path
 func Initialize(basedir string) (string, error) {
-	// Use asaserver.BaseDir instead of temp directory
+	// Use BaseDir instead of temp directory
 	dir := filepath.Join(basedir, "frp")
 
 	// Create frp directory if it doesn't exist

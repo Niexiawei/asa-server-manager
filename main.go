@@ -2,11 +2,12 @@ package main
 
 import (
 	"asa-server/actions"
-	"asa-server/asaserver"
+	cfgpkg "asa-server/config"
 	"asa-server/gui"
 	"asa-server/logger"
+	"asa-server/mirror"
+	"asa-server/pkg/winproc"
 	"asa-server/webapi"
-	"asa-server/win32api"
 	"asa-server/winservice"
 	"context"
 	"fmt"
@@ -43,11 +44,11 @@ func main() {
 		log.Fatal(err)
 	}
 
-	if err := asaserver.EnsureDirectories(); err != nil {
+	if err := cfgpkg.EnsureDirectories(); err != nil {
 		log.Fatal(err)
 	}
 
-	logger.InitLoggerWithBaseDir(asaserver.BaseDir)
+	logger.InitLoggerWithBaseDir(cfgpkg.BaseDir)
 
 	app := &cli.Command{
 		Name:    "asa-manager",
@@ -177,14 +178,14 @@ func isApiCommand(args []string) bool {
 
 // ensureAdminElevation 静默检测管理员权限并提权
 func ensureAdminElevation() {
-	if asaserver.IsElevated() {
+	if mirror.IsElevated() {
 		return // 已是管理员，无需提权
 	}
 
 	// 构建参数并提权重启
 	argStr := buildElevatedArgs()
 
-	if err := win32api.RunAsAdmin(argStr); err != nil {
+	if err := winproc.RunAsAdmin(argStr); err != nil {
 		logger.GetStdout().Warnf("管理员提权失败: %v", err)
 		logger.GetStdout().Warnf("[警告] 将以非管理员模式继续运行，镜像启动将使用文件复制模式，占用更多磁盘空间")
 		os.Exit(1)
