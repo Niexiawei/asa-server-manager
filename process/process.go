@@ -44,6 +44,36 @@ func GetInstancePID(instanceName string) (int, error) {
 	return pid, nil
 }
 
+// SaveAsaServerApiPID persists the AsaApiLoader (asaServerApi) PID of an instance
+// to its directory. This is the loader process launched when EnableAsaPlugin is on;
+// it is distinct from the game process PID stored by SaveInstancePID.
+func SaveAsaServerApiPID(instanceName string, pid int) error {
+	instanceDir := filepath.Join(cfgpkg.InstancesDir, instanceName)
+	if err := os.MkdirAll(instanceDir, 0755); err != nil {
+		return fmt.Errorf("failed to create instance directory: %w", err)
+	}
+
+	pidFile := filepath.Join(instanceDir, "asa_api_pid")
+	return os.WriteFile(pidFile, []byte(strconv.Itoa(pid)), 0644)
+}
+
+// GetAsaServerApiPID retrieves the saved AsaApiLoader (asaServerApi) PID of an instance.
+func GetAsaServerApiPID(instanceName string) (int, error) {
+	pidFile := filepath.Join(cfgpkg.InstancesDir, instanceName, "asa_api_pid")
+
+	data, err := os.ReadFile(pidFile)
+	if err != nil {
+		return 0, err
+	}
+
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse PID: %w", err)
+	}
+
+	return pid, nil
+}
+
 // IsServerRunning checks if a server instance is running by verifying its game
 // port is listening (uniquely identifies the specific server instance).
 func IsServerRunning(instanceName string) (bool, error) {

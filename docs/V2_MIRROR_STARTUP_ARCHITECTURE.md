@@ -56,6 +56,7 @@ instances/<name>/                          ← 每实例本地存储
 | **Exception target 目录**（Config/Logs/SaveDir） | NTFS Junction → 实例本地目录 | 游戏引擎需要 per-instance 读写 |
 | **包含 exception 子目录的父目录** | 真实目录（不 junction） | 需要容纳下级 junction |
 | **`Binaries/Win64` 目录及其所有子目录** | 真实目录（不 junction） | 需要容纳整体复制的文件与启动期缓存 |
+| **Win64 的祖先目录**（`ShooterGame`、`ShooterGame/Binaries`） | 真实目录（不 junction） | 必须真实才能容纳隔离的真实 Win64 子目录；否则整体 junction 到源会让各实例共享同一份 Win64 |
 | **其他普通目录** | NTFS Junction → 原始目录 | 节省磁盘空间，免复制 |
 
 **文件**：
@@ -241,6 +242,7 @@ func IsElevated() bool {
    │     ├── 是 exception target → 创建 junction 到实例本地目录，跳过递归
    │     ├── 有 exception 子目录 → 创建真实目录，继续递归
    │     ├── 位于 Binaries/Win64 内（含子目录） → 创建真实目录，继续递归
+   │     ├── 是 Win64 的祖先目录（ShooterGame/Binaries 等） → 创建真实目录，继续递归
    │     └── 其他 → 创建 junction 到原始目录，跳过递归
    │
    └── 对每个文件调用 processFile()

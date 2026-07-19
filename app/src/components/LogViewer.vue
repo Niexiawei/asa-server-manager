@@ -61,7 +61,7 @@
 </template>
 
 <script setup>
-import {ref, nextTick, watch} from 'vue'
+import {ref, nextTick, watch, onUnmounted} from 'vue'
 import {streamInstanceLogs} from '@/apis/api.js'
 import {getInstanceStatus} from '@/store/serverStore.js'
 import VirtualLogList from '@/components/VirtualLogList.vue'
@@ -130,6 +130,10 @@ watch(
     },
     {immediate: true, deep: true}
 )
+
+onUnmounted(() => {
+  stopLogStream()
+})
 
 // 清空日志
 const clearLogs = () => {

@@ -7,58 +7,75 @@ import (
 	"bytes"
 	"io"
 	"regexp"
-	"strings"
 )
 
 var (
-	// ansiRegexp matches ANSI escape sequences (e.g. ESC [ ? ... h/l/m).
-	ansiRegexp = regexp.MustCompile(`\x1b\[[0-9;?]*[a-zA-Z]`)
-	// ctrlRegexp matches C0 control characters except newline (\n).
-	ctrlRegexp = regexp.MustCompile(`[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]`)
+	// ANSI escape sequence
+	//
+	// 示例:
+	// ESC[32m
+	// ESC[0m
+	// ESC[2K
+	// ESC[?25h
+	ansiRegexp = regexp.MustCompile(
+		`\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])`,
+	)
+
+	// 控制字符
+	//
+	// 删除:
+	// 0x00-0x08
+	// 0x0B
+	// 0x0C
+	// 0x0E-0x1F
+	// 0x7F
+	//
+	// 保留:
+	// \n
+	// \r
+	// \t
+	ctrlRegexp = regexp.MustCompile(
+		`[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]`,
+	)
 )
 
 // CleanConsoleOutput reads from r line by line, strips ANSI escape sequences and
 // control characters, trims trailing whitespace, and writes each cleaned line to w.
-func CleanConsoleOutput(r io.Reader, w io.Writer) error {
+func CleanConsoleOutput(
+	r io.Reader,
+	w io.Writer,
+) error {
+
 	scanner := bufio.NewScanner(r)
+
+	// 增大单行限制
+	scanner.Buffer(
+		make([]byte, 4096),
+		10*1024*1024,
+	)
+
 	for scanner.Scan() {
+
 		line := scanner.Bytes()
 
-		// 去掉 ANSI / 控制字符
-		line = ansiRegexp.ReplaceAll(line, []byte{})
-		line = ctrlRegexp.ReplaceAll(line, []byte{})
+		// remove ANSI color/control sequences
+		line = ansiRegexp.ReplaceAll(line, nil)
 
-		// 输出，保证每行以换行符结尾
-		line = bytes.TrimRight(line, " \t")
-		if _, err := w.Write(append(line, '\n')); err != nil {
+		// remove non-printable control chars
+		line = ctrlRegexp.ReplaceAll(line, nil)
+
+		// 保留换行，去掉尾部空格
+		line = bytes.TrimRight(
+			line,
+			" \t",
+		)
+
+		if _, err := w.Write(
+			append(line, '\n'),
+		); err != nil {
 			return err
 		}
 	}
-	return scanner.Err()
-}
 
-// RemoveANSIEscapes removes ANSI escape sequences from a string and trims it.
-func RemoveANSIEscapes(s string) string {
-	var result strings.Builder
-	i := 0
-	for i < len(s) {
-		// Check if this is the start of an escape sequence
-		if s[i] == '\x1b' && i+1 < len(s) && s[i+1] == '[' {
-			// Skip the escape sequence
-			i += 2
-			// Skip until we find a letter or other terminator
-			for i < len(s) {
-				c := s[i]
-				if (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '@' {
-					i++
-					break
-				}
-				i++
-			}
-		} else {
-			result.WriteByte(s[i])
-			i++
-		}
-	}
-	return strings.TrimSpace(result.String())
+	return scanner.Err()
 }

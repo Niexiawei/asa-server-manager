@@ -5,8 +5,6 @@ import (
 	cfgpkg "asa-server/config"
 	"asa-server/logger"
 	"asa-server/pkg/console"
-	"bufio"
-	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -14,7 +12,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
@@ -212,11 +209,31 @@ func extractZip(zipPath string, destDir string) error {
 	return nil
 }
 
+type LogWriter struct {
+	loggerFn func(string)
+}
+
+// Write implements the io.Writer interface
+func (lw *LogWriter) Write(p []byte) (n int, err error) {
+	if lw.loggerFn != nil {
+		lw.loggerFn(string(p))
+	}
+	return len(p), nil
+}
+
 // initializeSteamCmd runs SteamCMD to initialize it
 // outputWriter is an optional io.Writer for streaming console output
 // This hides the cmd window and redirects output via the callback
 func initializeSteamCmd(ctx context.Context, outputWriter ...io.Writer) error {
 	steamCmdExe := filepath.Join(cfgpkg.SteamCmdDir, "steamcmd.exe")
+
+	logWriter := &LogWriter{
+		loggerFn: func(msg string) {
+			if msg != "" {
+				logger.GetLogger().Infof("[stramcmd] %s", msg)
+			}
+		},
+	}
 
 	// Redirect stdout and stderr based on callback
 	var writer io.Writer
@@ -228,11 +245,11 @@ func initializeSteamCmd(ctx context.Context, outputWriter ...io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("failed to open pty: %w", err)
 	}
+	pp.Resize(1920, 1080)
 	defer pp.Close()
 
 	// Create command with +quit argument to exit immediately after initialization
 	cmd := pp.Command(steamCmdExe, "+quit")
-
 	// Run SteamCMD
 	logMsg := "Running SteamCMD initialization/updating..."
 	logger.GetLogger().Info(logMsg)
@@ -240,8 +257,10 @@ func initializeSteamCmd(ctx context.Context, outputWriter ...io.Writer) error {
 		writer.Write([]byte(logMsg + "\n"))
 	}
 
+	mpp := io.TeeReader(pp, logWriter)
+
 	if writer != nil {
-		go console.CleanConsoleOutput(pp, writer)
+		go console.CleanConsoleOutput(mpp, writer)
 	}
 
 	// Start and wait with context cancellation support
@@ -304,6 +323,7 @@ func DownloadAndUpdateArkServer(ctx context.Context, outputCallback ...io.Writer
 	if err != nil {
 		return fmt.Errorf("failed to open pty: %w", err)
 	}
+	pp.Resize(1920, 1080)
 
 	if outputWriter != nil {
 		outputWriter.Write([]byte(fmt.Sprintf("install to dir: %s", cfgpkg.ServerFilesDir)))
@@ -319,30 +339,6 @@ func DownloadAndUpdateArkServer(ctx context.Context, outputCallback ...io.Writer
 		"+quit",
 	)
 
-	CleanConsoleOutput := func(r io.Reader, w io.Writer) error {
-		// 匹配 ANSI 转义序列以及上面提到的控制符
-		// 包括 ESC [ ? ... h/l/m 等序列
-		ansiRegexp := regexp.MustCompile(`\x1b\[[0-9;?]*[a-zA-Z]`)
-		// 去除其它 C0 控制字符（保留换行符 \n）
-		ctrlRegexp := regexp.MustCompile(`[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]`)
-
-		scanner := bufio.NewScanner(r)
-		for scanner.Scan() {
-			line := scanner.Bytes()
-
-			// 去掉 ANSI / 控制字符
-			line = ansiRegexp.ReplaceAll(line, []byte{})
-			line = ctrlRegexp.ReplaceAll(line, []byte{})
-
-			// 输出，保证每行以换行符结尾
-			line = bytes.TrimRight(line, " \t")
-			if _, err := w.Write(append(line, '\n')); err != nil {
-				return err
-			}
-		}
-		return scanner.Err()
-	}
-
 	// Start SteamCMD with context cancellation support
 	logMsg = "Running SteamCMD update..."
 	logger.GetLogger().Info(logMsg)
@@ -352,7 +348,7 @@ func DownloadAndUpdateArkServer(ctx context.Context, outputCallback ...io.Writer
 	defer pp.Close()
 
 	if outputWriter != nil {
-		go CleanConsoleOutput(pp, outputWriter)
+		go console.CleanConsoleOutput(pp, outputWriter)
 	}
 
 	if err := cmd.Start(); err != nil {

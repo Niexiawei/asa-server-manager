@@ -4,7 +4,6 @@ import (
 	cfgpkg "asa-server/config"
 	"asa-server/logger"
 	"asa-server/mirror"
-	"asa-server/pkg/console"
 	"asa-server/pkg/fsutil"
 	"asa-server/pkg/netutil"
 	"asa-server/pkg/winproc"
@@ -263,7 +262,7 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 	args = append(args,
 		fmt.Sprintf("-WinLiveMaxPlayers=%d", config.MaxPlayers),
 		fmt.Sprintf("-Port=%d", config.Port),
-		fmt.Sprintf("-QueryPort=%d", config.QueryPort),
+		//fmt.Sprintf("-QueryPort=%d", config.QueryPort),
 		fmt.Sprintf("-RCONPort=%d", config.RCONPort),
 		"-game",
 		"-server",
@@ -357,21 +356,11 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 	}
 
 	if arkAsaApiRunning {
-		logWriter := &LogWriter{
-			loggerFn: func(msg string) {
-				msg = strings.TrimRight(msg, "\n\r")
-				if msg != "" {
-					logger.GetArkApiLogger().Infof("[%s][AsaApiLoader] %s", instanceName, msg)
-				}
-			},
-		}
-
 		pp, err := pty.New()
 		if err != nil {
 			startErr = fmt.Errorf("failed to create pty: %w", err)
 			return startErr
 		}
-
 		c := pp.Command(arkExe, args...)
 		c.Dir = exeWorkDir
 		if err := c.Start(); err != nil {
@@ -381,9 +370,11 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 		}
 		// PTY 跟随 AsaApiLoader 进程生命周期，不在函数返回时关闭
 		go func() { _ = c.Wait(); _ = pp.Close() }()
-		go console.CleanConsoleOutput(pp, logWriter)
-		logger.GetLogger().Infof("[%s] Redirecting AsaApiLoader output to logger", instanceName)
 
+		// 保存 AsaApiLoader（asaServerApi）进程 PID，供停止时先于游戏进程结束
+		if err := procpkg.SaveAsaServerApiPID(instanceName, c.Process.Pid); err != nil {
+			logger.GetLogger().Warnf("Failed to save AsaApiLoader PID for instance %s: %v", instanceName, err)
+		}
 		_pid, err := WaitArkApiRunServer(ctx, config.Port)
 		if err != nil {
 			startErr = fmt.Errorf("failed to start server: %w", err)
@@ -580,20 +571,24 @@ func stopServerInternal(instanceName string) error {
 // ForceStopServer 强制停止实例：杀死进程 + 重置状态 + 清理镜像
 // v2: 不再需要 WaitForNoInitializing（每个实例的镜像独立）
 func ForceStopServer(instanceName string) error {
-	// 1. 通过 WMI 查找进程（best effort，端口未监听时也能找到）
+	// 1. 先停止 AsaApiLoader（asaServerApi）进程（best effort）
+	if apiPid, pidErr := procpkg.GetAsaServerApiPID(instanceName); pidErr == nil && apiPid > 0 {
+		killGameServer(apiPid)
+	}
+	// 2. 通过 WMI 查找游戏进程（best effort，端口未监听时也能找到）
 	cfg, err := cfgpkg.LoadInstanceConfig(instanceName)
 	if err == nil {
 		if pid, pidErr := findServerPIDByPort(cfg.Port); pidErr == nil && pid > 0 {
 			killGameServer(pid)
 		}
 	}
-	// 2. 尝试杀死已保存的 PID（插件进程，best effort）
+	// 3. 尝试杀死已保存的游戏进程 PID（best effort）
 	if pid2, pidErr := procpkg.GetInstancePID(instanceName); pidErr == nil && pid2 > 0 {
 		killGameServer(pid2)
 	}
-	// 3. 重置状态为 stopped
+	// 4. 重置状态为 stopped
 	_ = statepkg.WriteInstanceState(instanceName, statepkg.StatusStopped, "")
-	// 4. 清理镜像目录
+	// 5. 清理镜像目录
 	if err := mirror.CleanupInstanceMirror(instanceName); err != nil {
 		logger.GetLogger().Warnf("Failed to cleanup instance mirror for %s: %v", instanceName, err)
 	}

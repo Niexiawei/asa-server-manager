@@ -20,7 +20,6 @@ const (
 var (
 	logger       *zap.SugaredLogger
 	loggerStdout *zap.SugaredLogger
-	arkApiLogger *zap.SugaredLogger
 	loggerPath   string
 	loggerMode   = CLIMode
 	BaseDir      = "" // Will be set by InitLoggerWithBaseDir
@@ -45,10 +44,6 @@ func GetLogger() *zap.SugaredLogger {
 
 func GetStdout() *zap.SugaredLogger {
 	return loggerStdout
-}
-
-func GetArkApiLogger() *zap.SugaredLogger {
-	return arkApiLogger
 }
 
 // GetLogFilePath returns the full path to the system log file
@@ -87,17 +82,6 @@ func InitLogger() {
 		_logger := zap.New(core, zap.AddCaller())
 		logger = _logger.Sugar()
 	}
-
-	{
-		arkApiLogPath := filepath.Join(BaseDir, "logs", "arkApiLog.log")
-		core := zapcore.NewCore(fileEncoder(), fileWriterByPath(arkApiLogPath), zap.LevelEnablerFunc(func(level zapcore.Level) bool {
-			return level >= zap.InfoLevel
-		}))
-
-		_logger := zap.New(core, zap.AddCaller())
-		arkApiLogger = _logger.Sugar()
-	}
-
 }
 
 func stdoutEncoder() zapcore.Encoder {

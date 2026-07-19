@@ -29,6 +29,13 @@ func isUnderWin64(relPath string) bool {
 	return relPath == win64RelPath || strings.HasPrefix(relPath, win64RelPath+"/")
 }
 
+// isWin64Ancestor 判断 relPath 是否为 Win64 复制目录的祖先目录（如 ShooterGame、ShooterGame/Binaries）。
+// 这些目录必须建成真实目录并递归下钻，才能在其中容纳隔离的真实 Win64 子目录；
+// 否则会被整体 junction 到源，导致各实例共享同一份 Win64（失去隔离）。
+func isWin64Ancestor(relPath string) bool {
+	return strings.HasPrefix(win64RelPath, relPath+"/")
+}
+
 // arkApiRelPath 是 ArkApi hook 插件目录；arkApiCacheRelPath 是其运行期缓存目录。
 // ArkApi 在运行期会向 Cache 写入 hook 缓存，这些文件与源目录不一致或多出属正常现象，
 // 增量同步时应保留，仅补齐缺失的文件。
@@ -281,9 +288,10 @@ func processDirectory(srcPath, mirrorPath, relPath string, _ os.FileInfo, except
 		return false, os.MkdirAll(mirrorPath, 0755)
 	}
 
-	// Win64 复制目录：目录本身及其所有子目录都必须是真实目录
-	// （用于容纳复制的文件与运行时缓存），创建真实目录并递归下钻
-	if isUnderWin64(relPath) {
+	// Win64 复制目录（自身及子目录）与其祖先目录都必须是真实目录：
+	// 前者容纳复制文件与运行时缓存，后者用于容纳隔离的真实 Win64 子目录。
+	// 创建真实目录并递归下钻。
+	if isUnderWin64(relPath) || isWin64Ancestor(relPath) {
 		return false, os.MkdirAll(mirrorPath, 0755)
 	}
 
@@ -677,8 +685,8 @@ func collectSourceEntries(srcDir string, exceptionTargets map[string]string) ([]
 				return nil
 			}
 
-			// Win64 复制目录及其子目录 → 真实目录，需递归
-			if isUnderWin64(relPath) {
+			// Win64 复制目录、其子目录、及其祖先目录 → 真实目录，需递归
+			if isUnderWin64(relPath) || isWin64Ancestor(relPath) {
 				entries = append(entries, mirrorEntry{RelPath: relPath, EntryType: EntryTypeDirectory})
 				return nil
 			}
@@ -703,7 +711,7 @@ func collectSourceEntries(srcDir string, exceptionTargets map[string]string) ([]
 		// 但 Walk 还是会访问到，我们需要跳过
 		// 通过检查父目录是否会被 junction 来判断
 		parentIsJunction := false
-		if !isExceptionOrIntermediateDir(parentRelPath, exceptionTargets) && !isUnderWin64(relPath) {
+		if !isExceptionOrIntermediateDir(parentRelPath, exceptionTargets) && !isUnderWin64(relPath) && !isWin64Ancestor(parentRelPath) {
 			parentIsJunction = true
 		}
 		if parentIsJunction {
@@ -819,8 +827,8 @@ func syncEntry(srcDir, mirrorDir string, entry mirrorEntry, exceptionTargets map
 		if isExceptionOrIntermediateDir(entry.RelPath, exceptionTargets) {
 			return os.MkdirAll(mirrorPath, 0755)
 		}
-		// Win64 复制目录及其子目录 → 真实目录
-		if isUnderWin64(entry.RelPath) {
+		// Win64 复制目录、其子目录、及其祖先目录 → 真实目录
+		if isUnderWin64(entry.RelPath) || isWin64Ancestor(entry.RelPath) {
 			return os.MkdirAll(mirrorPath, 0755)
 		}
 		// 普通目录 → junction

@@ -47,9 +47,9 @@ func dropSep(b []byte, sep byte) []byte {
 }
 
 func killGameServer(pid int) {
-	if err := exec.Command("taskkill", "/PID", fmt.Sprintf("%d", pid)).Run(); err != nil {
+	if err := exec.Command("taskkill", "/PID", fmt.Sprintf("%d", pid), "/T").Run(); err != nil {
 		logger.GetLogger().Warnf("failed to kill process PID %d: %s", pid, err.Error())
-		_ = exec.Command("taskkill", "/F", "/PID", fmt.Sprintf("%d", pid)).Run()
+		_ = exec.Command("taskkill", "/PID", fmt.Sprintf("%d", pid), "/T", "/F").Run()
 	}
 }
 func WaitArkApiRunServer(ctx context.Context, port int) (uint32, error) {
