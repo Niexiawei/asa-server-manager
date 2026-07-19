@@ -105,9 +105,9 @@ export function updateServer(onMessage, onError, onComplete) {
     // })
 }
 
-// 实时查看服务器日志
-export function streamInstanceLogs(instanceName, onLog, onError, onClose) {
-    const eventSource = new EventSource(buildEventSourceUrl(`/api/logs/${instanceName}`))
+// 日志 SSE 通用实现，返回一个停止函数
+function createLogEventSource(path, onLog, onError, onClose) {
+    const eventSource = new EventSource(buildEventSourceUrl(path))
 
     eventSource.onmessage = (event) => {
         if (onLog) {
@@ -129,6 +129,16 @@ export function streamInstanceLogs(instanceName, onLog, onError, onClose) {
             onClose()
         }
     }
+}
+
+// 实时查看服务器日志
+export function streamInstanceLogs(instanceName, onLog, onError, onClose) {
+    return createLogEventSource(`/api/logs/${instanceName}`, onLog, onError, onClose)
+}
+
+// 实时查看 AsaApiLoader（ASA 插件）控制台日志
+export function streamAsaApiLogs(instanceName, onLog, onError, onClose) {
+    return createLogEventSource(`/api/logs/${instanceName}/asaapi`, onLog, onError, onClose)
 }
 
 // 实时查看系统日志

@@ -1,26 +1,29 @@
 <template>
   <div class="log-viewer">
+    <t-tabs v-model="activeTab" class="log-tabs">
+      <t-tab-panel value="game" label="实例日志"/>
+      <t-tab-panel value="asaapi" label="API 日志"/>
+    </t-tabs>
+
     <div class="header-actions">
       <t-space style="margin-bottom: 15px" align="center">
         <t-button
-            @click="startLogStream"
+            @click="current.start()"
             theme="primary"
             :disabled="isStreaming"
-            ref="startButtonRef"
         >
           {{ isStreaming ? '监听中...' : '开始监听' }}
         </t-button>
         <t-button
-            @click="stopLogStream"
+            @click="current.stop()"
             theme="warning"
             :disabled="!isStreaming"
-            ref="stopButtonRef"
         >
           停止监听
         </t-button>
         <t-button
-            @click="clearLogs"
-            :disabled="(vllRef?.itemCount ?? 0) === 0"
+            @click="current.clear()"
+            :disabled="logCount === 0"
         >
           清空日志
         </t-button>
@@ -28,7 +31,7 @@
         <t-tag :color="isStreaming ? 'green' : 'gray'">
           {{ isStreaming ? '监听中' : '已停止' }}
         </t-tag>
-        <span style="font-size: 16px">日志行数: {{ vllRef?.itemCount ?? 0 }}</span>
+        <span style="font-size: 16px">日志行数: {{ logCount }}</span>
       </t-space>
       <t-switch v-model="autoScroll"
                 size="large"
@@ -38,7 +41,29 @@
 
     <div class="log-container">
       <VirtualLogList
-          ref="vllRef"
+          v-show="activeTab === 'game'"
+          ref="gameListRef"
+          :auto-scroll="autoScroll"
+          class="log-content"
+          :estimated-item-height="28"
+          :buffer="400"
+      >
+        <template #item="{ item, index }">
+          <div class="log-line">
+            <span class="log-number">{{ index + 1 }}</span>
+            <span class="log-text">{{ item }}</span>
+          </div>
+        </template>
+        <template #empty>
+          <div class="empty-logs">
+            <t-empty description="暂无日志"/>
+          </div>
+        </template>
+      </VirtualLogList>
+
+      <VirtualLogList
+          v-show="activeTab === 'asaapi'"
+          ref="apiListRef"
           :auto-scroll="autoScroll"
           class="log-content"
           :estimated-item-height="28"
@@ -61,8 +86,8 @@
 </template>
 
 <script setup>
-import {ref, nextTick, watch, onUnmounted} from 'vue'
-import {streamInstanceLogs} from '@/apis/api.js'
+import {ref, computed, nextTick, watch, onUnmounted} from 'vue'
+import {streamInstanceLogs, streamAsaApiLogs} from '@/apis/api.js'
 import {getInstanceStatus} from '@/store/serverStore.js'
 import VirtualLogList from '@/components/VirtualLogList.vue'
 
@@ -74,40 +99,66 @@ const props = defineProps({
 })
 
 const autoScroll = ref(true)
-const isStreaming = ref(false)
-const vllRef = ref(null)
-let stopLogStream_func = null
+const activeTab = ref('game')
+const gameListRef = ref(null)
+const apiListRef = ref(null)
+
+// 一路日志 = 一个 SSE 流 + 一个虚拟列表，两路互不干扰
+function createLogChannel(streamFn, listRef) {
+  const isStreaming = ref(false)
+  let stopFn = null
+
+  const start = () => {
+    isStreaming.value = true
+    listRef.value?.clear()
+
+    stopFn = streamFn(
+        props.instanceName,
+        (line) => listRef.value?.push(line),
+        (error) => {
+          console.error('日志流错误:', error)
+        },
+        () => {
+          isStreaming.value = false
+        }
+    )
+  }
+
+  const stop = () => {
+    if (stopFn) {
+      stopFn()
+      stopFn = null
+    }
+    isStreaming.value = false
+  }
+
+  const clear = () => listRef.value?.clear()
+
+  return {isStreaming, listRef, start, stop, clear}
+}
+
+const channels = {
+  game: createLogChannel(streamInstanceLogs, gameListRef),
+  asaapi: createLogChannel(streamAsaApiLogs, apiListRef),
+}
+const allChannels = Object.values(channels)
+
+// 工具栏只作用于当前 tab
+const current = computed(() => channels[activeTab.value])
+const isStreaming = computed(() => current.value.isStreaming.value)
+const logCount = computed(() => current.value.listRef.value?.itemCount ?? 0)
 
 // 自动滚动开关打开时立即回到底部
 watch(autoScroll, (val) => {
-  if (val) vllRef.value?.scrollToBottom()
+  if (val) allChannels.forEach((ch) => ch.listRef.value?.scrollToBottom())
 })
 
-// 开始监听日志
-const startLogStream = () => {
-  isStreaming.value = true
-  vllRef.value?.clear()
-
-  stopLogStream_func = streamInstanceLogs(
-      props.instanceName,
-      (line) => vllRef.value?.push(line),
-      (error) => {
-        console.error('日志流错误:', error)
-      },
-      () => {
-        isStreaming.value = false
-      }
-  )
-}
-
-// 停止日志流监听
-const stopLogStream = () => {
-  if (stopLogStream_func) {
-    stopLogStream_func()
-    stopLogStream_func = null
-  }
-  isStreaming.value = false
-}
+// 切回来的列表在隐藏期间高度为 0，需等布局完成再滚到底
+watch(activeTab, async () => {
+  if (!autoScroll.value) return
+  await nextTick()
+  current.value.listRef.value?.scrollToBottom()
+})
 
 // 监听实例状态变化，自动开始/停止日志监听
 watch(
@@ -122,39 +173,41 @@ watch(
       const shouldMonitor = newVal.isStartingOrRunning === true ||
           ['starting', 'started', 'stopping', 'restarting', 'restarted'].includes(newVal.status)
 
-      if (shouldMonitor && !isStreaming.value) {
-        startLogStream()
-      } else if (!shouldMonitor && isStreaming.value) {
-        stopLogStream()
-      }
+      allChannels.forEach((ch) => {
+        if (shouldMonitor && !ch.isStreaming.value) {
+          ch.start()
+        } else if (!shouldMonitor && ch.isStreaming.value) {
+          ch.stop()
+        }
+      })
     },
     {immediate: true, deep: true}
 )
 
 onUnmounted(() => {
-  stopLogStream()
+  allChannels.forEach((ch) => ch.stop())
 })
 
-// 清空日志
-const clearLogs = () => {
-  vllRef.value?.clear()
-}
-
-// 暴露给父组件
+// 暴露给父组件，作用于当前 tab
 defineExpose({
-  startLogStream,
-  stopLogStream,
-  clearLogs,
+  startLogStream: () => current.value.start(),
+  stopLogStream: () => current.value.stop(),
+  clearLogs: () => current.value.clear(),
   get isStreaming() {
     return isStreaming.value
   },
   get logs() {
-    return vllRef.value?.getItems() ?? []
+    return current.value.listRef.value?.getItems() ?? []
   }
 })
 </script>
 
 <style scoped lang="less">
+.log-tabs {
+  flex-shrink: 0;
+  margin-bottom: 10px;
+}
+
 .header-actions {
   display: flex;
   align-items: center;

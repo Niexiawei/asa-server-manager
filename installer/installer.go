@@ -209,31 +209,11 @@ func extractZip(zipPath string, destDir string) error {
 	return nil
 }
 
-type LogWriter struct {
-	loggerFn func(string)
-}
-
-// Write implements the io.Writer interface
-func (lw *LogWriter) Write(p []byte) (n int, err error) {
-	if lw.loggerFn != nil {
-		lw.loggerFn(string(p))
-	}
-	return len(p), nil
-}
-
 // initializeSteamCmd runs SteamCMD to initialize it
 // outputWriter is an optional io.Writer for streaming console output
 // This hides the cmd window and redirects output via the callback
 func initializeSteamCmd(ctx context.Context, outputWriter ...io.Writer) error {
 	steamCmdExe := filepath.Join(cfgpkg.SteamCmdDir, "steamcmd.exe")
-
-	logWriter := &LogWriter{
-		loggerFn: func(msg string) {
-			if msg != "" {
-				logger.GetLogger().Infof("[stramcmd] %s", msg)
-			}
-		},
-	}
 
 	// Redirect stdout and stderr based on callback
 	var writer io.Writer
@@ -257,10 +237,8 @@ func initializeSteamCmd(ctx context.Context, outputWriter ...io.Writer) error {
 		writer.Write([]byte(logMsg + "\n"))
 	}
 
-	mpp := io.TeeReader(pp, logWriter)
-
 	if writer != nil {
-		go console.CleanConsoleOutput(mpp, writer)
+		go console.CleanConsoleOutput(pp, writer)
 	}
 
 	// Start and wait with context cancellation support

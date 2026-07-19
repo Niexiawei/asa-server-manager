@@ -26,19 +26,6 @@ import (
 // ErrOperationNotAllowed is returned when an operation is not allowed in the current instance state
 var ErrOperationNotAllowed = fmt.Errorf("operation not allowed in current state")
 
-// LogWriter is a custom writer that forwards output to logger
-type LogWriter struct {
-	loggerFn func(string)
-}
-
-// Write implements the io.Writer interface
-func (lw *LogWriter) Write(p []byte) (n int, err error) {
-	if lw.loggerFn != nil {
-		lw.loggerFn(string(p))
-	}
-	return len(p), nil
-}
-
 // GetGameLogFilePath returns the full path to the log file for a given instance
 // v2: uses per-instance log directory under InstancesDir
 func GetGameLogFilePath(instanceName string) (string, error) {
@@ -47,6 +34,19 @@ func GetGameLogFilePath(instanceName string) (string, error) {
 		return "", fmt.Errorf("failed to create logs directory: %w", err)
 	}
 	logPath := filepath.Join(logsDir, "ShooterGame.log")
+	if _, err := os.Stat(logPath); os.IsNotExist(err) {
+		os.WriteFile(logPath, nil, 0644)
+	}
+	return logPath, nil
+}
+
+// GetAsaApiLogFilePath returns the full path to the AsaApiLoader console log for a given instance
+func GetAsaApiLogFilePath(instanceName string) (string, error) {
+	instanceDir := filepath.Join(cfgpkg.InstancesDir, instanceName)
+	if err := os.MkdirAll(instanceDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create instance directory: %w", err)
+	}
+	logPath := filepath.Join(instanceDir, "arkAsaApi.log")
 	if _, err := os.Stat(logPath); os.IsNotExist(err) {
 		os.WriteFile(logPath, nil, 0644)
 	}
@@ -361,6 +361,7 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 			startErr = fmt.Errorf("failed to create pty: %w", err)
 			return startErr
 		}
+		pp.Resize(1920, 1080)
 		c := pp.Command(arkExe, args...)
 		c.Dir = exeWorkDir
 		if err := c.Start(); err != nil {
@@ -370,6 +371,21 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 		}
 		// PTY 跟随 AsaApiLoader 进程生命周期，不在函数返回时关闭
 		go func() { _ = c.Wait(); _ = pp.Close() }()
+
+		// 将 PTY 输出清洗后落盘，每次启动清空
+		// 打开失败只告警，不影响开服
+		if apiLogPath, logErr := GetAsaApiLogFilePath(instanceName); logErr != nil {
+			logger.GetLogger().Warnf("Failed to resolve AsaApi log path for instance %s: %v", instanceName, logErr)
+		} else if apiLogFile, openErr := os.OpenFile(apiLogPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644); openErr != nil {
+			logger.GetLogger().Warnf("Failed to open AsaApi log file %s: %v", apiLogPath, openErr)
+		} else {
+			// cleaner 独占该句柄，pty 关闭后 CleanConsoleOutput 返回并释放
+			go func() {
+				defer apiLogFile.Close()
+				//_ = console.CleanConsoleOutput(pp, apiLogFile)
+				io.Copy(apiLogFile, pp)
+			}()
+		}
 
 		// 保存 AsaApiLoader（asaServerApi）进程 PID，供停止时先于游戏进程结束
 		if err := procpkg.SaveAsaServerApiPID(instanceName, c.Process.Pid); err != nil {
