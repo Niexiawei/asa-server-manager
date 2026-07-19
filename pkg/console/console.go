@@ -17,8 +17,19 @@ var (
 	// ESC[0m
 	// ESC[2K
 	// ESC[?25h
+	// ESC]0;窗口标题 BEL
+	//
+	// 三个分支顺序不可调整：Go 的正则是 leftmost-first，
+	// 字符串型序列必须排在单字符 C1 分支之前，
+	// 否则 ESC] 会被当成两字节序列吃掉，剩下的标题内容变成正文
 	ansiRegexp = regexp.MustCompile(
-		`\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])`,
+		// 字符串型序列 OSC/DCS/APC/PM/SOS，直到 BEL 或 ST(ESC\) 结束
+		// 终止符允许缺省，容忍被截断在行尾的序列
+		`\x1B[\]P_^X][^\x07\x1B]*(?:\x07|\x1B\\)?` +
+			// CSI
+			`|\x1B\[[0-?]*[ -/]*[@-~]` +
+			// 其余 C1 两字节序列
+			`|\x1B[@-Z\\-_]`,
 	)
 
 	// 控制字符
@@ -41,6 +52,7 @@ var (
 
 // CleanConsoleOutput reads from r line by line, strips ANSI escape sequences and
 // control characters, trims trailing whitespace, and writes each cleaned line to w.
+// 连续的空行会被折叠成一个，避免 ConPTY 清屏产生的成百上千个空行灌进日志。
 func CleanConsoleOutput(
 	r io.Reader,
 	w io.Writer,
@@ -53,6 +65,9 @@ func CleanConsoleOutput(
 		make([]byte, 4096),
 		10*1024*1024,
 	)
+
+	// 首行为空同样跳过，避免开头就是空行
+	prevBlank := true
 
 	for scanner.Scan() {
 
@@ -69,6 +84,13 @@ func CleanConsoleOutput(
 			line,
 			" \t",
 		)
+
+		// 折叠连续空行
+		blank := len(line) == 0
+		if blank && prevBlank {
+			continue
+		}
+		prevBlank = blank
 
 		if _, err := w.Write(
 			append(line, '\n'),
