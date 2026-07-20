@@ -2,6 +2,7 @@ package instance
 
 import (
 	cfgpkg "asa-server/config"
+	"asa-server/installer"
 	"asa-server/logger"
 	"asa-server/mirror"
 	"asa-server/pkg/console"
@@ -208,6 +209,14 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 		}
 	}()
 
+	// 更新期间 server-files 正在被增删，此时做镜像同步只会同步出残缺镜像
+	if installer.IsUpdatingServerFiles() {
+		err := fmt.Errorf("server files are being updated, cannot start instance %s", instanceName)
+		logger.GetLogger().Warnf("%v", err)
+		startErr = err
+		return err
+	}
+
 	// Check for duplicate ports
 	if err := cfgpkg.CheckForDuplicatePorts(); err != nil {
 		logger.GetLogger().Errorf("Port conflicts detected: %v", err)
@@ -263,7 +272,6 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 	args = append(args,
 		fmt.Sprintf("-WinLiveMaxPlayers=%d", config.MaxPlayers),
 		fmt.Sprintf("-Port=%d", config.Port),
-		//fmt.Sprintf("-QueryPort=%d", config.QueryPort),
 		fmt.Sprintf("-RCONPort=%d", config.RCONPort),
 		"-game",
 		"-server",

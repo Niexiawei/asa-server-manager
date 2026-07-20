@@ -154,3 +154,23 @@ func IsInstanceProcessAlive(instanceName string) bool {
 	}
 	return !exited
 }
+
+// ListAliveInstances returns the names of all instances currently judged alive.
+//
+// 判据用 IsInstanceProcessAlive 而非 IsServerRunning：后者只看端口是否在监听，
+// 会漏掉进程已起但端口尚未绑定的 starting 阶段实例。
+// 读取实例列表失败时返回 nil，调用方据此不阻断。
+func ListAliveInstances() []string {
+	instances, err := cfgpkg.GetAvailableInstances()
+	if err != nil {
+		return nil
+	}
+
+	var alive []string
+	for _, name := range instances {
+		if IsInstanceProcessAlive(name) {
+			alive = append(alive, name)
+		}
+	}
+	return alive
+}

@@ -51,7 +51,6 @@ ASA Server Manager 命令、配置、常用操作速查。
 | `MaxPlayers` | int | 最大玩家数 |
 | `MapName` | string | 地图名称 |
 | `RCONPort` | int | RCON 端口 |
-| `QueryPort` | int | 查询端口 |
 | `Port` | int | 游戏端口 |
 | `ModIDs` | string | Mod ID 列表（逗号分隔） |
 | `SaveDir` | string | 存档目录 |
@@ -137,7 +136,7 @@ Invoke-RestMethod -Method Post http://localhost:19193/api/rcon/server1/command `
 netstat -ano | findstr :27015
 
 # 检查所有实例配置的端口
-Get-ChildItem instances\*\instance_config.ini | Select-String "Port|RCONPort|QueryPort"
+Get-ChildItem instances\*\instance_config.ini | Select-String "Port|RCONPort"
 ```
 
 ### 服务器无法启动

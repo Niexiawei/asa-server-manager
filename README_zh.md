@@ -221,7 +221,6 @@ ServerAdminPassword=adminpassword
 MaxPlayers=70
 MapName=TheIsland_WP
 RCONPort=27020
-QueryPort=27015
 Port=7777
 ModIDs=
 CustomStartParameters=-NoBattlEye -crossplay -NoHangDetection

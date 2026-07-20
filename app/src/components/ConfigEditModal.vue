@@ -33,7 +33,7 @@
         </t-row>
 
         <t-row :gutter="16">
-          <t-col :span="3">
+          <t-col :span="4">
             <t-form-item name="MaxPlayers" label="最大玩家数"
                          :rules="[{ required: true, message: '最大玩家数为必填项' }]">
               <t-input-number
@@ -43,7 +43,7 @@
               />
             </t-form-item>
           </t-col>
-          <t-col :span="3">
+          <t-col :span="4">
             <t-form-item name="Port" label="游戏端口" :rules="[{ required: true, message: '游戏端口为必填项' }]">
               <t-input-number
                   v-model="editingConfig.Port"
@@ -53,23 +53,13 @@
               />
             </t-form-item>
           </t-col>
-          <t-col :span="3">
+          <t-col :span="4">
             <t-form-item name="RCONPort" label="RCON端口" :rules="[{ required: true, message: 'RCON端口为必填项' }]">
               <t-input-number
                   v-model="editingConfig.RCONPort"
                   :min="1"
                   :max="65535"
                   placeholder="输入RCON端口"
-              />
-            </t-form-item>
-          </t-col>
-          <t-col :span="3">
-            <t-form-item name="QueryPort" label="查询端口" :rules="[{ required: true, message: '查询端口为必填项' }]">
-              <t-input-number
-                  v-model="editingConfig.QueryPort"
-                  :min="1"
-                  :max="65535"
-                  placeholder="输入查询端口"
               />
             </t-form-item>
           </t-col>
@@ -280,7 +270,6 @@ const editingConfig = ref({
   MapName: '',
   Port: '',
   RCONPort: '',
-  QueryPort: '',
   ModIDs: '',
   SaveDir: '',
   ClusterID: '',
@@ -424,7 +413,6 @@ const initializeConfig = () => {
     MapName: props.config?.MapName || '',
     Port: props.config?.Port || '',
     RCONPort: props.config?.RCONPort || '',
-    QueryPort: props.config?.QueryPort || '',
     ModIDs: props.config?.ModIDs || '',
     SaveDir: props.config?.SaveDir || '',
     ClusterID: props.config?.ClusterID || '',
@@ -458,7 +446,6 @@ const buildPayload = () => ({
   MapName: editingConfig.value.MapName,
   Port: toNumber(editingConfig.value.Port),
   RCONPort: toNumber(editingConfig.value.RCONPort),
-  QueryPort: toNumber(editingConfig.value.QueryPort),
   ModIDs: editingConfig.value.ModIDs,
   SaveDir: editingConfig.value.SaveDir,
   ClusterID: editingConfig.value.ClusterID,

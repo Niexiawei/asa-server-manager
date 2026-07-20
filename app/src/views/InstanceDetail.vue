@@ -771,10 +771,6 @@ const fetchInstanceConfig = async () => {
           value: config.RCONPort || '-'
         },
         {
-          label: '查询端口',
-          value: config.QueryPort || '-'
-        },
-        {
           label: '绑定域名',
           value: config.BindDomain || '-'
         }

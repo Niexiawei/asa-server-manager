@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -471,6 +472,16 @@ func (h *Handler) runUpdateTask(ctx context.Context) {
 		default:
 			return false
 		}
+	}
+
+	// Step 0: 实例存活检查
+	// installer 内部也会拦（CLI 走的就是那条路），这里前置一步只为给出干净的中文提示，
+	// 并省掉白下载一遍 SteamCMD
+	if alive := procpkg.ListAliveInstances(); len(alive) > 0 {
+		h.updateBroadcaster.SendMessage(
+			fmt.Sprintf("Error: 检测到实例正在运行：%s，请先停止后再更新", strings.Join(alive, "、")),
+		)
+		return
 	}
 
 	// Step 1: SteamCMD download and extract

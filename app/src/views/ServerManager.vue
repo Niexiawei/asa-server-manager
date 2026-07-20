@@ -67,10 +67,6 @@
                     <span class="label">RCON端口:</span>
                     <span class="value">{{ instance.config.RCONPort }}</span>
                   </div>
-                  <div class="info-item" v-if="instance.config?.QueryPort">
-                    <span class="label">查询端口:</span>
-                    <span class="value">{{ instance.config.QueryPort }}</span>
-                  </div>
                   <div class="info-item info-item-custom info-item-modid">
                     <span class="label">Mod:</span>
                     <span class="value">

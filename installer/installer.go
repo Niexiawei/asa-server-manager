@@ -5,6 +5,7 @@ import (
 	cfgpkg "asa-server/config"
 	"asa-server/logger"
 	"asa-server/pkg/console"
+	procpkg "asa-server/process"
 	"context"
 	"fmt"
 	"io"
@@ -13,10 +14,54 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aymanbagabas/go-pty"
 )
+
+// server-files 的改写与实例运行互斥，本包是这条约束的唯一权威：
+// 既拦「有实例在跑就不许更新」，也对外发布「正在更新」供启动侧查询。
+//
+// 实例镜像目录里除 ShooterGame/Binaries/Win64 外全是指回 server-files 的
+// junction / 文件符号链接，更新会就地替换运行中进程正在映射的文件，直接崩服。
+var (
+	updateMu       sync.Mutex
+	updateInFlight bool
+)
+
+// beginServerFilesUpdate 在同一把锁下确认没有实例在跑，并标记「更新中」。
+// 检查与置位必须原子，否则两个并发的更新请求可能同时通过检查。
+// 成功返回后调用方必须 defer endServerFilesUpdate()。
+func beginServerFilesUpdate() error {
+	updateMu.Lock()
+	defer updateMu.Unlock()
+
+	if alive := procpkg.ListAliveInstances(); len(alive) > 0 {
+		return fmt.Errorf(
+			"cannot update server files: instance(s) still running: %s; stop them first",
+			strings.Join(alive, ", "),
+		)
+	}
+
+	updateInFlight = true
+	return nil
+}
+
+// endServerFilesUpdate 清除「更新中」标记。
+func endServerFilesUpdate() {
+	updateMu.Lock()
+	defer updateMu.Unlock()
+	updateInFlight = false
+}
+
+// IsUpdatingServerFiles 报告 server-files 是否正在被改写。
+// 实例启动前据此拒绝：更新期间源目录正在增删，此时做镜像同步只会同步出残缺镜像。
+func IsUpdatingServerFiles() bool {
+	updateMu.Lock()
+	defer updateMu.Unlock()
+	return updateInFlight
+}
 
 // findLatestLogFile finds the latest log file (ShooterGame.log or ShooterGame_N.log).
 // When multiple servers run, logs are named ShooterGame.log, ShooterGame_2.log, etc.
@@ -280,6 +325,12 @@ func DownloadAndUpdateArkServer(ctx context.Context, outputCallback ...io.Writer
 		outputWriter = outputCallback[0]
 	}
 
+	// 在动任何文件之前拦下：SteamCMD 会就地替换运行中实例正在映射的文件
+	if err := beginServerFilesUpdate(); err != nil {
+		return err
+	}
+	defer endServerFilesUpdate()
+
 	steamCmdExe := filepath.Join(cfgpkg.SteamCmdDir, "steamcmd.exe")
 
 	// Check if steamcmd.exe exists
@@ -362,6 +413,13 @@ func DownloadAndUpdateArkServer(ctx context.Context, outputCallback ...io.Writer
 // If not, it runs the server to generate initial configuration files
 // force parameter: if true, will re-run server verification even if config exists
 func VerifyServerInstallation(ctx context.Context, force bool) error {
+	// 本函数会从 server-files 拉起一个服务端进程，且不指定 -Port（占默认 7777），
+	// 与运行中的实例既撞端口又共用文件，必须同样拦下
+	if err := beginServerFilesUpdate(); err != nil {
+		return err
+	}
+	defer endServerFilesUpdate()
+
 	configDir := filepath.Join(cfgpkg.ServerFilesDir, "ShooterGame/Saved/Config/WindowsServer")
 
 	// Check if configuration directory already exists

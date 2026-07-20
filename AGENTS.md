@@ -65,7 +65,7 @@ asa-server/
 ## Key Packages
 
 ### `asaserver` - Core Logic
-- `InstanceConfig`: ServerName, ServerPassword, ServerAdminPassword, MaxPlayers, MapName, RCONPort, QueryPort, Port, ModIDs, SaveDir, ClusterID, CustomStartParameters, EnableAsaPlugin, BindDomain, MessageOfTheDay
+- `InstanceConfig`: ServerName, ServerPassword, ServerAdminPassword, MaxPlayers, MapName, RCONPort, Port, ModIDs, SaveDir, ClusterID, CustomStartParameters, EnableAsaPlugin, BindDomain, MessageOfTheDay
 - `StartServer()`: Builds command line, creates NTFS junctions for per-instance config, supports both direct `ArkAscendedServer.exe` and `AsaApiLoader.exe` startup
 - `StopServer()`: Sends RCON `saveworld`, then `DoExit` or `taskkill`
 - `SendRCONCommand()`: Uses `gorcon/rcon` with 3 retries

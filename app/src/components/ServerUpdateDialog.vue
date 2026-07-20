@@ -86,6 +86,17 @@ const props = defineProps({
 
 const emits = defineEmits(['update:visible', 'refresh'])
 
+// 视为「实例仍占用着服务端文件」的状态，取值见后端 state.InstanceStatus
+const ACTIVE_STATUSES = [
+  'start_initialization',
+  'start_initialization_successful',
+  'starting',
+  'started',
+  'stopping',
+  'restarting',
+  'restarted',
+]
+
 // ========== 更新状态 ==========
 const updating = ref(false)
 const updateLogs = ref([])
@@ -161,7 +172,11 @@ function handleUpdateLogMessage(message) {
 async function handleStartUpdate() {
   try {
     const {data: {instances}} = await listInstances()
-    const runningInstances = instances?.filter(i => i.running) || []
+    // running 来自后端的端口监听检查，实例处于启动中（进程已起、端口未绑定）时为 false，
+    // 所以额外把这些过渡状态也算作正在运行，与后端的存活判据保持一致
+    const runningInstances = instances?.filter(
+        i => i.running || ACTIVE_STATUSES.includes(i.status)
+    ) || []
     if (runningInstances.length > 0) {
       MessagePlugin.warning(`以下实例正在运行：${runningInstances.map(i => i.name).join('、')}，请先关闭所有实例`)
       return

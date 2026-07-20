@@ -36,7 +36,6 @@ type InstanceConfig struct {
 	MaxPlayers              int
 	MapName                 string
 	RCONPort                int
-	QueryPort               int
 	Port                    int
 	ModIDs                  string
 	SaveDir                 string
@@ -55,7 +54,6 @@ type UpdateInstanceConfigRequest struct {
 	MaxPlayers              *int   `json:"MaxPlayers,omitempty"`
 	MapName                 string `json:"MapName,omitempty"`
 	RCONPort                *int   `json:"RCONPort,omitempty"`
-	QueryPort               *int   `json:"QueryPort,omitempty"`
 	Port                    *int   `json:"Port,omitempty"`
 	ModIDs                  string `json:"ModIDs,omitempty"`
 	SaveDir                 string `json:"SaveDir,omitempty"`
@@ -109,7 +107,6 @@ func LoadInstanceConfig(instanceName string) (*InstanceConfig, error) {
 		MaxPlayers:      70,
 		MapName:         "TheIsland_WP",
 		RCONPort:        27020,
-		QueryPort:       27015,
 		Port:            7777,
 		EnableAsaPlugin: false,
 		BindDomain:      "",
@@ -146,10 +143,6 @@ func LoadInstanceConfig(instanceName string) (*InstanceConfig, error) {
 		case "RCONPort":
 			if val, err := strconv.Atoi(value); err == nil {
 				config.RCONPort = val
-			}
-		case "QueryPort":
-			if val, err := strconv.Atoi(value); err == nil {
-				config.QueryPort = val
 			}
 		case "Port":
 			if val, err := strconv.Atoi(value); err == nil {
@@ -205,7 +198,6 @@ ServerAdminPassword=%s
 MaxPlayers=%d
 MapName=%s
 RCONPort=%d
-QueryPort=%d
 Port=%d
 ModIDs=%s
 CustomStartParameters=%s
@@ -222,7 +214,6 @@ MessageOfTheDay=%s
 		config.MaxPlayers,
 		config.MapName,
 		config.RCONPort,
-		config.QueryPort,
 		config.Port,
 		config.ModIDs,
 		config.CustomStartParameters,
@@ -275,9 +266,6 @@ func UpdateInstanceConfig(instanceName string, req UpdateInstanceConfigRequest) 
 	}
 	if req.RCONPort != nil {
 		currentConfig.RCONPort = *req.RCONPort
-	}
-	if req.QueryPort != nil {
-		currentConfig.QueryPort = *req.QueryPort
 	}
 	if req.Port != nil {
 		currentConfig.Port = *req.Port
@@ -347,7 +335,6 @@ func CreateDefaultInstanceConfig(instanceName string) *InstanceConfig {
 		MaxPlayers:            70,
 		MapName:               "TheIsland_WP",
 		RCONPort:              27020,
-		QueryPort:             27015,
 		Port:                  7777,
 		ModIDs:                "",
 		SaveDir:               instanceName,
@@ -467,7 +454,6 @@ func CheckForDuplicatePorts() error {
 
 	portMap := make(map[int]string)
 	rconMap := make(map[int]string)
-	queryMap := make(map[int]string)
 
 	for _, instanceName := range instances {
 		config, err := LoadInstanceConfig(instanceName)
@@ -487,13 +473,6 @@ func CheckForDuplicatePorts() error {
 				return fmt.Errorf("port conflict: RCON port %d is used by both '%s' and '%s'", config.RCONPort, existing, instanceName)
 			}
 			rconMap[config.RCONPort] = instanceName
-		}
-
-		if config.QueryPort > 0 {
-			if existing, exists := queryMap[config.QueryPort]; exists {
-				return fmt.Errorf("port conflict: query port %d is used by both '%s' and '%s'", config.QueryPort, existing, instanceName)
-			}
-			queryMap[config.QueryPort] = instanceName
 		}
 	}
 
@@ -540,7 +519,7 @@ func WithOnlySyncServerGameINIConfig(sync bool) SetSyncInstanceConfig {
 // 2. Specific fields from instance_config.ini: ModIDs, ServerPassword, ServerAdminPassword, BindDomain
 // 3. CustomStartParameters (if syncCustomStartParameters is true)
 // 4. EnableAsaPlugin (if syncEnableAsaPlugin is true)
-// The target instance keeps its other configuration fields (ServerName, Port, RCONPort, QueryPort, MaxPlayers, MapName, SaveDir, ClusterID)
+// The target instance keeps its other configuration fields (ServerName, Port, RCONPort, MaxPlayers, MapName, SaveDir, ClusterID)
 func SyncInstanceConfigFromSource(sourceInstanceName, targetInstanceName string, options ...SetSyncInstanceConfig) error {
 	opts := newSyncInstanceConfigOptions()
 	for _, option := range options {
@@ -559,7 +538,7 @@ func SyncInstanceConfigFromSource(sourceInstanceName, targetInstanceName string,
 	}
 
 	// Sync specific fields from source to target
-	// Keep target's ServerName, Port, RCONPort, QueryPort, MaxPlayers, MapName, SaveDir, ClusterID
+	// Keep target's ServerName, Port, RCONPort, MaxPlayers, MapName, SaveDir, ClusterID
 	targetConfig.ModIDs = sourceConfig.ModIDs
 	targetConfig.ServerPassword = sourceConfig.ServerPassword
 	targetConfig.ServerAdminPassword = sourceConfig.ServerAdminPassword
@@ -645,7 +624,7 @@ func SyncInstanceConfigFromSource(sourceInstanceName, targetInstanceName string,
 // 2. Specific fields from instance_config.ini: ModIDs, ServerPassword, ServerAdminPassword, BindDomain
 // 3. CustomStartParameters (if syncCustomStartParameters is true)
 // 4. EnableAsaPlugin (if syncEnableAsaPlugin is true)
-// The target instances keep their other configuration fields (ServerName, Port, RCONPort, QueryPort, MaxPlayers, MapName, SaveDir, ClusterID)
+// The target instances keep their other configuration fields (ServerName, Port, RCONPort, MaxPlayers, MapName, SaveDir, ClusterID)
 // Returns a map of target instance names to their sync results (error or nil if successful)
 func SyncInstanceConfigToMultiple(sourceInstanceName string, targetInstanceNames []string, options ...SetSyncInstanceConfig) map[string]error {
 	results := make(map[string]error)

@@ -1245,7 +1245,7 @@
     "/api/config/sync-instance": {
       "post": {
         "summary": "Sync instance configuration and files from source to multiple target instances",
-        "description": "Synchronizes instance configuration (ModIDs, CustomStartParameters, ServerPassword, ServerAdminPassword, EnableAsaPlugin) and entire Config folder from a source instance to multiple target instances. Target instances keep their other configuration fields (ServerName, Port, RCONPort, QueryPort, MaxPlayers, MapName, SaveDir, ClusterID) intact.",
+        "description": "Synchronizes instance configuration (ModIDs, CustomStartParameters, ServerPassword, ServerAdminPassword, EnableAsaPlugin) and entire Config folder from a source instance to multiple target instances. Target instances keep their other configuration fields (ServerName, Port, RCONPort, MaxPlayers, MapName, SaveDir, ClusterID) intact.",
         "tags": ["Configuration"],
         "operationId": "syncInstanceConfig",
         "requestBody": {
@@ -2430,11 +2430,6 @@
             "description": "RCON port for remote control",
             "example": 27020
           },
-          "QueryPort": {
-            "type": "integer",
-            "description": "Query port for server discovery",
-            "example": 27015
-          },
           "ModIDs": {
             "type": "string",
             "description": "Comma-separated list of mod IDs"
@@ -2489,10 +2484,6 @@
           "RCONPort": {
             "type": "integer",
             "description": "RCON port for remote control"
-          },
-          "QueryPort": {
-            "type": "integer",
-            "description": "Query port for server discovery"
           },
           "ModIDs": {
             "type": "string",
