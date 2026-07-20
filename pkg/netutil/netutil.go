@@ -1,10 +1,31 @@
-// Package netutil provides DNS resolution helpers with no domain dependencies.
+// Package netutil provides DNS resolution and port helpers with no domain dependencies.
 package netutil
 
 import (
 	"fmt"
 	"net"
 )
+
+// FreeUDPPort 向系统申请一个当前空闲的 UDP 端口号。
+//
+// 绑定 :0 让内核从临时端口范围里分配一个没人占用的端口，随即关闭并返回该端口号。
+// ARK 的 -Port 是 UDP 游戏端口，因此只查 UDP。
+//
+// 注意：关闭与调用方真正绑定之间存在理论上的抢占窗口，这是本模式的固有限制。
+func FreeUDPPort() (int, error) {
+	conn, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		return 0, fmt.Errorf("failed to acquire a free UDP port: %w", err)
+	}
+	defer conn.Close()
+
+	addr, ok := conn.LocalAddr().(*net.UDPAddr)
+	if !ok {
+		return 0, fmt.Errorf("unexpected local address type %T", conn.LocalAddr())
+	}
+
+	return addr.Port, nil
+}
 
 // ResolveDomainToIP resolves a domain name to its IP addresses.
 func ResolveDomainToIP(domain string) ([]string, error) {

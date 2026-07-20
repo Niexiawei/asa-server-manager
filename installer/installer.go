@@ -5,6 +5,7 @@ import (
 	cfgpkg "asa-server/config"
 	"asa-server/logger"
 	"asa-server/pkg/console"
+	"asa-server/pkg/netutil"
 	procpkg "asa-server/process"
 	"context"
 	"fmt"
@@ -450,10 +451,20 @@ func VerifyServerInstallation(ctx context.Context, force bool) error {
 	// Get the logs directory path
 	logsDir := filepath.Join(cfgpkg.ServerFilesDir, "ShooterGame/Saved/Logs")
 
+	// 挑一个空闲端口，避免和占用 ARK 默认 7777 的其他程序撞车。
+	// 拿不到就退回 7777（原有行为），不因此让整个验证流程失败。
+	port, err := netutil.FreeUDPPort()
+	if err != nil {
+		logger.GetLogger().Warnf("Failed to get a free UDP port, falling back to 7777: %v", err)
+		port = 7777
+	}
+	logger.GetLogger().Infof("Running server verification on port %d...", port)
+
 	// Start the server to generate config files
 	cmd := exec.Command(
 		arkExe,
 		"TheIsland_WP?listen",
+		fmt.Sprintf("-Port=%d", port),
 		"-NoBattlEye",
 		"-crossplay",
 		"-server",
