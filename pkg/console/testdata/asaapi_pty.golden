@@ -1,0 +1,37 @@
+[Success]: Detected Server: ArkAscendedServer.exe
+[Success]: Detected Api: AsaApi.dll
+07/19/26 14:49 [API][info] -----------------------------------------------
+07/19/26 14:49 [API][info] ARK:SA Api V2.01
+07/19/26 14:49 [API][info] Brought to you by ArkServerApi
+07/19/26 14:49 [API][info] https://github.com/orgs/ArkServerApi
+07/19/26 14:49 [API][info] Website: https://ark-server-api.com
+07/19/26 14:49 [API][info] Loading...
+07/19/26 14:49 [API][info] Added DLL search directory: E:\asa_server_data\server-files-tmp-meijue\ShooterGame\Binaries\Win64\ArkApi
+07/19/26 14:49 [API][info] Checking for a verified local cache for e3a84e3324683bb07d1e7096e7010798ea2e40ca0d1d820033802baf654dd28d.zip
+07/19/26 14:49 [API][info] A verified local cache matches the current executable
+07/19/26 14:49 [API][info] Checking e3a84e3324683bb07d1e7096e7010798ea2e40ca0d1d820033802baf654dd28d.zip for an updated cache archive (attempt 1/3)
+07/19/26 14:49 [API][info] The verified local cache is current
+07/19/26 14:49 [API][info] Reading cached offsets
+07/19/26 14:49 [API][info] Reading cached bitfields
+07/19/26 14:49 [API][info] Initialized hooks
+07/19/26 14:49 [API][info] API was successfully loaded
+07/19/26 14:49 [API][info] -----------------------------------------------
+[Success]: Loader Completed, Reason: Success
+07/19/26 14:49 [API][info] UGameEngine::Init was called
+07/19/26 14:49 [API][info] Loading plugins..
+07/19/26 14:49 [CrosschatAscended][critical] Failed to connect to MySQL database!
+ Unable to connect to localhost
+07/19/26 14:49 [API][info] Loaded plugin CrossChatAscended V1.72 ((1.7.2) Free crosschat system with MySQL)
+07/19/26 14:49 [API][info] Loaded plugin Ark:SA Permissions V1.1 (Manage permissions groups)
+07/19/26 14:49 [API][info] Loaded all plugins
+Setting breakpad minidump AppID = 2399830
+07-19 14:49:44.964 59648 66568 I Info/GameAnalytics : Log file added under: C:\Users\niexiawei\AppData\Local\GameAnalytics/ga_log.txt
+07-19 14:49:44.964 59648 66568 I Info/GameAnalytics : Set available resource currencies: (SkillPoint, DinoSkillPoint)
+07-19 14:49:44.964 59648 66568 I Info/GameAnalytics : Set available resource item types: (LevelUp, DinoLevelUp, Skill)
+07-19 14:49:44.964 59648 66568 I Info/GameAnalytics : Database opened: C:\Users\niexiawei\AppData\Local\GameAnalytics\7bc6def93c286385a4e1d75fb26f10ad\ga.sqlite3
+07-19 14:49:44.965 59648 66568 D Debug/GameAnalytics : Database tables ensured present
+07-19 14:49:44.965 59648 66568 D Debug/GameAnalytics : identifier, {clean:2f2166e8-6f31-45af-ac5a-b8de66fa391f}
+07-19 14:49:44.973 59648 66568 I Info/GameAnalytics : Starting a new session.
+07-19 14:49:44.973 59648 66568 D Debug/GameAnalytics : Sending 'init' URL: https://api.gameanalytics.com/remote_configs/v1/init?game_key=7bc6def93c286385a4e1d75fb26f10ad&interval_seconds=0&configs_hash=
+07-19 14:49:44.973 59648 66568 D Debug/GameAnalytics : identifier, {clean:2f2166e8-6f31-45af-ac5a-b8de66fa391f}
+07-19 14:49:44.980 59648 66568 D Debug/GameAnalytics : Gzip stats. Size: 262, Compressed: 192

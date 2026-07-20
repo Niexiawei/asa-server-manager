@@ -4,6 +4,7 @@ import (
 	cfgpkg "asa-server/config"
 	"asa-server/logger"
 	"asa-server/mirror"
+	"asa-server/pkg/console"
 	"asa-server/pkg/fsutil"
 	"asa-server/pkg/netutil"
 	"asa-server/pkg/winproc"
@@ -379,11 +380,11 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 		} else if apiLogFile, openErr := os.OpenFile(apiLogPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644); openErr != nil {
 			logger.GetLogger().Warnf("Failed to open AsaApi log file %s: %v", apiLogPath, openErr)
 		} else {
-			// cleaner 独占该句柄，pty 关闭后 CleanConsoleOutput 返回并释放
+			// cleaner 独占该句柄，pty 关闭后 CleanScreenOutput 返回并释放
+			// AsaApiLoader 用光标定位排版，必须走 CleanScreenOutput 而非 CleanConsoleOutput
 			go func() {
 				defer apiLogFile.Close()
-				//_ = console.CleanConsoleOutput(pp, apiLogFile)
-				io.Copy(apiLogFile, pp)
+				_ = console.CleanScreenOutput(pp, apiLogFile)
 			}()
 		}
 

@@ -48,6 +48,17 @@ var (
 	ctrlRegexp = regexp.MustCompile(
 		`[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]`,
 	)
+
+	// 光标定位序列
+	//
+	// CUP: ESC[row;colH 或 ESC[row;colf
+	// CNL: ESC[nE
+	//
+	// 屏幕型程序（如 AsaApiLoader）不发 \n，而是用它跳到下一行，
+	// 因此必须翻成换行而不是直接删掉，否则相邻两条记录会粘成一行
+	cursorNewlineRegexp = regexp.MustCompile(
+		`\x1B\[[0-9;]*[HfE]`,
+	)
 )
 
 // CleanConsoleOutput reads from r line by line, strips ANSI escape sequences and
@@ -96,6 +107,68 @@ func CleanConsoleOutput(
 			append(line, '\n'),
 		); err != nil {
 			return err
+		}
+	}
+
+	return scanner.Err()
+}
+
+// CleanScreenOutput 清洗「用光标定位排版」的控制台输出（如 AsaApiLoader）。
+//
+// 与 CleanConsoleOutput 的唯一区别：先把光标定位序列翻成换行，再按同样的规则清洗。
+// 这类程序换行不发 \n，若把光标定位当普通 ANSI 删掉，相邻两条记录会粘成一行。
+// steamcmd 不这么排版（靠 \r 重画进度行），所以它仍应使用 CleanConsoleOutput。
+func CleanScreenOutput(
+	r io.Reader,
+	w io.Writer,
+) error {
+
+	scanner := bufio.NewScanner(r)
+
+	// 增大单行限制
+	scanner.Buffer(
+		make([]byte, 4096),
+		10*1024*1024,
+	)
+
+	// 首行为空同样跳过，避免开头就是空行
+	prevBlank := true
+
+	for scanner.Scan() {
+
+		// 一条输入行可能被光标定位切成多行
+		raw := cursorNewlineRegexp.ReplaceAll(
+			scanner.Bytes(),
+			[]byte{'\n'},
+		)
+
+		for line := range bytes.SplitSeq(raw, []byte{'\n'}) {
+
+			// remove ANSI color/control sequences
+			// ReplaceAll 必定返回新分配的切片，后面 append 不会写坏 raw 的底层数组
+			line = ansiRegexp.ReplaceAll(line, nil)
+
+			// remove non-printable control chars
+			line = ctrlRegexp.ReplaceAll(line, nil)
+
+			// 保留换行，去掉尾部空格
+			line = bytes.TrimRight(
+				line,
+				" \t",
+			)
+
+			// 折叠连续空行
+			blank := len(line) == 0
+			if blank && prevBlank {
+				continue
+			}
+			prevBlank = blank
+
+			if _, err := w.Write(
+				append(line, '\n'),
+			); err != nil {
+				return err
+			}
 		}
 	}
 
