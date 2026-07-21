@@ -172,6 +172,9 @@ type BatchOperation struct {
 	cancel       context.CancelFunc
 	skipChannels map[string]chan struct{}
 
+	// done 在操作结束（完成/取消/panic）时关闭，供调用方等待批量操作跑完
+	done chan struct{}
+
 	logBroadcaster *LogBroadcaster
 	logHistory     []BatchLogEntry
 	mu             sync.RWMutex
@@ -254,6 +257,7 @@ func (bm *BatchManager) StartOperation(opType BatchOperationType, instances []st
 		ctx:             ctx,
 		cancel:          cancel,
 		skipChannels:    skipChannels,
+		done:            make(chan struct{}),
 		logBroadcaster:  logBroadcaster,
 		logHistory:      make([]BatchLogEntry, 0, 50),
 	}
@@ -356,6 +360,9 @@ func (op *BatchOperation) setResult(instanceName string, status InstanceOpStatus
 
 // runBatchOperation 执行批量操作主循环
 func (bm *BatchManager) runBatchOperation(op *BatchOperation) {
+	// 最先注册 = 最后执行：等状态、广播、单例都收拾干净了再放行等待方
+	defer close(op.done)
+
 	defer func() {
 		op.mu.Lock()
 		op.Status = "completed"
@@ -528,6 +535,14 @@ func (op *BatchOperation) GetLogHistory() []BatchLogEntry {
 // GetLogBroadcaster 获取日志广播器
 func (op *BatchOperation) GetLogBroadcaster() *LogBroadcaster {
 	return op.logBroadcaster
+}
+
+// Done 返回一个在批量操作结束（完成/取消/panic）时关闭的 channel。
+//
+// 返回 channel 而非提供 Wait() 方法，是为了让调用方能把它和自己的 ctx 一起 select，
+// 不至于在批量操作卡住时被无限期拖住。
+func (op *BatchOperation) Done() <-chan struct{} {
+	return op.done
 }
 
 // batchDoCAS 为批量操作做原子 CAS。成功（ok=true）时状态已设置，调用方应传 WithStatePreset。

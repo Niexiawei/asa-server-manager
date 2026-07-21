@@ -8,14 +8,17 @@ import (
 	"asa-server/logger"
 	"asa-server/parseserver"
 	"asa-server/realtime"
+	"asa-server/schedule"
 	statepkg "asa-server/state"
 	"asa-server/syncthingmanage"
+	"asa-server/updatemanage"
 	"asa-server/webapi/backupapi"
 	"asa-server/webapi/configapi"
 	"asa-server/webapi/iconapi"
 	"asa-server/webapi/instanceapi"
 	"asa-server/webapi/logapi"
 	"asa-server/webapi/saveapi"
+	"asa-server/webapi/scheduleapi"
 	"asa-server/webapi/serverapi"
 	"context"
 	"errors"
@@ -97,6 +100,11 @@ func (s *APIServer) Start() error {
 	}
 	s.startStateChangeDispatcher(s.serverCtx)
 
+	// 定时调度必须在状态管理器之后启动：批量启停依赖 state 的 CAS
+	if sched := schedule.GetGlobalScheduler(); sched != nil {
+		sched.Start()
+	}
+
 	// Start save file monitor
 	if s.saveDataManager != nil {
 		go s.saveDataManager.Start(s.serverCtx)
@@ -147,6 +155,12 @@ func (s *APIServer) Stop() error {
 		}
 	}
 
+	// Stop the schedule loop before the batch manager: a tick could otherwise
+	// kick off a new batch operation right as we are shutting one down
+	if sched := schedule.GetGlobalScheduler(); sched != nil {
+		sched.Stop()
+	}
+
 	// Stop batch manager
 	if mgr := batchmanage.GetGlobalManager(); mgr != nil {
 		mgr.Shutdown()
@@ -184,6 +198,7 @@ func (s *APIServer) setupRoutes() {
 	saveapi.NewHandler(s.serverCtx, s.saveDataManager).RegisterRouter(s.engine)
 	logapi.NewHandler(s.serverCtx).RegisterRouter(s.engine)
 	iconapi.NewHandler().RegisterRouter(s.engine)
+	scheduleapi.NewHandler().RegisterRouter(s.engine)
 
 	// WebSocket endpoints
 	s.engine.GET("/api/ws/events", realtime.HandleServerEvents)
@@ -235,6 +250,12 @@ func InitializationBasicComponents() {
 	}
 	// Initialize batch manager
 	batchmanage.Initialize()
+	// Initialize update manager
+	updatemanage.Initialize()
+	// Initialize schedule scheduler (loads persisted tasks; Start() begins the loop)
+	if err := schedule.Initialize(); err != nil {
+		log.Fatal(err)
+	}
 }
 
 // ActionAPI starts the HTTP API server

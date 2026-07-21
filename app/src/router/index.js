@@ -29,6 +29,11 @@ const routes = [
         path: '/syncthing-manager',
         name: 'SyncthingManager',
         component: () => import('@/views/SyncthingManager.vue'),
+    },
+    {
+        path: '/schedule-manager',
+        name: 'ScheduleManager',
+        component: () => import('@/views/ScheduleManager.vue'),
     }
 ]
 

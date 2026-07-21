@@ -258,3 +258,35 @@ export function getUpdateStatus() {
 export function cancelUpdate() {
     return apiClient.post('/api/server/update/cancel')
 }
+
+// ==================== 定时任务 ====================
+
+// 获取定时任务列表
+export function listScheduleTasks() {
+    return apiClient.get('/api/schedule/tasks')
+}
+
+// 新建定时任务
+export function createScheduleTask(task) {
+    return apiClient.post('/api/schedule/tasks', task)
+}
+
+// 修改定时任务
+export function updateScheduleTask(id, task) {
+    return apiClient.put(`/api/schedule/tasks/${id}`, task)
+}
+
+// 删除定时任务
+export function deleteScheduleTask(id) {
+    return apiClient.delete(`/api/schedule/tasks/${id}`)
+}
+
+// 启用/停用定时任务
+export function toggleScheduleTask(id, enabled) {
+    return apiClient.post(`/api/schedule/tasks/${id}/toggle`, {enabled})
+}
+
+// 立即执行一次定时任务
+export function runScheduleTaskNow(id) {
+    return apiClient.post(`/api/schedule/tasks/${id}/run`)
+}

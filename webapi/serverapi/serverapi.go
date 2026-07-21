@@ -2,38 +2,30 @@ package serverapi
 
 import (
 	cfgpkg "asa-server/config"
-	"asa-server/installer"
 	instancepkg "asa-server/instance"
 	"asa-server/logger"
 	"asa-server/pkg/serverinfo"
 	"asa-server/pkg/winproc"
 	procpkg "asa-server/process"
-	"asa-server/realtime"
 	statepkg "asa-server/state"
+	"asa-server/updatemanage"
 	"asa-server/webapi/apiresp"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/gin-gonic/gin"
 )
 
 type Handler struct {
-	serverCtx         context.Context
-	updateBroadcaster *realtime.TaskBroadcaster
-	updateCancel      atomic.Pointer[context.CancelFunc]
+	serverCtx context.Context
 }
 
 func NewHandler(serverCtx context.Context) *Handler {
-	return &Handler{
-		serverCtx:         serverCtx,
-		updateBroadcaster: realtime.NewTaskBroadcaster(),
-	}
+	return &Handler{serverCtx: serverCtx}
 }
 
 func (h *Handler) RegisterRouter(r *gin.Engine) {
@@ -175,22 +167,18 @@ func (h *Handler) handleServerUpdate(c *gin.Context) {
 	c.Header("Access-Control-Allow-Headers", "Content-Type")
 	c.Header("X-Accel-Buffering", "no")
 
+	mgr := updatemanage.GetGlobalManager()
+
 	// H8 fix: Subscribe FIRST to avoid TOCTOU race (missing events between check and subscribe)
-	subscriber, unsubscribe := h.updateBroadcaster.Subscribe()
+	subscriber, unsubscribe := mgr.Subscribe()
 	defer unsubscribe()
 
 	// Only start a new update task when none is running; reconnecting clients subscribe only.
-	// Start() atomically elects a single winner, so only that goroutine stores the cancel func.
-	if !h.updateBroadcaster.IsRunning() {
-		if h.updateBroadcaster.Start() {
-			ctx, cancel := context.WithCancel(context.Background())
-			h.updateCancel.Store(&cancel)
-			go h.runUpdateTask(ctx)
-		}
-	}
+	// Start() atomically elects a single winner.
+	mgr.Start()
 
 	// Replay history for late subscribers (e.g. page refresh)
-	for _, msg := range h.updateBroadcaster.GetHistory() {
+	for _, msg := range mgr.GetHistory() {
 		fmt.Fprintf(c.Writer, "data: %s\n\n", msg)
 	}
 	c.Writer.Flush()
@@ -218,14 +206,13 @@ func (h *Handler) getUpdateStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, apiresp.StatusResponse{
 		Success: true,
 		Data: gin.H{
-			"running": h.updateBroadcaster.IsRunning(),
+			"running": updatemanage.GetGlobalManager().IsRunning(),
 		},
 	})
 }
 
 func (h *Handler) cancelUpdate(c *gin.Context) {
-	cancelPtr := h.updateCancel.Load()
-	if cancelPtr == nil || !h.updateBroadcaster.IsRunning() {
+	if !updatemanage.GetGlobalManager().Cancel() {
 		c.JSON(http.StatusNotFound, apiresp.StatusResponse{
 			Success: false,
 			Error:   "没有正在进行的更新",
@@ -233,7 +220,6 @@ func (h *Handler) cancelUpdate(c *gin.Context) {
 		return
 	}
 
-	(*cancelPtr)()
 	c.JSON(http.StatusOK, apiresp.StatusResponse{
 		Success: true,
 		Message: "已发送取消指令",
@@ -429,105 +415,6 @@ func (h *Handler) streamAllInstancesInfo(c *gin.Context) {
 			return false
 		}
 	})
-}
-
-func (h *Handler) runUpdateTask(ctx context.Context) {
-	defer h.updateBroadcaster.Stop()
-
-	realtime.BroadcastUpdateStarted()
-
-	cancelled := false
-	defer func() {
-		if cancelled {
-			realtime.BroadcastUpdateCancelled()
-		} else {
-			realtime.BroadcastUpdateCompleted()
-		}
-	}()
-
-	// Clean up update cancel func on exit.
-	// This Store(nil) runs before the deferred Stop() (LIFO), so it happens-before
-	// running flips to false and thus before any subsequent Start() can store a new one.
-	defer func() {
-		h.updateCancel.Store(nil)
-	}()
-
-	defer func() {
-		if r := recover(); r != nil {
-			logger.GetLogger().Errorf("Server update panic: %v", r)
-			h.updateBroadcaster.SendMessage(fmt.Sprintf("Error: Server update panic: %v", r))
-		}
-	}()
-
-	// Create progress writer
-	writer := &realtime.UpdateProgressWriter{Broadcaster: h.updateBroadcaster}
-
-	// Check context before each step
-	checkCancelled := func() bool {
-		select {
-		case <-ctx.Done():
-			h.updateBroadcaster.SendMessage("[CANCELLED] 更新已取消")
-			cancelled = true
-			return true
-		default:
-			return false
-		}
-	}
-
-	// Step 0: 实例存活检查
-	// installer 内部也会拦（CLI 走的就是那条路），这里前置一步只为给出干净的中文提示，
-	// 并省掉白下载一遍 SteamCMD
-	if alive := procpkg.ListAliveInstances(); len(alive) > 0 {
-		h.updateBroadcaster.SendMessage(
-			fmt.Sprintf("Error: 检测到实例正在运行：%s，请先停止后再更新", strings.Join(alive, "、")),
-		)
-		return
-	}
-
-	// Step 1: SteamCMD download and extract
-	if checkCancelled() {
-		return
-	}
-	h.updateBroadcaster.SendMessage("Downloading and extracting SteamCMD...")
-	if err := installer.DownloadAndExtractSteamCmd(ctx, writer); err != nil {
-		if ctx.Err() != nil {
-			cancelled = true
-			return // cancelled
-		}
-		h.updateBroadcaster.SendMessage(fmt.Sprintf("Error: Failed to download SteamCMD: %v", err))
-		return
-	}
-
-	// Step 2: ARK server update
-	if checkCancelled() {
-		return
-	}
-	h.updateBroadcaster.SendMessage("Downloading and updating ARK server files...")
-	if err := installer.DownloadAndUpdateArkServer(ctx, writer); err != nil {
-		if ctx.Err() != nil {
-			cancelled = true
-			return // cancelled
-		}
-		h.updateBroadcaster.SendMessage(fmt.Sprintf("Error: Failed to update ARK server: %v", err))
-		return
-	}
-
-	// Step 3: Server verification
-	if checkCancelled() {
-		return
-	}
-	h.updateBroadcaster.SendMessage("Verifying server installation...")
-	if err := installer.VerifyServerInstallation(ctx, false); err != nil {
-		if ctx.Err() != nil {
-			cancelled = true
-			return // cancelled
-		}
-		h.updateBroadcaster.SendMessage(fmt.Sprintf("Error: Server verification failed: %v", err))
-		return
-	}
-
-	// Update completed
-	h.updateBroadcaster.SendMessage("[COMPLETED] Server update completed successfully!")
 }
 
 func (h *Handler) runStartServerTask(name string) {
