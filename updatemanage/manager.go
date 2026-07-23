@@ -24,8 +24,13 @@ type UpdateManager struct {
 
 	// done 在每次更新结束时关闭，供调度器等待更新完成。
 	// 初值是一个已关闭的 channel，这样「从未跑过」时等待方不会永久阻塞。
-	mu   sync.Mutex
-	done chan struct{}
+	//
+	// result 是**最近一次**更新的结果，与 done 同受 mu 保护：等到 done 关闭后读它，
+	// 拿到的必然是那一次的结论。没有它的话，失败只存在于 SSE 消息流里——
+	// 调度器等到 done 关闭就以为更新成功了。
+	mu     sync.Mutex
+	done   chan struct{}
+	result error
 }
 
 var globalManager *UpdateManager
@@ -65,11 +70,28 @@ func (m *UpdateManager) Start() (<-chan struct{}, bool) {
 	m.cancel.Store(&cancel)
 
 	m.done = make(chan struct{})
+	m.result = nil
 	done := m.done
 
 	go m.run(ctx, done)
 
 	return done, true
+}
+
+// Result 返回最近一次更新的结果，nil 表示成功（或从未跑过）。
+//
+// 只有在对应的 done 关闭之后读才有意义；更新进行中读到的是上一次的结果。
+func (m *UpdateManager) Result() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.result
+}
+
+// setResult 记录本次更新的结果。
+func (m *UpdateManager) setResult(err error) {
+	m.mu.Lock()
+	m.result = err
+	m.mu.Unlock()
 }
 
 // IsRunning 是否有更新正在进行。
@@ -117,10 +139,26 @@ func (m *UpdateManager) run(ctx context.Context, done chan struct{}) {
 
 	defer func() {
 		if r := recover(); r != nil {
+			err := fmt.Errorf("server update panic: %v", r)
 			logger.GetLogger().Errorf("Server update panic: %v", r)
-			m.broadcaster.SendMessage(fmt.Sprintf("Error: Server update panic: %v", r))
+			m.broadcaster.SendMessage("Error: " + err.Error())
+			m.setResult(err)
 		}
 	}()
+
+	// fail 统一处理失败：写日志（原先只发 SSE，失败在日志里完全没有痕迹）、
+	// 保持 "Error: " 前缀的 SSE 报文格式不变、记录结果供 Result() 取回。
+	fail := func(format string, args ...any) {
+		err := fmt.Errorf(format, args...)
+		logger.GetLogger().Errorf("Server update failed: %v", err)
+		m.broadcaster.SendMessage("Error: " + err.Error())
+		m.setResult(err)
+	}
+
+	markCancelled := func() {
+		cancelled = true
+		m.setResult(context.Canceled)
+	}
 
 	// Create progress writer
 	writer := &realtime.UpdateProgressWriter{Broadcaster: m.broadcaster}
@@ -130,7 +168,7 @@ func (m *UpdateManager) run(ctx context.Context, done chan struct{}) {
 		select {
 		case <-ctx.Done():
 			m.broadcaster.SendMessage("[CANCELLED] 更新已取消")
-			cancelled = true
+			markCancelled()
 			return true
 		default:
 			return false
@@ -141,9 +179,7 @@ func (m *UpdateManager) run(ctx context.Context, done chan struct{}) {
 	// installer 内部也会拦（CLI 走的就是那条路），这里前置一步只为给出干净的中文提示，
 	// 并省掉白下载一遍 SteamCMD
 	if alive := procpkg.ListAliveInstances(); len(alive) > 0 {
-		m.broadcaster.SendMessage(
-			fmt.Sprintf("Error: 检测到实例正在运行：%s，请先停止后再更新", strings.Join(alive, "、")),
-		)
+		fail("检测到实例正在运行：%s，请先停止后再更新", strings.Join(alive, "、"))
 		return
 	}
 
@@ -154,10 +190,10 @@ func (m *UpdateManager) run(ctx context.Context, done chan struct{}) {
 	m.broadcaster.SendMessage("Downloading and extracting SteamCMD...")
 	if err := installer.DownloadAndExtractSteamCmd(ctx, writer); err != nil {
 		if ctx.Err() != nil {
-			cancelled = true
+			markCancelled()
 			return // cancelled
 		}
-		m.broadcaster.SendMessage(fmt.Sprintf("Error: Failed to download SteamCMD: %v", err))
+		fail("Failed to download SteamCMD: %w", err)
 		return
 	}
 
@@ -168,10 +204,10 @@ func (m *UpdateManager) run(ctx context.Context, done chan struct{}) {
 	m.broadcaster.SendMessage("Downloading and updating ARK server files...")
 	if err := installer.DownloadAndUpdateArkServer(ctx, writer); err != nil {
 		if ctx.Err() != nil {
-			cancelled = true
+			markCancelled()
 			return // cancelled
 		}
-		m.broadcaster.SendMessage(fmt.Sprintf("Error: Failed to update ARK server: %v", err))
+		fail("Failed to update ARK server: %w", err)
 		return
 	}
 
@@ -182,10 +218,10 @@ func (m *UpdateManager) run(ctx context.Context, done chan struct{}) {
 	m.broadcaster.SendMessage("Verifying server installation...")
 	if err := installer.VerifyServerInstallation(ctx, false); err != nil {
 		if ctx.Err() != nil {
-			cancelled = true
+			markCancelled()
 			return // cancelled
 		}
-		m.broadcaster.SendMessage(fmt.Sprintf("Error: Server verification failed: %v", err))
+		fail("Server verification failed: %w", err)
 		return
 	}
 

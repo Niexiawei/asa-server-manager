@@ -36,6 +36,15 @@ func isWin64Ancestor(relPath string) bool {
 	return strings.HasPrefix(win64RelPath, relPath+"/")
 }
 
+// win64SharedRelPath 内含 Mods / ModsUserData：这是游戏运行期下载并写入的**数据**，
+// 不是需要与源隔离的启动缓存。
+//
+// 它落在 win64RelPath 之内，原本会被整棵复制，于是每次同步都出现这样一轮拉锯：
+// 实例运行期下载的新版 mod 目录（源里没有）被当成多余条目删掉，源里的旧版又被拷回来——
+// mod 每次重启都被降级并重新下载。改为 junction 回源后，下载直接落到 server-files，
+// 各实例共享同一份，也不再产生「删了父目录再删子文件」的失败告警。
+const win64SharedRelPath = win64RelPath + "/ShooterGame"
+
 // arkApiRelPath 是 ArkApi hook 插件目录；arkApiCacheRelPath 是其运行期缓存目录。
 // ArkApi 在运行期会向 Cache 写入 hook 缓存，这些文件与源目录不一致或多出属正常现象，
 // 增量同步时应保留，仅补齐缺失的文件。
@@ -129,11 +138,23 @@ func SyncInstanceMirror(instanceName string, cfg *cfgpkg.InstanceConfig) (string
 
 	exceptionTargets := buildExceptionTargets(instanceName, cfg)
 
+	// 指向源的 exception（Mods / ModsUserData）必须先在源里存在：
+	// createInstanceMirror 靠 Walk(ServerFilesDir) 发现条目，源目录缺失就永远走不到这个分支
+	if err := os.MkdirAll(
+		filepath.Join(cfgpkg.ServerFilesDir, filepath.FromSlash(win64SharedRelPath)), 0755,
+	); err != nil {
+		return "", fmt.Errorf("failed to create shared mods directory: %w", err)
+	}
+
 	// 检查镜像是否已存在
 	if _, err := os.Stat(mirrorDir); os.IsNotExist(err) {
 		// 镜像不存在，从头创建
 		return createInstanceMirror(instanceName, mirrorDir, exceptionTargets)
 	}
+
+	// 必须在收集条目**之前**迁移：否则 diff 会先把真实目录换成 junction，
+	// 紧接着又拿着镜像侧那些子条目穿过新 junction 去删源目录里的内容
+	migrateExceptionJunctions(mirrorDir, exceptionTargets)
 
 	// 镜像已存在，增量同步
 	logger.GetLogger().Infof("Syncing existing mirror for instance '%s'", instanceName)
@@ -262,7 +283,90 @@ func buildExceptionTargets(instanceName string, cfg *cfgpkg.InstanceConfig) map[
 	}
 	targets["ShooterGame/Saved/"+saveDir] = filepath.Join(cfgpkg.InstancesDir, instanceName, "Save")
 
+	// Mods / ModsUserData 指回源目录：与上面三项不同，它不是「每实例独立」而是「全实例共享」，
+	// 但落到镜像里同样是一条 junction，走同一套 exception 处理即可。
+	targets[win64SharedRelPath] = filepath.Join(cfgpkg.ServerFilesDir, filepath.FromSlash(win64SharedRelPath))
+
 	return targets
+}
+
+// migrateExceptionJunctions 把镜像里仍是**真实目录**的 exception 路径就地换成 junction。
+//
+// 存量镜像是在 Mods / ModsUserData 还走「完整复制」时建的。交给增量同步去改会出事：
+// diff 先在 Match 分支把目录换成 junction，紧接着那些以它为前缀的镜像侧条目
+// （源侧因 SkipDir 不再产出，全被判为多余）就会穿过刚建好的 junction 删到源目录里去。
+// 所以必须赶在 collectMirrorEntries 之前完成——之后 junction 会被 SkipDir，子条目根本不进 diff。
+//
+// 全程 best-effort：迁移失败只记日志，后续同步仍按原样跑，不阻断启动。
+func migrateExceptionJunctions(mirrorDir string, exceptionTargets map[string]string) {
+	for relPath, target := range exceptionTargets {
+		mirrorPath := filepath.Join(mirrorDir, filepath.FromSlash(relPath))
+
+		fi, err := os.Lstat(mirrorPath)
+		if err != nil {
+			continue // 不存在，后续同步会直接建成 junction
+		}
+		if isJunctionOrSymlink(mirrorPath) || !fi.IsDir() {
+			continue
+		}
+
+		logger.GetLogger().Infof("Migrating shared mirror dir to junction: %s -> %s", mirrorPath, target)
+
+		// 镜像里独有的内容（典型是实例运行期下载的新版 mod）先晋升到源，
+		// 免得迁移把它删掉、服务器下次启动再下载一遍
+		if err := os.MkdirAll(target, 0755); err != nil {
+			logger.GetLogger().Warnf("Failed to create junction target %s: %v", target, err)
+			continue
+		}
+		mergeMissingInto(mirrorPath, target)
+
+		if err := os.RemoveAll(mirrorPath); err != nil {
+			logger.GetLogger().Warnf("Failed to remove legacy mirror dir %s: %v", mirrorPath, err)
+			continue
+		}
+		if err := createJunction(mirrorPath, target); err != nil {
+			logger.GetLogger().Warnf("Failed to create junction for %s: %v", relPath, err)
+		}
+	}
+}
+
+// mergeMissingInto 把 src 里 dst 缺失的条目复制过去，两边都有的保留 dst 的版本。
+// 用于迁移时保住镜像独有的内容，冲突时不覆盖目标——目标是所有实例共享的源。
+func mergeMissingInto(src, dst string) {
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		logger.GetLogger().Warnf("Failed to read %s during mirror migration: %v", src, err)
+		return
+	}
+
+	for _, entry := range entries {
+		srcPath := filepath.Join(src, entry.Name())
+		dstPath := filepath.Join(dst, entry.Name())
+
+		// 链接不搬：它指向的内容本就在别处
+		if isJunctionOrSymlink(srcPath) {
+			continue
+		}
+
+		if _, err := os.Lstat(dstPath); err == nil {
+			if entry.IsDir() {
+				mergeMissingInto(srcPath, dstPath)
+			}
+			continue
+		}
+
+		var copyErr error
+		if entry.IsDir() {
+			copyErr = fsutil.CopyDir(srcPath, dstPath)
+		} else {
+			copyErr = fsutil.CopyFile(srcPath, dstPath)
+		}
+		if copyErr != nil {
+			logger.GetLogger().Warnf("Failed to promote %s to %s: %v", srcPath, dstPath, copyErr)
+			continue
+		}
+		logger.GetLogger().Infof("Promoted mirror-only entry to source: %s", dstPath)
+	}
 }
 
 // processDirectory 处理目录条目
@@ -583,6 +687,19 @@ func syncMirrorEntries(mirrorDir string, exceptionTargets map[string]string) err
 	removed := 0
 	updated := 0
 
+	// prunedPrefixes 记录本轮已被整棵删除的目录。条目按 RelPath 升序排列，
+	// 父目录排在子条目前面且用 RemoveAll 整棵删除，子条目再去删时路径早已不存在——
+	// 那些「系统找不到指定的路径」告警就是这么来的，直接跳过即可。
+	var prunedPrefixes []string
+	isPruned := func(relPath string) bool {
+		for _, p := range prunedPrefixes {
+			if strings.HasPrefix(relPath, p+"/") {
+				return true
+			}
+		}
+		return false
+	}
+
 	// znkr.io/diff 语义（x=源, y=镜像）：
 	//   Delete → 元素在 edit.X（源有、镜像缺），edit.Y 为零值 → 应在镜像新增
 	//   Insert → 元素在 edit.Y（镜像有、源缺），edit.X 为零值 → 应从镜像删除
@@ -603,10 +720,22 @@ func syncMirrorEntries(mirrorDir string, exceptionTargets map[string]string) err
 				logger.GetLogger().Debugf("Keeping ArkApi runtime cache entry: %s", edit.Y.RelPath)
 				continue
 			}
+			// exception target 内部的条目是**目标目录**的内容，删它等于穿过 junction
+			// 去删源目录或实例目录。正常情况下 collectMirrorEntries 会在 junction 处
+			// SkipDir 而收不到这些条目，这里是防御性兜底。
+			if isUnderExceptionTarget(edit.Y.RelPath, exceptionTargets) {
+				continue
+			}
+			if isPruned(edit.Y.RelPath) {
+				continue // 祖先目录已被整棵删除
+			}
 			if err := removeMirrorEntry(mirrorDir, edit.Y); err != nil {
 				logger.GetLogger().Warnf("Failed to remove mirror entry %s: %v", edit.Y.RelPath, err)
 			} else {
 				removed++
+				if edit.Y.EntryType == EntryTypeDirectory {
+					prunedPrefixes = append(prunedPrefixes, edit.Y.RelPath)
+				}
 			}
 		case diff.Match:
 			// 两边都有 → 检查是否需要更新
@@ -754,6 +883,17 @@ func isExceptionOrIntermediateDir(relPath string, exceptionTargets map[string]st
 	return false
 }
 
+// isUnderExceptionTarget 检查路径是否**位于**某个 exception target 之内（不含 target 自身）。
+// target 自身是镜像里的一条 junction，可以正常增删；它下面的内容属于链接目标，不能碰。
+func isUnderExceptionTarget(relPath string, exceptionTargets map[string]string) bool {
+	for exPath := range exceptionTargets {
+		if strings.HasPrefix(relPath, exPath+"/") {
+			return true
+		}
+	}
+	return false
+}
+
 // collectMirrorEntries 收集镜像目录的所有条目
 func collectMirrorEntries(mirrorDir string) ([]mirrorEntry, error) {
 	var entries []mirrorEntry
@@ -847,16 +987,25 @@ func syncEntry(srcDir, mirrorDir string, entry mirrorEntry, exceptionTargets map
 func removeMirrorEntry(mirrorDir string, entry mirrorEntry) error {
 	mirrorPath := filepath.Join(mirrorDir, filepath.FromSlash(entry.RelPath))
 
+	// 条目早已不在（多半是祖先目录被 RemoveAll 一并带走）视同删除成功。
+	// os.IsNotExist 在 Windows 上同时覆盖 ERROR_FILE_NOT_FOUND 与 ERROR_PATH_NOT_FOUND。
+	ignoreMissing := func(err error) error {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+
 	if isJunctionOrSymlink(mirrorPath) {
-		return os.Remove(mirrorPath) // junction/symlink：只删链接本身，不删目标内容
+		return ignoreMissing(os.Remove(mirrorPath)) // junction/symlink：只删链接本身，不删目标内容
 	}
 
 	if entry.EntryType == EntryTypeFile {
-		return os.Remove(mirrorPath)
+		return ignoreMissing(os.Remove(mirrorPath))
 	}
 
 	// 真实目录：游戏运行时可能在此写入文件，使用 RemoveAll 强制清除
-	return os.RemoveAll(mirrorPath)
+	return ignoreMissing(os.RemoveAll(mirrorPath))
 }
 
 // reconcileEntry 检查并修复已有条目

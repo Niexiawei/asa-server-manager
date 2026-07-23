@@ -2,11 +2,15 @@ package schedule
 
 import (
 	"asa-server/batchmanage"
+	instancepkg "asa-server/instance"
 	"asa-server/logger"
+	procpkg "asa-server/process"
 	"asa-server/updatemanage"
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -14,6 +18,14 @@ import (
 // tickInterval 调度循环的检查间隔。
 // 规则最细的粒度是分钟（HH:mm），30s 足够保证不漏点，也不会白转太多圈。
 const tickInterval = 30 * time.Second
+
+const (
+	// forceStopTimeout 是定时更新前强停实例后，等待进程真正退出的上限。
+	// 给得比较宽是因为 ARK 收到关闭请求后还要存档；等不到就让本次更新失败，
+	// 下一个执行点会重试，好过带着存活实例去更新然后被 installer 拒绝。
+	forceStopTimeout = 2 * time.Minute
+	stopPollInterval = 3 * time.Second
+)
 
 // Scheduler 定时任务调度器。
 //
@@ -211,10 +223,24 @@ func (s *Scheduler) runRestart(ctx context.Context, t *Task) error {
 
 	select {
 	case <-op.Done():
-		return nil
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+
+	// 批量操作本身「完成」了不代表每个实例都重启成功。
+	// 不看结果的话，一半实例起不来的任务照样记成「成功」。
+	var failed []string
+	for _, r := range op.InstanceResults {
+		if r.Status == batchmanage.InstanceFailed {
+			failed = append(failed, r.InstanceName)
+		}
+	}
+	if len(failed) > 0 {
+		return fmt.Errorf("%d/%d 个实例重启失败：%s",
+			len(failed), len(op.InstanceResults), strings.Join(failed, "、"))
+	}
+
+	return nil
 }
 
 // runUpdate 先停全部实例再更新。
@@ -226,11 +252,14 @@ func (s *Scheduler) runUpdate(ctx context.Context, t *Task) error {
 	op, err := batchmanage.GetGlobalManager().StartOperation(
 		batchmanage.BatchStop, nil, 0, t.CountdownConfig(),
 	)
-	if err != nil {
-		// 没有任何实例时 StartOperation 会报 "no instances to operate on"，
-		// 这种情况下没什么可停的，直接进入更新
-		logger.GetLogger().Warnf("Batch stop before scheduled update did not run: %v", err)
-	} else {
+	switch {
+	case errors.Is(err, batchmanage.ErrNoInstances):
+		// 一个实例都没有，没什么可停的，直接进入更新
+		logger.GetLogger().Info("No instances to stop before scheduled update")
+	case err != nil:
+		// 尤其是 ErrOperationInProgress：此时实例多半正活着，硬着头皮更新必被拒
+		return fmt.Errorf("更新前的批量停服未能启动: %w", err)
+	default:
 		select {
 		case <-op.Done():
 		case <-ctx.Done():
@@ -238,16 +267,62 @@ func (s *Scheduler) runUpdate(ctx context.Context, t *Task) error {
 		}
 	}
 
-	done, started := updatemanage.GetGlobalManager().Start()
+	// 批量停服的 CAS 只接受 started 状态，处于 starting / start_initialization_successful /
+	// stop_failed 等状态的实例会被 skipped——进程还活着，更新随后就会被 installer 拒绝。
+	// 这里补一刀强停兜底。
+	if alive := procpkg.ListAliveInstances(); len(alive) > 0 {
+		logger.GetLogger().Warnf(
+			"Instances still alive after batch stop (skipped by CAS): %s; force stopping",
+			strings.Join(alive, "、"),
+		)
+		for _, name := range alive {
+			if err := instancepkg.ForceStopServer(name); err != nil {
+				logger.GetLogger().Errorf("Failed to force stop instance '%s': %v", name, err)
+			}
+		}
+	}
+
+	if alive := waitInstancesStopped(ctx, forceStopTimeout); len(alive) > 0 {
+		return fmt.Errorf("以下实例无法停止，更新已取消：%s", strings.Join(alive, "、"))
+	}
+
+	mgr := updatemanage.GetGlobalManager()
+	done, started := mgr.Start()
 	if !started {
 		logger.GetLogger().Warn("An update was already running; waiting for it to finish")
 	}
 
 	select {
 	case <-done:
-		return nil
+		// 更新的失败只体现在 Result() 里：run() 内部把错误发给 SSE 订阅者后就正常收尾，
+		// 只等 done 关闭会把每一次失败都记成「成功」
+		return mgr.Result()
 	case <-ctx.Done():
 		return ctx.Err()
+	}
+}
+
+// waitInstancesStopped 等所有实例进程真正消失，返回超时时仍存活的实例名。
+//
+// ForceStopServer 用的 taskkill 只是把关闭请求发出去就返回，ARK 收到后还要存档退出，
+// 立刻复检必然误判成「停不掉」。轮询的判据复用 ListAliveInstances（端口 + PID 双重判断）。
+func waitInstancesStopped(ctx context.Context, timeout time.Duration) []string {
+	deadline := time.Now().Add(timeout)
+
+	for {
+		alive := procpkg.ListAliveInstances()
+		if len(alive) == 0 {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return alive
+		}
+
+		select {
+		case <-ctx.Done():
+			return alive
+		case <-time.After(stopPollInterval):
+		}
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"asa-server/realtime"
 	statepkg "asa-server/state"
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -19,6 +20,14 @@ const (
 	BatchStart   BatchOperationType = "start"
 	BatchStop    BatchOperationType = "stop"
 	BatchRestart BatchOperationType = "restart"
+)
+
+// StartOperation 拒绝启动的两种原因。做成哨兵是因为调用方需要区分它们：
+// 「没有实例可操作」对定时更新而言无害（本来就没什么可停的），
+// 「已有批量操作在跑」则意味着一堆实例还活着，继续往下走必然失败。
+var (
+	ErrOperationInProgress = errors.New("a batch operation is already running")
+	ErrNoInstances         = errors.New("no instances to operate on")
 )
 
 // BatchOperationRequest POST 请求体
@@ -241,7 +250,7 @@ func (bm *BatchManager) StartOperation(
 	defer bm.mu.Unlock()
 
 	if bm.current != nil && bm.current.Status == "running" {
-		return nil, fmt.Errorf("a batch operation is already running")
+		return nil, ErrOperationInProgress
 	}
 
 	// 配错的倒计时要在这里就拦下，不能等阶段一跑起来才发现点位永远触发不到
@@ -266,7 +275,7 @@ func (bm *BatchManager) StartOperation(
 	}
 
 	if len(instances) == 0 {
-		return nil, fmt.Errorf("no instances to operate on")
+		return nil, ErrNoInstances
 	}
 
 	// 限制延迟范围
