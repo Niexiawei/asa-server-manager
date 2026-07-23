@@ -72,6 +72,10 @@ type StartServerOptions struct {
 	RetryOnNetworkError          int           // serverUnreachable 错误重试次数，0 → 默认 3
 	RetryInterval                time.Duration // 重试间隔，0 → 默认 5s
 	StatePreset                  bool          // CAS 已由调用方完成，跳过内部 CAS
+
+	// Countdown 停止/重启前的倒计时与游戏内公告。nil 或 Total=0 表示立即执行。
+	// 仅对 StopServer / RestartServer 生效，StartServer 忽略。
+	Countdown *CountdownConfig
 }
 
 type StartServerOptionsFunc func(options *StartServerOptions)
@@ -123,6 +127,14 @@ func WithRetryInterval(d time.Duration) StartServerOptionsFunc {
 // WithStatePreset 表示调用方已完成 CAS，函数内部跳过重复的原子状态检查。
 func WithStatePreset() StartServerOptionsFunc {
 	return func(options *StartServerOptions) { options.StatePreset = true }
+}
+
+// WithCountdown 在停止/重启前先走一轮倒计时并向游戏内公告。
+//
+// 批量场景不要用这个：batchmanage 会把倒计时统一前置、对所有实例并发播报，
+// 逐个实例各等一轮会让总时长成倍膨胀，且各实例的倒计时互相错开。
+func WithCountdown(cfg *CountdownConfig) StartServerOptionsFunc {
+	return func(options *StartServerOptions) { options.Countdown = cfg }
 }
 
 func isNetworkRetriableStartupError(err error) bool {
@@ -492,6 +504,15 @@ func StopServer(instanceName string, options ...StartServerOptionsFunc) error {
 		}
 	}
 
+	// 倒计时期间服务器仍在正常运行；被取消则不执行停止，并把状态回滚到 started
+	if opts.Countdown.Enabled() {
+		defer FinishCountdown(instanceName)
+		if err := RunCountdown(context.Background(), instanceName, CountdownActionStop, opts.Countdown); err != nil {
+			_ = statepkg.WriteInstanceState(instanceName, statepkg.StatusStarted, "")
+			return err
+		}
+	}
+
 	return stopServerInternal(instanceName)
 }
 
@@ -656,6 +677,16 @@ func RestartServer(instanceName string, options ...StartServerOptionsFunc) error
 		}
 		if !ok {
 			return ErrOperationNotAllowed
+		}
+	}
+
+	// 倒计时放在 restartErr 的 defer 之前：被取消是用户主动行为，
+	// 不该在状态历史里留下一条 restart_failed
+	if opts.Countdown.Enabled() {
+		defer FinishCountdown(instanceName)
+		if err := RunCountdown(context.Background(), instanceName, CountdownActionRestart, opts.Countdown); err != nil {
+			_ = statepkg.WriteInstanceState(instanceName, statepkg.StatusStarted, "")
+			return err
 		}
 	}
 

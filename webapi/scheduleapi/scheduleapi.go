@@ -38,17 +38,26 @@ type TaskRequest struct {
 	Every     int               `json:"every"`
 	At        string            `json:"at"`
 	Instances []string          `json:"instances"`
+
+	Countdown     int    `json:"countdown"`
+	NotifyPoints  []int  `json:"notify_points"`
+	NotifyMessage string `json:"notify_message"`
+	NotifyCommand string `json:"notify_command"`
 }
 
 func (r *TaskRequest) toTask() *schedule.Task {
 	return &schedule.Task{
-		Name:      r.Name,
-		Type:      r.Type,
-		Enabled:   r.Enabled,
-		Rule:      r.Rule,
-		Every:     r.Every,
-		At:        r.At,
-		Instances: r.Instances,
+		Name:          r.Name,
+		Type:          r.Type,
+		Enabled:       r.Enabled,
+		Rule:          r.Rule,
+		Every:         r.Every,
+		At:            r.At,
+		Instances:     r.Instances,
+		Countdown:     r.Countdown,
+		NotifyPoints:  r.NotifyPoints,
+		NotifyMessage: r.NotifyMessage,
+		NotifyCommand: r.NotifyCommand,
 	}
 }
 

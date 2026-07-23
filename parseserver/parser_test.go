@@ -1,69 +1,97 @@
 package parseserver
 
 import (
-	"context"
 	"testing"
 )
 
-const testSavePath = `E:\asa_server_data\server-files\ShooterGame\Saved\meijue\Extinction_WP\Extinction_WP.ark`
-
-func TestParseSave_Players(t *testing.T) {
-	result, err := ParseSave(context.Background(), testSavePath, ParseTypePlayers)
-	if err != nil {
-		t.Fatalf("ParseSave failed: %v", err)
+// TestBuildSaveData_Enrichment 验证部落按 tribeid 注入 player_list / tamed_list / tribe_logs。
+func TestBuildSaveData_Enrichment(t *testing.T) {
+	export := map[string][]map[string]any{
+		keyPlayers: {
+			{"playerid": 1, "name": "Alice", "tribeid": 100},
+			{"playerid": 2, "name": "Bob", "tribeid": 100},
+			{"playerid": 3, "name": "Carol", "tribeid": 200},
+		},
+		keyTribes: {
+			{"tribeid": 100, "tribe": "Red", "players": 2},
+			{"tribeid": 200, "tribe": "Blue", "players": 1},
+			{"tribeid": 300, "tribe": "Empty", "players": 0},
+		},
+		keyTamed: {
+			{"dinoid": 11, "creature": "Rex", "tribeid": 100},
+			{"dinoid": 12, "creature": "Raptor", "tribeid": 100},
+			{"dinoid": 13, "creature": "Bronto", "tribeid": 200},
+		},
+		keyTribeLogs: {
+			{"tribeid": 100, "tribe": "Red", "logs": []string{"a", "b"}},
+			{"tribeid": 200, "tribe": "Blue", "logs": []string{"c"}},
+		},
 	}
 
-	if !result.Success {
-		t.Fatalf("Parse returned success=false: %s", result.Error)
+	data := buildSaveData(export)
+
+	if len(data.Players) != 3 {
+		t.Fatalf("expected 3 players, got %d", len(data.Players))
+	}
+	if len(data.Tribes) != 3 {
+		t.Fatalf("expected 3 tribes, got %d", len(data.Tribes))
 	}
 
-	t.Logf("Players found: %d", len(result.Data.Players))
-	for _, p := range result.Data.Players {
-		t.Logf("  Player: id=%v name=%v tribe=%v", p["playerid"], p["name"], p["tribeid"])
+	byID := make(map[int64]map[string]any)
+	for _, tr := range data.Tribes {
+		byID[toInt64(tr["tribeid"])] = tr
+	}
+
+	red := byID[100]
+	if got := len(red["player_list"].([]map[string]any)); got != 2 {
+		t.Errorf("tribe 100 player_list: expected 2, got %d", got)
+	}
+	if got := len(red["tamed_list"].([]map[string]any)); got != 2 {
+		t.Errorf("tribe 100 tamed_list: expected 2, got %d", got)
+	}
+	if got := len(red["tribe_logs"].([]any)); got != 2 {
+		t.Errorf("tribe 100 tribe_logs: expected 2, got %d", got)
+	}
+	// 原有字段保持不变
+	if red["players"] != 2 {
+		t.Errorf("tribe 100 原 players 计数应保持为 2, got %v", red["players"])
+	}
+
+	// 空部落三字段应为非 nil 空数组
+	empty := byID[300]
+	if got := len(empty["player_list"].([]map[string]any)); got != 0 {
+		t.Errorf("tribe 300 player_list should be empty, got %d", got)
+	}
+	if empty["tribe_logs"] == nil {
+		t.Error("tribe 300 tribe_logs should be non-nil empty slice")
 	}
 }
 
-func TestParseSave_Tribes(t *testing.T) {
-	result, err := ParseSave(context.Background(), testSavePath, ParseTypeTribes)
-	if err != nil {
-		t.Fatalf("ParseSave failed: %v", err)
+// TestBuildSaveData_Empty 空 export 不应 panic，返回空列表。
+func TestBuildSaveData_Empty(t *testing.T) {
+	data := buildSaveData(map[string][]map[string]any{})
+	if data.Players == nil || data.Tribes == nil {
+		t.Fatal("Players/Tribes 应为非 nil 空切片")
 	}
-
-	if !result.Success {
-		t.Fatalf("Parse returned success=false: %s", result.Error)
-	}
-
-	t.Logf("Tribes found: %d", len(result.Data.Tribes))
-	for _, tri := range result.Data.Tribes {
-		t.Logf("  Tribe: id=%v name=%v players=%v", tri["tribeid"], tri["tribe"], tri["players"])
+	if len(data.Players) != 0 || len(data.Tribes) != 0 {
+		t.Fatalf("expected empty, got players=%d tribes=%d", len(data.Players), len(data.Tribes))
 	}
 }
 
-func TestParseSave_All(t *testing.T) {
-	result, err := ParseSave(context.Background(), testSavePath, ParseTypeAll)
-	if err != nil {
-		t.Fatalf("ParseSave failed: %v", err)
+func TestToInt64(t *testing.T) {
+	cases := []struct {
+		in   any
+		want int64
+	}{
+		{int(5), 5},
+		{int64(7), 7},
+		{float64(9), 9},
+		{"123", 123},
+		{nil, 0},
 	}
-
-	if !result.Success {
-		t.Fatalf("Parse returned success=false: %s", result.Error)
-	}
-
-	t.Logf("Players: %d, Tribes: %d", len(result.Data.Players), len(result.Data.Tribes))
-	t.Logf("Player-Tribe map: %v", result.Data.PlayerTribeMap)
-	t.Logf("Tribe-Player map: %v", result.Data.TribePlayerMap)
-}
-
-func TestParseSave_FileNotFound(t *testing.T) {
-	_, err := ParseSave(context.Background(), "/nonexistent/file.ark", ParseTypePlayers)
-	if err == nil {
-		t.Fatal("expected error for nonexistent file, got nil")
-	}
-	t.Logf("Expected error: %v", err)
-}
-
-func TestIsParserAvailable(t *testing.T) {
-	if !IsParserAvailable() {
-		t.Fatal("IsParserAvailable returned false")
+	for _, c := range cases {
+		if got := toInt64(c.in); got != c.want {
+			t.Errorf("toInt64(%v) = %d, want %d", c.in, got, c.want)
+		}
 	}
 }

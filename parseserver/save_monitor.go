@@ -3,8 +3,8 @@ package parseserver
 import (
 	cfgpkg "asa-server/config"
 	"asa-server/logger"
+	"asa-server/realtime"
 	"context"
-	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"sync"
@@ -12,145 +12,43 @@ import (
 
 	"github.com/Niexiawei/go-arkparser/arkmonitor"
 	"github.com/Niexiawei/go-arkparser/files"
-	"github.com/dgraph-io/badger/v4"
 )
 
-const (
-	saveKeyAll = "save:%s:all"
-)
+// coalesceDelay 合并一次存档写入(ark/profile/tribe 可能连续多次写)产生的突发事件，
+// 避免同一次存档触发大量重复重建与推送。
+const coalesceDelay = 300 * time.Millisecond
 
-// SaveDataManager manages BadgerDB cache and arkmonitor-based file monitoring for ARK save files
+// SaveDataManager 为每个实例维护一个 arkmonitor，缓存最新解析结果（内存），
+// 并在存档变化时通过 WebSocket 推送玩家/部落列表。
 type SaveDataManager struct {
-	db           *badger.DB
-	mu           sync.RWMutex
-	monitors     map[string]*arkmonitor.MonitorImpl
-	broadcasters map[string]*SaveBroadcaster
-	unsubs       []func()
+	mu       sync.RWMutex
+	monitors map[string]*arkmonitor.MonitorImpl
+	current  map[string]*SaveData // 各实例最新解析结果（内存缓存）
+	unsubs   []func()
+	stops    []chan struct{} // 各实例去抖 worker 的停止信号
 }
 
-// SaveBroadcaster fans out save events to SSE subscribers
-type SaveBroadcaster struct {
-	msgChan     chan []byte
-	subscribers map[chan []byte]struct{}
-	subMu       sync.Mutex
-}
-
-func NewSaveBroadcaster() *SaveBroadcaster {
-	b := &SaveBroadcaster{
-		msgChan:     make(chan []byte, 100),
-		subscribers: make(map[chan []byte]struct{}),
-	}
-	go b.broadcast()
-	return b
-}
-
-func (b *SaveBroadcaster) broadcast() {
-	for msg := range b.msgChan {
-		b.subMu.Lock()
-		for ch := range b.subscribers {
-			select {
-			case ch <- msg:
-			default:
-				// subscriber too slow, skip
-			}
-		}
-		b.subMu.Unlock()
-	}
-}
-
-func (b *SaveBroadcaster) Subscribe() (chan []byte, func()) {
-	ch := make(chan []byte, 50)
-	b.subMu.Lock()
-	b.subscribers[ch] = struct{}{}
-	b.subMu.Unlock()
-
-	unsubscribe := func() {
-		b.subMu.Lock()
-		delete(b.subscribers, ch)
-		b.subMu.Unlock()
-		close(ch)
-	}
-	return ch, unsubscribe
-}
-
-func (b *SaveBroadcaster) Broadcast(data []byte) {
-	select {
-	case b.msgChan <- data:
-	default:
-	}
-}
-
-func (b *SaveBroadcaster) Stop() {
-	close(b.msgChan)
-}
-
-// NewSaveDataManager creates a new SaveDataManager with its own BadgerDB instance
+// NewSaveDataManager 创建管理器。返回 error 以兼容既有装配签名（当前恒为 nil）。
 func NewSaveDataManager() (*SaveDataManager, error) {
-	dbPath := filepath.Join(cfgpkg.BaseDir, "database_file", "arkworldsave")
-	opts := badger.DefaultOptions(dbPath).
-		WithLogger(nil).
-		WithNumVersionsToKeep(1)
-
-	db, err := badger.Open(opts)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open arkworldsave badger db: %w", err)
-	}
-
 	return &SaveDataManager{
-		db:           db,
-		monitors:     make(map[string]*arkmonitor.MonitorImpl),
-		broadcasters: make(map[string]*SaveBroadcaster),
+		monitors: make(map[string]*arkmonitor.MonitorImpl),
+		current:  make(map[string]*SaveData),
 	}, nil
 }
 
-// GetBroadcaster returns or creates a broadcaster for the given instance
-func (m *SaveDataManager) GetBroadcaster(instanceName string) *SaveBroadcaster {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if b, ok := m.broadcasters[instanceName]; ok {
-		return b
-	}
-	b := NewSaveBroadcaster()
-	m.broadcasters[instanceName] = b
-	return b
+// GetCurrent 返回实例的内存缓存解析结果；未命中返回 (nil, false)。
+func (m *SaveDataManager) GetCurrent(instanceName string) (*SaveData, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	data, ok := m.current[instanceName]
+	return data, ok
 }
 
-// SetCached stores snapshot data in BadgerDB
-func (m *SaveDataManager) SetCached(instanceName string, data *CachedSaveData) error {
-	return m.db.Update(func(txn *badger.Txn) error {
-		key := []byte(fmt.Sprintf(saveKeyAll, instanceName))
-		jsonBytes, err := json.Marshal(data)
-		if err != nil {
-			return err
-		}
-		return txn.Set(key, jsonBytes)
-	})
-}
-
-// GetCached retrieves cached snapshot data from BadgerDB
-func (m *SaveDataManager) GetCached(instanceName string) (*CachedSaveData, error) {
-	var data CachedSaveData
-	err := m.db.View(func(txn *badger.Txn) error {
-		key := []byte(fmt.Sprintf(saveKeyAll, instanceName))
-		item, err := txn.Get(key)
-		if err != nil {
-			return err
-		}
-		return item.Value(func(val []byte) error {
-			return json.Unmarshal(val, &data)
-		})
-	})
-	if err != nil {
-		return nil, err
-	}
-	return &data, nil
-}
-
-// Start begins monitoring all instance save directories for changes using arkmonitor
+// Start 为所有实例启动存档监控。
 func (m *SaveDataManager) Start(_ context.Context) {
 	instances, err := cfgpkg.GetAvailableInstances()
 	if err != nil {
-		logger.GetLogger().Errorf("Failed to get instances for save monitoring: %v", err)
+		logger.GetLogger().Errorf("获取实例列表失败，无法启动存档监控: %v", err)
 		return
 	}
 
@@ -160,21 +58,21 @@ func (m *SaveDataManager) Start(_ context.Context) {
 			continue
 		}
 
-		dirMapName := config.MapName
-		if dirMapName == "BobsMissions_WP" {
+		// BobsMissions_WP 无存档解析意义，跳过
+		if config.MapName == "BobsMissions_WP" {
 			continue
 		}
 
 		arkPath := filepath.Join(cfgpkg.InstancesDir, instanceName, "Save",
-			dirMapName, config.MapName+".ark")
+			config.MapName, config.MapName+".ark")
 
 		if err := m.startMonitor(instanceName, arkPath); err != nil {
-			logger.GetLogger().Warnf("Failed to start save monitor for %s: %v", instanceName, err)
+			logger.GetLogger().Warnf("启动存档监控失败 %s: %v", instanceName, err)
 		}
 	}
 }
 
-// startMonitor creates and starts an arkmonitor for a single instance
+// startMonitor 为单个实例创建并启动 arkmonitor 及其去抖推送 worker。
 func (m *SaveDataManager) startMonitor(instanceName, arkPath string) error {
 	cfg := arkmonitor.MonitorConfig{
 		SavePath:    arkPath,
@@ -186,109 +84,104 @@ func (m *SaveDataManager) startMonitor(instanceName, arkPath string) error {
 
 	mon, err := arkmonitor.NewMonitor(cfg)
 	if err != nil {
-		return fmt.Errorf("create monitor: %w", err)
+		return fmt.Errorf("创建监控器: %w", err)
 	}
 
-	// Subscribe observer before starting
-	observer := &saveObserver{
-		manager:      m,
-		instanceName: instanceName,
-		monitor:      mon,
-	}
+	// trigger 缓冲为 1：多次事件合并为一次重建；stop 用于退出 worker
+	trigger := make(chan struct{}, 1)
+	stop := make(chan struct{})
+	observer := &saveObserver{trigger: trigger}
 	unsub := mon.Subscribe(observer)
+
 	m.mu.Lock()
 	m.unsubs = append(m.unsubs, unsub)
+	m.stops = append(m.stops, stop)
 	m.monitors[instanceName] = mon
 	m.mu.Unlock()
 
-	// Start the monitor (triggers initial Reload)
+	go m.debounceWorker(instanceName, mon, trigger, stop)
+
+	// Start 会触发首次 Reload（首次无 diff 事件）
 	if err := mon.Start(); err != nil {
 		unsub()
-		return fmt.Errorf("start monitor: %w", err)
+		close(stop)
+		return fmt.Errorf("启动监控器: %w", err)
 	}
 
-	logger.GetLogger().Infof("Save monitor started for instance: %s (%s)", instanceName, arkPath)
+	logger.GetLogger().Infof("存档监控已启动: %s (%s)", instanceName, arkPath)
 
-	// Broadcast initial snapshot (Reload loaded it but no events are sent for first load)
-	if snap := mon.Snapshot(); snap != nil {
-		m.cacheAndBroadcast(instanceName, snap)
+	// 首次加载不产生事件，主动缓存并推送一次
+	if export := mon.Export(); export != nil {
+		m.updateAndBroadcast(instanceName, export)
 	}
 
 	return nil
 }
 
-// cacheAndBroadcast caches the snapshot to BadgerDB and broadcasts via SSE
-func (m *SaveDataManager) cacheAndBroadcast(instanceName string, snap *arkmonitor.WorldSnapshot) {
-	broadcaster := m.GetBroadcaster(instanceName)
-
-	cached := &CachedSaveData{
-		Players:   snap.Players,
-		Tribes:    snap.Tribes,
-		Timestamp: snap.Timestamp,
+// debounceWorker 合并突发事件：收到触发后小睡片刻，取最新 Export 重建并推送一次。
+func (m *SaveDataManager) debounceWorker(instanceName string, mon *arkmonitor.MonitorImpl, trigger <-chan struct{}, stop <-chan struct{}) {
+	for {
+		select {
+		case <-stop:
+			return
+		case <-trigger:
+			// 合并同一次存档写入产生的后续事件
+			select {
+			case <-time.After(coalesceDelay):
+			case <-stop:
+				return
+			}
+			// 清掉去抖窗口内累积的触发，避免紧接着再跑一次
+			select {
+			case <-trigger:
+			default:
+			}
+			if export := mon.Export(); export != nil {
+				m.updateAndBroadcast(instanceName, export)
+			}
+		}
 	}
-
-	// Cache to BadgerDB
-	if err := m.SetCached(instanceName, cached); err != nil {
-		logger.GetLogger().Errorf("Failed to cache save data for %s: %v", instanceName, err)
-	}
-
-	// Broadcast start event
-	startMsg, _ := json.Marshal(map[string]any{
-		"type":      "start",
-		"map":       instanceName,
-		"timestamp": time.Now().Unix(),
-	})
-	broadcaster.Broadcast(startMsg)
-
-	// Broadcast complete event
-	completeMsg, _ := json.Marshal(map[string]any{
-		"type":    "complete",
-		"map":     instanceName,
-		"players": len(snap.Players),
-		"tribes":  len(snap.Tribes),
-	})
-	broadcaster.Broadcast(completeMsg)
-
-	// Broadcast full data
-	dataMsg, _ := json.Marshal(map[string]any{
-		"type": "data",
-		"map":  instanceName,
-		"data": cached,
-	})
-	broadcaster.Broadcast(dataMsg)
 }
 
-// Stop closes the BadgerDB and all monitors
+// updateAndBroadcast 从 Export 富数据构建 SaveData，更新内存缓存并 WS 推送。
+func (m *SaveDataManager) updateAndBroadcast(instanceName string, export map[string][]map[string]any) {
+	data := buildSaveData(export)
+
+	m.mu.Lock()
+	m.current[instanceName] = data
+	m.mu.Unlock()
+
+	// 玩家列表与部落列表分别以不同 event_type 全量推送
+	realtime.BroadcastSavePlayers(instanceName, data.Players)
+	realtime.BroadcastSaveTribes(instanceName, data.Tribes)
+}
+
+// Stop 停止所有监控与 worker。
 func (m *SaveDataManager) Stop() {
 	m.mu.Lock()
 	for _, unsub := range m.unsubs {
 		unsub()
 	}
+	for _, stop := range m.stops {
+		close(stop)
+	}
 	for _, mon := range m.monitors {
 		mon.Stop()
 	}
-	for _, b := range m.broadcasters {
-		b.Stop()
-	}
+	m.unsubs = nil
+	m.stops = nil
+	m.monitors = make(map[string]*arkmonitor.MonitorImpl)
 	m.mu.Unlock()
-
-	if m.db != nil {
-		m.db.Close()
-	}
 }
 
-// saveObserver implements arkmonitor.Observer interface
+// saveObserver 实现 arkmonitor.Observer，把变更事件汇聚到去抖 trigger。
 type saveObserver struct {
-	manager      *SaveDataManager
-	instanceName string
-	monitor      *arkmonitor.MonitorImpl
+	trigger chan<- struct{}
 }
 
-func (o *saveObserver) OnEvent(event arkmonitor.Event) {
-	// After Reload(), the monitor has an updated snapshot.
-	// We get the full snapshot and broadcast it.
-	snap := o.monitor.Snapshot()
-	if snap != nil {
-		o.manager.cacheAndBroadcast(o.instanceName, snap)
+func (o *saveObserver) OnEvent(_ arkmonitor.Event) {
+	select {
+	case o.trigger <- struct{}{}:
+	default: // 已有待处理触发，丢弃本次（合并）
 	}
 }

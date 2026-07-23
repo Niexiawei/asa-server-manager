@@ -119,6 +119,11 @@
         <t-form-item label="启用">
           <t-switch v-model="form.enabled"/>
         </t-form-item>
+
+        <t-divider>停止/重启前的公告</t-divider>
+
+        <!-- update 任务的倒计时作用于「更新前的批量停服」那一步 -->
+        <CountdownOptions v-model="form.countdown" @validity="(v) => (countdownValid = v)"/>
       </t-form>
     </t-dialog>
   </t-card>
@@ -136,6 +141,7 @@ import {
   runScheduleTaskNow,
   listInstances,
 } from '@/apis/api.js'
+import CountdownOptions from '@/components/CountdownOptions.vue'
 
 const columns = [
   {colKey: 'name', title: '名称', width: 160},
@@ -156,6 +162,8 @@ const saving = ref(false)
 const dialogVisible = ref(false)
 const editingId = ref(null)
 
+const countdownValid = ref(true)
+
 const emptyForm = () => ({
   name: '',
   type: 'restart',
@@ -164,6 +172,7 @@ const emptyForm = () => ({
   every: 1,
   at: '04:00',
   instances: [],
+  countdown: {countdown: 0},
 })
 const form = ref(emptyForm())
 
@@ -225,6 +234,12 @@ function openEdit(row) {
     every: row.every || 1,
     at: row.at || '04:00',
     instances: row.instances ? [...row.instances] : [],
+    countdown: {
+      countdown: row.countdown || 0,
+      notify_points: row.notify_points ? [...row.notify_points] : [],
+      notify_message: row.notify_message || '',
+      notify_command: row.notify_command || 'ServerChat',
+    },
   }
   dialogVisible.value = true
 }
@@ -239,11 +254,21 @@ function buildPayload() {
     at: form.value.rule === 'interval_hours' ? '' : form.value.at,
     // 后端拒绝给更新任务指定实例，这里直接清空而不是依赖用户没选过
     instances: form.value.type === 'update' ? [] : form.value.instances,
+    countdown: form.value.countdown?.countdown || 0,
+    notify_points: form.value.countdown?.notify_points ?? [],
+    notify_message: form.value.countdown?.notify_message || '',
+    notify_command: form.value.countdown?.notify_command || '',
   }
   return payload
 }
 
 async function onSubmit() {
+  // 后端也会校验，这里拦一道是为了让用户当场看到是哪个字段不对
+  if (!countdownValid.value) {
+    MessagePlugin.error('倒计时配置有误，请检查')
+    return false
+  }
+
   saving.value = true
   try {
     if (editingId.value) {

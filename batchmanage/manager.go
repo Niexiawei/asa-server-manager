@@ -23,8 +23,37 @@ const (
 
 // BatchOperationRequest POST 请求体
 type BatchOperationRequest struct {
-	Instances    []string `json:"instances"`
-	DelaySeconds int      `json:"delay_seconds"`
+	Instances []string `json:"instances"`
+
+	// DelaySeconds 是**实例之间**的间隔，防止同时拉起多个实例把机器压垮。
+	// 与下面的 Countdown 含义不重叠，两者可以同时使用。
+	DelaySeconds int `json:"delay_seconds"`
+
+	// Countdown 是**操作开始前**给玩家的预告时间（秒），0 = 不倒计时。
+	Countdown     int    `json:"countdown"`
+	NotifyPoints  []int  `json:"notify_points"`
+	NotifyMessage string `json:"notify_message"`
+	NotifyCommand string `json:"notify_command"`
+}
+
+// CountdownConfig 把请求里的倒计时字段转成 instance 包的配置。
+// Countdown 为 0 时返回 nil，表示不倒计时。
+func (r *BatchOperationRequest) CountdownConfig() *instancepkg.CountdownConfig {
+	if r.Countdown <= 0 {
+		return nil
+	}
+
+	points := make([]time.Duration, 0, len(r.NotifyPoints))
+	for _, p := range r.NotifyPoints {
+		points = append(points, time.Duration(p)*time.Second)
+	}
+
+	return &instancepkg.CountdownConfig{
+		Total:    time.Duration(r.Countdown) * time.Second,
+		Points:   points,
+		Template: r.NotifyMessage,
+		Command:  r.NotifyCommand,
+	}
 }
 
 // InstanceOpStatus 单实例操作结果状态
@@ -175,6 +204,9 @@ type BatchOperation struct {
 	// done 在操作结束（完成/取消/panic）时关闭，供调用方等待批量操作跑完
 	done chan struct{}
 
+	// countdown 为 nil 表示不倒计时。见 runCountdownPhase 的编排说明。
+	countdown *instancepkg.CountdownConfig
+
 	logBroadcaster *LogBroadcaster
 	logHistory     []BatchLogEntry
 	mu             sync.RWMutex
@@ -199,12 +231,29 @@ func GetGlobalManager() *BatchManager {
 }
 
 // StartOperation 创建并启动批量操作
-func (bm *BatchManager) StartOperation(opType BatchOperationType, instances []string, delaySeconds int) (*BatchOperation, error) {
+func (bm *BatchManager) StartOperation(
+	opType BatchOperationType,
+	instances []string,
+	delaySeconds int,
+	countdown *instancepkg.CountdownConfig,
+) (*BatchOperation, error) {
 	bm.mu.Lock()
 	defer bm.mu.Unlock()
 
 	if bm.current != nil && bm.current.Status == "running" {
 		return nil, fmt.Errorf("a batch operation is already running")
+	}
+
+	// 配错的倒计时要在这里就拦下，不能等阶段一跑起来才发现点位永远触发不到
+	if countdown.Enabled() {
+		if err := countdown.Validate(); err != nil {
+			return nil, err
+		}
+	}
+
+	// 启动不需要预告玩家：没人在线可通知
+	if opType == BatchStart {
+		countdown = nil
 	}
 
 	// 如果没有指定实例，获取所有可用实例
@@ -258,6 +307,7 @@ func (bm *BatchManager) StartOperation(opType BatchOperationType, instances []st
 		cancel:          cancel,
 		skipChannels:    skipChannels,
 		done:            make(chan struct{}),
+		countdown:       countdown,
 		logBroadcaster:  logBroadcaster,
 		logHistory:      make([]BatchLogEntry, 0, 50),
 	}
@@ -389,6 +439,18 @@ func (bm *BatchManager) runBatchOperation(op *BatchOperation) {
 	realtime.BroadcastBatchOperationStarted(opTypeStr, totalInstances)
 	op.sendLog("info", fmt.Sprintf("Batch %s started with %d instances", opTypeStr, totalInstances), "")
 
+	// 阶段一：倒计时统一前置
+	if cancelled := op.runCountdownPhase(); cancelled {
+		op.markRemainingCancelled()
+		op.mu.Lock()
+		op.Status = "cancelled"
+		op.mu.Unlock()
+		realtime.BroadcastBatchOperationCompleted(opTypeStr, 0, 0, totalInstances)
+		op.sendLog("completed", "[COMPLETED] 倒计时被取消，批量操作未执行", "")
+		return
+	}
+
+	// 阶段二：按原有串行逻辑逐个执行
 	var succeeded, failed int
 
 	for i, instanceName := range op.Instances {
@@ -470,6 +532,59 @@ func (bm *BatchManager) runBatchOperation(op *BatchOperation) {
 	// 完成通知
 	realtime.BroadcastBatchOperationCompleted(opTypeStr, succeeded, failed, totalInstances)
 	op.sendLog("completed", fmt.Sprintf("[COMPLETED] %d/%d succeeded, %d failed", succeeded, totalInstances, failed), "")
+}
+
+// runCountdownPhase 是批量操作的阶段一：向所有目标实例**并发**播报同一轮倒计时。
+//
+// 为什么不把倒计时塞进 executeInstance：那样 5 个实例 × 10 分钟就是 50 分钟，
+// 而且最后一个实例的玩家要等到第 40 分钟才收到「还有 10 分钟」的通知。
+// 统一前置之后总耗时 = 倒计时 + 原有串行耗时，且全服玩家的倒计时是对齐的。
+//
+// 返回 true 表示倒计时被取消，调用方不应继续执行阶段二。
+func (op *BatchOperation) runCountdownPhase() bool {
+	if !op.countdown.Enabled() {
+		return false
+	}
+
+	action := instancepkg.CountdownActionStop
+	if op.Type == BatchRestart {
+		action = instancepkg.CountdownActionRestart
+	}
+
+	op.sendLog("info", fmt.Sprintf(
+		"倒计时开始：%d 秒后%s %d 个实例",
+		int(op.countdown.Total.Seconds()),
+		map[bool]string{true: "重启", false: "停止"}[op.Type == BatchRestart],
+		len(op.Instances),
+	), "")
+
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	cancelled := false
+
+	for _, instanceName := range op.Instances {
+		wg.Add(1)
+		go func(name string) {
+			defer wg.Done()
+			defer instancepkg.FinishCountdown(name)
+
+			if err := instancepkg.RunCountdown(op.ctx, name, action, op.countdown); err != nil {
+				mu.Lock()
+				cancelled = true
+				mu.Unlock()
+			}
+		}(instanceName)
+	}
+
+	wg.Wait()
+
+	if cancelled {
+		op.sendLog("warning", "倒计时被取消，批量操作未执行", "")
+		return true
+	}
+
+	op.sendLog("info", "倒计时结束，开始执行", "")
+	return false
 }
 
 // executeInstance 执行单个实例操作（调用方已完成 CAS，此处传 WithStatePreset）

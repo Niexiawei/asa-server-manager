@@ -55,6 +55,19 @@
                     <t-tag :theme="statusTagTheme(instance.status)">{{ statusLabel(instance.status) }}
                     </t-tag>
                   </div>
+                  <div class="info-item" v-if="countdownText(instance.name)">
+                    <span class="label">倒计时:</span>
+                    <t-space size="small" align="center">
+                      <t-tag theme="warning" variant="light">{{ countdownText(instance.name) }}</t-tag>
+                      <t-link
+                          v-if="isCountingDown(instance.name)"
+                          theme="danger"
+                          size="small"
+                          @click="cancelCountdown(instance.name)"
+                      >取消
+                      </t-link>
+                    </t-space>
+                  </div>
                   <div class="info-item" v-if="instance.config?.MapName">
                     <span class="label">地图:</span>
                     <span class="value">{{ instance.config.MapName }}</span>
@@ -183,6 +196,9 @@
         @refresh="fetchInstances"
     />
 
+    <!-- 停止/重启确认弹窗（内含倒计时选项） -->
+    <CountdownConfirmDialog ref="countdownDialogRef"/>
+
     <!-- 日志查看弹窗 -->
     <t-dialog
         v-model:visible="logModalVisible"
@@ -242,10 +258,12 @@ import {
   getModInfo,
   restartServer,
   startServer,
-  stopServer
+  stopServer,
+  cancelServerCountdown
 } from '@/apis/api.js'
 import BatchOperationDialog from '@/components/BatchOperationDialog.vue'
 import ServerUpdateDialog from '@/components/ServerUpdateDialog.vue'
+import CountdownConfirmDialog from '@/components/CountdownConfirmDialog.vue'
 import {MessagePlugin, DialogPlugin, NotifyPlugin} from 'tdesign-vue-next';
 import {
   CheckIcon,
@@ -256,7 +274,7 @@ import {
   StopCircleIcon,
   TaskChecked1Icon
 } from 'tdesign-icons-vue-next';
-import {initServer, serverStore, addRestartPending} from '@/store/serverStore.js'
+import {initServer, serverStore, addRestartPending, getCountdown, formatCountdown} from '@/store/serverStore.js'
 import {
   canForceStop,
   canStart,
@@ -291,6 +309,20 @@ const form = reactive({
 })
 const batchDialogVisible = ref(false)
 const updateDialogVisible = ref(false)
+const countdownDialogRef = ref(null)
+
+// 倒计时展示：counting 显示剩余时间，executing 显示「服务器关闭中…」。
+// phase 由后端给出，不靠 remaining <= 0 推断——执行阶段可能持续几分钟。
+const countdownText = (name) => {
+  const cd = getCountdown(name)
+  if (!cd) return ''
+
+  const label = cd.action === 'restart' ? '重启' : '关闭'
+  if (cd.phase === 'executing') return `服务器${label}中…`
+  return `${formatCountdown(cd.remaining)}后${label}`
+}
+
+const isCountingDown = (name) => getCountdown(name)?.phase === 'counting'
 
 // Mod信息
 const modInfo = ref([])
@@ -435,54 +467,56 @@ const startInstance = async (name) => {
   })
 }
 
-// 停止实例
+// 停止实例。弹窗里可选配倒计时；返回 null 表示用户取消
 const stopInstance = async (name) => {
-  let stopDialog = DialogPlugin.confirm({
-    header: '提示',
-    body: `确定要停止实例 "${name}" 吗？`,
-    confirmBtn: '确定',
-    cancelBtn: '取消',
-    onConfirm: async () => {
-      stopDialog.hide()
-      try {
-        const data = await stopServer(name)
-        if (data.success) {
-          MessagePlugin.success(data.message || `实例 "${name}" 正在停止`)
-        } else {
-          MessagePlugin.error(data.error || `实例 "${name}" 停止失败`)
-          console.error('停止实例失败:', data.error)
-        }
-      } catch (error) {
-        MessagePlugin.error(`停止实例失败: ${error.message}`)
-        console.error('停止实例失败:', error)
-      }
+  const countdown = await countdownDialogRef.value?.open(name, 'stop')
+  if (!countdown) return
+
+  try {
+    const data = await stopServer(name, countdown)
+    if (data.success) {
+      MessagePlugin.success(data.message || `实例 "${name}" 正在停止`)
+    } else {
+      MessagePlugin.error(data.error || `实例 "${name}" 停止失败`)
+      console.error('停止实例失败:', data.error)
     }
-  })
+  } catch (error) {
+    MessagePlugin.error(error?.response?.data?.error || `停止实例失败: ${error.message}`)
+    console.error('停止实例失败:', error)
+  }
 }
 
 // 重启实例
 const restartInstance = async (name) => {
-  let restartDialog = DialogPlugin.confirm({
-    header: '提示',
-    body: `确定要重启实例 "${name}" 吗？`,
-    confirmBtn: '确定',
-    cancelBtn: '取消',
-    onConfirm: async () => {
-      restartDialog.hide()
-      addRestartPending(name)
-      try {
-        const data = await restartServer(name)
-        if (data.success) {
-          MessagePlugin.success(data.message || '实例正在重启')
-        } else {
-          MessagePlugin.error(data.error || '重启实例失败')
-        }
-      } catch (error) {
-        console.error('重启实例失败:', error)
-        MessagePlugin.error('重启实例失败')
-      }
+  const countdown = await countdownDialogRef.value?.open(name, 'restart')
+  if (!countdown) return
+
+  addRestartPending(name)
+  try {
+    const data = await restartServer(name, countdown)
+    if (data.success) {
+      MessagePlugin.success(data.message || '实例正在重启')
+    } else {
+      MessagePlugin.error(data.error || '重启实例失败')
     }
-  })
+  } catch (error) {
+    console.error('重启实例失败:', error)
+    MessagePlugin.error(error?.response?.data?.error || '重启实例失败')
+  }
+}
+
+// 取消倒计时
+const cancelCountdown = async (name) => {
+  try {
+    const data = await cancelServerCountdown(name)
+    if (data.success) {
+      MessagePlugin.success(data.message || '倒计时已取消')
+    } else {
+      MessagePlugin.error(data.error || '取消倒计时失败')
+    }
+  } catch (error) {
+    MessagePlugin.error(error?.response?.data?.error || '取消倒计时失败')
+  }
 }
 
 // 强制停止实例

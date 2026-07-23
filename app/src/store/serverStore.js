@@ -23,6 +23,9 @@ export const serverStore = reactive({
     updateRunning: false, // 是否有服务器更新在运行
     updateCallbacks: [],   // 更新状态变更回调
     restartPending: new Set(), // 重启进行中（等待 server_restarted / server_restart_failed）
+    // 停止/重启倒计时：instanceName -> { action, phase, remaining }
+    // phase: counting（倒计时中）/ executing（已归零，正在执行）
+    countdowns: new Map(),
 })
 
 // WebSocket 事件处理函数
@@ -30,6 +33,17 @@ function handleServerEvent(event) {
     console.log('Handling server event:', event)
 
     const {event_type, instance_name, status, message, data} = event
+
+    // 操作有了最终结果就说明倒计时那一轮已经走完，交回普通状态显示。
+    // 后端的 FinishCountdown 只清服务端登记表，不发 WS，所以这里必须自己清，
+    // 否则卡片会一直停在「服务器关闭中…」。
+    const COUNTDOWN_TERMINAL_EVENTS = [
+        'server_started', 'server_stopped', 'server_restarted',
+        'server_start_failed', 'server_stop_failed', 'server_restart_failed',
+    ]
+    if (instance_name && COUNTDOWN_TERMINAL_EVENTS.includes(event_type)) {
+        serverStore.countdowns.delete(instance_name)
+    }
 
     switch (event_type) {
         case 'server_start_initialization':
@@ -191,9 +205,54 @@ function handleServerEvent(event) {
             serverStore.updateCallbacks.forEach(cb => cb('update_cancelled', event))
             break
 
+        case 'countdown':
+            if (instance_name) {
+                // phase 由后端给出，不要用 remaining <= 0 自行推断：
+                // 归零后的实际停止可能还要跑几分钟，只看数字会让 UI 卡在 0 秒
+                if (data?.phase === 'counting') {
+                    serverStore.countdowns.set(instance_name, {
+                        action: data.action,
+                        phase: data.phase,
+                        remaining: data.remaining ?? 0,
+                    })
+                } else if (data?.phase === 'executing') {
+                    serverStore.countdowns.set(instance_name, {
+                        action: data.action,
+                        phase: 'executing',
+                        remaining: 0,
+                    })
+                } else {
+                    // cancelled 或未知 phase：清掉，实例回到普通状态
+                    serverStore.countdowns.delete(instance_name)
+                }
+            }
+            break
+
         default:
             console.log('Unknown event type:', event_type)
     }
+}
+
+// 获取某实例的倒计时状态，没有则返回 null
+export function getCountdown(instanceName) {
+    return serverStore.countdowns.get(instanceName) ?? null
+}
+
+// 把剩余秒数格式化成中文，规则与后端 formatRemaining 保持一致
+export function formatCountdown(seconds) {
+    const s = Math.max(0, Math.floor(seconds ?? 0))
+
+    if (s >= 3600) {
+        const hours = Math.floor(s / 3600)
+        const minutes = Math.floor((s % 3600) / 60)
+        return minutes === 0 ? `${hours} 小时` : `${hours} 小时 ${minutes} 分钟`
+    }
+    if (s >= 60) {
+        const minutes = Math.floor(s / 60)
+        const rest = s % 60
+        return rest === 0 ? `${minutes} 分钟` : `${minutes} 分 ${rest} 秒`
+    }
+    return `${s} 秒`
 }
 
 // 初始化 WebSocket 连接

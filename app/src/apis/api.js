@@ -50,14 +50,38 @@ export function startServer(name) {
     return apiClient.get(`/api/server/${name}/start`)
 }
 
-// 停止服务器实例
-export function stopServer(name) {
-    return apiClient.get(`/api/server/${name}/stop`)
+// 把倒计时选项转成 query 参数。countdown 为空/0 时返回空对象，
+// 请求形态与加倒计时之前完全一致。
+function countdownParams(countdown) {
+    if (!countdown || !countdown.countdown) return {}
+
+    const params = {countdown: countdown.countdown}
+    if (countdown.notify_points?.length) {
+        params.notify_points = countdown.notify_points.join(',')
+    }
+    if (countdown.notify_message) params.notify_message = countdown.notify_message
+    if (countdown.notify_command) params.notify_command = countdown.notify_command
+    return params
 }
 
-// 重启服务器实例
-export function restartServer(name) {
-    return apiClient.get(`/api/server/${name}/restart`)
+// 停止服务器实例。countdown 可选：{countdown, notify_points, notify_message, notify_command}
+export function stopServer(name, countdown) {
+    return apiClient.get(`/api/server/${name}/stop`, {params: countdownParams(countdown)})
+}
+
+// 重启服务器实例。countdown 同上
+export function restartServer(name, countdown) {
+    return apiClient.get(`/api/server/${name}/restart`, {params: countdownParams(countdown)})
+}
+
+// 查询实例当前的倒计时状态（页面首次加载时补状态，WS 之外的兜底）
+export function getServerCountdown(name) {
+    return apiClient.get(`/api/server/${name}/countdown`)
+}
+
+// 取消实例的停止/重启倒计时
+export function cancelServerCountdown(name) {
+    return apiClient.post(`/api/server/${name}/countdown/cancel`)
 }
 
 // 强制停止服务器实例

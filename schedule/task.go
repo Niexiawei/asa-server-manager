@@ -3,6 +3,7 @@
 package schedule
 
 import (
+	instancepkg "asa-server/instance"
 	"fmt"
 	"time"
 )
@@ -44,9 +45,37 @@ type Task struct {
 	// Instances 仅 restart 使用，空表示全部实例。
 	Instances []string `json:"instances"`
 
+	// Countdown 执行前的倒计时秒数，0 = 不倒计时（默认，保持原有行为）。
+	// 对 update 任务作用于「更新前的批量停服」那一步——
+	// 半夜自动更新同样需要提前通知玩家。
+	Countdown     int    `json:"countdown"`
+	NotifyPoints  []int  `json:"notify_points"`
+	NotifyMessage string `json:"notify_message"`
+	NotifyCommand string `json:"notify_command"`
+
 	LastRunAt  *time.Time `json:"last_run_at,omitempty"`
 	NextRunAt  *time.Time `json:"next_run_at,omitempty"`
 	LastResult string     `json:"last_result,omitempty"`
+}
+
+// CountdownConfig 把任务里的倒计时字段转成 instance 包的配置。
+// Countdown 为 0 时返回 nil，表示不倒计时。
+func (t *Task) CountdownConfig() *instancepkg.CountdownConfig {
+	if t.Countdown <= 0 {
+		return nil
+	}
+
+	points := make([]time.Duration, 0, len(t.NotifyPoints))
+	for _, p := range t.NotifyPoints {
+		points = append(points, time.Duration(p)*time.Second)
+	}
+
+	return &instancepkg.CountdownConfig{
+		Total:    time.Duration(t.Countdown) * time.Second,
+		Points:   points,
+		Template: t.NotifyMessage,
+		Command:  t.NotifyCommand,
+	}
 }
 
 // Validate 校验任务字段。
@@ -84,6 +113,13 @@ func (t *Task) Validate() error {
 	// update 作用于整个服务端文件，指定实例没有意义
 	if t.Type == TaskUpdate && len(t.Instances) > 0 {
 		return fmt.Errorf("更新任务不能指定实例")
+	}
+
+	// 复用 instance 包那一套倒计时校验，避免两边规则漂移
+	if cfg := t.CountdownConfig(); cfg != nil {
+		if err := cfg.Validate(); err != nil {
+			return err
+		}
 	}
 
 	return nil

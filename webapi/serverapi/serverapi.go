@@ -35,6 +35,8 @@ func (h *Handler) RegisterRouter(r *gin.Engine) {
 		server.GET("/:name/stop", h.stopServer)
 		server.GET("/:name/restart", h.restartServer)
 		server.GET("/:name/force-stop", h.forceStopServer)
+		server.GET("/:name/countdown", h.getCountdown)
+		server.POST("/:name/countdown/cancel", h.cancelCountdown)
 		server.GET("/update", h.handleServerUpdate)
 		server.GET("/update/status", h.getUpdateStatus)
 		server.POST("/update/cancel", h.cancelUpdate)
@@ -89,6 +91,14 @@ func (h *Handler) startServer(c *gin.Context) {
 func (h *Handler) stopServer(c *gin.Context) {
 	name := c.Param("name")
 
+	// 先解析并校验倒计时参数：配错了要在 CAS 改状态之前就返回 400，
+	// 否则实例会被留在 stopping 状态上却没人去停它
+	countdown, err := parseCountdownQuery(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, apiresp.StatusResponse{Success: false, Error: err.Error()})
+		return
+	}
+
 	// 同步 CAS：原子检查并设置状态，立即返回 409 如果不允许
 	ok, err := statepkg.CompareAndSwapInstanceState(name,
 		[]statepkg.InstanceStatus{statepkg.StatusStarted},
@@ -108,7 +118,7 @@ func (h *Handler) stopServer(c *gin.Context) {
 		return
 	}
 
-	go h.runStopServerTask(name)
+	go h.runStopServerTask(name, countdown)
 
 	c.JSON(http.StatusOK, apiresp.StatusResponse{
 		Success: true,
@@ -118,6 +128,12 @@ func (h *Handler) stopServer(c *gin.Context) {
 
 func (h *Handler) restartServer(c *gin.Context) {
 	name := c.Param("name")
+
+	countdown, err := parseCountdownQuery(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, apiresp.StatusResponse{Success: false, Error: err.Error()})
+		return
+	}
 
 	// 同步 CAS：原子检查并设置状态，立即返回 409 如果不允许
 	ok, err := statepkg.CompareAndSwapInstanceState(name,
@@ -138,7 +154,7 @@ func (h *Handler) restartServer(c *gin.Context) {
 		return
 	}
 
-	go h.runRestartServerTask(name)
+	go h.runRestartServerTask(name, countdown)
 
 	c.JSON(http.StatusOK, apiresp.StatusResponse{
 		Success: true,
@@ -426,15 +442,19 @@ func (h *Handler) runStartServerTask(name string) {
 	}
 }
 
-func (h *Handler) runStopServerTask(name string) {
-	if err := instancepkg.StopServer(name, instancepkg.WithStatePreset()); err != nil {
+func (h *Handler) runStopServerTask(name string, countdown *instancepkg.CountdownConfig) {
+	if err := instancepkg.StopServer(name,
+		instancepkg.WithStatePreset(),
+		instancepkg.WithCountdown(countdown),
+	); err != nil {
 		logger.GetLogger().Errorf("failed to stop server '%s': %v", name, err)
 	}
 }
 
-func (h *Handler) runRestartServerTask(name string) {
+func (h *Handler) runRestartServerTask(name string, countdown *instancepkg.CountdownConfig) {
 	if err := instancepkg.RestartServer(name,
 		instancepkg.WithStatePreset(),
+		instancepkg.WithCountdown(countdown),
 		instancepkg.WithRestartStartupCompletion(func(string) {}), // 写 StatusRestarted 状态供 dispatcher 推送
 	); err != nil {
 		logger.GetLogger().Errorf("failed to restart server '%s': %v", name, err)

@@ -179,7 +179,7 @@ func (s *Scheduler) execute(ctx context.Context, t *Task) {
 	case TaskRestart:
 		err = s.runRestart(ctx, t)
 	case TaskUpdate:
-		err = s.runUpdate(ctx)
+		err = s.runUpdate(ctx, t)
 	default:
 		err = fmt.Errorf("未知的任务类型: %s", t.Type)
 	}
@@ -202,7 +202,9 @@ func (s *Scheduler) execute(ctx context.Context, t *Task) {
 
 // runRestart 批量重启。空实例列表由 batchmanage 解释为「全部实例」。
 func (s *Scheduler) runRestart(ctx context.Context, t *Task) error {
-	op, err := batchmanage.GetGlobalManager().StartOperation(batchmanage.BatchRestart, t.Instances, 0)
+	op, err := batchmanage.GetGlobalManager().StartOperation(
+		batchmanage.BatchRestart, t.Instances, 0, t.CountdownConfig(),
+	)
 	if err != nil {
 		return fmt.Errorf("failed to start batch restart: %w", err)
 	}
@@ -219,8 +221,11 @@ func (s *Scheduler) runRestart(ctx context.Context, t *Task) error {
 //
 // 停服不是顺手做的好事，而是硬前提：installer 在有实例存活时会直接拒绝更新，
 // 不先停服的话定时更新到点必然失败。
-func (s *Scheduler) runUpdate(ctx context.Context) error {
-	op, err := batchmanage.GetGlobalManager().StartOperation(batchmanage.BatchStop, nil, 0)
+func (s *Scheduler) runUpdate(ctx context.Context, t *Task) error {
+	// 倒计时作用于这一步的停服：半夜自动更新同样要提前通知玩家
+	op, err := batchmanage.GetGlobalManager().StartOperation(
+		batchmanage.BatchStop, nil, 0, t.CountdownConfig(),
+	)
 	if err != nil {
 		// 没有任何实例时 StartOperation 会报 "no instances to operate on"，
 		// 这种情况下没什么可停的，直接进入更新

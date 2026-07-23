@@ -281,6 +281,22 @@ func BroadcastServerEventWithData(eventType, instanceName, message, status strin
 	})
 }
 
+// BroadcastSavePlayers 推送某实例的玩家列表（存档解析结果，§3.1 格式）。
+// 前端按 event_type == "save_players" 过滤，从 data.players 取数组。
+func BroadcastSavePlayers(instanceName string, players []map[string]any) {
+	BroadcastServerEventWithData("save_players", instanceName, "", "", map[string]any{
+		"players": players,
+	})
+}
+
+// BroadcastSaveTribes 推送某实例的富化部落列表（存档解析结果，§3.2 格式）。
+// 前端按 event_type == "save_tribes" 过滤，从 data.tribes 取数组。
+func BroadcastSaveTribes(instanceName string, tribes []map[string]any) {
+	BroadcastServerEventWithData("save_tribes", instanceName, "", "", map[string]any{
+		"tribes": tribes,
+	})
+}
+
 // BroadcastServerStartingEvent broadcasts server starting event
 func BroadcastServerStartingEvent(instanceName string) {
 	BroadcastServerEvent("server_starting", instanceName, fmt.Sprintf("Server '%s' is starting", instanceName), "starting")
@@ -362,4 +378,34 @@ func BroadcastUpdateCompleted() {
 func BroadcastUpdateCancelled() {
 	BroadcastServerEventWithData("update_cancelled", "",
 		"Server update cancelled", "cancelled", nil)
+}
+
+// 倒计时阶段。前端据此决定显示「x 秒后重启」还是「服务器重启中…」，
+// 不要靠 remaining <= 0 自行推断：归零后的实际停止可能还要跑几分钟，
+// 只看数字会让 UI 卡在 0 秒上，看起来像卡死。
+const (
+	CountdownPhaseCounting  = "counting"
+	CountdownPhaseExecuting = "executing"
+	CountdownPhaseCancelled = "cancelled"
+)
+
+// BroadcastCountdownEvent 推送停止/重启倒计时进度。
+//
+// action 为 "stop" / "restart"；phase 见上面的常量；
+// remaining 是剩余秒数，phase != counting 时恒为 0。
+func BroadcastCountdownEvent(instanceName, action, phase, message string, remaining int) {
+	status := "stopping"
+	if action == "restart" {
+		status = "restarting"
+	}
+
+	if phase != CountdownPhaseCounting {
+		remaining = 0
+	}
+
+	BroadcastServerEventWithData("countdown", instanceName, message, status, map[string]any{
+		"action":    action,
+		"phase":     phase,
+		"remaining": remaining,
+	})
 }

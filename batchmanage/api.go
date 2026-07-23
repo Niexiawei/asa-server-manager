@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -54,10 +55,14 @@ func handleBatchOperation(c *gin.Context, opType BatchOperationType) {
 		return
 	}
 
-	op, err := mgr.StartOperation(opType, req.Instances, req.DelaySeconds)
+	op, err := mgr.StartOperation(opType, req.Instances, req.DelaySeconds, req.CountdownConfig())
 	if err != nil {
 		status := http.StatusConflict
 		if err.Error() == "no instances to operate on" {
+			status = http.StatusBadRequest
+		}
+		// 倒计时参数配错属于客户端错误，不该报 409
+		if strings.Contains(err.Error(), "倒计时") || strings.Contains(err.Error(), "播报时间点") {
 			status = http.StatusBadRequest
 		}
 		c.JSON(status, gin.H{
