@@ -1,15 +1,15 @@
 package realtime
 
 import (
-	cfgpkg "asa-server/config"
 	"asa-server/logger"
-	procpkg "asa-server/process"
+	"asa-server/rconx"
+	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/gorcon/rcon"
 	"github.com/gorilla/websocket"
 )
 
@@ -212,58 +212,16 @@ func rconExecuteCommand(instanceName string, command string) RCONResponse {
 		}
 	}
 
-	// Validate instance is running
-	running, err := procpkg.IsServerRunning(instanceName)
-	if err != nil || !running {
-		return RCONResponse{
-			Success: false,
-			Error:   fmt.Sprintf("Server instance '%s' is not running", instanceName),
-		}
-	}
+	logger.GetLogger().Infof("WebSocket RCON: Executing command on instance '%s': %s", instanceName, command)
 
-	// Load instance config
-	config, err := cfgpkg.LoadInstanceConfig(instanceName)
+	// 交互式面板不重试：用户就坐在屏幕前，连不上要立刻回话，
+	// 而不是让输入框卡住 4 秒（rconx 默认的 3 次尝试 × 2s 间隔）再报错。
+	response, err := rconx.Execute(context.Background(), instanceName, command, rconx.WithAttempts(1))
 	if err != nil {
+		logger.GetLogger().Errorf("WebSocket RCON: Command failed on instance '%s': %v", instanceName, err)
 		return RCONResponse{
 			Success: false,
-			Error:   fmt.Sprintf("Failed to load config for instance '%s': %v", instanceName, err),
-		}
-	}
-
-	// Validate RCON password
-	if config.ServerAdminPassword == "" {
-		return RCONResponse{
-			Success: false,
-			Error:   fmt.Sprintf("RCON password is empty for instance '%s'. Please set ServerAdminPassword in config", instanceName),
-		}
-	}
-
-	// Create temporary RCON connection for this command
-	rconAddr := fmt.Sprintf("localhost:%d", config.RCONPort)
-	logger.GetLogger().Infof("WebSocket RCON: Creating temporary connection to %s for command execution on instance '%s': %s", rconAddr, instanceName, command)
-
-	client, connectErr := rcon.Dial(rconAddr, config.ServerAdminPassword)
-	if connectErr != nil {
-		logger.GetLogger().Errorf("WebSocket RCON: Failed to create temporary connection to %s: %v", rconAddr, connectErr)
-		return RCONResponse{
-			Success: false,
-			Error:   fmt.Sprintf("Failed to connect to RCON server at %s: %v", rconAddr, connectErr),
-		}
-	}
-
-	logger.GetLogger().Infof("WebSocket RCON: Temporary connection established to instance '%s'", instanceName)
-
-	// Execute command with temporary connection
-	response, err := client.Execute(command)
-	// Immediately close the temporary connection
-	client.Close()
-	logger.GetLogger().Infof("WebSocket RCON: Closed temporary connection for instance '%s'", instanceName)
-
-	if err != nil {
-		logger.GetLogger().Errorf("WebSocket RCON: Command execution failed: %v", err)
-		return RCONResponse{
-			Success: false,
-			Error:   fmt.Sprintf("RCON command execution failed: %v", err),
+			Error:   rconErrorMessage(instanceName, err),
 		}
 	}
 
@@ -272,5 +230,18 @@ func rconExecuteCommand(instanceName string, command string) RCONResponse {
 		Success:      true,
 		Response:     response,
 		InstanceName: instanceName,
+	}
+}
+
+// rconErrorMessage 把 rconx 的错误翻成面板上直接可读的一句话。
+// 保留拆分前的措辞，前端与用户的既有认知不受影响。
+func rconErrorMessage(instanceName string, err error) string {
+	switch {
+	case errors.Is(err, rconx.ErrNotRunning):
+		return fmt.Sprintf("Server instance '%s' is not running", instanceName)
+	case errors.Is(err, rconx.ErrPasswordEmpty):
+		return fmt.Sprintf("RCON password is empty for instance '%s'. Please set ServerAdminPassword in config", instanceName)
+	default:
+		return err.Error()
 	}
 }

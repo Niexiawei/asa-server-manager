@@ -2,6 +2,7 @@ package batchmanage
 
 import (
 	cfgpkg "asa-server/config"
+	"asa-server/countdown"
 	instancepkg "asa-server/instance"
 	"asa-server/logger"
 	"asa-server/realtime"
@@ -45,36 +46,29 @@ type BatchOperationRequest struct {
 	NotifyCommand string `json:"notify_command"`
 }
 
-// CountdownConfig 把请求里的倒计时字段转成 instance 包的配置。
+// CountdownConfig 把请求里的倒计时字段转成 countdown 包的配置。
 // Countdown 为 0 时返回 nil，表示不倒计时。
-func (r *BatchOperationRequest) CountdownConfig() *instancepkg.CountdownConfig {
-	if r.Countdown <= 0 {
-		return nil
-	}
-
-	points := make([]time.Duration, 0, len(r.NotifyPoints))
-	for _, p := range r.NotifyPoints {
-		points = append(points, time.Duration(p)*time.Second)
-	}
-
-	return &instancepkg.CountdownConfig{
-		Total:    time.Duration(r.Countdown) * time.Second,
-		Points:   points,
-		Template: r.NotifyMessage,
-		Command:  r.NotifyCommand,
-	}
+func (r *BatchOperationRequest) CountdownConfig() *countdown.Config {
+	return countdown.FromSeconds(r.Countdown, r.NotifyPoints, r.NotifyMessage, r.NotifyCommand)
 }
+
+// maxLogHistory 单次批量操作保留的日志条数上限。
+// 前端刷新页面后依赖这份历史回放，20 实例的批量约产生 60+ 条日志，
+// 上限过低会导致刷新后看不到开头部分。
+const maxLogHistory = 500
 
 // InstanceOpStatus 单实例操作结果状态
 type InstanceOpStatus string
 
 const (
-	InstancePending   InstanceOpStatus = "pending"
-	InstanceRunning   InstanceOpStatus = "running"
-	InstanceSuccess   InstanceOpStatus = "success"
-	InstanceFailed    InstanceOpStatus = "failed"
-	InstanceSkipped   InstanceOpStatus = "skipped"
-	InstanceCancelled InstanceOpStatus = "cancelled"
+	InstancePending InstanceOpStatus = "pending"
+	// InstanceSkipRequested 用户已请求跳过，等待主循环轮到该实例后转为 InstanceSkipped
+	InstanceSkipRequested InstanceOpStatus = "skip_requested"
+	InstanceRunning       InstanceOpStatus = "running"
+	InstanceSuccess       InstanceOpStatus = "success"
+	InstanceFailed        InstanceOpStatus = "failed"
+	InstanceSkipped       InstanceOpStatus = "skipped"
+	InstanceCancelled     InstanceOpStatus = "cancelled"
 )
 
 // InstanceResult 单实例操作结果
@@ -210,11 +204,16 @@ type BatchOperation struct {
 	cancel       context.CancelFunc
 	skipChannels map[string]chan struct{}
 
+	// skipOnce 保证每个实例的跳过通道只被 close 一次。
+	// 用户主动跳过与倒计时被取消是两条路径，可能先后落在同一个实例上
+	// （倒计时期间先点了跳过，随后又取消了这台的倒计时），裸 close 会 panic。
+	skipOnce map[string]*sync.Once
+
 	// done 在操作结束（完成/取消/panic）时关闭，供调用方等待批量操作跑完
 	done chan struct{}
 
 	// countdown 为 nil 表示不倒计时。见 runCountdownPhase 的编排说明。
-	countdown *instancepkg.CountdownConfig
+	countdown *countdown.Config
 
 	logBroadcaster *LogBroadcaster
 	logHistory     []BatchLogEntry
@@ -224,7 +223,10 @@ type BatchOperation struct {
 // BatchManager 全局单例管理器
 type BatchManager struct {
 	current *BatchOperation
-	mu      sync.Mutex
+	// last 是最近一次已结束的操作，仅供前端回放日志历史。
+	// 下一次批量开始时被覆盖，常驻开销是一个 op 对象 + 至多 maxLogHistory 条日志。
+	last *BatchOperation
+	mu   sync.Mutex
 }
 
 var globalManager *BatchManager
@@ -244,7 +246,7 @@ func (bm *BatchManager) StartOperation(
 	opType BatchOperationType,
 	instances []string,
 	delaySeconds int,
-	countdown *instancepkg.CountdownConfig,
+	cdCfg *countdown.Config,
 ) (*BatchOperation, error) {
 	bm.mu.Lock()
 	defer bm.mu.Unlock()
@@ -254,15 +256,13 @@ func (bm *BatchManager) StartOperation(
 	}
 
 	// 配错的倒计时要在这里就拦下，不能等阶段一跑起来才发现点位永远触发不到
-	if countdown.Enabled() {
-		if err := countdown.Validate(); err != nil {
-			return nil, err
-		}
+	if err := cdCfg.Validate(); err != nil {
+		return nil, err
 	}
 
 	// 启动不需要预告玩家：没人在线可通知
 	if opType == BatchStart {
-		countdown = nil
+		cdCfg = nil
 	}
 
 	// 如果没有指定实例，获取所有可用实例
@@ -288,10 +288,12 @@ func (bm *BatchManager) StartOperation(
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// 创建 skip channels
+	// 创建 skip channels 及其一次性关闭守卫
 	skipChannels := make(map[string]chan struct{})
+	skipOnce := make(map[string]*sync.Once)
 	for _, inst := range instances {
 		skipChannels[inst] = make(chan struct{})
+		skipOnce[inst] = new(sync.Once)
 	}
 
 	// 初始化实例结果
@@ -315,8 +317,9 @@ func (bm *BatchManager) StartOperation(
 		ctx:             ctx,
 		cancel:          cancel,
 		skipChannels:    skipChannels,
+		skipOnce:        skipOnce,
 		done:            make(chan struct{}),
-		countdown:       countdown,
+		countdown:       cdCfg,
 		logBroadcaster:  logBroadcaster,
 		logHistory:      make([]BatchLogEntry, 0, 50),
 	}
@@ -343,6 +346,24 @@ func (bm *BatchManager) GetCurrent() *BatchOperation {
 	return bm.current
 }
 
+// GetCurrentOrLast 返回进行中的操作，没有则返回最近一次已结束的操作。
+// 仅用于日志回放，不要拿它做状态判断——那种场景请用 GetCurrent。
+func (bm *BatchManager) GetCurrentOrLast() *BatchOperation {
+	bm.mu.Lock()
+	defer bm.mu.Unlock()
+	if bm.current != nil {
+		return bm.current
+	}
+	return bm.last
+}
+
+// IsRunning 该次操作是否仍在执行
+func (op *BatchOperation) IsRunning() bool {
+	op.mu.RLock()
+	defer op.mu.RUnlock()
+	return op.Status == "running"
+}
+
 // CancelCurrent 取消当前操作
 func (bm *BatchManager) CancelCurrent() bool {
 	bm.mu.Lock()
@@ -354,26 +375,45 @@ func (bm *BatchManager) CancelCurrent() bool {
 	return false
 }
 
-// SkipInstance 跳过指定实例
-func (bm *BatchManager) SkipInstance(instanceName string) bool {
+// SkipInstance 请求跳过指定实例，返回是否成功及失败原因。
+// 主循环只在轮到某个实例之前检查一次跳过信号，因此只有仍处于 pending 的实例可以跳过；
+// 这里同时把意图写入 InstanceResults，使 /status 能立即反映出来。
+func (bm *BatchManager) SkipInstance(instanceName string) (bool, string) {
 	bm.mu.Lock()
 	defer bm.mu.Unlock()
-	if bm.current == nil || bm.current.Status != "running" {
-		return false
+	if bm.current == nil {
+		return false, "当前没有进行中的批量操作"
 	}
-	bm.current.mu.Lock()
-	defer bm.current.mu.Unlock()
-	if ch, ok := bm.current.skipChannels[instanceName]; ok {
-		select {
-		case <-ch:
-			// 已关闭（已跳过）
-			return false
+	op := bm.current
+
+	// 注意：此处已持有 op.mu，不能调用 op.setResult（它会再次加锁），需内联修改
+	op.mu.Lock()
+	defer op.mu.Unlock()
+	if op.Status != "running" {
+		return false, "当前没有进行中的批量操作"
+	}
+
+	for _, r := range op.InstanceResults {
+		if r.InstanceName != instanceName {
+			continue
+		}
+		switch r.Status {
+		case InstancePending:
+			if _, ok := op.skipChannels[instanceName]; !ok {
+				return false, "实例不在本次批量操作中"
+			}
+			op.signalSkipLocked(instanceName)
+			r.Status = InstanceSkipRequested
+			return true, ""
+		case InstanceSkipRequested:
+			return false, "该实例已请求跳过"
+		case InstanceRunning:
+			return false, "实例正在执行中，无法跳过"
 		default:
-			close(ch)
-			return true
+			return false, "实例已处理完成，无法跳过"
 		}
 	}
-	return false
+	return false, "实例不在本次批量操作中"
 }
 
 // Shutdown 关闭时取消当前操作
@@ -394,8 +434,8 @@ func (op *BatchOperation) sendLog(level, message, instanceName string) {
 		InstanceName: instanceName,
 	}
 	op.mu.Lock()
-	// 保留最近 50 条
-	if len(op.logHistory) >= 50 {
+	// 保留最近 maxLogHistory 条，供前端刷新页面后回放
+	if len(op.logHistory) >= maxLogHistory {
 		op.logHistory = op.logHistory[1:]
 	}
 	op.logHistory = append(op.logHistory, entry)
@@ -417,6 +457,38 @@ func (op *BatchOperation) setResult(instanceName string, status InstanceOpStatus
 	}
 }
 
+// resultStatus 读取实例当前的结果状态，不在列表中返回空串。
+func (op *BatchOperation) resultStatus(instanceName string) InstanceOpStatus {
+	op.mu.RLock()
+	defer op.mu.RUnlock()
+	for _, r := range op.InstanceResults {
+		if r.InstanceName == instanceName {
+			return r.Status
+		}
+	}
+	return ""
+}
+
+// signalSkip 让主循环跳过指定实例。
+//
+// 用户主动跳过与倒计时被取消都走这里：两条路径可能先后落在同一个实例上，
+// Once 保证通道不会被 close 两次。
+func (op *BatchOperation) signalSkip(instanceName string) {
+	op.mu.Lock()
+	defer op.mu.Unlock()
+	op.signalSkipLocked(instanceName)
+}
+
+// signalSkipLocked 是 signalSkip 的已持锁版本，供 SkipInstance 在持锁期间调用。
+func (op *BatchOperation) signalSkipLocked(instanceName string) {
+	once, ok := op.skipOnce[instanceName]
+	if !ok {
+		return
+	}
+	ch := op.skipChannels[instanceName]
+	once.Do(func() { close(ch) })
+}
+
 // runBatchOperation 执行批量操作主循环
 func (bm *BatchManager) runBatchOperation(op *BatchOperation) {
 	// 最先注册 = 最后执行：等状态、广播、单例都收拾干净了再放行等待方
@@ -430,6 +502,8 @@ func (bm *BatchManager) runBatchOperation(op *BatchOperation) {
 
 		bm.mu.Lock()
 		if bm.current == op {
+			// 存档而不是直接丢弃：前端在没有批量运行时也要能回放这一轮的日志
+			bm.last = op
 			bm.current = nil
 		}
 		bm.mu.Unlock()
@@ -483,8 +557,12 @@ func (bm *BatchManager) runBatchOperation(op *BatchOperation) {
 		op.mu.RUnlock()
 		select {
 		case <-skipCh:
-			op.setResult(instanceName, InstanceSkipped, "skipped by user")
-			op.sendLog("warning", fmt.Sprintf("Instance '%s' skipped by user", instanceName), instanceName)
+			// 倒计时被取消的实例已在阶段一标记为 cancelled，
+			// 不要盖成「用户跳过」——那会丢掉真正的原因
+			if op.resultStatus(instanceName) != InstanceCancelled {
+				op.setResult(instanceName, InstanceSkipped, "skipped by user")
+				op.sendLog("warning", fmt.Sprintf("Instance '%s' skipped by user", instanceName), instanceName)
+			}
 			continue
 		default:
 		}
@@ -508,19 +586,10 @@ func (bm *BatchManager) runBatchOperation(op *BatchOperation) {
 		op.executeInstance(instanceName, op.Type)
 
 		// 检查结果
-		op.mu.RLock()
-		var resultStatus InstanceOpStatus
-		for _, r := range op.InstanceResults {
-			if r.InstanceName == instanceName {
-				resultStatus = r.Status
-				break
-			}
-		}
-		op.mu.RUnlock()
-
-		if resultStatus == InstanceSuccess {
+		switch op.resultStatus(instanceName) {
+		case InstanceSuccess:
 			succeeded++
-		} else if resultStatus == InstanceFailed {
+		case InstanceFailed:
 			failed++
 		}
 
@@ -549,50 +618,50 @@ func (bm *BatchManager) runBatchOperation(op *BatchOperation) {
 // 而且最后一个实例的玩家要等到第 40 分钟才收到「还有 10 分钟」的通知。
 // 统一前置之后总耗时 = 倒计时 + 原有串行耗时，且全服玩家的倒计时是对齐的。
 //
-// 返回 true 表示倒计时被取消，调用方不应继续执行阶段二。
+// 单独取消某个实例的倒计时只放过那一台：它被接进已有的 skip 机制，
+// 阶段二的主循环会像用户手动跳过一样把它略过，其余实例照常执行。
+//
+// 返回 true 表示整批中止（父 ctx 被取消，或所有实例都被逐个取消），
+// 调用方不应继续执行阶段二。
 func (op *BatchOperation) runCountdownPhase() bool {
 	if !op.countdown.Enabled() {
 		return false
 	}
 
-	action := instancepkg.CountdownActionStop
+	action := countdown.ActionStop
 	if op.Type == BatchRestart {
-		action = instancepkg.CountdownActionRestart
+		action = countdown.ActionRestart
 	}
 
 	op.sendLog("info", fmt.Sprintf(
 		"倒计时开始：%d 秒后%s %d 个实例",
-		int(op.countdown.Total.Seconds()),
-		map[bool]string{true: "重启", false: "停止"}[op.Type == BatchRestart],
-		len(op.Instances),
+		int(op.countdown.Total.Seconds()), action.Label(), len(op.Instances),
 	), "")
 
-	var wg sync.WaitGroup
-	var mu sync.Mutex
-	cancelled := false
-
-	for _, instanceName := range op.Instances {
-		wg.Add(1)
-		go func(name string) {
-			defer wg.Done()
-			defer instancepkg.FinishCountdown(name)
-
-			if err := instancepkg.RunCountdown(op.ctx, name, action, op.countdown); err != nil {
-				mu.Lock()
-				cancelled = true
-				mu.Unlock()
-			}
-		}(instanceName)
-	}
-
-	wg.Wait()
-
-	if cancelled {
+	res, err := countdown.Wait(op.ctx, op.Instances, action, op.countdown)
+	if err != nil {
 		op.sendLog("warning", "倒计时被取消，批量操作未执行", "")
 		return true
 	}
 
-	op.sendLog("info", "倒计时结束，开始执行", "")
+	// 被单独取消的实例接进已有的 skip 机制，阶段二无需为此再加一条分支
+	for _, name := range res.Cancelled {
+		op.setResult(name, InstanceCancelled, "倒计时被取消")
+		op.signalSkip(name)
+		op.sendLog("warning", fmt.Sprintf("实例 '%s' 的倒计时被取消，将跳过", name), name)
+	}
+
+	if res.AllCancelled(len(op.Instances)) {
+		op.sendLog("warning", "所有实例的倒计时都被取消，批量操作未执行", "")
+		return true
+	}
+
+	if len(res.Cancelled) > 0 {
+		op.sendLog("info", fmt.Sprintf("倒计时结束，开始执行（跳过 %d 个已取消的实例）",
+			len(res.Cancelled)), "")
+	} else {
+		op.sendLog("info", "倒计时结束，开始执行", "")
+	}
 	return false
 }
 

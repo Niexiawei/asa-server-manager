@@ -3,7 +3,7 @@
 package schedule
 
 import (
-	instancepkg "asa-server/instance"
+	"asa-server/countdown"
 	"fmt"
 	"time"
 )
@@ -58,24 +58,10 @@ type Task struct {
 	LastResult string     `json:"last_result,omitempty"`
 }
 
-// CountdownConfig 把任务里的倒计时字段转成 instance 包的配置。
+// CountdownConfig 把任务里的倒计时字段转成 countdown 包的配置。
 // Countdown 为 0 时返回 nil，表示不倒计时。
-func (t *Task) CountdownConfig() *instancepkg.CountdownConfig {
-	if t.Countdown <= 0 {
-		return nil
-	}
-
-	points := make([]time.Duration, 0, len(t.NotifyPoints))
-	for _, p := range t.NotifyPoints {
-		points = append(points, time.Duration(p)*time.Second)
-	}
-
-	return &instancepkg.CountdownConfig{
-		Total:    time.Duration(t.Countdown) * time.Second,
-		Points:   points,
-		Template: t.NotifyMessage,
-		Command:  t.NotifyCommand,
-	}
+func (t *Task) CountdownConfig() *countdown.Config {
+	return countdown.FromSeconds(t.Countdown, t.NotifyPoints, t.NotifyMessage, t.NotifyCommand)
 }
 
 // Validate 校验任务字段。

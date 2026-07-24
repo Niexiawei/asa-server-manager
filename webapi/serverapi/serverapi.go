@@ -2,6 +2,7 @@ package serverapi
 
 import (
 	cfgpkg "asa-server/config"
+	"asa-server/countdown"
 	instancepkg "asa-server/instance"
 	"asa-server/logger"
 	"asa-server/pkg/serverinfo"
@@ -93,7 +94,7 @@ func (h *Handler) stopServer(c *gin.Context) {
 
 	// 先解析并校验倒计时参数：配错了要在 CAS 改状态之前就返回 400，
 	// 否则实例会被留在 stopping 状态上却没人去停它
-	countdown, err := parseCountdownQuery(c)
+	cfg, err := countdown.FromQuery(c.Query)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, apiresp.StatusResponse{Success: false, Error: err.Error()})
 		return
@@ -118,7 +119,7 @@ func (h *Handler) stopServer(c *gin.Context) {
 		return
 	}
 
-	go h.runStopServerTask(name, countdown)
+	go h.runStopServerTask(name, cfg)
 
 	c.JSON(http.StatusOK, apiresp.StatusResponse{
 		Success: true,
@@ -129,7 +130,7 @@ func (h *Handler) stopServer(c *gin.Context) {
 func (h *Handler) restartServer(c *gin.Context) {
 	name := c.Param("name")
 
-	countdown, err := parseCountdownQuery(c)
+	cfg, err := countdown.FromQuery(c.Query)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, apiresp.StatusResponse{Success: false, Error: err.Error()})
 		return
@@ -154,7 +155,7 @@ func (h *Handler) restartServer(c *gin.Context) {
 		return
 	}
 
-	go h.runRestartServerTask(name, countdown)
+	go h.runRestartServerTask(name, cfg)
 
 	c.JSON(http.StatusOK, apiresp.StatusResponse{
 		Success: true,
@@ -442,19 +443,21 @@ func (h *Handler) runStartServerTask(name string) {
 	}
 }
 
-func (h *Handler) runStopServerTask(name string, countdown *instancepkg.CountdownConfig) {
-	if err := instancepkg.StopServer(name,
+// runStopServerTask 走 countdown 包：cfg 为 nil 时等价于直接 StopServer。
+//
+// ctx 用 serverCtx 而非 Background：进程退出时倒计时应随之收敛，
+// 否则一个 10 分钟的倒计时会把关停流程拖住。
+func (h *Handler) runStopServerTask(name string, cfg *countdown.Config) {
+	if err := countdown.Stop(h.serverCtx, name, cfg,
 		instancepkg.WithStatePreset(),
-		instancepkg.WithCountdown(countdown),
 	); err != nil {
 		logger.GetLogger().Errorf("failed to stop server '%s': %v", name, err)
 	}
 }
 
-func (h *Handler) runRestartServerTask(name string, countdown *instancepkg.CountdownConfig) {
-	if err := instancepkg.RestartServer(name,
+func (h *Handler) runRestartServerTask(name string, cfg *countdown.Config) {
+	if err := countdown.Restart(h.serverCtx, name, cfg,
 		instancepkg.WithStatePreset(),
-		instancepkg.WithCountdown(countdown),
 		instancepkg.WithRestartStartupCompletion(func(string) {}), // 写 StatusRestarted 状态供 dispatcher 推送
 	); err != nil {
 		logger.GetLogger().Errorf("failed to restart server '%s': %v", name, err)

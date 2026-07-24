@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"strings"
 
+	"asa-server/realtime"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -115,10 +117,11 @@ func getBatchStatus(c *gin.Context) {
 	op.mu.RLock()
 	defer op.mu.RUnlock()
 
-	// 计算进度
+	// 计算进度：skip_requested 尚未真正处理，不能提前计入
 	done := 0
 	for _, r := range op.InstanceResults {
-		if r.Status != InstancePending && r.Status != InstanceRunning {
+		if r.Status != InstancePending && r.Status != InstanceRunning &&
+			r.Status != InstanceSkipRequested {
 			done++
 		}
 	}
@@ -145,11 +148,12 @@ func streamBatchLogs(c *gin.Context) {
 		return
 	}
 
-	op := mgr.GetCurrent()
+	// 用 GetCurrentOrLast：没有进行中的操作时回放最近一轮的历史日志
+	op := mgr.GetCurrentOrLast()
 	if op == nil {
 		c.JSON(http.StatusNotFound, gin.H{
 			"success": false,
-			"error":   "No active batch operation",
+			"error":   "No batch operation logs available",
 		})
 		return
 	}
@@ -168,6 +172,12 @@ func streamBatchLogs(c *gin.Context) {
 		data, _ := json.Marshal(entry)
 		fmt.Fprintf(c.Writer, "data: %s\n\n", data)
 		c.Writer.Flush()
+	}
+
+	// 已结束的操作只回放历史就够了。它的 broadcaster 已经 Stop，
+	// 订阅上去只会把这个 handler goroutine 挂到客户端断开，且永远收不到任何东西。
+	if !op.IsRunning() {
+		return
 	}
 
 	// 订阅新日志
@@ -234,15 +244,24 @@ func skipBatchInstance(c *gin.Context) {
 		return
 	}
 
-	if mgr.SkipInstance(req.InstanceName) {
-		c.JSON(http.StatusOK, gin.H{
-			"success": true,
-			"message": fmt.Sprintf("Instance '%s' will be skipped", req.InstanceName),
-		})
-	} else {
+	ok, reason := mgr.SkipInstance(req.InstanceName)
+	if !ok {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
-			"error":   fmt.Sprintf("Instance '%s' not found or already processed", req.InstanceName),
+			"error":   reason,
 		})
+		return
 	}
+
+	// 广播放在锁外，使其它客户端立即同步到该实例的待跳过状态
+	opType := ""
+	if op := mgr.GetCurrent(); op != nil {
+		opType = string(op.Type)
+	}
+	realtime.BroadcastBatchInstanceSkipped(opType, req.InstanceName)
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": fmt.Sprintf("Instance '%s' will be skipped", req.InstanceName),
+	})
 }

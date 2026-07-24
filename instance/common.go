@@ -6,6 +6,7 @@ import (
 	"asa-server/mirror"
 	"asa-server/pkg/tail"
 	"asa-server/pkg/winproc"
+	"asa-server/rconx"
 	"bufio"
 	"bytes"
 	"context"
@@ -21,30 +22,6 @@ import (
 	"time"
 	"unicode/utf8"
 )
-
-var ansiRegexp = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
-
-func splitOnNewlineOrCR(data []byte, atEOF bool) (advance int, token []byte, err error) {
-	// 查找 \n 或 \r 的最早位置
-	for i, b := range data {
-		if b == '\n' || b == '\r' {
-			// 返回不包含分隔符的 token（类似 ScanLines）
-			return i + 1, dropSep(data[:i], b), nil
-		}
-	}
-	// 如果到 EOF，返回剩余的数据（如果非空）
-	if atEOF && len(data) > 0 {
-		return len(data), data, nil
-	}
-	// 需要更多数据
-	return 0, nil, nil
-}
-
-// 如果希望去掉 CR/LF 之后仍保留 token，这里只是示例（可按需修改）
-func dropSep(b []byte, sep byte) []byte {
-	// 直接返回 b（不包含 sep），如果想保留 sep 则改这里
-	return b
-}
 
 func killGameServer(pid int) {
 	if err := exec.Command("taskkill", "/PID", fmt.Sprintf("%d", pid), "/T").Run(); err != nil {
@@ -218,11 +195,11 @@ func SaveWorldSafely(instanceName string) error {
 	if err != nil {
 		return fmt.Errorf("failed to load instance config: %w", err)
 	}
-
+	ctx := context.Background()
 	// Get the current time to compare against the file's modification time
 	startTime := time.Now()
 	// Send the DoExit command (this triggers world save)
-	response, err := SendRCONCommand(instanceName, "saveworld")
+	response, err := rconx.Execute(ctx, instanceName, "saveworld")
 	if err != nil {
 		return fmt.Errorf("failed to send command: %w", err)
 	}

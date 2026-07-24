@@ -362,6 +362,17 @@ func BroadcastBatchOperationCompleted(opType string, succeeded, failed, total in
 		})
 }
 
+// BroadcastBatchInstanceSkipped broadcasts a user-requested instance skip.
+// 该实例此时尚未真正跳过，只是意图已被记录，等待主循环轮到它。
+func BroadcastBatchInstanceSkipped(opType, instanceName string) {
+	BroadcastServerEventWithData("batch_instance_skipped", instanceName,
+		fmt.Sprintf("Instance '%s' skip requested", instanceName), opType,
+		map[string]any{
+			"type":          opType,
+			"instance_name": instanceName,
+		})
+}
+
 // BroadcastUpdateStarted broadcasts server update started event
 func BroadcastUpdateStarted() {
 	BroadcastServerEventWithData("update_started", "",

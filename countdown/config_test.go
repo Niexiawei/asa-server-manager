@@ -1,8 +1,7 @@
-package instance
+package countdown
 
 import (
 	"asa-server/logger"
-	"context"
 	"os"
 	"strings"
 	"testing"
@@ -38,82 +37,81 @@ func TestFormatRemaining(t *testing.T) {
 	}
 }
 
-func TestRenderCountdownMessage(t *testing.T) {
+func TestRenderMessage(t *testing.T) {
 	tests := []struct {
 		name      string
 		template  string
 		remaining time.Duration
-		action    string
+		action    Action
 		want      string
 	}{
 		{
 			name:      "三个占位符都被替换",
 			template:  "{instance} 将在 {time} 后{action}",
 			remaining: 10 * time.Minute,
-			action:    CountdownActionRestart,
+			action:    ActionRestart,
 			want:      "meijue 将在 10 分钟 后重启",
 		},
 		{
 			name:      "停止的 action 文案",
 			template:  "{time} 后{action}",
 			remaining: 30 * time.Second,
-			action:    CountdownActionStop,
+			action:    ActionStop,
 			want:      "30 秒 后停止",
 		},
 		{
 			name:      "没有占位符时原样输出",
 			template:  "服务器即将维护",
 			remaining: time.Minute,
-			action:    CountdownActionStop,
+			action:    ActionStop,
 			want:      "服务器即将维护",
 		},
 		{
 			name:      "未识别的占位符保持原样，不被清空",
 			template:  "{time} 后{action}，联系 {foo}",
 			remaining: time.Minute,
-			action:    CountdownActionStop,
+			action:    ActionStop,
 			want:      "1 分钟 后停止，联系 {foo}",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := renderCountdownMessage(tt.template, "meijue", tt.action, tt.remaining)
+			got := renderMessage(tt.template, "meijue", tt.action, tt.remaining)
 			if got != tt.want {
-				t.Errorf("renderCountdownMessage()\ngot  = %q\nwant = %q", got, tt.want)
+				t.Errorf("renderMessage()\ngot  = %q\nwant = %q", got, tt.want)
 			}
 		})
 	}
 }
 
-func TestCountdownConfigValidate(t *testing.T) {
+func TestConfigValidate(t *testing.T) {
 	tests := []struct {
 		name    string
-		cfg     CountdownConfig
+		cfg     Config
 		wantErr bool
 	}{
 		{
 			name: "未启用倒计时（Total=0）一律通过",
-			cfg:  CountdownConfig{Total: 0, Points: []time.Duration{time.Hour}},
+			cfg:  Config{Total: 0, Points: []time.Duration{time.Hour}},
 		},
 		{
 			name:    "Total 29 秒 → 拒绝",
-			cfg:     CountdownConfig{Total: 29 * time.Second},
+			cfg:     Config{Total: 29 * time.Second},
 			wantErr: true,
 		},
 		{
 			name: "Total 30 秒 → 通过",
-			cfg:  CountdownConfig{Total: 30 * time.Second},
+			cfg:  Config{Total: 30 * time.Second},
 		},
 		{
 			name:    "Total 超过 24 小时 → 拒绝",
-			cfg:     CountdownConfig{Total: 25 * time.Hour},
+			cfg:     Config{Total: 25 * time.Hour},
 			wantErr: true,
 		},
 		{
-			// 本次评审点名要防的情况
 			name: "Total=600 但点位 700 → 拒绝",
-			cfg: CountdownConfig{
+			cfg: Config{
 				Total:  600 * time.Second,
 				Points: []time.Duration{700 * time.Second},
 			},
@@ -121,7 +119,7 @@ func TestCountdownConfigValidate(t *testing.T) {
 		},
 		{
 			name: "Total=600 但点位 605 → 拒绝",
-			cfg: CountdownConfig{
+			cfg: Config{
 				Total:  600 * time.Second,
 				Points: []time.Duration{605 * time.Second},
 			},
@@ -129,14 +127,14 @@ func TestCountdownConfigValidate(t *testing.T) {
 		},
 		{
 			name: "点位等于 Total → 通过（开场即播是合法的）",
-			cfg: CountdownConfig{
+			cfg: Config{
 				Total:  600 * time.Second,
 				Points: []time.Duration{600 * time.Second},
 			},
 		},
 		{
 			name: "点位为 0 → 拒绝",
-			cfg: CountdownConfig{
+			cfg: Config{
 				Total:  600 * time.Second,
 				Points: []time.Duration{0},
 			},
@@ -144,7 +142,7 @@ func TestCountdownConfigValidate(t *testing.T) {
 		},
 		{
 			name: "点位为负 → 拒绝",
-			cfg: CountdownConfig{
+			cfg: Config{
 				Total:  600 * time.Second,
 				Points: []time.Duration{-time.Second},
 			},
@@ -152,7 +150,7 @@ func TestCountdownConfigValidate(t *testing.T) {
 		},
 		{
 			name: "超过 20 个点位 → 拒绝",
-			cfg: CountdownConfig{
+			cfg: Config{
 				Total:  600 * time.Second,
 				Points: make([]time.Duration, 21),
 			},
@@ -172,7 +170,7 @@ func TestCountdownConfigValidate(t *testing.T) {
 
 // 越界点位的错误文案要能指出是哪个点位、超了什么，否则用户不知道改哪
 func TestValidateErrorMentionsOffendingPoint(t *testing.T) {
-	cfg := CountdownConfig{
+	cfg := Config{
 		Total:  600 * time.Second,
 		Points: []time.Duration{700 * time.Second},
 	}
@@ -187,25 +185,6 @@ func TestValidateErrorMentionsOffendingPoint(t *testing.T) {
 }
 
 func TestNormalizePoints(t *testing.T) {
-	secs := func(ds []time.Duration) []int {
-		out := make([]int, len(ds))
-		for i, d := range ds {
-			out[i] = int(d.Seconds())
-		}
-		return out
-	}
-	equal := func(a []int, b []int) bool {
-		if len(a) != len(b) {
-			return false
-		}
-		for i := range a {
-			if a[i] != b[i] {
-				return false
-			}
-		}
-		return true
-	}
-
 	tests := []struct {
 		name  string
 		total time.Duration
@@ -250,106 +229,127 @@ func TestNormalizePoints(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := secs(normalizePoints(tt.total, tt.in))
-			if !equal(got, tt.want) {
+			got := seconds(normalizePoints(tt.total, tt.in))
+			if !equalInts(got, tt.want) {
 				t.Errorf("normalizePoints()\ngot  = %v\nwant = %v", got, tt.want)
 			}
 		})
 	}
 }
 
-func TestCountdownDisabledIsNoop(t *testing.T) {
-	cfg := &CountdownConfig{}
-	if cfg.Enabled() {
-		t.Error("Total=0 时 Enabled() 应为 false")
+// FromSeconds 是三处重复转换收敛后的唯一构造入口，行为要钉死
+func TestFromSeconds(t *testing.T) {
+	if cfg := FromSeconds(0, []int{60}, "x", "y"); cfg != nil {
+		t.Errorf("totalSeconds=0 应返回 nil（不倒计时），实际 %+v", cfg)
+	}
+	if cfg := FromSeconds(-1, nil, "", ""); cfg != nil {
+		t.Errorf("totalSeconds<0 应返回 nil，实际 %+v", cfg)
 	}
 
-	// 未启用时应立即返回，不阻塞、不报错
-	done := make(chan error, 1)
-	go func() { done <- RunCountdown(context.Background(), "meijue", CountdownActionStop, cfg) }()
+	cfg := FromSeconds(600, []int{600, 300, 60}, "自定义文案", "Broadcast")
+	if cfg == nil {
+		t.Fatal("totalSeconds>0 应返回配置")
+	}
+	if cfg.Total != 600*time.Second {
+		t.Errorf("Total = %v, want 600s", cfg.Total)
+	}
+	if got := seconds(cfg.Points); !equalInts(got, []int{600, 300, 60}) {
+		t.Errorf("Points = %v, want [600 300 60]（构造阶段不排序，交给 normalize）", got)
+	}
+	if cfg.Template != "自定义文案" || cfg.Command != "Broadcast" {
+		t.Errorf("文案/指令未原样透传: %+v", cfg)
+	}
+}
 
-	select {
-	case err := <-done:
+func TestFromQuery(t *testing.T) {
+	query := func(m map[string]string) func(string) string {
+		return func(k string) string { return m[k] }
+	}
+
+	t.Run("不传 countdown 表示立即执行", func(t *testing.T) {
+		cfg, err := FromQuery(query(map[string]string{}))
 		if err != nil {
-			t.Errorf("未启用倒计时时 RunCountdown 不应报错，实际: %v", err)
+			t.Fatalf("不应报错: %v", err)
 		}
-	case <-time.After(2 * time.Second):
-		t.Error("未启用倒计时时 RunCountdown 应立即返回")
-	}
+		if cfg != nil {
+			t.Errorf("应返回 nil，实际 %+v", cfg)
+		}
+	})
+
+	t.Run("countdown=0 等价于不倒计时", func(t *testing.T) {
+		cfg, err := FromQuery(query(map[string]string{"countdown": "0"}))
+		if err != nil || cfg != nil {
+			t.Errorf("want (nil, nil), got (%+v, %v)", cfg, err)
+		}
+	})
+
+	t.Run("非整数 countdown 报错", func(t *testing.T) {
+		if _, err := FromQuery(query(map[string]string{"countdown": "abc"})); err == nil {
+			t.Error("期望报错")
+		}
+	})
+
+	t.Run("负数 countdown 报错", func(t *testing.T) {
+		if _, err := FromQuery(query(map[string]string{"countdown": "-60"})); err == nil {
+			t.Error("期望报错")
+		}
+	})
+
+	t.Run("完整参数被解析", func(t *testing.T) {
+		cfg, err := FromQuery(query(map[string]string{
+			"countdown":      "600",
+			"notify_points":  "600, 300 ,60",
+			"notify_message": "{time} 后{action}",
+			"notify_command": "Broadcast",
+		}))
+		if err != nil {
+			t.Fatalf("不应报错: %v", err)
+		}
+		if cfg.Total != 600*time.Second {
+			t.Errorf("Total = %v", cfg.Total)
+		}
+		if got := seconds(cfg.Points); !equalInts(got, []int{600, 300, 60}) {
+			t.Errorf("Points = %v，空白应被 trim", got)
+		}
+		if cfg.Command != "Broadcast" {
+			t.Errorf("Command = %q", cfg.Command)
+		}
+	})
+
+	t.Run("非法点位在 HTTP 层就被拒绝", func(t *testing.T) {
+		// 点位 700 > 总时长 600，跑起来永远触发不到，必须在解析阶段挡下
+		_, err := FromQuery(query(map[string]string{
+			"countdown":     "600",
+			"notify_points": "700",
+		}))
+		if err == nil {
+			t.Error("期望校验失败")
+		}
+	})
+
+	t.Run("countdown 低于下界被拒绝", func(t *testing.T) {
+		if _, err := FromQuery(query(map[string]string{"countdown": "10"})); err == nil {
+			t.Error("期望校验失败")
+		}
+	})
 }
 
-// ctx 取消后 RunCountdown 必须返回错误，调用方据此**不**执行停止。
-// 若这条失效，「取消关服」会变成「延迟关服」。
-func TestRunCountdownCancelled(t *testing.T) {
-	cfg := &CountdownConfig{
-		Total: MinCountdownTotal,
-		// 点位留空会走默认推导，这里显式给一个很小的集合避免测试期间真的发 RCON
-		Points: []time.Duration{time.Second},
+func seconds(ds []time.Duration) []int {
+	out := make([]int, len(ds))
+	for i, d := range ds {
+		out[i] = int(d.Seconds())
 	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-
-	done := make(chan error, 1)
-	go func() { done <- RunCountdown(ctx, "___countdown_test_instance", CountdownActionStop, cfg) }()
-
-	// 等倒计时登记完成再取消
-	time.Sleep(200 * time.Millisecond)
-	cancel()
-
-	select {
-	case err := <-done:
-		if err == nil {
-			t.Error("倒计时被取消后 RunCountdown 应返回错误，否则调用方会继续执行停止")
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("RunCountdown 未在取消后及时返回")
-	}
-
-	// 取消后登记表应被清理
-	if _, ok := GetCountdown("___countdown_test_instance"); ok {
-		t.Error("倒计时取消后登记表未清理")
-	}
+	return out
 }
 
-// CancelCountdown 走的是登记表，和 ctx 取消是两条路，各测一次
-func TestCancelCountdownViaRegistry(t *testing.T) {
-	const name = "___countdown_cancel_test"
-
-	cfg := &CountdownConfig{
-		Total:  MinCountdownTotal,
-		Points: []time.Duration{time.Second},
+func equalInts(a, b []int) bool {
+	if len(a) != len(b) {
+		return false
 	}
-
-	done := make(chan error, 1)
-	go func() { done <- RunCountdown(context.Background(), name, CountdownActionRestart, cfg) }()
-
-	time.Sleep(200 * time.Millisecond)
-
-	status, ok := GetCountdown(name)
-	if !ok {
-		t.Fatal("倒计时进行中，GetCountdown 应能查到")
-	}
-	if status.Action != CountdownActionRestart {
-		t.Errorf("action = %q, want %q", status.Action, CountdownActionRestart)
-	}
-	if status.Remaining <= 0 {
-		t.Errorf("倒计时进行中，剩余秒数应大于 0，实际 %d", status.Remaining)
-	}
-
-	if !CancelCountdown(name) {
-		t.Fatal("CancelCountdown 应返回 true")
-	}
-
-	select {
-	case err := <-done:
-		if err == nil {
-			t.Error("被取消的倒计时应返回错误")
+	for i := range a {
+		if a[i] != b[i] {
+			return false
 		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("RunCountdown 未在取消后及时返回")
 	}
-
-	if CancelCountdown(name) {
-		t.Error("已结束的倒计时不应还能被取消")
-	}
+	return true
 }

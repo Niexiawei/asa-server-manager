@@ -1,7 +1,24 @@
 # 停止 / 重启倒计时与游戏内公告
 
-> 状态：**设计定稿，待实施**。评审意见已并入（v2）。
+> 状态：**已实施**。本文保留原始设计（v2），下面是与当前代码的两处对齐说明。
 > 变更点见文末 §11 的评审记录。
+
+> **实现位置已迁移。** 本文成文时倒计时住在 `instance/countdown.go`，现已收敛为独立的
+> `countdown` 包（RCON 另拆为 `rconx`）。重构动机、分层与逐步骤记录见
+> `docs/COUNTDOWN_RCON_REFACTOR_PLAN.md`。名字对照：
+>
+> | 本文写的 | 当前代码 |
+> |---|---|
+> | `instance.CountdownConfig` | `countdown.Config`（构造只走 `FromSeconds` / `FromQuery`） |
+> | `StopServer(name, WithCountdown(cfg))` | `countdown.Stop(ctx, name, cfg, opts...)`；`WithCountdown` 已删除 |
+> | `instance.RunCountdown` / `FinishCountdown` | `countdown.Wait`（多实例）；登记表的释放由包内保证 |
+> | `instance.GetCountdown` / `CancelCountdown` | `countdown.Get` / `countdown.Cancel` |
+> | `CountdownActionStop/Restart` | `countdown.ActionStop` / `ActionRestart` |
+>
+> **取消语义已变更。** 本文 §6.2 的批量倒计时里，取消任一实例会终止整批；
+> 现在每个实例持有独立的子 context，`Cancel(name)` **只放过那一台**，
+> 它被接进 batchmanage 已有的 skip 机制、在阶段二被跳过，其余实例照常执行。
+> 要终止整批请用 batchmanage 的取消接口。
 
 ## 1. 背景与目标
 

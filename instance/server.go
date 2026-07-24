@@ -10,6 +10,7 @@ import (
 	"asa-server/pkg/netutil"
 	"asa-server/pkg/winproc"
 	procpkg "asa-server/process"
+	"asa-server/rconx"
 	statepkg "asa-server/state"
 	"context"
 	"fmt"
@@ -22,7 +23,6 @@ import (
 	"time"
 
 	"github.com/aymanbagabas/go-pty"
-	"github.com/gorcon/rcon"
 )
 
 // ErrOperationNotAllowed is returned when an operation is not allowed in the current instance state
@@ -72,10 +72,6 @@ type StartServerOptions struct {
 	RetryOnNetworkError          int           // serverUnreachable 错误重试次数，0 → 默认 3
 	RetryInterval                time.Duration // 重试间隔，0 → 默认 5s
 	StatePreset                  bool          // CAS 已由调用方完成，跳过内部 CAS
-
-	// Countdown 停止/重启前的倒计时与游戏内公告。nil 或 Total=0 表示立即执行。
-	// 仅对 StopServer / RestartServer 生效，StartServer 忽略。
-	Countdown *CountdownConfig
 }
 
 type StartServerOptionsFunc func(options *StartServerOptions)
@@ -127,14 +123,6 @@ func WithRetryInterval(d time.Duration) StartServerOptionsFunc {
 // WithStatePreset 表示调用方已完成 CAS，函数内部跳过重复的原子状态检查。
 func WithStatePreset() StartServerOptionsFunc {
 	return func(options *StartServerOptions) { options.StatePreset = true }
-}
-
-// WithCountdown 在停止/重启前先走一轮倒计时并向游戏内公告。
-//
-// 批量场景不要用这个：batchmanage 会把倒计时统一前置、对所有实例并发播报，
-// 逐个实例各等一轮会让总时长成倍膨胀，且各实例的倒计时互相错开。
-func WithCountdown(cfg *CountdownConfig) StartServerOptionsFunc {
-	return func(options *StartServerOptions) { options.Countdown = cfg }
 }
 
 func isNetworkRetriableStartupError(err error) bool {
@@ -504,15 +492,6 @@ func StopServer(instanceName string, options ...StartServerOptionsFunc) error {
 		}
 	}
 
-	// 倒计时期间服务器仍在正常运行；被取消则不执行停止，并把状态回滚到 started
-	if opts.Countdown.Enabled() {
-		defer FinishCountdown(instanceName)
-		if err := RunCountdown(context.Background(), instanceName, CountdownActionStop, opts.Countdown); err != nil {
-			_ = statepkg.WriteInstanceState(instanceName, statepkg.StatusStarted, "")
-			return err
-		}
-	}
-
 	return stopServerInternal(instanceName)
 }
 
@@ -521,6 +500,7 @@ func stopServerInternal(instanceName string) error {
 	var (
 		pid         int
 		gameLogPath string
+		ctx         = context.Background()
 	)
 	// 使用一个变量来记录错误，以便在函数结束时检查是否需要记录失败状态
 	var stopErr error
@@ -569,7 +549,7 @@ func stopServerInternal(instanceName string) error {
 		return stopErr
 	}
 
-	response, err := SendRCONCommand(instanceName, "DoExit")
+	response, err := rconx.Execute(ctx, instanceName, "DoExit")
 
 	if err == nil && strings.Contains(response, "Exiting") {
 		logger.GetLogger().Infof("Server instance %s reported 'Exiting...'. Awaiting shutdown...", instanceName)
@@ -680,16 +660,6 @@ func RestartServer(instanceName string, options ...StartServerOptionsFunc) error
 		}
 	}
 
-	// 倒计时放在 restartErr 的 defer 之前：被取消是用户主动行为，
-	// 不该在状态历史里留下一条 restart_failed
-	if opts.Countdown.Enabled() {
-		defer FinishCountdown(instanceName)
-		if err := RunCountdown(context.Background(), instanceName, CountdownActionRestart, opts.Countdown); err != nil {
-			_ = statepkg.WriteInstanceState(instanceName, statepkg.StatusStarted, "")
-			return err
-		}
-	}
-
 	// 使用一个变量来记录错误，以便在函数结束时检查是否需要记录失败状态
 	var restartErr error
 
@@ -720,62 +690,6 @@ func RestartServer(instanceName string, options ...StartServerOptionsFunc) error
 		return err
 	}
 	return nil
-}
-
-// SendRCONCommand sends an RCON command to a server using gorcon/rcon library
-func SendRCONCommand(instanceName string, command string) (string, error) {
-	running, err := procpkg.IsServerRunning(instanceName)
-	if err != nil || !running {
-		return "", fmt.Errorf("server for instance %s is not running", instanceName)
-	}
-
-	config, err := cfgpkg.LoadInstanceConfig(instanceName)
-	if err != nil {
-		return "", err
-	}
-
-	// Validate RCON password is not empty
-	if config.ServerAdminPassword == "" {
-		return "", fmt.Errorf("RCON password is empty for instance %s. Please set ServerAdminPassword in config", instanceName)
-	}
-
-	// Connect to RCON server with retry logic
-	rconAddr := fmt.Sprintf("localhost:%d", config.RCONPort)
-	logger.GetLogger().Infof("Instance: %s Connecting to RCON server at %s...", instanceName, rconAddr)
-
-	var client *rcon.Conn
-	var connectErr error
-
-	// Try to connect with timeout and retry
-	for attempt := 1; attempt <= 3; attempt++ {
-		client, connectErr = rcon.Dial(rconAddr, config.ServerAdminPassword)
-		if connectErr == nil {
-			logger.GetLogger().Info("Connected to RCON server")
-			break
-		}
-
-		logger.GetLogger().Warnf("Attempt %d failed: %v", attempt, connectErr)
-		if attempt < 3 {
-			logger.GetLogger().Info("   Retrying in 2 seconds...")
-			time.Sleep(2 * time.Second)
-		}
-	}
-
-	if connectErr != nil {
-		logger.GetLogger().Errorf("RCON connection to %s failed after 3 attempts: %v", rconAddr, connectErr)
-		return "", fmt.Errorf("failed to connect to RCON server at %s: %w", rconAddr, connectErr)
-	}
-
-	defer client.Close()
-	// Send command
-	logger.GetLogger().Infof("Sending RCON command '%s' to %s", command, rconAddr)
-	response, err := client.Execute(command)
-	if err != nil {
-		return "", fmt.Errorf("RCON command execution failed: %w", err)
-	}
-
-	logger.GetLogger().Infof("RCON response: %s", response)
-	return response, nil
 }
 
 // GetRunningInstances returns a list of running instances
