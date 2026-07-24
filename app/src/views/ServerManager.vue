@@ -274,7 +274,7 @@ import {
   StopCircleIcon,
   TaskChecked1Icon
 } from 'tdesign-icons-vue-next';
-import {initServer, serverStore, addRestartPending, getCountdown, formatCountdown} from '@/store/serverStore.js'
+import {initServer, serverStore, addRestartPending} from '@/store/serverStore.js'
 import {
   canForceStop,
   canStart,
@@ -286,6 +286,8 @@ import {
   isCleanStoppedStatus,
   statusLabel,
   statusTagTheme,
+  countdownText,
+  isCountingDown,
 } from '@/composables/useInstanceState.js'
 import LogViewer from '@/components/LogViewer.vue'
 import SyncConfigModal from '@/components/SyncConfigModal.vue'
@@ -310,19 +312,6 @@ const form = reactive({
 const batchDialogVisible = ref(false)
 const updateDialogVisible = ref(false)
 const countdownDialogRef = ref(null)
-
-// 倒计时展示：counting 显示剩余时间，executing 显示「服务器关闭中…」。
-// phase 由后端给出，不靠 remaining <= 0 推断——执行阶段可能持续几分钟。
-const countdownText = (name) => {
-  const cd = getCountdown(name)
-  if (!cd) return ''
-
-  const label = cd.action === 'restart' ? '重启' : '关闭'
-  if (cd.phase === 'executing') return `服务器${label}中…`
-  return `${formatCountdown(cd.remaining)}后${label}`
-}
-
-const isCountingDown = (name) => getCountdown(name)?.phase === 'counting'
 
 // Mod信息
 const modInfo = ref([])

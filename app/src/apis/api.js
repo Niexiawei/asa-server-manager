@@ -234,7 +234,21 @@ export function getModInfo() {
 
 // ========== 批量操作 API ==========
 
-// 批量启动服务器
+// 把倒计时选项转成批量请求体字段。与 countdownParams 的区别是
+// 批量走 JSON body，notify_points 保持数组而不是逗号串。
+// countdown 为空/0 时返回空对象，请求形态与加倒计时之前完全一致。
+function batchCountdownBody(countdown) {
+    if (!countdown?.countdown) return {}
+
+    return {
+        countdown: countdown.countdown,
+        notify_points: countdown.notify_points || [],
+        notify_message: countdown.notify_message || '',
+        notify_command: countdown.notify_command || ''
+    }
+}
+
+// 批量启动服务器。启动没有倒计时——服务器是关着的，无人可公告
 export function batchStartServers(instances, delaySeconds) {
     return apiClient.post('/api/server/batch/start', {
         instances: instances || [],
@@ -242,19 +256,21 @@ export function batchStartServers(instances, delaySeconds) {
     })
 }
 
-// 批量停止服务器
-export function batchStopServers(instances, delaySeconds) {
+// 批量停止服务器。countdown 可选：{countdown, notify_points, notify_message, notify_command}
+export function batchStopServers(instances, delaySeconds, countdown) {
     return apiClient.post('/api/server/batch/stop', {
         instances: instances || [],
-        delay_seconds: delaySeconds || 0
+        delay_seconds: delaySeconds || 0,
+        ...batchCountdownBody(countdown)
     })
 }
 
-// 批量重启服务器
-export function batchRestartServers(instances, delaySeconds) {
+// 批量重启服务器。countdown 同上
+export function batchRestartServers(instances, delaySeconds, countdown) {
     return apiClient.post('/api/server/batch/restart', {
         instances: instances || [],
-        delay_seconds: delaySeconds || 0
+        delay_seconds: delaySeconds || 0,
+        ...batchCountdownBody(countdown)
     })
 }
 

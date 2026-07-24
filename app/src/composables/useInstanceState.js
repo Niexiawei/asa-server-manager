@@ -1,4 +1,4 @@
-import {serverStore} from '@/store/serverStore.js'
+import {serverStore, getCountdown, formatCountdown} from '@/store/serverStore.js'
 
 const CLEAN_STOPPED = ['stopped', 'start_failed', 'stop_failed', 'restart_failed', '']
 const START_LOADING_STATES = ['start_initialization', 'start_initialization_successful', 'starting']
@@ -70,6 +70,21 @@ export function isStopLoading(status) {
 
 export function isRestartLoading(name, status) {
   return serverStore.restartPending.has(name) || status === 'restarting'
+}
+
+// 倒计时展示：counting 显示剩余时间，executing 显示「服务器关闭中…」。
+// phase 由后端给出，不靠 remaining <= 0 推断——执行阶段可能持续几分钟
+export function countdownText(instanceName) {
+  const cd = getCountdown(instanceName)
+  if (!cd) return ''
+
+  const label = cd.action === 'restart' ? '重启' : '关闭'
+  if (cd.phase === 'executing') return `服务器${label}中…`
+  return `${formatCountdown(cd.remaining)}后${label}`
+}
+
+export function isCountingDown(instanceName) {
+  return getCountdown(instanceName)?.phase === 'counting'
 }
 
 export function useInstanceState(instanceNameRef) {

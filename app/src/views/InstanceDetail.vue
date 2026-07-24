@@ -16,6 +16,16 @@
           <t-tag :theme="statusTagTheme(instanceStatus)">
             {{ statusLabel(instanceStatus) }}
           </t-tag>
+          <template v-if="countdownText(instanceName)">
+            <t-tag theme="warning" variant="light">{{ countdownText(instanceName) }}</t-tag>
+            <t-link
+                v-if="isCountingDown(instanceName)"
+                theme="danger"
+                size="small"
+                @click="cancelCountdown"
+            >取消
+            </t-link>
+          </template>
         </div>
       </template>
       <template #actions>
@@ -409,6 +419,9 @@
         style="display: none"
         @change="handleGameUserSettingsFileSelected"
     />
+
+    <!-- 停止/重启确认弹窗（内含倒计时选项） -->
+    <CountdownConfirmDialog ref="countdownDialogRef"/>
   </div>
 </template>
 
@@ -434,6 +447,7 @@ import {
   startServer,
   stopServer,
   forceStopServer,
+  cancelServerCountdown,
   updateGameIni,
   updateGameUserSettings,
   updateInstanceConfig,
@@ -455,7 +469,10 @@ import {
   isRestartLoading,
   statusLabel,
   statusTagTheme,
+  countdownText,
+  isCountingDown,
 } from '@/composables/useInstanceState.js'
+import CountdownConfirmDialog from '@/components/CountdownConfirmDialog.vue'
 import {FileCopyIcon, BrowseIcon, BrowseOffIcon, ChevronLeftIcon, ChevronDownIcon} from 'tdesign-icons-vue-next'
 import {MessagePlugin, DialogPlugin, NotifyPlugin} from 'tdesign-vue-next'
 import {useClipboard, useElementBounding} from "@vueuse/core";
@@ -466,6 +483,7 @@ const error = ref(null)
 const instanceData = ref([])
 
 const detailCardRef = ref()
+const countdownDialogRef = ref(null)
 
 const {height: detailCardHeight} = useElementBounding(detailCardRef)
 
@@ -899,54 +917,57 @@ const startInstance = () => {
   })
 }
 
-// 停止实例
-const stopInstance = () => {
-  let stopDialog = DialogPlugin.confirm({
-    header: '提示',
-    body: `确定要停止实例 "${instanceName}" 吗？`,
-    confirmBtn: '确定',
-    cancelBtn: '取消',
-    onConfirm: async () => {
-      stopDialog.hide()
-      try {
-        const data = await stopServer(instanceName)
-        if (data.success) {
-          MessagePlugin.success(data.message || `实例 "${instanceName}" 正在停止`)
-        } else {
-          MessagePlugin.error(data.error || `实例 "${instanceName}" 停止失败`)
-          console.error('停止实例失败:', data.error)
-        }
-      } catch (error) {
-        MessagePlugin.error(`停止实例失败: ${error.message}`)
-        console.error('停止实例失败:', error)
-      }
+// 停止实例。弹窗里可选配倒计时；返回 null 表示用户取消
+const stopInstance = async () => {
+  const countdown = await countdownDialogRef.value?.open(instanceName, 'stop')
+  if (!countdown) return
+
+  try {
+    const data = await stopServer(instanceName, countdown)
+    if (data.success) {
+      MessagePlugin.success(data.message || `实例 "${instanceName}" 正在停止`)
+    } else {
+      MessagePlugin.error(data.error || `实例 "${instanceName}" 停止失败`)
+      console.error('停止实例失败:', data.error)
     }
-  })
+  } catch (error) {
+    MessagePlugin.error(`停止实例失败: ${error.message}`)
+    console.error('停止实例失败:', error)
+  }
 }
 
 // 重启实例
-const restartInstance = () => {
-  let restartDialog = DialogPlugin.confirm({
-    header: '提示',
-    body: `确定要重启实例 "${instanceName}" 吗？`,
-    confirmBtn: '确定',
-    cancelBtn: '取消',
-    onConfirm: async () => {
-      restartDialog.hide()
-      addRestartPending(instanceName)
-      try {
-        const data = await restartServer(instanceName)
-        if (data.success) {
-          MessagePlugin.success(data.message || '实例正在重启')
-        } else {
-          MessagePlugin.error(data.error || '重启实例失败')
-        }
-      } catch (error) {
-        console.error('重启实例失败:', error)
-        MessagePlugin.error('重启实例失败')
-      }
+const restartInstance = async () => {
+  const countdown = await countdownDialogRef.value?.open(instanceName, 'restart')
+  if (!countdown) return
+
+  addRestartPending(instanceName)
+  try {
+    const data = await restartServer(instanceName, countdown)
+    if (data.success) {
+      MessagePlugin.success(data.message || '实例正在重启')
+    } else {
+      MessagePlugin.error(data.error || '重启实例失败')
     }
-  })
+  } catch (error) {
+    console.error('重启实例失败:', error)
+    MessagePlugin.error('重启实例失败')
+  }
+}
+
+// 取消倒计时
+const cancelCountdown = async () => {
+  try {
+    const data = await cancelServerCountdown(instanceName)
+    if (data.success) {
+      MessagePlugin.success(data.message || '倒计时已取消')
+    } else {
+      MessagePlugin.error(data.error || '取消倒计时失败')
+    }
+  } catch (error) {
+    console.error('取消倒计时失败:', error)
+    MessagePlugin.error(`取消倒计时失败: ${error.message}`)
+  }
 }
 
 // 强制停止实例

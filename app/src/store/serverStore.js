@@ -183,6 +183,10 @@ function handleServerEvent(event) {
             serverStore.batchCallbacks.forEach(cb => cb('batch_progress', event))
             break
 
+        case 'batch_instance_skipped':
+            serverStore.batchCallbacks.forEach(cb => cb('batch_instance_skipped', event))
+            break
+
         case 'batch_completed':
             serverStore.batchRunning = false
             serverStore.batchOpType = ''

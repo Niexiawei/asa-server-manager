@@ -7,6 +7,7 @@
       :on-confirm="onConfirm"
       @close="onClose"
       width="520px"
+      attach="body"
   >
     <p class="prompt">{{ prompt }}</p>
 
@@ -26,21 +27,27 @@ const instanceName = ref('')
 const action = ref('stop')
 const countdown = ref({countdown: 0})
 const valid = ref(true)
+// 批量场景下由调用方给出文案，留空则用下面的单实例默认措辞
+const headerOverride = ref('')
+const promptOverride = ref('')
 
 let resolver = null
 
 const actionLabel = computed(() => (action.value === 'stop' ? '停止' : '重启'))
-const header = computed(() => `${actionLabel.value}实例`)
+const header = computed(() => headerOverride.value || `${actionLabel.value}实例`)
 const confirmText = computed(() => `确定${actionLabel.value}`)
 const prompt = computed(
-    () => `确定要${actionLabel.value}实例 "${instanceName.value}" 吗？`
+    () => promptOverride.value || `确定要${actionLabel.value}实例 "${instanceName.value}" 吗？`
 )
 
 // open('meijue', 'stop') → Promise<countdownConfig | null>
+// open('', 'stop', {header, prompt}) → 批量场景，自定义文案
 // null 表示用户取消
-function open(name, act) {
+function open(name, act, overrides = {}) {
   instanceName.value = name
   action.value = act
+  headerOverride.value = overrides.header || ''
+  promptOverride.value = overrides.prompt || ''
   countdown.value = {countdown: 0}
   valid.value = true
   visible.value = true

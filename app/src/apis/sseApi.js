@@ -60,7 +60,11 @@ export function streamBatchLogs(onLog, onError, onClose) {
         if (onError) {
             onError(error)
         }
-        eventSource.close()
+        // readyState 为 CONNECTING 时是可恢复的抖动，交给 EventSource 自行重连；
+        // 只有真正 CLOSED 才视为流结束，否则会把仍在运行的批量操作误判为已完成
+        if (eventSource.readyState !== EventSource.CLOSED) {
+            return
+        }
         if (onClose) {
             onClose()
         }

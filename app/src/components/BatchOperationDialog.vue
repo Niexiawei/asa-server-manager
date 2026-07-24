@@ -3,60 +3,76 @@
   <t-dialog
       :visible="visible"
       header="服务器批量操作"
-      :width="900"
-      :close-on-overlay-click="!batchRunning"
-      :close-btn="!batchRunning"
+      width="85vw"
       @close="onDialogClose"
       destroy-on-close
       top="5vh"
       draggable
       attach="body"
+      :footer="false"
   >
     <!-- 批量操作状态提示 -->
     <t-alert v-if="batchRunning" theme="info" :message="batchStatusText" class="mb-3"/>
 
-    <!-- 全选 + 已选计数 -->
-    <div class="select-header">
-      <t-checkbox
-          v-model="selectAll"
-          :indeterminate="selectIndeterminate"
-          :disabled="batchRunning"
-          @change="onSelectAllChange"
-      >
-        全选 / 取消全选
-      </t-checkbox>
-      <span class="select-count">已选 {{ selectedInstances.length }} / {{ instances.length }}</span>
-    </div>
+    <div class="batch-operation-body">
+      <div class="left-box">
+        <!-- 全选 + 已选计数 -->
+        <div class="select-header">
+          <t-checkbox
+              v-model="selectAll"
+              :indeterminate="selectIndeterminate"
+              :disabled="batchRunning"
+              @change="onSelectAllChange"
+          >
+            全选 / 取消全选
+          </t-checkbox>
+          <span class="select-count">已选 {{ selectedInstances.length }} / {{ instances.length }}</span>
+        </div>
 
-    <!-- 实例竖向列表 -->
-    <t-checkbox-group v-model="selectedInstances" :disabled="batchRunning" class="instance-list-wrap">
-      <div
-          v-for="inst in instances"
-          :key="inst.name"
-          class="instance-row"
-          :class="{ 'is-disabled': batchRunning || !isInstanceSelectable(inst) }"
-      >
-        <t-checkbox
-            :value="inst.name"
-            :disabled="batchRunning || !isInstanceSelectable(inst)"
-            class="instance-checkbox"
-        >
-          <template #label>
-            <div class="instance-detail">
-              <span class="inst-name">{{ inst.name }}</span>
-              <t-tag size="small" :theme="statusTagTheme(inst.status)" variant="light" class="inst-status">
-                {{ statusLabel(inst.status) }}
-              </t-tag>
-              <span class="inst-field" title="服务器名称">
+        <!-- 实例竖向列表 -->
+        <t-checkbox-group v-model="selectedInstances" :disabled="batchRunning" class="instance-list-wrap">
+          <div
+              v-for="inst in instances"
+              :key="inst.name"
+              class="instance-row"
+              :class="{ 'is-disabled': batchRunning }"
+          >
+            <t-checkbox
+                :value="inst.name"
+                class="instance-checkbox"
+            >
+              <template #label>
+                <div class="instance-detail">
+                  <span class="inst-name">{{ inst.name }}</span>
+                  <t-tag size="small" :theme="statusTagTheme(inst.status)" variant="light" class="inst-status">
+                    {{ statusLabel(inst.status) }}
+                  </t-tag>
+                  <t-tag
+                      v-if="batchStatusTag(inst.name)"
+                      size="small"
+                      :theme="batchStatusTag(inst.name).theme"
+                      variant="light"
+                      class="inst-queued"
+                  >{{ batchStatusTag(inst.name).label }}
+                  </t-tag>
+                  <t-tag
+                      v-if="countdownText(inst.name)"
+                      size="small"
+                      theme="warning"
+                      variant="light"
+                      class="inst-countdown"
+                  >{{ countdownText(inst.name) }}
+                  </t-tag>
+                  <span class="inst-field" title="服务器名称">
                 <span class="field-label">名称：</span>{{ inst.config?.ServerName || '-' }}
               </span>
-              <span class="inst-field" title="端口">
+                  <span class="inst-field" title="端口">
                 <span class="field-label">端口：</span>{{ inst.config?.Port || '-' }}
               </span>
-              <span class="inst-field" title="地图">
+                  <span class="inst-field" title="地图">
                 <span class="field-label">地图：</span>{{ inst.config?.MapName || '-' }}
               </span>
-              <span class="inst-field inst-mods" title="Mod" v-if="inst.config?.ModIDs">
+                  <span class="inst-field inst-mods" title="Mod" v-if="inst.config?.ModIDs">
                 <t-popup trigger="hover" placement="right-bottom"
                          overlayClassName="inst-mods-popup"
                          showArrow
@@ -81,105 +97,94 @@
                   </template>
                 </t-popup>
               </span>
+                </div>
+              </template>
+            </t-checkbox>
+            <t-button
+                v-if="isInstancePending(inst.name)"
+                size="small"
+                variant="outline"
+                theme="warning"
+                class="skip-btn"
+                @click="handleSkipInstance(inst.name)"
+            >跳过
+            </t-button>
+          </div>
+          <t-empty v-if="instances.length === 0" description="暂无实例"/>
+        </t-checkbox-group>
+
+        <!-- 延迟配置 -->
+        <div class="footer-area">
+          <t-space align="center">
+            <span>实例间延迟：</span>
+            <t-input-number
+                v-model="delaySeconds"
+                :min="0"
+                :max="300"
+                :step="5"
+                :disabled="batchRunning"
+                size="small"
+                style="width: 120px"
+            />
+            <span>秒</span>
+          </t-space>
+          <div class="action-bar">
+            <t-button
+                @click="batchOperationHandler('start')"
+                theme="primary"
+                :disabled="batchRunning || selectedInstances.length === 0"
+            >启动选中
+            </t-button>
+            <t-button
+                @click="batchOperationHandler('stop')"
+                theme="warning"
+                :disabled="batchRunning || selectedInstances.length === 0"
+            >停止选中
+            </t-button>
+            <t-button
+                @click="batchOperationHandler('restart')"
+                theme="success"
+                :disabled="batchRunning || selectedInstances.length === 0"
+            >重启选中
+            </t-button>
+          </div>
+        </div>
+      </div>
+      <div class="right-box">
+        <div class="select-header">批量操作日志</div>
+        <div class="update-log-container">
+          <div id="batchLogContainer" class="update-log">
+            <div v-if="batchLogs.length === 0 && !logsHydrating" class="log-placeholder">
+              暂无日志
             </div>
-          </template>
-        </t-checkbox>
-      </div>
-      <t-empty v-if="instances.length === 0" description="暂无实例"/>
-    </t-checkbox-group>
-
-    <!-- 延迟配置 -->
-    <div class="delay-area">
-      <t-space align="center">
-        <span>实例间延迟：</span>
-        <t-input-number
-            v-model="delaySeconds"
-            :min="0"
-            :max="300"
-            :step="5"
-            :disabled="batchRunning"
-            size="small"
-            style="width: 120px"
-        />
-        <span>秒</span>
-      </t-space>
-    </div>
-
-    <template #footer>
-      <!-- 操作按钮区 -->
-      <div class="action-bar">
-        <t-button
-            @click="batchOperationHandler('start')"
-            theme="primary"
-            :disabled="batchRunning || selectedInstances.length === 0"
-        >启动选中
-        </t-button>
-        <t-button
-            @click="batchOperationHandler('stop')"
-            theme="warning"
-            :disabled="batchRunning || selectedInstances.length === 0"
-        >停止选中
-        </t-button>
-        <t-button
-            @click="batchOperationHandler('restart')"
-            theme="success"
-            :disabled="batchRunning || selectedInstances.length === 0"
-        >重启选中
-        </t-button>
-      </div>
-    </template>
-  </t-dialog>
-
-  <!-- 批量操作日志弹窗（嵌套） -->
-  <t-dialog
-      v-model:visible="batchLogVisible"
-      :header="batchLogHeader"
-      :width="800"
-      :footer="false"
-      :close-on-overlay-click="!batchRunning"
-      :close-btn="!batchRunning"
-      @close="onBatchLogClose"
-      attach="body"
-  >
-    <div class="update-log-container">
-      <div id="batchLogContainer" class="update-log">
-        <div
-            v-for="(log, index) in batchLogs"
-            :key="index"
-            class="log-line"
-            :class="'log-' + log.level"
-        >
-          <span class="log-time">{{ formatLogTime(log.timestamp) }}</span>
-          <span>{{ log.message }}</span>
+            <div
+                v-for="(log, index) in batchLogs"
+                :key="index"
+                class="log-line"
+                :class="'log-' + log.level"
+            >
+              <span class="log-time">{{ formatLogTime(log.timestamp) }}</span>
+              <span>{{ log.message }}</span>
+            </div>
+          </div>
+        </div>
+        <div class="batch-log-actions">
           <t-button
-              v-if="log.instance_name && log.level === 'info' && isInstancePending(log.instance_name)"
-              size="small"
-              variant="outline"
-              theme="warning"
-              @click="handleSkipInstance(log.instance_name)"
-              class="skip-btn"
-          >跳过
+              theme="danger"
+              @click="handleCancelBatch"
+              :disabled="!batchRunning"
+          >取消全部
           </t-button>
+          <span v-if="batchProgress" class="progress-text">
+            进度：{{ batchProgress.done }} / {{ batchProgress.total }}
+          </span>
         </div>
       </div>
     </div>
-    <div class="batch-log-actions">
-      <t-button
-          v-if="batchRunning"
-          theme="danger"
-          variant="outline"
-          @click="handleCancelBatch"
-          size="small"
-      >取消全部
-      </t-button>
-      <t-space>
-        <span v-if="batchProgress" class="progress-text">
-          进度：{{ batchProgress.done }} / {{ batchProgress.total }}
-        </span>
-      </t-space>
-    </div>
   </t-dialog>
 
+  <!-- 批量停止/重启确认弹窗（内含倒计时选项） -->
+  <CountdownConfirmDialog ref="countdownDialogRef"/>
 </template>
 
 <script setup>
@@ -195,7 +200,8 @@ import {
 import {streamBatchLogs as streamBatchLogsSSE} from '@/apis/sseApi.js'
 import {MessagePlugin, DialogPlugin} from 'tdesign-vue-next'
 import {serverStore} from '@/store/serverStore.js'
-import {statusLabel, statusTagTheme} from '@/composables/useInstanceState.js'
+import {statusLabel, statusTagTheme, countdownText} from '@/composables/useInstanceState.js'
+import CountdownConfirmDialog from '@/components/CountdownConfirmDialog.vue'
 
 const props = defineProps({
   visible: {
@@ -214,39 +220,37 @@ const props = defineProps({
 
 const emits = defineEmits(['update:visible', 'refresh'])
 
+const OP_TYPE_LABELS = {start: '启动', stop: '停止', restart: '重启'}
+
 // ========== 批量操作状态 ==========
 const batchRunning = ref(false)
-const batchLogVisible = ref(false)
 const batchLogs = ref([])
+// 日志拉取中：清空后到第一条到达之间为 true，用于抑制「暂无日志」占位闪烁
+const logsHydrating = ref(false)
 const batchProgress = ref(null)
 const batchOpType = ref('')
 const delaySeconds = ref(0)
 const selectedInstances = ref([])
+const countdownDialogRef = ref(null)
+// 本次批量操作中每个实例的执行状态：pending / running / success / failed / skipped / cancelled
+const instanceOpStatus = ref(new Map())
 let batchLogCloseFn = null
-let batchCallbackUnreg = null
+let logSubscriptionSeq = 0
+let batchStoreCallback = null
 
 // ========== 计算属性 ==========
 const selectAll = ref(false)
 const selectIndeterminate = computed(() => {
   return selectedInstances.value.length > 0 &&
-      selectedInstances.value.length < selectableCount.value
-})
-const selectableCount = computed(() => {
-  return props.instances.filter(i => isInstanceSelectable(i)).length
+      selectedInstances.value.length < props.instances.length
 })
 const batchStatusText = computed(() => {
   if (!batchRunning.value) return ''
-  const typeMap = {start: '启动', stop: '停止', restart: '重启'}
-  const text = typeMap[batchOpType.value] || batchOpType.value
+  const text = OP_TYPE_LABELS[batchOpType.value] || batchOpType.value
   if (batchProgress.value) {
     return `批量${text}操作进行中... (${batchProgress.value.done}/${batchProgress.value.total})`
   }
   return `批量${text}操作进行中...`
-})
-const batchLogHeader = computed(() => {
-  const typeMap = {start: '启动', stop: '停止', restart: '重启'}
-  const text = typeMap[batchOpType.value] || batchOpType.value
-  return batchRunning.value ? `批量${text}中...` : `批量${text}完成`
 })
 
 // ========== Mod 名称映射 ==========
@@ -256,14 +260,28 @@ function getModName(modId) {
   return mod ? mod.name : null
 }
 
-// ========== 实例可选性判断 ==========
-function isInstanceSelectable(inst) {
-  return true
+// ========== 实例排队状态 ==========
+// 只标注「待处理」的两个状态；实例自身生命周期已由 statusLabel(inst.status) 表达
+const BATCH_STATUS_TAG = {
+  pending: {label: '排队中', theme: 'warning'},
+  skip_requested: {label: '待跳过', theme: 'default'}
 }
 
+function batchStatusTag(instanceName) {
+  if (!batchRunning.value) return null
+  return BATCH_STATUS_TAG[instanceOpStatus.value.get(instanceName)] || null
+}
+
+// 后端只在轮到某个实例之前检查一次 skip 信号，一旦开始执行就跳不掉了，
+// 因此只有仍处于 pending 的实例才允许跳过
 function isInstancePending(instanceName) {
-  if (!batchRunning.value) return false
-  return true
+  return batchRunning.value && instanceOpStatus.value.get(instanceName) === 'pending'
+}
+
+function setInstanceOpStatus(instanceName, status) {
+  const next = new Map(instanceOpStatus.value)
+  next.set(instanceName, status)
+  instanceOpStatus.value = next
 }
 
 // ========== 全选逻辑 ==========
@@ -277,80 +295,161 @@ function onSelectAllChange(val) {
 
 watch(selectedInstances, (val) => {
   selectAll.value = val.length === props.instances.length && props.instances.length > 0
-}, {deep: true})
+})
 
-// ========== 弹窗关闭 ==========
+// ========== 弹窗开关 ==========
+// 允许在批量运行中关闭：SSE 订阅位于组件作用域而非弹窗内容，
+// destroy-on-close 只销毁 DOM，关闭期间日志照常接收，重开即最新状态
 function onDialogClose() {
-  if (!batchRunning.value) {
-    emits('update:visible', false)
+  emits('update:visible', false)
+}
+
+watch(() => props.visible, (visible) => {
+  if (!visible) return
+  // 重开时与后端同步一次，兜底关闭期间的状态漂移（如别处发起的批量）
+  hydrateBatchStatus()
+  // destroy-on-close 重建了日志容器，滚动位置需要重新贴底
+  scrollLogToBottom()
+})
+
+// ========== 批量操作 ==========
+// 启动不提供倒计时：服务器是关着的，没有玩家可公告，
+// 而后端 runCountdownPhase 也只按 stop/restart 区分文案
+function batchOperationHandler(opType) {
+  if (opType === 'start') {
+    confirmPlainBatch(opType)
+  } else {
+    confirmBatchWithCountdown(opType)
   }
 }
 
-// ========== 批量操作 ==========
-function batchOperationHandler(opType) {
-  const typeMap = {start: '启动', stop: '停止', restart: '重启'}
-  const text = typeMap[opType]
-
-  let confirmDialog = DialogPlugin.confirm({
+function confirmPlainBatch(opType) {
+  const text = OP_TYPE_LABELS[opType]
+  const confirmDialog = DialogPlugin.confirm({
     header: '确认',
     body: `确定要${text}选中的 ${selectedInstances.value.length} 个服务器实例吗？`,
     confirmBtn: '确定',
     cancelBtn: '取消',
-    onConfirm: async () => {
-      confirmDialog.hide()
-      try {
-        const apiMap = {
-          start: batchStartServers,
-          stop: batchStopServers,
-          restart: batchRestartServers
-        }
-        const res = await apiMap[opType](selectedInstances.value, delaySeconds.value)
-
-        batchRunning.value = true
-        batchOpType.value = opType
-        batchLogs.value = []
-        batchProgress.value = {done: 0, total: res.data?.total || selectedInstances.value.length}
-        batchLogVisible.value = true
-
-        startLogSubscription()
-      } catch (error) {
-        MessagePlugin.error(error.message || `${text}操作失败`)
-      }
+    onConfirm: () => {
+      confirmDialog.destroy()
+      submitBatch(opType)
     }
   })
 }
 
-// ========== 日志订阅 ==========
-function startLogSubscription() {
-  if (batchLogCloseFn) {
-    batchLogCloseFn()
-    batchLogCloseFn = null
+async function confirmBatchWithCountdown(opType) {
+  const text = OP_TYPE_LABELS[opType]
+  const countdown = await countdownDialogRef.value?.open('', opType, {
+    header: `批量${text}`,
+    prompt: `确定要${text}选中的 ${selectedInstances.value.length} 个服务器实例吗？`
+  })
+  if (!countdown) return
+
+  submitBatch(opType, countdown)
+}
+
+async function submitBatch(opType, countdown) {
+  const instances = [...selectedInstances.value]
+  try {
+    let res
+    if (opType === 'start') {
+      res = await batchStartServers(instances, delaySeconds.value)
+    } else if (opType === 'stop') {
+      res = await batchStopServers(instances, delaySeconds.value, countdown)
+    } else {
+      res = await batchRestartServers(instances, delaySeconds.value, countdown)
+    }
+
+    batchRunning.value = true
+    batchOpType.value = opType
+    batchProgress.value = {done: 0, total: res.data?.total || instances.length}
+    instanceOpStatus.value = new Map(instances.map(name => [name, 'pending']))
+
+    startLogSubscription()
+  } catch (error) {
+    MessagePlugin.error(error.message || `${OP_TYPE_LABELS[opType]}操作失败`)
   }
+}
+
+// ========== 日志订阅 ==========
+// sseApi 返回的关闭函数一定会回调 onClose，因此用代次令牌让旧订阅的回调失效，
+// 否则重新订阅会把仍在运行的批量误判为已完成
+function stopLogSubscription() {
+  if (!batchLogCloseFn) return
+  const closeFn = batchLogCloseFn
+  batchLogCloseFn = null
+  logSubscriptionSeq++
+  closeFn()
+}
+
+function startLogSubscription() {
+  stopLogSubscription()
+  const seq = ++logSubscriptionSeq
+  const isCurrent = () => seq === logSubscriptionSeq
+
+  // 后端订阅时会回放完整历史日志，必须先清空，否则重连会产生重复行。
+  // 清空到第一条日志到达之间不显示「暂无日志」，免得闪一下
+  batchLogs.value = []
+  logsHydrating.value = true
 
   batchLogCloseFn = streamBatchLogsSSE(
       (entry) => {
+        if (!isCurrent()) return
+        logsHydrating.value = false
         batchLogs.value.push(entry)
+        applyLogToInstanceStatus(entry)
         if (entry.level === 'success' || entry.level === 'error' ||
             entry.level === 'warning' || entry.level === 'completed') {
           updateProgressFromLog()
         }
-        nextTick(() => {
-          const container = document.getElementById('batchLogContainer')
-          if (container) {
-            container.scrollTop = container.scrollHeight
-          }
-        })
+        scrollLogToBottom()
         if (entry.level === 'completed') {
           onBatchCompleted()
         }
       },
       (error) => {
-        console.error('Batch log SSE error:', error)
+        if (!isCurrent()) return
+        logsHydrating.value = false
+        // 没有批量在跑时这是一次历史回放探测，从未跑过批量就会 404，属预期
+        if (batchRunning.value) {
+          console.error('Batch log SSE error:', error)
+        }
       },
       () => {
+        if (!isCurrent()) return
+        logsHydrating.value = false
+        // 流已结束，句柄失效。不清掉的话，下一轮批量启动时
+        // hydrateBatchStatus 的 `!batchLogCloseFn` 守卫会被僵尸句柄挡住，导致收不到日志
+        batchLogCloseFn = null
         onBatchCompleted()
       }
   )
+}
+
+function scrollLogToBottom() {
+  nextTick(() => {
+    const logContainer = document.getElementById('batchLogContainer')
+    if (logContainer) {
+      logContainer.scrollTop = logContainer.scrollHeight
+    }
+  })
+}
+
+// 后端日志中带 instance_name 的条目即该实例的状态推进
+// （不带实例名的 warning 属于整体消息，如 "Batch operation cancelled"）
+const LOG_LEVEL_TO_OP_STATUS = {
+  info: 'running',
+  success: 'success',
+  error: 'failed',
+  warning: 'skipped'
+}
+
+function applyLogToInstanceStatus(entry) {
+  if (!entry.instance_name) return
+  const status = LOG_LEVEL_TO_OP_STATUS[entry.level]
+  if (status) {
+    setInstanceOpStatus(entry.instance_name, status)
+  }
 }
 
 function updateProgressFromLog() {
@@ -367,20 +466,9 @@ function updateProgressFromLog() {
 function onBatchCompleted() {
   if (!batchRunning.value) return
   batchRunning.value = false
-  if (batchLogCloseFn) {
-    const closeFn = batchLogCloseFn
-    batchLogCloseFn = null
-    closeFn()
-  }
+  stopLogSubscription()
   emits('refresh')
   selectedInstances.value = []
-}
-
-function onBatchLogClose() {
-  if (batchLogCloseFn) {
-    batchLogCloseFn()
-    batchLogCloseFn = null
-  }
 }
 
 // ========== 取消/跳过 ==========
@@ -394,10 +482,16 @@ async function handleCancelBatch() {
 }
 
 async function handleSkipInstance(instanceName) {
+  // 乐观更新，按钮立即消失
+  setInstanceOpStatus(instanceName, 'skip_requested')
   try {
     await skipBatchInstance(instanceName)
+    MessagePlugin.success(`已请求跳过 ${instanceName}`)
   } catch (error) {
-    MessagePlugin.error('跳过失败')
+    MessagePlugin.error(error.message || '跳过失败')
+  } finally {
+    // 以服务端为准：成功时确认，失败时回滚乐观更新
+    hydrateBatchStatus()
   }
 }
 
@@ -405,21 +499,44 @@ async function handleSkipInstance(instanceName) {
 async function hydrateBatchStatus() {
   try {
     const res = await getBatchStatus()
+
     if (res.data?.active) {
       batchRunning.value = true
       batchOpType.value = res.data.type || ''
       if (res.data.progress) {
         batchProgress.value = res.data.progress
       }
+      if (Array.isArray(res.data.instances)) {
+        instanceOpStatus.value = new Map(
+            res.data.instances.map(r => [r.instance_name, r.status])
+        )
+      }
       if (!batchLogCloseFn) {
         startLogSubscription()
       }
-    } else if (serverStore.batchRunning) {
+      return
+    }
+
+    if (serverStore.batchRunning) {
       batchRunning.value = true
       batchOpType.value = serverStore.batchOpType
       if (serverStore.batchProgress) {
         batchProgress.value = {...serverStore.batchProgress}
       }
+      return
+    }
+
+    if (batchRunning.value) {
+      // 后端已无进行中的批量，纠正本地残留的运行态
+      // （例如弹窗关闭期间批量结束，而 WS 完成事件恰好丢失）
+      onBatchCompleted()
+    }
+
+    // 没有批量在跑：把上一轮的日志拉回来。后端回放完历史即关闭流，
+    // 所以这是一次性拉取而非长连接。已有日志时不重复拉——startLogSubscription
+    // 会先清空，万一服务端此刻没有历史（404）就会把现有日志白白清掉。
+    if (batchLogs.value.length === 0 && !batchLogCloseFn) {
+      startLogSubscription()
     }
   } catch (e) {
     // ignore
@@ -433,14 +550,20 @@ function handleBatchStoreEvent(eventType, event) {
     if (event.data?.total != null) {
       batchProgress.value = {done: 0, total: event.data.total}
     }
+    // 事件本身不带实例名，回查 /batch/status 补齐实例状态并订阅日志，
+    // 使别处（其它标签页 / GUI）发起的批量在本页也能看到日志与跳过按钮
+    hydrateBatchStatus()
   } else if (eventType === 'batch_progress') {
     if (event.data?.done != null && event.data?.total != null) {
       batchProgress.value = {done: event.data.done, total: event.data.total}
     }
+  } else if (eventType === 'batch_instance_skipped') {
+    if (event.instance_name) {
+      setInstanceOpStatus(event.instance_name, 'skip_requested')
+    }
   } else if (eventType === 'batch_completed') {
-    batchRunning.value = false
-    batchProgress.value = null
-    emits('refresh')
+    // 复用统一收尾逻辑，确保 SSE 连接被关闭
+    onBatchCompleted()
   }
 }
 
@@ -453,24 +576,16 @@ function formatLogTime(ts) {
 
 // ========== 生命周期 ==========
 onMounted(() => {
+  // hydrateBatchStatus 内部已覆盖从 serverStore 兜底恢复的分支
   hydrateBatchStatus()
-  batchCallbackUnreg = (eventType, event) => handleBatchStoreEvent(eventType, event)
-  serverStore.batchCallbacks.push(batchCallbackUnreg)
-  if (serverStore.batchRunning) {
-    batchRunning.value = true
-    batchOpType.value = serverStore.batchOpType
-    if (serverStore.batchProgress) {
-      batchProgress.value = {...serverStore.batchProgress}
-    }
-  }
+  batchStoreCallback = (eventType, event) => handleBatchStoreEvent(eventType, event)
+  serverStore.batchCallbacks.push(batchStoreCallback)
 })
 
 onBeforeUnmount(() => {
-  if (batchLogCloseFn) {
-    batchLogCloseFn()
-  }
-  if (batchCallbackUnreg) {
-    const idx = serverStore.batchCallbacks.indexOf(batchCallbackUnreg)
+  stopLogSubscription()
+  if (batchStoreCallback) {
+    const idx = serverStore.batchCallbacks.indexOf(batchStoreCallback)
     if (idx > -1) {
       serverStore.batchCallbacks.splice(idx, 1)
     }
@@ -479,6 +594,18 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped lang="less">
+.batch-operation-body {
+  display: flex;
+  align-items: start;
+  gap: 8px;
+  width: 100%;
+
+  > div {
+    width: 50%;
+    height: 600px;
+  }
+}
+
 .mb-3 {
   margin-bottom: 12px;
 }
@@ -502,26 +629,14 @@ onBeforeUnmount(() => {
   font-size: 13px;
 }
 
-.instance-list-wrap {
-  height: 500px;
-  overflow-y: auto;
-  overflow-x: hidden;
-  border: 1px solid #e5e7eb;
-  border-radius: 6px;
-  background: #fafafa;
-  padding: 8px;
-  margin-bottom: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  flex-wrap: nowrap;
-}
-
 .instance-row {
   border-bottom: 1px solid #f0f0f0;
   padding: 8px 4px;
   border-radius: 4px;
   transition: background 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 
   &:hover {
     background: #f0f7ff;
@@ -531,14 +646,21 @@ onBeforeUnmount(() => {
     border-bottom: none;
   }
 
-  &.is-disabled {
+  // 批量运行时只置灰勾选区域，跳过按钮仍需保持可点
+  &.is-disabled .instance-checkbox {
     opacity: 0.6;
     cursor: not-allowed;
   }
 }
 
 .instance-checkbox {
-  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.inst-queued,
+.inst-countdown {
+  flex-shrink: 0;
 }
 
 .instance-detail {
@@ -581,20 +703,10 @@ onBeforeUnmount(() => {
   }
 }
 
-.delay-area {
-  margin-bottom: 16px;
-}
-
 .action-bar {
   display: flex;
   justify-content: end;
   gap: 10px;
-}
-
-.update-log-container {
-  position: relative;
-  height: 400px;
-  overflow: hidden;
 }
 
 .update-log {
@@ -609,6 +721,13 @@ onBeforeUnmount(() => {
   font-family: 'Monaco', 'Courier New', monospace;
   font-size: 12px;
   line-height: 1.6;
+}
+
+.log-placeholder {
+  color: #666;
+  text-align: center;
+  // 日志区高度由 .right-box 撑开，用相对值而不是写死的 padding
+  padding-top: 40%;
 }
 
 .log-line {
@@ -647,15 +766,65 @@ onBeforeUnmount(() => {
 }
 
 .skip-btn {
-  margin-left: auto;
   flex-shrink: 0;
 }
 
-.batch-log-actions {
+.left-box {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: 12px;
+  flex-direction: column;
+
+  .select-header {
+    flex: 0 0 auto;
+  }
+
+  .instance-list-wrap {
+    overflow-y: auto;
+    overflow-x: hidden;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    background: #fafafa;
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex-wrap: nowrap;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
+  .footer-area {
+    margin-top: 12px;
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+}
+
+.right-box {
+  display: flex;
+  flex-direction: column;
+
+  .select-header {
+    flex: 0 0 auto;
+  }
+
+  .batch-log-actions {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: end;
+    gap: 12px;
+    margin-top: 12px;
+    flex: 0 0 auto;
+  }
+
+  .update-log-container {
+    position: relative;
+    overflow: hidden;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
 }
 
 .progress-text {
