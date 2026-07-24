@@ -1,7 +1,8 @@
 # 倒计时停止/重启 与 RCON 的收敛重构方案
 
-> 状态：**已实施**（§5 的 8 个步骤全部完成，`go build ./...` / `go vet ./...` / `go test ./countdown/...` 通过）。
-> 实施中相对本文的一处补充见 §9。
+> 状态：**已实施**（§5 的 8 个步骤全部完成；`go build ./...`、`go vet ./...` 通过，
+> `go test -race ./countdown/... ./batchmanage/...` 全绿）。
+> 实施中相对本文的一处修正与测试现状见 §9。
 >
 > 目标：把当前散落在 `instance` / `webapi/serverapi` / `batchmanage` / `schedule` / `realtime`
 > 五处的「延迟后停止/重启」逻辑收敛到一个 `countdown` 包；把 RCON 连接与命令执行抽成独立的
@@ -586,6 +587,7 @@ default:
 
   `batchmanage` 侧另需一条：倒计时期间对同一实例先 `SkipInstance` 再 `Cancel`，
   确认不 panic（双重 close 防护，§4.2）——建议用 `-race` 跑。
+  （已落地为 `batchmanage/manager_test.go`，见 §9。）
 - **风险 3：`countdown.Stop` 里 `release(name)` 的时机。** 原代码是
   `defer FinishCountdown(name)` 在 `StopServer` 全程有效，登记表在停止完成后才清；
   新实现必须保持一致，否则 executing 阶段前端会提前丢掉「服务器关闭中…」。
@@ -621,10 +623,26 @@ default:
 
 ### 测试现状
 
-- `go test ./countdown/...` 全绿；耗时最长的 `TestWaitCancelOneInstanceContinuesOthers`
-  要跑满 `MinTotal`(30s)，已加 `testing.Short()` 跳过。
-- `-race` 在本机跑不起来（cgo 缺 gcc），§8 风险 2 里那条 `-race` 验证**尚未执行**，
-  留待有 gcc 的环境补跑。
+§8 风险 2 要求的两侧验证均已完成，命令：
+
+```powershell
+$env:CGO_ENABLED=1
+go test -race ./countdown/... ./batchmanage/...
+```
+
+- `countdown`：19 个用例，`-race` 下全绿（约 35s）。耗时来自
+  `TestWaitCancelOneInstanceContinuesOthers`——它要跑满 `MinTotal`(30s)，
+  已加 `testing.Short()`，日常可用 `-short` 跳过。
+- `batchmanage`：新增 `manager_test.go`，7 个用例，`-race` 下全绿（约 1s）。
+  覆盖 §4.2 的 `sync.Once` 守卫：两条路径的先后顺序（用户跳过↔倒计时取消）、
+  16 goroutine 并发争抢同一实例、多实例时只影响目标、`resultStatus` 边界。
+
+  测试不走 `StartOperation`（那条路径会真的启停实例），而是同包直接构造
+  `BatchOperation`，只验证跳过通道的关闭语义。
+
+  **有效性已验证**：临时把 `signalSkipLocked` 里的 `once.Do` 换成裸 `close`，
+  `TestSignalSkipIsIdempotent` 立即 `panic: close of closed channel`。
+
 - 既有的环境依赖测试仍然失败，与本次改动无关：
   `instance.Test_SaveWorldSafely`（需要活着的 `ces99` 实例）、
   `instance.Test_GetAllInstanceNames`（需要指定路径的 BadgerDB）、
