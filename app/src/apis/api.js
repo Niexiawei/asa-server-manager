@@ -330,3 +330,18 @@ export function toggleScheduleTask(id, enabled) {
 export function runScheduleTaskNow(id) {
     return apiClient.post(`/api/schedule/tasks/${id}/run`)
 }
+
+// 获取执行日志。taskId 为空表示全部任务；limit 缺省 100
+export function listScheduleLogs(taskId, limit) {
+    return apiClient.get('/api/schedule/logs', {
+        params: {
+            task_id: taskId || undefined,
+            limit: limit || undefined,
+        },
+    })
+}
+
+// 清空执行日志
+export function clearScheduleLogs() {
+    return apiClient.delete('/api/schedule/logs')
+}

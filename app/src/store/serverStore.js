@@ -22,6 +22,7 @@ export const serverStore = reactive({
     batchCallbacks: [],   // 批量状态变更回调
     updateRunning: false, // 是否有服务器更新在运行
     updateCallbacks: [],   // 更新状态变更回调
+    scheduleCallbacks: [], // 定时任务执行完成回调
     restartPending: new Set(), // 重启进行中（等待 server_restarted / server_restart_failed）
     // 停止/重启倒计时：instanceName -> { action, phase, remaining }
     // phase: counting（倒计时中）/ executing（已归零，正在执行）
@@ -207,6 +208,12 @@ function handleServerEvent(event) {
         case 'update_cancelled':
             serverStore.updateRunning = false
             serverStore.updateCallbacks.forEach(cb => cb('update_cancelled', event))
+            break
+
+        // 定时任务执行完成。data 就是一条 RunRecord 的扁平字段，
+        // ScheduleManager 的执行日志面板直接把它插到列表头，不必重新拉取
+        case 'schedule_run':
+            serverStore.scheduleCallbacks.forEach(cb => cb('schedule_run', event))
             break
 
         case 'countdown':

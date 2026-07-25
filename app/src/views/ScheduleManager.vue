@@ -7,62 +7,77 @@
     </template>
     <template #actions>
       <t-space size="8px">
-        <t-button variant="outline" @click="loadTasks" :loading="loading">刷新</t-button>
+        <t-button variant="outline" @click="refreshAll" :loading="loading">刷新</t-button>
         <t-button theme="primary" @click="openCreate">新建任务</t-button>
       </t-space>
     </template>
 
-    <t-table
-        :data="tasks"
-        :columns="columns"
-        row-key="id"
-        :loading="loading"
-        class="schedule-table"
-        bordered
-    >
-      <template #type="{ row }">
-        <t-tag :theme="row.type === 'update' ? 'warning' : 'primary'" variant="light">
-          {{ row.type === 'update' ? '更新服务器' : '重启实例' }}
-        </t-tag>
-      </template>
+    <div class="schedule-body">
+      <!-- 左列：任务表格。八列合计约 1230px，窄屏时容器内部横向滚动，
+           不会把整个页面撑宽（min-width: 0 是这一点的关键） -->
+      <t-card class="t-card-flex-custom">
+        <div class="schedule-table-pane">
+          <t-table
+              :data="tasks"
+              :columns="columns"
+              row-key="id"
+              :loading="loading"
+              class="schedule-table"
+              bordered
+          >
+            <template #type="{ row }">
+              <t-tag :theme="row.type === 'update' ? 'warning' : 'primary'" variant="light">
+                {{ row.type === 'update' ? '更新服务器' : '重启实例' }}
+              </t-tag>
+            </template>
 
-      <template #rule="{ row }">
-        {{ ruleSummary(row) }}
-      </template>
+            <template #rule="{ row }">
+              {{ ruleSummary(row) }}
+            </template>
 
-      <template #instances="{ row }">
-        <span v-if="row.type === 'update'" class="muted">—</span>
-        <span v-else-if="!row.instances || row.instances.length === 0">全部实例</span>
-        <span v-else>{{ row.instances.join('、') }}</span>
-      </template>
+            <template #instances="{ row }">
+              <span v-if="row.type === 'update'" class="muted">—</span>
+              <span v-else-if="!row.instances || row.instances.length === 0">全部实例</span>
+              <span v-else>{{ row.instances.join('、') }}</span>
+            </template>
 
-      <template #next_run_at="{ row }">
-        <span v-if="row.enabled && row.next_run_at">{{ formatTime(row.next_run_at) }}</span>
-        <span v-else class="muted">—</span>
-      </template>
+            <template #next_run_at="{ row }">
+              <span v-if="row.enabled && row.next_run_at">{{ formatTime(row.next_run_at) }}</span>
+              <span v-else class="muted">—</span>
+            </template>
 
-      <template #last_run="{ row }">
-        <div v-if="row.last_run_at">
-          <div>{{ formatTime(row.last_run_at) }}</div>
-          <div :class="['last-result', row.last_result?.startsWith('失败') ? 'failed' : 'ok']">
-            {{ row.last_result }}
-          </div>
+            <template #last_run="{ row }">
+              <div v-if="row.last_run_at">
+                <div>{{ formatTime(row.last_run_at) }}</div>
+                <div :class="['last-result', row.last_result?.startsWith('失败') ? 'failed' : 'ok']">
+                  {{ row.last_result }}
+                </div>
+              </div>
+              <span v-else class="muted">从未执行</span>
+            </template>
+
+            <template #enabled="{ row }">
+              <t-switch :value="row.enabled" @change="(v) => onToggle(row, v)"/>
+            </template>
+
+            <template #op="{ row }">
+              <t-space size="small">
+                <t-link theme="primary" @click="openEdit(row)">编辑</t-link>
+                <t-link theme="warning" @click="onRunNow(row)">立即执行</t-link>
+                <t-link theme="danger" @click="onDelete(row)">删除</t-link>
+              </t-space>
+            </template>
+          </t-table>
         </div>
-        <span v-else class="muted">从未执行</span>
-      </template>
+      </t-card>
 
-      <template #enabled="{ row }">
-        <t-switch :value="row.enabled" @change="(v) => onToggle(row, v)"/>
-      </template>
-
-      <template #op="{ row }">
-        <t-space size="small">
-          <t-link theme="primary" @click="openEdit(row)">编辑</t-link>
-          <t-link theme="warning" @click="onRunNow(row)">立即执行</t-link>
-          <t-link theme="danger" @click="onDelete(row)">删除</t-link>
-        </t-space>
-      </template>
-    </t-table>
+      <t-card class="t-card-flex-custom">
+        <!-- 右列：执行日志 -->
+        <div class="schedule-log-pane">
+          <ScheduleRunLog ref="runLogRef" :tasks="tasks"/>
+        </div>
+      </t-card>
+    </div>
 
     <t-dialog
         v-model:visible="dialogVisible"
@@ -142,22 +157,24 @@ import {
   listInstances,
 } from '@/apis/api.js'
 import CountdownOptions from '@/components/CountdownOptions.vue'
+import ScheduleRunLog from '@/components/ScheduleRunLog.vue'
 
 const columns = [
   {colKey: 'name', title: '名称', width: 160},
-  {colKey: 'type', title: '类型', width: 120},
+  {colKey: 'type', title: '类型', width: 90, align: "center"},
   {colKey: 'rule', title: '规则', width: 140},
   {colKey: 'instances', title: '作用实例', width: 180},
-  {colKey: 'next_run_at', title: '下次执行', width: 170},
-  {colKey: 'last_run', title: '上次执行', width: 200},
-  {colKey: 'enabled', title: '启用', width: 80},
-  {colKey: 'op', title: '操作', width: 180},
+  {colKey: 'next_run_at', title: '下次执行', width: 140},
+  {colKey: 'last_run', title: '上次执行', width: 140},
+  {colKey: 'enabled', title: '启用', width: 60, align: "center"},
+  {colKey: 'op', title: '操作', width: 120},
 ]
 
 const tasks = ref([])
 const instanceNames = ref([])
 const loading = ref(false)
 const saving = ref(false)
+const runLogRef = ref(null)
 
 const dialogVisible = ref(false)
 const editingId = ref(null)
@@ -206,6 +223,11 @@ async function loadTasks() {
   } finally {
     loading.value = false
   }
+}
+
+// 刷新按钮同时刷新左列任务与右列日志
+async function refreshAll() {
+  await Promise.all([loadTasks(), runLogRef.value?.loadLogs()])
 }
 
 async function loadInstances() {
@@ -330,7 +352,8 @@ function onRunNow(row) {
       dialog.hide()
       try {
         await runScheduleTaskNow(row.id)
-        MessagePlugin.success('已触发执行，可在服务器管理页查看进度')
+        // 执行结果会通过 WS 推到右侧日志面板，这里不用轮询
+        MessagePlugin.success('已触发执行，结果将出现在右侧执行日志')
       } catch (e) {
         MessagePlugin.error(e?.response?.data?.error || '触发失败')
       }
@@ -355,6 +378,48 @@ onMounted(() => {
 
   .schedule-table {
     padding: 0 !important;
+  }
+}
+
+// 左右两列：左列吃掉剩余宽度，右列固定。
+// 日志条目是定长文本块，给它弹性宽度只会让行长忽宽忽窄；
+// 需要吃掉剩余空间的是表格。
+.schedule-body {
+  display: flex;
+  align-items: stretch;
+  height: 100%;
+  min-height: 0;
+  gap: 8px;
+}
+
+.schedule-table-pane {
+  flex: 1;
+  // min-width: 0 是关键：没有它，八列表格的固有宽度会把 flex 容器撑开，
+  // 横向滚动条跑到整个页面上而不是表格内部
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: auto;
+}
+
+.schedule-log-pane {
+  flex: 0 0 380px;
+  width: 380px;
+  height: 100%;
+}
+
+// 窄屏折叠到下方，而不是隐藏或收进抽屉：
+// 用户不需要额外操作就能看到日志，只是位置变了
+@media (max-width: 1280px) {
+  .schedule-body {
+    flex-direction: column;
+  }
+
+  .schedule-log-pane {
+    flex: 0 0 320px;
+    width: 100%;
+    height: 320px;
+    border-left: none;
+    border-top: 1px solid var(--td-component-stroke, #e7e7e7);
   }
 }
 

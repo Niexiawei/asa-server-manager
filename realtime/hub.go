@@ -391,6 +391,22 @@ func BroadcastUpdateCancelled() {
 		"Server update cancelled", "cancelled", nil)
 }
 
+// BroadcastScheduleRun 推送一条定时任务的执行结果。
+//
+// 前端 ScheduleManager 的执行日志面板据此实时插入新记录，不必轮询。
+// data 是 RunRecord 的扁平化字段，由 schedule 包组装——realtime 不能反向
+// 依赖 schedule（那会成环），所以这里只接受 map。
+func BroadcastScheduleRun(taskName string, success bool, data map[string]any) {
+	status := "success"
+	message := fmt.Sprintf("定时任务「%s」执行成功", taskName)
+	if !success {
+		status = "failed"
+		message = fmt.Sprintf("定时任务「%s」执行失败", taskName)
+	}
+
+	BroadcastServerEventWithData("schedule_run", "", message, status, data)
+}
+
 // 倒计时阶段。前端据此决定显示「x 秒后重启」还是「服务器重启中…」，
 // 不要靠 remaining <= 0 自行推断：归零后的实际停止可能还要跑几分钟，
 // 只看数字会让 UI 卡在 0 秒上，看起来像卡死。

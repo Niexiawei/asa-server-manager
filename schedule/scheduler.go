@@ -5,6 +5,7 @@ import (
 	instancepkg "asa-server/instance"
 	"asa-server/logger"
 	procpkg "asa-server/process"
+	"asa-server/realtime"
 	"asa-server/updatemanage"
 	"context"
 	"errors"
@@ -34,6 +35,7 @@ const (
 // 对「更新 / 重启」这种本来就该串行的操作而言这是想要的行为。
 type Scheduler struct {
 	store *store
+	logs  *logStore
 
 	mu      sync.Mutex
 	cancel  context.CancelFunc
@@ -45,11 +47,13 @@ var globalScheduler *Scheduler
 // Initialize 初始化全局调度器并载入已保存的任务。
 // 载入失败不致命（当成空列表继续），只记日志——配置坏了不该拖垮整个 API 服务。
 func Initialize() error {
-	s := &Scheduler{store: newStore()}
+	s := &Scheduler{store: newStore(), logs: newLogStore()}
 
 	if err := s.store.load(); err != nil {
 		logger.GetLogger().Errorf("Failed to load schedules, starting with an empty list: %v", err)
 	}
+	// 日志载入自带容错，坏了只记 WARN 并按空列表继续
+	s.logs.load()
 
 	globalScheduler = s
 	return nil
@@ -155,7 +159,7 @@ func (s *Scheduler) tick(ctx context.Context) {
 		default:
 		}
 
-		s.execute(ctx, t)
+		s.execute(ctx, t, TriggerSchedule)
 
 		// 以「现在」而非原定时刻为基准推进：任务本身可能跑了很久，
 		// 用原定时刻推进会导致刚跑完就立刻又到点
@@ -177,31 +181,41 @@ func (s *Scheduler) RunNow(id string) error {
 		return fmt.Errorf("task not found: %s", id)
 	}
 
-	go s.execute(context.Background(), t)
+	go s.execute(context.Background(), t, TriggerManual)
 	return nil
 }
 
-// execute 执行一条任务并回写 LastRunAt / LastResult。
-func (s *Scheduler) execute(ctx context.Context, t *Task) {
+// execute 执行一条任务，回写 LastRunAt / LastResult 并追加一条执行记录。
+//
+// LastRunAt / LastResult 保留而非从日志现算：它们是列表页「上次执行」列的数据源，
+// 每次渲染都去扫一遍记录不值当。两者与日志在同一处写入，不会漂移。
+func (s *Scheduler) execute(ctx context.Context, t *Task, trigger TriggerSource) {
 	startedAt := time.Now()
-	logger.GetLogger().Infof("Running scheduled task '%s' (%s)", t.Name, t.Type)
+	logger.GetLogger().Infof("Running scheduled task '%s' (%s, %s)", t.Name, t.Type, trigger)
 
-	var err error
+	var (
+		summary string
+		err     error
+	)
 	switch t.Type {
 	case TaskRestart:
-		err = s.runRestart(ctx, t)
+		summary, err = s.runRestart(ctx, t)
 	case TaskUpdate:
-		err = s.runUpdate(ctx, t)
+		summary, err = s.runUpdate(ctx, t)
 	default:
 		err = fmt.Errorf("未知的任务类型: %s", t.Type)
 	}
 
+	duration := time.Since(startedAt)
+
 	result := "成功"
+	message := summary
 	if err != nil {
 		result = "失败: " + err.Error()
+		message = err.Error()
 		logger.GetLogger().Errorf("Scheduled task '%s' failed: %v", t.Name, err)
 	} else {
-		logger.GetLogger().Infof("Scheduled task '%s' completed in %s", t.Name, time.Since(startedAt).Round(time.Second))
+		logger.GetLogger().Infof("Scheduled task '%s' completed in %s", t.Name, duration.Round(time.Second))
 	}
 
 	if mErr := s.store.mutate(t.ID, func(stored *Task) {
@@ -210,60 +224,108 @@ func (s *Scheduler) execute(ctx context.Context, t *Task) {
 	}); mErr != nil {
 		logger.GetLogger().Errorf("Failed to persist run result for task '%s': %v", t.Name, mErr)
 	}
+
+	record := &RunRecord{
+		ID:         newRunRecordID(),
+		TaskID:     t.ID,
+		TaskName:   t.Name,
+		TaskType:   t.Type,
+		Trigger:    trigger,
+		StartedAt:  startedAt,
+		DurationMs: duration.Milliseconds(),
+		Success:    err == nil,
+		Message:    message,
+	}
+
+	// 日志落盘失败不影响任务本身的成败，只记一条 ERROR
+	if aErr := s.logs.append(record); aErr != nil {
+		logger.GetLogger().Errorf("Failed to persist run log for task '%s': %v", t.Name, aErr)
+	}
+
+	realtime.BroadcastScheduleRun(record.TaskName, record.Success, map[string]any{
+		"id":          record.ID,
+		"task_id":     record.TaskID,
+		"task_name":   record.TaskName,
+		"task_type":   string(record.TaskType),
+		"trigger":     string(record.Trigger),
+		"started_at":  record.StartedAt.UnixMilli(),
+		"duration_ms": record.DurationMs,
+		"success":     record.Success,
+		"message":     record.Message,
+	})
 }
 
 // runRestart 批量重启。空实例列表由 batchmanage 解释为「全部实例」。
-func (s *Scheduler) runRestart(ctx context.Context, t *Task) error {
+// 成功时返回一句摘要，供执行日志展示。
+func (s *Scheduler) runRestart(ctx context.Context, t *Task) (string, error) {
 	op, err := batchmanage.GetGlobalManager().StartOperation(
 		batchmanage.BatchRestart, t.Instances, 0, t.CountdownConfig(),
 	)
 	if err != nil {
-		return fmt.Errorf("failed to start batch restart: %w", err)
+		return "", fmt.Errorf("failed to start batch restart: %w", err)
 	}
 
 	select {
 	case <-op.Done():
 	case <-ctx.Done():
-		return ctx.Err()
+		return "", ctx.Err()
 	}
 
 	// 批量操作本身「完成」了不代表每个实例都重启成功。
 	// 不看结果的话，一半实例起不来的任务照样记成「成功」。
 	var failed []string
+	succeeded := 0
+	skipped := 0
 	for _, r := range op.InstanceResults {
-		if r.Status == batchmanage.InstanceFailed {
+		switch r.Status {
+		case batchmanage.InstanceFailed:
 			failed = append(failed, r.InstanceName)
+		case batchmanage.InstanceSuccess:
+			succeeded++
+		default:
+			// skipped / cancelled：状态不允许、用户跳过、倒计时被取消
+			skipped++
 		}
 	}
 	if len(failed) > 0 {
-		return fmt.Errorf("%d/%d 个实例重启失败：%s",
+		return "", fmt.Errorf("%d/%d 个实例重启失败：%s",
 			len(failed), len(op.InstanceResults), strings.Join(failed, "、"))
 	}
 
-	return nil
+	summary := fmt.Sprintf("已重启 %d 个实例", succeeded)
+	if skipped > 0 {
+		summary += fmt.Sprintf("，跳过 %d 个", skipped)
+	}
+	return summary, nil
 }
 
 // runUpdate 先停全部实例再更新。
 //
 // 停服不是顺手做的好事，而是硬前提：installer 在有实例存活时会直接拒绝更新，
 // 不先停服的话定时更新到点必然失败。
-func (s *Scheduler) runUpdate(ctx context.Context, t *Task) error {
+func (s *Scheduler) runUpdate(ctx context.Context, t *Task) (string, error) {
 	// 倒计时作用于这一步的停服：半夜自动更新同样要提前通知玩家
 	op, err := batchmanage.GetGlobalManager().StartOperation(
 		batchmanage.BatchStop, nil, 0, t.CountdownConfig(),
 	)
+	stopped := 0
 	switch {
 	case errors.Is(err, batchmanage.ErrNoInstances):
 		// 一个实例都没有，没什么可停的，直接进入更新
 		logger.GetLogger().Info("No instances to stop before scheduled update")
 	case err != nil:
 		// 尤其是 ErrOperationInProgress：此时实例多半正活着，硬着头皮更新必被拒
-		return fmt.Errorf("更新前的批量停服未能启动: %w", err)
+		return "", fmt.Errorf("更新前的批量停服未能启动: %w", err)
 	default:
 		select {
 		case <-op.Done():
 		case <-ctx.Done():
-			return ctx.Err()
+			return "", ctx.Err()
+		}
+		for _, r := range op.InstanceResults {
+			if r.Status == batchmanage.InstanceSuccess {
+				stopped++
+			}
 		}
 	}
 
@@ -283,7 +345,7 @@ func (s *Scheduler) runUpdate(ctx context.Context, t *Task) error {
 	}
 
 	if alive := waitInstancesStopped(ctx, forceStopTimeout); len(alive) > 0 {
-		return fmt.Errorf("以下实例无法停止，更新已取消：%s", strings.Join(alive, "、"))
+		return "", fmt.Errorf("以下实例无法停止，更新已取消：%s", strings.Join(alive, "、"))
 	}
 
 	mgr := updatemanage.GetGlobalManager()
@@ -296,9 +358,15 @@ func (s *Scheduler) runUpdate(ctx context.Context, t *Task) error {
 	case <-done:
 		// 更新的失败只体现在 Result() 里：run() 内部把错误发给 SSE 订阅者后就正常收尾，
 		// 只等 done 关闭会把每一次失败都记成「成功」
-		return mgr.Result()
+		if err := mgr.Result(); err != nil {
+			return "", err
+		}
+		if stopped == 0 {
+			return "无实例需停止，更新完成", nil
+		}
+		return fmt.Sprintf("已停止 %d 个实例并完成更新", stopped), nil
 	case <-ctx.Done():
-		return ctx.Err()
+		return "", ctx.Err()
 	}
 }
 
@@ -327,6 +395,16 @@ func waitInstancesStopped(ctx context.Context, timeout time.Duration) []string {
 }
 
 // ---- 对外的任务增删改查，webapi 层使用 ----
+
+// ListRunLogs 返回执行记录，新的在前。
+// taskID 为空表示不过滤；limit <= 0 用默认条数。
+// 第二个返回值是过滤后、截断前的总数。
+func (s *Scheduler) ListRunLogs(taskID string, limit int) ([]*RunRecord, int) {
+	return s.logs.list(taskID, limit)
+}
+
+// ClearRunLogs 清空全部执行记录。
+func (s *Scheduler) ClearRunLogs() error { return s.logs.clear() }
 
 func (s *Scheduler) ListTasks() []*Task { return s.store.List() }
 

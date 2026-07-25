@@ -154,8 +154,8 @@
         <div class="select-header">批量操作日志</div>
         <div class="update-log-container">
           <div id="batchLogContainer" class="update-log">
-            <div v-if="batchLogs.length === 0 && !logsHydrating" class="log-placeholder">
-              暂无日志
+            <div v-if="batchLogs.length === 0 && !logsHydrating" class="log-line">
+              暂无操作日志...
             </div>
             <div
                 v-for="(log, index) in batchLogs"

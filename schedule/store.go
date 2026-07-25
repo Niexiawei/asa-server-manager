@@ -57,38 +57,8 @@ func (s *store) load() error {
 }
 
 // saveLocked 整份落盘。调用方必须已持有写锁。
-//
-// 先写临时文件再 os.Rename 原子替换：调度器会在后台不断改写 NextRunAt，
-// 进程被杀在写一半的概率比手工配置高得多，直接覆写会留下损坏的配置。
 func (s *store) saveLocked() error {
-	data, err := json.MarshalIndent(s.tasks, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to serialize tasks: %w", err)
-	}
-
-	tmp, err := os.CreateTemp(filepath.Dir(s.path), storeFileName+".tmp*")
-	if err != nil {
-		return fmt.Errorf("failed to create temp file: %w", err)
-	}
-	tmpName := tmp.Name()
-
-	// 任一步失败都要清掉临时文件，否则 BaseDir 会攒一地 .tmp
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		os.Remove(tmpName)
-		return fmt.Errorf("failed to write temp file: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(tmpName)
-		return fmt.Errorf("failed to close temp file: %w", err)
-	}
-
-	if err := os.Rename(tmpName, s.path); err != nil {
-		os.Remove(tmpName)
-		return fmt.Errorf("failed to replace %s: %w", s.path, err)
-	}
-
-	return nil
+	return writeJSONAtomic(s.path, s.tasks)
 }
 
 // List 返回任务列表的深拷贝，避免调用方在锁外改到内部状态。

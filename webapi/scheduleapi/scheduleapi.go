@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -24,6 +26,8 @@ func (h *Handler) RegisterRouter(r *gin.Engine) {
 		s.DELETE("/tasks/:id", h.deleteTask)
 		s.POST("/tasks/:id/toggle", h.toggleTask)
 		s.POST("/tasks/:id/run", h.runTaskNow)
+		s.GET("/logs", h.listRunLogs)
+		s.DELETE("/logs", h.clearRunLogs)
 	}
 }
 
@@ -170,6 +174,41 @@ func (h *Handler) toggleTask(c *gin.Context) {
 		msg = "定时任务已启用"
 	}
 	c.JSON(http.StatusOK, apiresp.StatusResponse{Success: true, Message: msg})
+}
+
+// listRunLogs 查询执行日志。
+//
+//	?task_id=xxx  只看某个任务（可选）
+//	?limit=100    返回条数，缺省 100，上限即存储上限
+//
+// total 是过滤后、截断前的总数，供前端显示「共 N 条」。
+func (h *Handler) listRunLogs(c *gin.Context) {
+	limit, err := strconv.Atoi(strings.TrimSpace(c.Query("limit")))
+	if err != nil {
+		// 不传或传了非数字都按缺省处理：这个参数是纯优化项，
+		// 为它返回 400 只会让前端多一条无意义的错误分支
+		limit = 0
+	}
+
+	logs, total := schedule.GetGlobalScheduler().ListRunLogs(c.Query("task_id"), limit)
+
+	c.JSON(http.StatusOK, apiresp.StatusResponse{
+		Success: true,
+		Data:    gin.H{"logs": logs, "total": total},
+	})
+}
+
+// clearRunLogs 清空全部执行日志。
+func (h *Handler) clearRunLogs(c *gin.Context) {
+	if err := schedule.GetGlobalScheduler().ClearRunLogs(); err != nil {
+		c.JSON(http.StatusInternalServerError, apiresp.StatusResponse{
+			Success: false,
+			Error:   fmt.Sprintf("清空执行日志失败: %v", err),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, apiresp.StatusResponse{Success: true, Message: "执行日志已清空"})
 }
 
 // runTaskNow 立即执行一次，不影响 NextRunAt。任务在后台跑，接口立即返回。

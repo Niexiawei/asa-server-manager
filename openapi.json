@@ -3,7 +3,7 @@
   "info": {
     "title": "ASA Server Manager API",
     "description": "REST API for managing ARK: Survival Ascended Server instances",
-    "version": "1.0.0",
+    "version": "2.0.0",
     "contact": {
       "name": "ASA Server Manager",
       "url": "https://github.com/yourusername/asa-server"
@@ -11,8 +11,8 @@
   },
   "servers": [
     {
-      "url": "http://localhost:8080",
-      "description": "Development server"
+      "url": "http://localhost:19193",
+      "description": "Local API server (default port)"
     }
   ],
   "paths": {
@@ -29,14 +29,8 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "status": {
-                      "type": "string",
-                      "example": "healthy"
-                    },
-                    "service": {
-                      "type": "string",
-                      "example": "asa-server-manager-api"
-                    }
+                    "status": { "type": "string", "example": "healthy" },
+                    "service": { "type": "string", "example": "asa-server-manager-api" }
                   }
                 }
               }
@@ -48,30 +42,15 @@
     "/api/instances": {
       "get": {
         "summary": "List all instances with basic configuration",
-        "description": "Returns a list of all server instances including their running status and basic configuration information",
+        "description": "Returns a list of all server instances including their running status, ASA version, status history and configuration information",
         "tags": ["Instances"],
         "operationId": "listInstances",
         "responses": {
           "200": {
             "description": "List of instances with configuration",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ListInstancesResponse"
-                }
-              }
-            }
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ListInstancesResponse" } } }
           },
-          "500": {
-            "description": "Server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
+          "500": { "description": "Server error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
         }
       },
       "post": {
@@ -80,45 +59,12 @@
         "operationId": "createInstance",
         "requestBody": {
           "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateInstanceRequest"
-              }
-            }
-          }
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateInstanceRequest" } } }
         },
         "responses": {
-          "201": {
-            "description": "Instance created successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/StatusResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
+          "201": { "description": "Instance created successfully", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/StatusResponse" } } } },
+          "400": { "description": "Bad request (invalid name)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "500": { "description": "Server error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
         }
       }
     },
@@ -127,16 +73,7 @@
         "summary": "Get instance status",
         "tags": ["Instances"],
         "operationId": "getInstanceStatus",
-        "parameters": [
-          {
-            "name": "name",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
+        "parameters": [{ "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }],
         "responses": {
           "200": {
             "description": "Instance status retrieved",
@@ -144,126 +81,39 @@
               "application/json": {
                 "schema": {
                   "allOf": [
-                    {
-                      "$ref": "#/components/schemas/StatusResponse"
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "data": {
-                          "$ref": "#/components/schemas/InstanceInfo"
-                        }
-                      }
-                    }
+                    { "$ref": "#/components/schemas/StatusResponse" },
+                    { "type": "object", "properties": { "data": { "$ref": "#/components/schemas/InstanceInfo" } } }
                   ]
                 }
               }
             }
           },
-          "404": {
-            "description": "Instance not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
+          "404": { "description": "Instance not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
         }
       },
       "delete": {
         "summary": "Delete an instance",
+        "description": "Stops the instance if running, then removes its directory and save data.",
         "tags": ["Instances"],
         "operationId": "deleteInstance",
-        "parameters": [
-          {
-            "name": "name",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
+        "parameters": [{ "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }],
         "responses": {
-          "200": {
-            "description": "Instance deleted successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/StatusResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
+          "200": { "description": "Instance deleted successfully", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/StatusResponse" } } } },
+          "400": { "description": "Bad request (invalid name)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "500": { "description": "Server error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
         }
       },
       "put": {
         "summary": "Rename an instance",
+        "description": "Stops the instance if running, renames its directory and save data, and updates SaveDir in the new instance's configuration.",
         "tags": ["Instances"],
         "operationId": "renameInstance",
-        "parameters": [
-          {
-            "name": "name",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RenameInstanceRequest"
-              }
-            }
-          }
-        },
+        "parameters": [{ "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RenameInstanceRequest" } } } },
         "responses": {
-          "200": {
-            "description": "Instance renamed successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/StatusResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
+          "200": { "description": "Instance renamed successfully", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/StatusResponse" } } } },
+          "400": { "description": "Bad request", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "500": { "description": "Server error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
         }
       }
     },
@@ -272,17 +122,7 @@
         "summary": "Get instance configuration",
         "tags": ["Instances"],
         "operationId": "getInstanceConfig",
-        "parameters": [
-          {
-            "name": "name",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "Instance name"
-          }
-        ],
+        "parameters": [{ "name": "name", "in": "path", "required": true, "schema": { "type": "string" }, "description": "Instance name" }],
         "responses": {
           "200": {
             "description": "Instance configuration retrieved",
@@ -290,223 +130,162 @@
               "application/json": {
                 "schema": {
                   "allOf": [
-                    {
-                      "$ref": "#/components/schemas/StatusResponse"
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "data": {
-                          "$ref": "#/components/schemas/InstanceConfig"
-                        }
-                      }
-                    }
+                    { "$ref": "#/components/schemas/StatusResponse" },
+                    { "type": "object", "properties": { "data": { "$ref": "#/components/schemas/InstanceConfig" } } }
                   ]
                 }
               }
             }
           },
-          "404": {
-            "description": "Instance configuration not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
+          "404": { "description": "Instance configuration not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
         }
       },
       "patch": {
-        "summary": "Update instance configuration",
+        "summary": "Partially update instance configuration",
         "tags": ["Instances"],
         "operationId": "updateInstanceConfig",
-        "parameters": [
-          {
-            "name": "name",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "Instance name"
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateInstanceConfigRequest"
-              }
-            }
-          }
-        },
+        "parameters": [{ "name": "name", "in": "path", "required": true, "schema": { "type": "string" }, "description": "Instance name" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateInstanceConfigRequest" } } } },
         "responses": {
-          "200": {
-            "description": "Instance configuration updated successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/StatusResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Instance not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
+          "200": { "description": "Instance configuration updated successfully", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/StatusResponse" } } } },
+          "400": { "description": "Bad request", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "500": { "description": "Server error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/mod-info": {
+      "get": {
+        "summary": "Get mod information",
+        "description": "Returns mod information extracted from server logs (mod ID and name mappings), read from mod_info.json in BaseDir.",
+        "tags": ["Instances"],
+        "operationId": "getModInfo",
+        "responses": {
+          "200": { "description": "Mod info retrieved successfully", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ModInfoResponse" } } } },
+          "404": { "description": "mod_info.json not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "500": { "description": "Server error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
         }
       }
     },
     "/api/server/{name}/start": {
-      "post": {
+      "get": {
         "summary": "Start a server instance",
+        "description": "Atomically transitions the instance state to start_initialization and starts the server asynchronously. Fails fast with 409 if port conflicts exist or the instance is not in a startable state (stopped/start_failed/stop_failed/restart_failed/unset).",
         "tags": ["Server Control"],
         "operationId": "startServer",
-        "parameters": [
-          {
-            "name": "name",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
+        "parameters": [{ "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }],
         "responses": {
-          "200": {
-            "description": "Server started successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/StatusResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
+          "200": { "description": "Server is starting (asynchronous)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/StatusResponse" } } } },
+          "409": { "description": "Port conflict, or instance not in a startable state", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "500": { "description": "Server error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
         }
       }
     },
     "/api/server/{name}/stop": {
-      "post": {
+      "get": {
         "summary": "Stop a server instance",
+        "description": "Optionally announces an in-game countdown before stopping (see query params). Atomically transitions state from started to stopping; returns 409 if the instance is not currently started.",
         "tags": ["Server Control"],
         "operationId": "stopServer",
         "parameters": [
-          {
-            "name": "name",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
+          { "name": "name", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "$ref": "#/components/parameters/CountdownParam" },
+          { "$ref": "#/components/parameters/NotifyPointsParam" },
+          { "$ref": "#/components/parameters/NotifyMessageParam" },
+          { "$ref": "#/components/parameters/NotifyCommandParam" }
         ],
         "responses": {
-          "200": {
-            "description": "Server stopped successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/StatusResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
+          "200": { "description": "Server is stopping (asynchronous; countdown runs first if requested)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/StatusResponse" } } } },
+          "400": { "description": "Invalid countdown parameters", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "409": { "description": "Instance not in 'started' state", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "500": { "description": "Server error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
         }
       }
     },
     "/api/server/{name}/restart": {
-      "post": {
+      "get": {
         "summary": "Restart a server instance",
+        "description": "Optionally announces an in-game countdown before restarting (see query params). Atomically transitions state from started to restarting; returns 409 if the instance is not currently started.",
         "tags": ["Server Control"],
         "operationId": "restartServer",
         "parameters": [
-          {
-            "name": "name",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
+          { "name": "name", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "$ref": "#/components/parameters/CountdownParam" },
+          { "$ref": "#/components/parameters/NotifyPointsParam" },
+          { "$ref": "#/components/parameters/NotifyMessageParam" },
+          { "$ref": "#/components/parameters/NotifyCommandParam" }
         ],
         "responses": {
+          "200": { "description": "Server is restarting (asynchronous; countdown runs first if requested)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/StatusResponse" } } } },
+          "400": { "description": "Invalid countdown parameters", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "409": { "description": "Instance not in 'started' state", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "500": { "description": "Server error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/server/{name}/force-stop": {
+      "get": {
+        "summary": "Force stop a server instance",
+        "description": "Kills the instance process tree immediately, bypassing RCON saveworld/graceful shutdown and any in-progress countdown.",
+        "tags": ["Server Control"],
+        "operationId": "forceStopServer",
+        "parameters": [{ "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": { "description": "Server force stopped successfully", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/StatusResponse" } } } },
+          "500": { "description": "Server error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/server/{name}/countdown": {
+      "get": {
+        "summary": "Get the active stop/restart countdown for an instance",
+        "tags": ["Server Control"],
+        "operationId": "getCountdown",
+        "parameters": [{ "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": { "description": "Countdown status (active: false if none in progress)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CountdownStatusResponse" } } } }
+        }
+      }
+    },
+    "/api/server/{name}/countdown/cancel": {
+      "post": {
+        "summary": "Cancel an active countdown",
+        "description": "Cancels the in-progress stop/restart countdown for this instance and rolls its state back to started. Only affects this one instance, even if it's part of a batch operation.",
+        "tags": ["Server Control"],
+        "operationId": "cancelCountdown",
+        "parameters": [{ "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": { "description": "Countdown cancelled", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/StatusResponse" } } } },
+          "404": { "description": "No active countdown for this instance", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/server/update": {
+      "get": {
+        "summary": "Update ARK server with real-time progress",
+        "description": "Downloads and updates the ARK server files using SteamCMD. Returns a Server-Sent Events stream with real-time progress. Reconnecting clients replay history and subscribe; only one update runs globally at a time (Start() elects a single winner).",
+        "tags": ["Server Management"],
+        "operationId": "updateServer",
+        "responses": {
+          "200": { "description": "SSE stream with update progress messages", "content": { "text/event-stream": { "schema": { "$ref": "#/components/schemas/ServerUpdateSSEStream" } } } },
+          "500": { "description": "Server error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/server/update/status": {
+      "get": {
+        "summary": "Get whether a server update is currently running",
+        "tags": ["Server Management"],
+        "operationId": "getUpdateStatus",
+        "responses": {
           "200": {
-            "description": "Server restarted successfully",
+            "description": "Update status",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/StatusResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    { "$ref": "#/components/schemas/StatusResponse" },
+                    { "type": "object", "properties": { "data": { "type": "object", "properties": { "running": { "type": "boolean" } } } } }
+                  ]
                 }
               }
             }
@@ -514,91 +293,132 @@
         }
       }
     },
-    "/api/server/start-all": {
+    "/api/server/update/cancel": {
       "post": {
-        "summary": "Start all server instances",
-        "tags": ["Server Control"],
-        "operationId": "startAllServers",
+        "summary": "Cancel the in-progress server update",
+        "tags": ["Server Management"],
+        "operationId": "cancelUpdate",
         "responses": {
-          "200": {
-            "description": "All servers started successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/StatusResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
+          "200": { "description": "Cancel signal sent", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/StatusResponse" } } } },
+          "404": { "description": "No update in progress", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
         }
       }
     },
-    "/api/server/stop-all": {
-      "post": {
-        "summary": "Stop all server instances",
-        "tags": ["Server Control"],
-        "operationId": "stopAllServers",
+    "/api/server/info": {
+      "get": {
+        "summary": "Stream system resource information (CPU, Memory)",
+        "description": "Returns an SSE stream with system CPU and memory usage, updated every 2 seconds.",
+        "tags": ["Server Management"],
+        "operationId": "streamServerInfo",
         "responses": {
-          "200": {
-            "description": "All servers stopped successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/StatusResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
+          "200": { "description": "SSE stream with resource information every 2s", "content": { "text/event-stream": { "schema": { "$ref": "#/components/schemas/ServerInfoSSEStream" } } } },
+          "500": { "description": "Server error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
         }
       }
     },
-    "/api/server/restart-all": {
-      "post": {
-        "summary": "Restart all server instances with real-time progress",
-        "description": "Restarts all server instances with Server-Sent Events (SSE) stream for real-time progress updates. Returns streaming progress messages for each instance restart.",
-        "tags": ["Server Control"],
-        "operationId": "restartAllServers",
+    "/api/server/all-info": {
+      "get": {
+        "summary": "Stream resource information for all running instances",
+        "description": "Returns an SSE stream with CPU/memory usage per running instance plus overall system totals, sent immediately on connect and then every 2 seconds.",
+        "tags": ["Server Management"],
+        "operationId": "streamAllInstancesInfo",
         "responses": {
-          "200": {
-            "description": "Restart in progress - returns SSE stream with progress messages",
-            "content": {
-              "text/event-stream": {
-                "schema": {
-                  "$ref": "#/components/schemas/ServerRestartAllSSEStream"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
+          "200": { "description": "SSE stream of all-instances resource info", "content": { "text/event-stream": { "schema": { "$ref": "#/components/schemas/AllInstancesInfoSSEStream" } } } },
+          "500": { "description": "Server error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/server/batch/start": {
+      "post": {
+        "summary": "Batch-start multiple instances",
+        "description": "Starts a batch operation across the given instances, staggered by delay_seconds between each. An optional countdown announces the operation in-game beforehand. Only one batch operation can run at a time.",
+        "tags": ["Batch Operations"],
+        "operationId": "batchStartServers",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BatchOperationRequest" } } } },
+        "responses": {
+          "200": { "description": "Batch operation accepted (returns pre-flight eligible/skipped instances)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BatchOperationStartResponse" } } } },
+          "400": { "description": "No instances to operate on, or invalid countdown parameters", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BatchErrorResponse" } } } },
+          "409": { "description": "A batch operation is already running", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BatchErrorResponse" } } } },
+          "500": { "description": "Batch manager not initialized", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BatchErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/server/batch/stop": {
+      "post": {
+        "summary": "Batch-stop multiple instances",
+        "tags": ["Batch Operations"],
+        "operationId": "batchStopServers",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BatchOperationRequest" } } } },
+        "responses": {
+          "200": { "description": "Batch operation accepted", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BatchOperationStartResponse" } } } },
+          "400": { "description": "No instances to operate on, or invalid countdown parameters", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BatchErrorResponse" } } } },
+          "409": { "description": "A batch operation is already running", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BatchErrorResponse" } } } },
+          "500": { "description": "Batch manager not initialized", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BatchErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/server/batch/restart": {
+      "post": {
+        "summary": "Batch-restart multiple instances",
+        "tags": ["Batch Operations"],
+        "operationId": "batchRestartServers",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BatchOperationRequest" } } } },
+        "responses": {
+          "200": { "description": "Batch operation accepted", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BatchOperationStartResponse" } } } },
+          "400": { "description": "No instances to operate on, or invalid countdown parameters", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BatchErrorResponse" } } } },
+          "409": { "description": "A batch operation is already running", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BatchErrorResponse" } } } },
+          "500": { "description": "Batch manager not initialized", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BatchErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/server/batch/status": {
+      "get": {
+        "summary": "Get the current batch operation status",
+        "tags": ["Batch Operations"],
+        "operationId": "getBatchStatus",
+        "responses": {
+          "200": { "description": "Batch status (active: false if none running)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BatchStatusResponse" } } } }
+        }
+      }
+    },
+    "/api/server/batch/logs": {
+      "get": {
+        "summary": "Stream batch operation logs via SSE",
+        "description": "Replays log history for the current (or most recently finished) batch operation, then streams new entries in real time while a batch is running. If the last operation has already finished, only the replay is sent.",
+        "tags": ["Batch Operations"],
+        "operationId": "streamBatchLogs",
+        "responses": {
+          "200": { "description": "SSE stream of batch log entries", "content": { "text/event-stream": { "schema": { "$ref": "#/components/schemas/BatchLogEntry" } } } },
+          "404": { "description": "No batch operation logs available", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BatchErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/server/batch/cancel": {
+      "post": {
+        "summary": "Cancel the current batch operation",
+        "description": "Cancels the batch operation as a whole. Instances not yet started are marked cancelled; the instance currently in flight is allowed to finish. To exclude a single instance from an in-progress batch instead, use /api/server/batch/skip.",
+        "tags": ["Batch Operations"],
+        "operationId": "cancelBatch",
+        "responses": {
+          "200": { "description": "Batch operation cancelled", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BatchOperationResponse" } } } },
+          "404": { "description": "No active batch operation to cancel", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BatchErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/server/batch/skip": {
+      "post": {
+        "summary": "Skip a single instance within the running batch operation",
+        "description": "Marks one instance to be skipped once the batch's main loop reaches it (status transitions pending -> skip_requested -> skipped). Broadcasts the skip to other connected clients.",
+        "tags": ["Batch Operations"],
+        "operationId": "skipBatchInstance",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object", "properties": { "instance_name": { "type": "string" } }, "required": ["instance_name"] } } }
+        },
+        "responses": {
+          "200": { "description": "Instance will be skipped", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BatchOperationResponse" } } } },
+          "400": { "description": "instance_name missing, or instance cannot be skipped in its current state", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BatchErrorResponse" } } } },
+          "404": { "description": "No active batch operation", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BatchErrorResponse" } } } }
         }
       }
     },
@@ -607,57 +427,12 @@
         "summary": "Send RCON command to server",
         "tags": ["RCON"],
         "operationId": "sendRCONCommand",
-        "parameters": [
-          {
-            "name": "name",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RCONCommandRequest"
-              }
-            }
-          }
-        },
+        "parameters": [{ "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RCONCommandRequest" } } } },
         "responses": {
-          "200": {
-            "description": "RCON command executed successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RCONResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
+          "200": { "description": "RCON command executed successfully", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RCONResponse" } } } },
+          "400": { "description": "Bad request", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "500": { "description": "Server error (instance not running, RCON connection failed, etc.)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
         }
       }
     },
@@ -666,355 +441,85 @@
         "summary": "Create a world-save backup of an instance",
         "tags": ["Backup"],
         "operationId": "backupInstanceWorld",
-        "parameters": [
-          {
-            "name": "name",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/BackupRequest"
-              }
-            }
-          }
-        },
+        "parameters": [{ "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }],
         "responses": {
-          "200": {
-            "description": "Backup created successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/StatusResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
+          "200": { "description": "Backup created successfully", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/StatusResponse" } } } },
+          "500": { "description": "Server error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
         }
       },
       "get": {
         "summary": "List world-save backups for an instance",
         "tags": ["Backup"],
         "operationId": "listWorldBackups",
-        "parameters": [
-          {
-            "name": "name",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
+        "parameters": [{ "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }],
         "responses": {
-          "200": {
-            "description": "List of backups",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ListBackupsResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
+          "200": { "description": "List of backups", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ListBackupsResponse" } } } },
+          "500": { "description": "Server error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
         }
       }
     },
     "/api/backup/world/{name}/restore": {
       "post": {
         "summary": "Restore a world-save backup to an instance",
-        "description": "Restores the worldfile (SaveDir content) from a backup file to a server instance. If the instance does not exist, it will be created automatically.",
+        "description": "Restores the worldfile (SaveDir content) from a backup file to a server instance. Before restoring, a best-effort snapshot of the current state is saved as a 'latest' backup.",
         "tags": ["Backup"],
         "operationId": "restoreWorldBackup",
-        "parameters": [
-          {
-            "name": "name",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "Instance name (will be created if it doesn't exist)"
-          }
-        ],
+        "parameters": [{ "name": "name", "in": "path", "required": true, "schema": { "type": "string" }, "description": "Instance name" }],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RestoreWorldBackupRequest"
-              },
-              "examples": {
-                "restore_worldfile": {
-                  "summary": "Restore worldfile",
-                  "value": {
-                    "backup_file": "/path/to/backup.zstd"
-                  }
-                }
-              }
+              "schema": { "$ref": "#/components/schemas/RestoreWorldBackupRequest" },
+              "examples": { "restore_worldfile": { "summary": "Restore worldfile (filename relative to the instance's backup directory)", "value": { "backup_file": "instance1_20240101-120000.zstd" } } }
             }
           }
         },
         "responses": {
-          "200": {
-            "description": "Backup restored successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/StatusResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
+          "200": { "description": "Backup restored successfully", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/StatusResponse" } } } },
+          "400": { "description": "Bad request", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "404": { "description": "Backup file not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "500": { "description": "Server error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
         }
       }
     },
-    "/api/server/update": {
-      "post": {
-        "summary": "Update ARK server with real-time progress",
-        "description": "Downloads and updates the ARK server files using SteamCMD. Returns Server-Sent Events (SSE) stream with real-time progress updates.",
-        "tags": ["Server Management"],
-        "operationId": "updateServer",
-        "responses": {
-          "200": {
-            "description": "Update in progress - returns SSE stream with progress messages",
-            "content": {
-              "text/event-stream": {
-                "schema": {
-                  "$ref": "#/components/schemas/ServerUpdateSSEStream"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/server/info": {
-      "get": {
-        "summary": "Stream server resource information (CPU, Memory)",
-        "description": "Returns Server-Sent Events (SSE) stream with server resource information updated every 200ms. Includes system CPU usage, memory usage, and detailed metrics.",
-        "tags": ["Server Management"],
-        "operationId": "streamServerInfo",
-        "responses": {
-          "200": {
-            "description": "Server info stream - returns SSE stream with resource information every 200ms",
-            "content": {
-              "text/event-stream": {
-                "schema": {
-                  "$ref": "#/components/schemas/ServerInfoSSEStream"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/server/{name}/info": {
-      "get": {
-        "summary": "Stream instance resource information (CPU, Memory)",
-        "description": "Returns Server-Sent Events (SSE) stream with game instance resource information updated every 200ms. Gets instance PID by port and monitors process resource usage.",
-        "tags": ["Server Management"],
-        "operationId": "streamInstanceInfo",
+    "/api/backup/world/{name}/{file}": {
+      "delete": {
+        "summary": "Delete a world-save backup file",
+        "tags": ["Backup"],
+        "operationId": "deleteWorldBackup",
         "parameters": [
-          {
-            "name": "name",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "Instance name"
-          }
+          { "name": "name", "in": "path", "required": true, "schema": { "type": "string" }, "description": "Instance name" },
+          { "name": "file", "in": "path", "required": true, "schema": { "type": "string" }, "description": "Backup file name" }
         ],
         "responses": {
-          "200": {
-            "description": "Instance info stream - returns SSE stream with process resource information every 200ms",
-            "content": {
-              "text/event-stream": {
-                "schema": {
-                  "$ref": "#/components/schemas/InstanceInfoSSEStream"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error - instance not found or config load failed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
+          "200": { "description": "Backup deleted successfully", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/StatusResponse" } } } },
+          "400": { "description": "Bad request", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "500": { "description": "Server error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
         }
       }
     },
     "/api/config/server/configs": {
       "get": {
         "summary": "Get base server configuration files",
-        "description": "Retrieves both Game.ini and GameUserSettings.ini from the base server directory (ShooterGame/Saved/Config/WindowsServer)",
+        "description": "Retrieves both Game.ini and GameUserSettings.ini from the base server directory (ShooterGame/Saved/Config/WindowsServer).",
         "tags": ["Configuration"],
         "operationId": "getServerConfigs",
         "responses": {
-          "200": {
-            "description": "Server configuration files retrieved successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ServerConfigsResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Configuration files not found in server base directory",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
+          "200": { "description": "Server configuration files retrieved successfully", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ServerConfigsResponse" } } } },
+          "404": { "description": "Both configuration files not found in server base directory", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
         }
       }
     },
     "/api/config/{name}/configs": {
       "get": {
         "summary": "Get instance configuration files",
-        "description": "Retrieves both Game.ini and GameUserSettings.ini for a specific instance",
+        "description": "Retrieves both Game.ini and GameUserSettings.ini for a specific instance.",
         "tags": ["Configuration"],
         "operationId": "getInstanceConfigs",
-        "parameters": [
-          {
-            "name": "name",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "Instance name"
-          }
-        ],
+        "parameters": [{ "name": "name", "in": "path", "required": true, "schema": { "type": "string" }, "description": "Instance name" }],
         "responses": {
-          "200": {
-            "description": "Instance configuration files retrieved successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/InstanceConfigsResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Configuration files not found for instance",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
+          "200": { "description": "Instance configuration files retrieved successfully", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/InstanceConfigsResponse" } } } },
+          "404": { "description": "Both configuration files not found for instance", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
         }
       }
     },
@@ -1023,272 +528,41 @@
         "summary": "Get Game.ini configuration file content",
         "tags": ["Configuration"],
         "operationId": "getGameIni",
-        "parameters": [
-          {
-            "name": "name",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "Instance name"
-          }
-        ],
+        "parameters": [{ "name": "name", "in": "path", "required": true, "schema": { "type": "string" }, "description": "Instance name" }],
         "responses": {
-          "200": {
-            "description": "Game.ini content retrieved successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConfigFileResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Configuration file not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
+          "200": { "description": "Game.ini content retrieved successfully", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConfigFileResponse" } } } },
+          "404": { "description": "Configuration file not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
         }
       },
       "post": {
         "summary": "Upload and overwrite Game.ini file",
         "tags": ["Configuration"],
         "operationId": "uploadGameIni",
-        "parameters": [
-          {
-            "name": "name",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "Instance name"
-          }
-        ],
+        "parameters": [{ "name": "name", "in": "path", "required": true, "schema": { "type": "string" }, "description": "Instance name" }],
         "requestBody": {
           "required": true,
           "content": {
             "multipart/form-data": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "file": {
-                    "type": "string",
-                    "format": "binary",
-                    "description": "Game.ini file to upload"
-                  }
-                },
-                "required": ["file"]
-              }
+              "schema": { "type": "object", "properties": { "file": { "type": "string", "format": "binary", "description": "Game.ini file to upload (max 10MB)" } }, "required": ["file"] }
             }
           }
         },
         "responses": {
-          "200": {
-            "description": "Game.ini uploaded successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FileUploadResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
+          "200": { "description": "Game.ini uploaded successfully", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/FileUploadResponse" } } } },
+          "400": { "description": "No file provided, or file exceeds 10MB", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "500": { "description": "Server error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
         }
       },
       "put": {
         "summary": "Update Game.ini content directly via text",
         "tags": ["Configuration"],
         "operationId": "updateGameIni",
-        "parameters": [
-          {
-            "name": "name",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "Instance name"
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ConfigFileRequest"
-              }
-            }
-          }
-        },
+        "parameters": [{ "name": "name", "in": "path", "required": true, "schema": { "type": "string" }, "description": "Instance name" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConfigFileRequest" } } } },
         "responses": {
-          "200": {
-            "description": "Game.ini updated successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FileUpdateResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/config/sync": {
-      "post": {
-        "summary": "Synchronize game config files from base server to instances",
-        "description": "Syncs Game.ini and GameUserSettings.ini files from the base server directory to instance Config folders. Only updates entries that don't exist in the instance configuration files, preserving existing instance-specific settings.",
-        "tags": ["Configuration"],
-        "operationId": "syncGameConfig",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SyncConfigRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Configuration synced successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SyncConfigResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/config/sync-instance": {
-      "post": {
-        "summary": "Sync instance configuration and files from source to multiple target instances",
-        "description": "Synchronizes instance configuration (ModIDs, CustomStartParameters, ServerPassword, ServerAdminPassword, EnableAsaPlugin) and entire Config folder from a source instance to multiple target instances. Target instances keep their other configuration fields (ServerName, Port, RCONPort, MaxPlayers, MapName, SaveDir, ClusterID) intact.",
-        "tags": ["Configuration"],
-        "operationId": "syncInstanceConfig",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SyncInstanceConfigRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Instance configuration synced successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SyncInstanceConfigResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
+          "200": { "description": "Game.ini updated successfully", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/FileUpdateResponse" } } } },
+          "400": { "description": "Content cannot be empty", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "500": { "description": "Server error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
         }
       }
     },
@@ -1297,44 +571,164 @@
         "summary": "Get GameUserSettings.ini configuration file content",
         "tags": ["Configuration"],
         "operationId": "getGameUserSettings",
-        "parameters": [
-          {
-            "name": "name",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "Instance name"
+        "parameters": [{ "name": "name", "in": "path", "required": true, "schema": { "type": "string" }, "description": "Instance name" }],
+        "responses": {
+          "200": { "description": "GameUserSettings.ini content retrieved successfully", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConfigFileResponse" } } } },
+          "404": { "description": "Configuration file not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      },
+      "post": {
+        "summary": "Upload and overwrite GameUserSettings.ini file",
+        "tags": ["Configuration"],
+        "operationId": "uploadGameUserSettings",
+        "parameters": [{ "name": "name", "in": "path", "required": true, "schema": { "type": "string" }, "description": "Instance name" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": { "type": "object", "properties": { "file": { "type": "string", "format": "binary", "description": "GameUserSettings.ini file to upload (max 10MB)" } }, "required": ["file"] }
+            }
           }
-        ],
+        },
+        "responses": {
+          "200": { "description": "GameUserSettings.ini uploaded successfully", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/FileUploadResponse" } } } },
+          "400": { "description": "No file provided, or file exceeds 10MB", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "500": { "description": "Server error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      },
+      "put": {
+        "summary": "Update GameUserSettings.ini content directly via text",
+        "tags": ["Configuration"],
+        "operationId": "updateGameUserSettings",
+        "parameters": [{ "name": "name", "in": "path", "required": true, "schema": { "type": "string" }, "description": "Instance name" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConfigFileRequest" } } } },
+        "responses": {
+          "200": { "description": "GameUserSettings.ini updated successfully", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/FileUpdateResponse" } } } },
+          "400": { "description": "Content cannot be empty", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "500": { "description": "Server error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/config/sync-instance": {
+      "post": {
+        "summary": "Sync instance configuration and Config folder from source to multiple target instances",
+        "description": "Synchronizes instance configuration fields (ModIDs, ServerPassword, ServerAdminPassword and, by default, CustomStartParameters/EnableAsaPlugin) and the entire Config folder from a source instance to multiple target instances. Target instances keep their other configuration fields (ServerName, Port, RCONPort, MaxPlayers, MapName, SaveDir, ClusterID) intact.",
+        "tags": ["Configuration"],
+        "operationId": "syncInstanceConfig",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SyncInstanceConfigRequest" } } } },
+        "responses": {
+          "200": { "description": "Instance configuration synced successfully to all targets", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SyncInstanceConfigResponse" } } } },
+          "400": { "description": "Bad request (missing source/target instances)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "500": { "description": "One or more targets failed to sync (partial or full failure)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SyncInstanceConfigResponse" } } } }
+        }
+      }
+    },
+    "/api/save/{instance}/players": {
+      "get": {
+        "summary": "Get players from save file",
+        "description": "Returns the player list. Prefers arkmonitor's in-memory cache for the instance; falls back to a synchronous save-file parse if no cached snapshot is available.",
+        "tags": ["Save Data"],
+        "operationId": "getSavePlayers",
+        "parameters": [{ "name": "instance", "in": "path", "required": true, "schema": { "type": "string" }, "description": "Instance name" }],
+        "responses": {
+          "200": { "description": "Player data retrieved successfully", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SavePlayersResponse" } } } },
+          "400": { "description": "Missing instance parameter", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "500": { "description": "Failed to parse save file", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/save/{instance}/tribes": {
+      "get": {
+        "summary": "Get tribes from save file",
+        "description": "Returns the tribe list. Prefers arkmonitor's in-memory cache for the instance; falls back to a synchronous save-file parse if no cached snapshot is available.",
+        "tags": ["Save Data"],
+        "operationId": "getSaveTribes",
+        "parameters": [{ "name": "instance", "in": "path", "required": true, "schema": { "type": "string" }, "description": "Instance name" }],
+        "responses": {
+          "200": { "description": "Tribe data retrieved successfully", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SaveTribesResponse" } } } },
+          "400": { "description": "Missing instance parameter", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "500": { "description": "Failed to parse save file", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/logs/{name}": {
+      "get": {
+        "summary": "Stream game server log for an instance",
+        "description": "Tails the instance's server.log via SSE, sending the last 200 lines first, then new lines as they arrive.",
+        "tags": ["Logs"],
+        "operationId": "streamInstanceLogs",
+        "parameters": [{ "name": "name", "in": "path", "required": true, "schema": { "type": "string" }, "description": "Instance name" }],
+        "responses": {
+          "200": { "description": "SSE stream of log lines", "content": { "text/event-stream": { "schema": { "type": "string" } } } }
+        }
+      }
+    },
+    "/api/logs/{name}/asaapi": {
+      "get": {
+        "summary": "Stream AsaApiLoader console output for an instance",
+        "description": "Tails the AsaApiLoader PTY console log captured when the instance is started in plugin mode. The file is truncated and re-created each time the instance is started in plugin mode. Works even if the instance has never been started in plugin mode (the log helper creates an empty file).",
+        "tags": ["Logs"],
+        "operationId": "streamAsaApiLogs",
+        "parameters": [{ "name": "name", "in": "path", "required": true, "schema": { "type": "string" }, "description": "Instance name" }],
+        "responses": {
+          "200": { "description": "SSE stream of AsaApiLoader console output", "content": { "text/event-stream": { "schema": { "type": "string" } } } }
+        }
+      }
+    },
+    "/api/logs": {
+      "get": {
+        "summary": "Stream the application's own system log",
+        "description": "Tails asaServer.log via SSE, sending the last 500 lines first.",
+        "tags": ["Logs"],
+        "operationId": "streamSystemLogs",
+        "responses": {
+          "200": { "description": "SSE stream of system log lines", "content": { "text/event-stream": { "schema": { "type": "string" } } } },
+          "404": { "description": "System log file not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "500": { "description": "Server error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/icons/creature": {
+      "get": {
+        "summary": "Get creature icon",
+        "description": "Returns the 256px PNG icon for a creature by its raw display name. The name is normalized (special characters replaced with `_`, consecutive underscores merged, leading/trailing underscores trimmed) before looking up the embedded icon file.",
+        "tags": ["Icons"],
+        "operationId": "getCreatureIcon",
+        "parameters": [{ "name": "name", "in": "query", "required": true, "description": "Raw creature display name, e.g. `Alpha T-Rex`, `Dinopithecus King (Gamma)`", "schema": { "type": "string", "example": "Alpha T-Rex" } }],
+        "responses": {
+          "200": { "description": "PNG icon image", "content": { "image/png": { "schema": { "type": "string", "format": "binary" } } } },
+          "404": { "description": "Icon not found for the given name" }
+        }
+      }
+    },
+    "/api/icons/items": {
+      "get": {
+        "summary": "Get item icon",
+        "description": "Returns the 256px PNG icon for an item by its raw display name. The name is normalized the same way as the creature icon endpoint.",
+        "tags": ["Icons"],
+        "operationId": "getItemIcon",
+        "parameters": [{ "name": "name", "in": "query", "required": true, "description": "Raw item display name, e.g. `Absorbent Substrate`", "schema": { "type": "string", "example": "Absorbent Substrate" } }],
+        "responses": {
+          "200": { "description": "PNG icon image", "content": { "image/png": { "schema": { "type": "string", "format": "binary" } } } },
+          "404": { "description": "Icon not found for the given name" }
+        }
+      }
+    },
+    "/api/schedule/tasks": {
+      "get": {
+        "summary": "List all scheduled tasks",
+        "tags": ["Schedule"],
+        "operationId": "listScheduleTasks",
         "responses": {
           "200": {
-            "description": "GameUserSettings.ini content retrieved successfully",
+            "description": "List of scheduled tasks",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ConfigFileResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Configuration file not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    { "$ref": "#/components/schemas/StatusResponse" },
+                    { "type": "object", "properties": { "data": { "type": "object", "properties": { "tasks": { "type": "array", "items": { "$ref": "#/components/schemas/ScheduleTask" } } } } } }
+                  ]
                 }
               }
             }
@@ -1342,157 +736,145 @@
         }
       },
       "post": {
-        "summary": "Upload and overwrite GameUserSettings.ini file",
-        "tags": ["Configuration"],
-        "operationId": "uploadGameUserSettings",
-        "parameters": [
-          {
-            "name": "name",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "Instance name"
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "multipart/form-data": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "file": {
-                    "type": "string",
-                    "format": "binary",
-                    "description": "GameUserSettings.ini file to upload"
-                  }
-                },
-                "required": ["file"]
-              }
-            }
-          }
-        },
+        "summary": "Create a scheduled task",
+        "tags": ["Schedule"],
+        "operationId": "createScheduleTask",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ScheduleTaskRequest" } } } },
         "responses": {
           "200": {
-            "description": "GameUserSettings.ini uploaded successfully",
+            "description": "Task created",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/FileUploadResponse"
+                  "allOf": [
+                    { "$ref": "#/components/schemas/StatusResponse" },
+                    { "type": "object", "properties": { "data": { "type": "object", "properties": { "task": { "$ref": "#/components/schemas/ScheduleTask" } } } } }
+                  ]
                 }
               }
             }
           },
-          "400": {
-            "description": "Bad request",
+          "400": { "description": "Validation failed (bad rule/time, unknown instance, etc.)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/schedule/tasks/{id}": {
+      "put": {
+        "summary": "Update a scheduled task",
+        "tags": ["Schedule"],
+        "operationId": "updateScheduleTask",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ScheduleTaskRequest" } } } },
+        "responses": {
+          "200": {
+            "description": "Task updated",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    { "$ref": "#/components/schemas/StatusResponse" },
+                    { "type": "object", "properties": { "data": { "type": "object", "properties": { "task": { "$ref": "#/components/schemas/ScheduleTask" } } } } }
+                  ]
                 }
               }
             }
           },
-          "500": {
-            "description": "Server error",
+          "400": { "description": "Validation failed, or task not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      },
+      "delete": {
+        "summary": "Delete a scheduled task",
+        "tags": ["Schedule"],
+        "operationId": "deleteScheduleTask",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": { "description": "Task deleted", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/StatusResponse" } } } },
+          "404": { "description": "Task not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/schedule/tasks/{id}/toggle": {
+      "post": {
+        "summary": "Enable or disable a scheduled task",
+        "tags": ["Schedule"],
+        "operationId": "toggleScheduleTask",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "properties": { "enabled": { "type": "boolean" } }, "required": ["enabled"] } } } },
+        "responses": {
+          "200": { "description": "Task enabled/disabled", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/StatusResponse" } } } },
+          "400": { "description": "Task not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/schedule/tasks/{id}/run": {
+      "post": {
+        "summary": "Run a scheduled task immediately",
+        "description": "Triggers one immediate execution without affecting the task's NextRunAt. Runs in the background; the request returns right away.",
+        "tags": ["Schedule"],
+        "operationId": "runScheduleTaskNow",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": { "description": "Execution triggered", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/StatusResponse" } } } },
+          "404": { "description": "Task not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/schedule/logs": {
+      "get": {
+        "summary": "List scheduled task execution logs",
+        "description": "Returns run records newest-first, optionally filtered to a single task. `total` is the count after filtering but before the limit is applied, for displaying 'N total' in the UI.",
+        "tags": ["Schedule"],
+        "operationId": "listScheduleRunLogs",
+        "parameters": [
+          { "name": "task_id", "in": "query", "required": false, "schema": { "type": "string" }, "description": "Filter to a single task's run history" },
+          { "name": "limit", "in": "query", "required": false, "schema": { "type": "integer", "default": 100 }, "description": "Max records to return (default 100, capped at the 500-record storage limit)" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Run log records",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    { "$ref": "#/components/schemas/StatusResponse" },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "type": "object",
+                          "properties": {
+                            "logs": { "type": "array", "items": { "$ref": "#/components/schemas/ScheduleRunRecord" } },
+                            "total": { "type": "integer", "description": "Total matching records before the limit was applied" }
+                          }
+                        }
+                      }
+                    }
+                  ]
                 }
               }
             }
           }
         }
       },
-      "put": {
-        "summary": "Update GameUserSettings.ini content directly via text",
-        "tags": ["Configuration"],
-        "operationId": "updateGameUserSettings",
-        "parameters": [
-          {
-            "name": "name",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "Instance name"
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ConfigFileRequest"
-              }
-            }
-          }
-        },
+      "delete": {
+        "summary": "Clear all scheduled task execution logs",
+        "tags": ["Schedule"],
+        "operationId": "clearScheduleRunLogs",
         "responses": {
-          "200": {
-            "description": "GameUserSettings.ini updated successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FileUpdateResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
+          "200": { "description": "Logs cleared", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/StatusResponse" } } } },
+          "500": { "description": "Server error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
         }
       }
     },
     "/api/ws/events": {
       "get": {
         "summary": "WebSocket connection for real-time server events",
-        "description": "Establishes a WebSocket connection to receive real-time broadcast events for all server instances. Client should send a ClientMessage with client_id on connection. All connected clients receive the same events globally.",
+        "description": "Establishes a WebSocket connection to receive real-time broadcast events for all server instances, including batch operation progress. Client should send a ClientMessage with client_id on connection. All connected clients receive the same events globally.",
         "tags": ["WebSocket"],
         "operationId": "handleServerEvents",
         "responses": {
-          "101": {
-            "description": "Switching Protocols - WebSocket connection established and ready to receive events",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ServerEvent"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad request - WebSocket upgrade failed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
+          "101": { "description": "Switching Protocols - WebSocket connection established", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ServerEvent" } } } },
+          "400": { "description": "Bad request - WebSocket upgrade failed", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
         }
       }
     },
@@ -1503,26 +885,8 @@
         "tags": ["WebSocket"],
         "operationId": "handleRCONEvents",
         "responses": {
-          "101": {
-            "description": "Switching Protocols - WebSocket connection established for RCON commands",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RCONResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad request - WebSocket upgrade failed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
+          "101": { "description": "Switching Protocols - WebSocket connection established for RCON commands", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RCONResponse" } } } },
+          "400": { "description": "Bad request - WebSocket upgrade failed", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
         }
       }
     },
@@ -1532,96 +896,20 @@
         "tags": ["FRP Management"],
         "operationId": "getFRPConfig",
         "responses": {
-          "200": {
-            "description": "FRP config retrieved successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "allOf": [
-                    {
-                      "$ref": "#/components/schemas/StatusResponse"
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "data": {
-                          "type": "string",
-                          "description": "FRP configuration file content"
-                        }
-                      }
-                    }
-                  ]
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "FRP config file not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/StatusResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/StatusResponse"
-                }
-              }
-            }
-          }
+          "200": { "description": "FRP config retrieved successfully", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ManagedServiceConfigResponse" } } } },
+          "404": { "description": "FRP config file not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ManagedServiceStatusResponse" } } } },
+          "500": { "description": "Server error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ManagedServiceStatusResponse" } } } }
         }
       },
       "put": {
         "summary": "Update FRP client configuration",
         "tags": ["FRP Management"],
         "operationId": "updateFRPConfig",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/FRPConfigRequest"
-              }
-            }
-          }
-        },
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/FRPConfigRequest" } } } },
         "responses": {
-          "200": {
-            "description": "FRP config updated successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/StatusResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/StatusResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/StatusResponse"
-                }
-              }
-            }
-          }
+          "200": { "description": "FRP config updated successfully", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ManagedServiceStatusResponse" } } } },
+          "400": { "description": "Bad request", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ManagedServiceStatusResponse" } } } },
+          "500": { "description": "Server error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ManagedServiceStatusResponse" } } } }
         }
       }
     },
@@ -1631,82 +919,20 @@
         "tags": ["FRP Management"],
         "operationId": "getFRPStatus",
         "responses": {
-          "200": {
-            "description": "FRP status retrieved successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "allOf": [
-                    {
-                      "$ref": "#/components/schemas/StatusResponse"
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "data": {
-                          "type": "object",
-                          "properties": {
-                            "status": {
-                              "type": "string",
-                              "enum": ["running", "stopped"],
-                              "description": "Current FRP client status"
-                            }
-                          }
-                        }
-                      }
-                    }
-                  ]
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/StatusResponse"
-                }
-              }
-            }
-          }
+          "200": { "description": "FRP status retrieved successfully", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ManagedServiceStatusDataResponse" } } } },
+          "500": { "description": "Server error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ManagedServiceStatusResponse" } } } }
         }
       }
     },
     "/api/frp/status/stream": {
       "get": {
         "summary": "Stream FRP client status changes via SSE",
+        "description": "Real-time stream of FRP status changes; checks once per second and only sends an event when the status changes.",
         "tags": ["FRP Management"],
         "operationId": "streamFRPStatus",
-        "description": "Real-time stream of FRP status changes. Only sends updates when status changes (every 1 second check).",
         "responses": {
-          "200": {
-            "description": "SSE stream of FRP status events",
-            "content": {
-              "text/event-stream": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "status": {
-                      "type": "string",
-                      "enum": ["running", "stopped"],
-                      "description": "Current FRP client status"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          }
+          "200": { "description": "SSE stream of FRP status events", "content": { "text/event-stream": { "schema": { "$ref": "#/components/schemas/ManagedServiceStatusEvent" } } } },
+          "500": { "description": "Server error", "content": { "text/plain": { "schema": { "type": "string" } } } }
         }
       }
     },
@@ -1716,36 +942,9 @@
         "tags": ["FRP Management"],
         "operationId": "startFRP",
         "responses": {
-          "200": {
-            "description": "FRP started successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/StatusResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad request (FRP already running)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/StatusResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/StatusResponse"
-                }
-              }
-            }
-          }
+          "200": { "description": "FRP started successfully", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ManagedServiceStatusResponse" } } } },
+          "400": { "description": "FRP already running", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ManagedServiceStatusResponse" } } } },
+          "500": { "description": "Server error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ManagedServiceStatusResponse" } } } }
         }
       }
     },
@@ -1755,36 +954,9 @@
         "tags": ["FRP Management"],
         "operationId": "stopFRP",
         "responses": {
-          "200": {
-            "description": "FRP stopped successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/StatusResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad request (FRP not running)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/StatusResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/StatusResponse"
-                }
-              }
-            }
-          }
+          "200": { "description": "FRP stopped successfully", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ManagedServiceStatusResponse" } } } },
+          "400": { "description": "FRP not running", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ManagedServiceStatusResponse" } } } },
+          "500": { "description": "Server error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ManagedServiceStatusResponse" } } } }
         }
       }
     },
@@ -1794,448 +966,156 @@
         "tags": ["FRP Management"],
         "operationId": "restartFRP",
         "responses": {
-          "200": {
-            "description": "FRP restarted successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/StatusResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/StatusResponse"
-                }
-              }
-            }
-          }
+          "200": { "description": "FRP restarted successfully", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ManagedServiceStatusResponse" } } } },
+          "500": { "description": "Server error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ManagedServiceStatusResponse" } } } }
         }
       }
     },
-    "/api/save/{instance}/players": {
+    "/api/syncthing/config": {
       "get": {
-        "summary": "Get players from save file",
-        "description": "Parses the ARK save file and returns player data using go-arkparser",
-        "tags": ["Save Data"],
-        "operationId": "getSavePlayers",
-        "parameters": [
-          {
-            "name": "instance",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "Instance name"
-          }
-        ],
+        "summary": "Get Syncthing configuration",
+        "description": "Returns config.xml content. If the file doesn't exist yet (Syncthing never started), returns an empty XML template with success: true rather than an error.",
+        "tags": ["Syncthing Management"],
+        "operationId": "getSyncthingConfig",
         "responses": {
-          "200": {
-            "description": "Player data retrieved successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SavePlayersResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Save file not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Save parser not available",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
+          "200": { "description": "Syncthing config (or empty template) retrieved successfully", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ManagedServiceConfigResponse" } } } },
+          "500": { "description": "Server error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ManagedServiceStatusResponse" } } } }
+        }
+      },
+      "put": {
+        "summary": "Update Syncthing configuration",
+        "description": "Overwrites config.xml. If Syncthing is currently running, it is automatically restarted to pick up the new config.",
+        "tags": ["Syncthing Management"],
+        "operationId": "updateSyncthingConfig",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SyncthingConfigRequest" } } } },
+        "responses": {
+          "200": { "description": "Syncthing config updated successfully", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ManagedServiceStatusResponse" } } } },
+          "400": { "description": "Invalid request, or config.xml does not exist yet (start Syncthing first)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ManagedServiceStatusResponse" } } } },
+          "500": { "description": "Config updated but restart failed, or other server error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ManagedServiceStatusResponse" } } } }
         }
       }
     },
-    "/api/save/{instance}/tribes": {
+    "/api/syncthing/status": {
       "get": {
-        "summary": "Get tribes from save file",
-        "description": "Parses the ARK save file and returns tribe data using go-arkparser",
-        "tags": ["Save Data"],
-        "operationId": "getSaveTribes",
-        "parameters": [
-          {
-            "name": "instance",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "Instance name"
-          }
-        ],
+        "summary": "Get Syncthing status",
+        "tags": ["Syncthing Management"],
+        "operationId": "getSyncthingStatus",
         "responses": {
-          "200": {
-            "description": "Tribe data retrieved successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SaveTribesResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Save file not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Save parser not available",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
+          "200": { "description": "Syncthing status retrieved successfully", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ManagedServiceStatusDataResponse" } } } }
         }
       }
     },
-    "/api/save/{instance}/all": {
+    "/api/syncthing/status/stream": {
       "get": {
-        "summary": "Get all save data (players + tribes)",
-        "description": "Returns cached snapshot data from arkmonitor. Falls back to synchronous parsing if cache is unavailable. The cached data uses arkmonitor's typed snapshot format (PlayerSnapshot/TribeSnapshot).",
-        "tags": ["Save Data"],
-        "operationId": "getSaveAll",
-        "parameters": [
-          {
-            "name": "instance",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "Instance name"
-          }
-        ],
+        "summary": "Stream Syncthing status changes via SSE",
+        "description": "Polls status once per second and streams every reading (unlike the FRP equivalent, which only sends changes).",
+        "tags": ["Syncthing Management"],
+        "operationId": "streamSyncthingStatus",
         "responses": {
-          "200": {
-            "description": "Save data retrieved (cached snapshot or parsed)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SaveAllResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Save file not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
+          "200": { "description": "SSE stream of Syncthing status events", "content": { "text/event-stream": { "schema": { "$ref": "#/components/schemas/ManagedServiceStatusEvent" } } } }
         }
       }
     },
-    "/api/save/{instance}/stream": {
-      "get": {
-        "summary": "Stream save data changes via SSE",
-        "description": "Streams real-time save file change events. arkmonitor watches the .ark file and broadcasts snapshots via SSE when changes are detected. Sends cached data immediately on connect, then streams updates.",
-        "tags": ["Save Data"],
-        "operationId": "streamSaveData",
-        "parameters": [
-          {
-            "name": "instance",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "Instance name"
-          }
-        ],
+    "/api/syncthing/start": {
+      "post": {
+        "summary": "Start Syncthing",
+        "tags": ["Syncthing Management"],
+        "operationId": "startSyncthing",
         "responses": {
-          "200": {
-            "description": "SSE stream of save data events",
-            "content": {
-              "text/event-stream": {
-                "schema": {
-                  "$ref": "#/components/schemas/SaveSSEStream"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Save data manager not initialized",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
+          "200": { "description": "Syncthing started successfully", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ManagedServiceStatusResponse" } } } },
+          "400": { "description": "Syncthing already running", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ManagedServiceStatusResponse" } } } },
+          "500": { "description": "Server error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ManagedServiceStatusResponse" } } } }
         }
       }
     },
-    "/api/mod-info": {
-      "get": {
-        "summary": "Get mod information",
-        "description": "Returns mod information extracted from server logs (mod ID and name mappings)",
-        "tags": ["Server Management"],
-        "operationId": "getModInfo",
+    "/api/syncthing/stop": {
+      "post": {
+        "summary": "Stop Syncthing",
+        "tags": ["Syncthing Management"],
+        "operationId": "stopSyncthing",
         "responses": {
-          "200": {
-            "description": "Mod info retrieved successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ModInfoResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "mod_info.json not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
+          "200": { "description": "Syncthing stopped successfully", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ManagedServiceStatusResponse" } } } },
+          "400": { "description": "Syncthing not running", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ManagedServiceStatusResponse" } } } },
+          "500": { "description": "Server error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ManagedServiceStatusResponse" } } } }
         }
       }
     },
-    "/api/server/all-info": {
-      "get": {
-        "summary": "Stream all instances resource information",
-        "description": "Returns Server-Sent Events (SSE) stream with resource information for all running instances every 2 seconds. Includes CPU usage, memory usage, and process details for each instance.",
-        "tags": ["Server Management"],
-        "operationId": "streamAllInstancesInfo",
+    "/api/syncthing/restart": {
+      "post": {
+        "summary": "Restart Syncthing",
+        "tags": ["Syncthing Management"],
+        "operationId": "restartSyncthing",
         "responses": {
-          "200": {
-            "description": "SSE stream of all instances resource info (every 2s)",
-            "content": {
-              "text/event-stream": {
-                "schema": {
-                  "$ref": "#/components/schemas/AllInstancesInfoSSEStream"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/icons/creature": {
-      "get": {
-        "summary": "Get creature icon",
-        "description": "Returns the 256px PNG icon for a creature by its raw display name. The name is normalized (special characters replaced with `_`, consecutive underscores merged, leading/trailing underscores trimmed) before looking up the embedded icon file.",
-        "tags": ["Icons"],
-        "operationId": "getCreatureIcon",
-        "parameters": [
-          {
-            "name": "name",
-            "in": "query",
-            "required": true,
-            "description": "Raw creature display name, e.g. `Alpha T-Rex`, `Dinopithecus King (Gamma)`",
-            "schema": {
-              "type": "string",
-              "example": "Alpha T-Rex"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "PNG icon image",
-            "content": {
-              "image/png": {
-                "schema": {
-                  "type": "string",
-                  "format": "binary"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Icon not found for the given name"
-          }
-        }
-      }
-    },
-    "/api/icons/items": {
-      "get": {
-        "summary": "Get item icon",
-        "description": "Returns the 256px PNG icon for an item by its raw display name. The name is normalized (special characters replaced with `_`, consecutive underscores merged, leading/trailing underscores trimmed) before looking up the embedded icon file.",
-        "tags": ["Icons"],
-        "operationId": "getItemIcon",
-        "parameters": [
-          {
-            "name": "name",
-            "in": "query",
-            "required": true,
-            "description": "Raw item display name, e.g. `Absorbent Substrate`, `Some Item (Special)`",
-            "schema": {
-              "type": "string",
-              "example": "Absorbent Substrate"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "PNG icon image",
-            "content": {
-              "image/png": {
-                "schema": {
-                  "type": "string",
-                  "format": "binary"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Icon not found for the given name"
-          }
+          "200": { "description": "Syncthing restarted successfully", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ManagedServiceStatusResponse" } } } },
+          "500": { "description": "Server error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ManagedServiceStatusResponse" } } } }
         }
       }
     }
   },
   "components": {
+    "parameters": {
+      "CountdownParam": {
+        "name": "countdown",
+        "in": "query",
+        "required": false,
+        "schema": { "type": "integer" },
+        "description": "Total countdown seconds before the action runs (30-86400). Omit or 0 to act immediately."
+      },
+      "NotifyPointsParam": {
+        "name": "notify_points",
+        "in": "query",
+        "required": false,
+        "schema": { "type": "string" },
+        "description": "Comma-separated seconds-remaining values at which an in-game announcement fires, e.g. `600,300,60,30,10`. Each must be <= countdown. Defaults to a built-in preset if omitted."
+      },
+      "NotifyMessageParam": {
+        "name": "notify_message",
+        "in": "query",
+        "required": false,
+        "schema": { "type": "string" },
+        "description": "Announcement template. Supports {time}, {action}, {instance} placeholders. Defaults to '服务器将在 {time} 后{action}，请及时下线'."
+      },
+      "NotifyCommandParam": {
+        "name": "notify_command",
+        "in": "query",
+        "required": false,
+        "schema": { "type": "string", "enum": ["ServerChat", "Broadcast"] },
+        "description": "RCON command used to deliver the announcement. Defaults to ServerChat."
+      }
+    },
     "schemas": {
       "StatusResponse": {
         "type": "object",
         "properties": {
-          "success": {
-            "type": "boolean"
-          },
-          "message": {
-            "type": "string"
-          },
-          "data": {
-            "type": "object"
-          },
-          "error": {
-            "type": "string"
-          }
+          "success": { "type": "boolean" },
+          "message": { "type": "string" },
+          "data": { "type": "object" },
+          "error": { "type": "string" }
         },
         "required": ["success"]
       },
       "ErrorResponse": {
         "type": "object",
         "properties": {
-          "success": {
-            "type": "boolean",
-            "example": false
-          },
-          "error": {
-            "type": "string"
-          }
+          "success": { "type": "boolean", "example": false },
+          "error": { "type": "string" }
         },
         "required": ["success", "error"]
       },
       "InstanceState": {
         "type": "object",
         "properties": {
-          "instance_name": {
-            "type": "string",
-            "description": "Name of the instance"
-          },
-          "operation_time": {
-            "type": "string",
-            "format": "date-time",
-            "description": "Time when the operation occurred"
-          },
-          "error_message": {
-            "type": "string",
-            "description": "Error message if any"
-          },
+          "instance_name": { "type": "string", "description": "Name of the instance" },
+          "operation_time": { "type": "string", "format": "date-time", "description": "Time when the operation occurred" },
+          "error_message": { "type": "string", "description": "Error message if any" },
           "status": {
             "type": "string",
-            "description": "Status of the instance"
+            "description": "Status of the instance",
+            "enum": [
+              "start_initialization", "start_initialization_successful", "starting", "started",
+              "stopping", "stopped", "start_failed", "stop_failed", "restart_failed",
+              "restarting", "restarted"
+            ]
           }
         },
         "required": ["instance_name", "operation_time", "status"]
@@ -2243,55 +1123,31 @@
       "InstanceInfo": {
         "type": "object",
         "properties": {
-          "name": {
-            "type": "string",
-            "description": "Name of the instance"
-          },
-          "running": {
-            "type": "boolean",
-            "description": "Whether the server instance is currently running"
-          },
-          "config": {
-            "$ref": "#/components/schemas/InstanceConfig"
-          },
-          "status": {
-            "type": "string",
-            "description": "Current status of the instance"
-          },
+          "name": { "type": "string", "description": "Name of the instance" },
+          "running": { "type": "boolean", "description": "Whether the server instance is currently running" },
+          "config": { "$ref": "#/components/schemas/InstanceConfig" },
+          "status": { "type": "string", "description": "Current status of the instance (see InstanceState.status enum)" },
           "status_history": {
             "type": "array",
-            "description": "History of instance status changes",
-            "items": {
-              "$ref": "#/components/schemas/InstanceState"
-            }
+            "description": "History of instance status changes (up to 200 most recent entries)",
+            "items": { "$ref": "#/components/schemas/InstanceState" }
           },
-          "error": {
-            "type": "string",
-            "description": "Error message if any"
-          }
+          "asaVersion": { "type": "string", "description": "Detected ASA server build/version, if available" },
+          "error": { "type": "string", "description": "Error message if any" }
         },
         "required": ["name", "running"]
       },
       "ListInstancesResponse": {
         "allOf": [
-          {
-            "$ref": "#/components/schemas/StatusResponse"
-          },
+          { "$ref": "#/components/schemas/StatusResponse" },
           {
             "type": "object",
             "properties": {
               "data": {
                 "type": "object",
                 "properties": {
-                  "instances": {
-                    "type": "array",
-                    "items": {
-                      "$ref": "#/components/schemas/InstanceInfo"
-                    }
-                  },
-                  "count": {
-                    "type": "integer"
-                  }
+                  "instances": { "type": "array", "items": { "$ref": "#/components/schemas/InstanceInfo" } },
+                  "count": { "type": "integer" }
                 }
               }
             }
@@ -2300,94 +1156,43 @@
       },
       "CreateInstanceRequest": {
         "type": "object",
-        "properties": {
-          "name": {
-            "type": "string",
-            "description": "Name of the new instance"
-          }
-        },
+        "properties": { "name": { "type": "string", "description": "Name of the new instance" } },
         "required": ["name"]
       },
       "RenameInstanceRequest": {
         "type": "object",
-        "properties": {
-          "new_name": {
-            "type": "string",
-            "description": "New name for the instance"
-          }
-        },
+        "properties": { "new_name": { "type": "string", "description": "New name for the instance" } },
         "required": ["new_name"]
       },
       "RCONCommandRequest": {
         "type": "object",
-        "properties": {
-          "command": {
-            "type": "string",
-            "description": "RCON command to execute"
-          }
-        },
+        "properties": { "command": { "type": "string", "description": "RCON command to execute" } },
         "required": ["command"]
       },
       "RCONResponse": {
         "allOf": [
-          {
-            "$ref": "#/components/schemas/StatusResponse"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "data": {
-                "type": "object",
-                "properties": {
-                  "response": {
-                    "type": "string"
-                  }
-                }
-              }
-            }
-          }
+          { "$ref": "#/components/schemas/StatusResponse" },
+          { "type": "object", "properties": { "data": { "type": "object", "properties": { "response": { "type": "string" } } } } }
         ]
-      },
-      "BackupRequest": {
-        "type": "object",
-        "properties": {
-          "world_folder": {
-            "type": "string",
-            "description": "Name of the world folder to backup"
-          }
-        },
-        "required": ["world_folder"]
       },
       "RestoreWorldBackupRequest": {
         "type": "object",
         "properties": {
-          "backup_file": {
-            "type": "string",
-            "description": "Path to the backup file. Restoring always replaces the worldfile (SaveDir content) only"
-          }
+          "backup_file": { "type": "string", "description": "File name of the backup, resolved within instances/{name}/backup/. Restoring always replaces the worldfile (SaveDir content) only." }
         },
         "required": ["backup_file"]
       },
       "ListBackupsResponse": {
         "allOf": [
-          {
-            "$ref": "#/components/schemas/StatusResponse"
-          },
+          { "$ref": "#/components/schemas/StatusResponse" },
           {
             "type": "object",
             "properties": {
               "data": {
                 "type": "object",
                 "properties": {
-                  "backups": {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  },
-                  "count": {
-                    "type": "integer"
-                  }
+                  "backups": { "type": "array", "items": { "type": "string" } },
+                  "count": { "type": "integer" }
                 }
               }
             }
@@ -2398,235 +1203,80 @@
         "type": "object",
         "description": "Server instance configuration",
         "properties": {
-          "ServerName": {
-            "type": "string",
-            "description": "Name of the game server"
-          },
-          "ServerPassword": {
-            "type": "string",
-            "description": "Password to join the server"
-          },
-          "ServerAdminPassword": {
-            "type": "string",
-            "description": "Admin password for server management"
-          },
-          "MaxPlayers": {
-            "type": "integer",
-            "description": "Maximum number of players allowed",
-            "example": 70
-          },
-          "MapName": {
-            "type": "string",
-            "description": "Name of the map to use",
-            "example": "TheIsland_WP"
-          },
-          "Port": {
-            "type": "integer",
-            "description": "Game server port",
-            "example": 7777
-          },
-          "RCONPort": {
-            "type": "integer",
-            "description": "RCON port for remote control",
-            "example": 27020
-          },
-          "ModIDs": {
-            "type": "string",
-            "description": "Comma-separated list of mod IDs"
-          },
-          "SaveDir": {
-            "type": "string",
-            "description": "Save directory path"
-          },
-          "ClusterID": {
-            "type": "string",
-            "description": "Cluster ID for multi-server clustering"
-          },
-          "CustomStartParameters": {
-            "type": "string",
-            "description": "Custom server start parameters"
-          },
-          "EnableAsaPlugin": {
-            "type": "boolean",
-            "description": "Whether ASA plugins are enabled for the server",
-            "example": true
-          }
+          "ServerName": { "type": "string", "description": "Name of the game server" },
+          "ServerPassword": { "type": "string", "description": "Password to join the server" },
+          "ServerAdminPassword": { "type": "string", "description": "Admin password for server management" },
+          "MaxPlayers": { "type": "integer", "description": "Maximum number of players allowed", "example": 70 },
+          "MapName": { "type": "string", "description": "Name of the map to use", "example": "TheIsland_WP" },
+          "Port": { "type": "integer", "description": "Game server port", "example": 7777 },
+          "RCONPort": { "type": "integer", "description": "RCON port for remote control", "example": 27020 },
+          "ModIDs": { "type": "string", "description": "Comma-separated list of mod IDs" },
+          "SaveDir": { "type": "string", "description": "Save directory path" },
+          "ClusterID": { "type": "string", "description": "Cluster ID for multi-server clustering" },
+          "CustomStartParameters": { "type": "string", "description": "Custom server start parameters" },
+          "EnableAsaPlugin": { "type": "boolean", "description": "Whether ASA plugins (AsaApiLoader.exe) are enabled for the server", "example": true },
+          "BindDomain": { "type": "string", "description": "Domain resolved to an IP and used for server binding/advertising" },
+          "MessageOfTheDay": { "type": "string", "description": "Message of the day shown to connecting players" },
+          "MessageOfTheDayDuration": { "type": "integer", "description": "Duration in seconds the message of the day is displayed" }
         }
       },
       "UpdateInstanceConfigRequest": {
         "type": "object",
-        "description": "Partial instance configuration update request",
+        "description": "Partial instance configuration update request; omitted fields are left unchanged",
         "properties": {
-          "ServerName": {
-            "type": "string",
-            "description": "Name of the game server"
-          },
-          "ServerPassword": {
-            "type": "string",
-            "description": "Password to join the server"
-          },
-          "ServerAdminPassword": {
-            "type": "string",
-            "description": "Admin password for server management"
-          },
-          "MaxPlayers": {
-            "type": "integer",
-            "description": "Maximum number of players allowed"
-          },
-          "MapName": {
-            "type": "string",
-            "description": "Name of the map to use"
-          },
-          "Port": {
-            "type": "integer",
-            "description": "Game server port"
-          },
-          "RCONPort": {
-            "type": "integer",
-            "description": "RCON port for remote control"
-          },
-          "ModIDs": {
-            "type": "string",
-            "description": "Comma-separated list of mod IDs"
-          },
-          "SaveDir": {
-            "type": "string",
-            "description": "Save directory path"
-          },
-          "ClusterID": {
-            "type": "string",
-            "description": "Cluster ID for multi-server clustering"
-          },
-          "CustomStartParameters": {
-            "type": "string",
-            "description": "Custom server start parameters"
-          },
-          "EnableAsaPlugin": {
-            "type": "boolean",
-            "description": "Whether ASA plugins are enabled for the server"
-          }
+          "ServerName": { "type": "string" },
+          "ServerPassword": { "type": "string" },
+          "ServerAdminPassword": { "type": "string" },
+          "MaxPlayers": { "type": "integer" },
+          "MapName": { "type": "string" },
+          "Port": { "type": "integer" },
+          "RCONPort": { "type": "integer" },
+          "ModIDs": { "type": "string" },
+          "SaveDir": { "type": "string" },
+          "ClusterID": { "type": "string" },
+          "CustomStartParameters": { "type": "string" },
+          "EnableAsaPlugin": { "type": "boolean" },
+          "BindDomain": { "type": "string" },
+          "MessageOfTheDay": { "type": "string" },
+          "MessageOfTheDayDuration": { "type": "integer" }
         }
       },
       "ConfigFileRequest": {
         "type": "object",
         "description": "Configuration file content update request",
-        "properties": {
-          "content": {
-            "type": "string",
-            "description": "File content as text"
-          }
-        },
+        "properties": { "content": { "type": "string", "description": "File content as text" } },
         "required": ["content"]
-      },
-      "SyncConfigRequest": {
-        "type": "object",
-        "description": "Request to synchronize game config files to instances",
-        "properties": {
-          "instances": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "List of instance names to sync configuration to",
-            "example": ["instance1", "instance2"]
-          }
-        },
-        "required": ["instances"]
-      },
-      "SyncConfigResponse": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/StatusResponse"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "data": {
-                "type": "object",
-                "properties": {
-                  "synced_instances": {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    },
-                    "description": "List of successfully synced instances"
-                  },
-                  "count": {
-                    "type": "integer",
-                    "description": "Number of successfully synced instances"
-                  }
-                }
-              }
-            }
-          }
-        ]
       },
       "SyncInstanceConfigRequest": {
         "type": "object",
-        "description": "Request to sync instance configuration and Config folder from source to multiple target instances",
+        "description": "Request to sync instance configuration and files from a source instance to multiple target instances",
         "properties": {
-          "source_instance": {
-            "type": "string",
-            "description": "Name of the source instance to sync from"
-          },
-          "target_instances": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "List of target instance names to sync to",
-            "example": ["instance1", "instance2"]
-          }
+          "source_instance": { "type": "string", "description": "Name of the source instance to sync from" },
+          "target_instances": { "type": "array", "items": { "type": "string" }, "minItems": 1, "description": "List of target instance names to sync to", "example": ["instance1", "instance2"] },
+          "sync_custom_start_parameters": { "type": "boolean", "description": "Whether to also sync CustomStartParameters. Defaults to true." },
+          "sync_enable_asa_plugin": { "type": "boolean", "description": "Whether to also sync EnableAsaPlugin. Defaults to true." },
+          "only_sync_server_game_ini_config": { "type": "boolean", "description": "When true, only sync the Config folder's Game.ini/GameUserSettings.ini and skip instance_config.ini fields entirely." }
         },
         "required": ["source_instance", "target_instances"]
       },
       "SyncInstanceConfigResponse": {
         "allOf": [
-          {
-            "$ref": "#/components/schemas/StatusResponse"
-          },
+          { "$ref": "#/components/schemas/StatusResponse" },
           {
             "type": "object",
             "properties": {
               "data": {
                 "type": "object",
                 "properties": {
-                  "synced_instances": {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    },
-                    "description": "List of successfully synced target instances"
-                  },
+                  "synced_instances": { "type": "array", "items": { "type": "string" }, "description": "List of successfully synced target instances" },
                   "failed_instances": {
                     "type": "array",
-                    "items": {
-                      "type": "object",
-                      "properties": {
-                        "instance": {
-                          "type": "string",
-                          "description": "Instance name that failed to sync"
-                        },
-                        "error": {
-                          "type": "string",
-                          "description": "Error message"
-                        }
-                      }
-                    },
-                    "description": "List of instances that failed to sync with error details"
+                    "items": { "type": "object", "properties": { "instance": { "type": "string" }, "error": { "type": "string" } } },
+                    "description": "List of instances that failed to sync with error details (present only when at least one target failed)"
                   },
-                  "success_count": {
-                    "type": "integer",
-                    "description": "Number of successfully synced instances"
-                  },
-                  "failure_count": {
-                    "type": "integer",
-                    "description": "Number of instances that failed to sync"
-                  },
-                  "count": {
-                    "type": "integer",
-                    "description": "Total number of successfully synced instances"
-                  }
+                  "success_count": { "type": "integer" },
+                  "failure_count": { "type": "integer" },
+                  "count": { "type": "integer", "description": "Total number of successfully synced instances" }
                 }
               }
             }
@@ -2635,76 +1285,21 @@
       },
       "ConfigFileResponse": {
         "allOf": [
-          {
-            "$ref": "#/components/schemas/StatusResponse"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "data": {
-                "type": "object",
-                "properties": {
-                  "filename": {
-                    "type": "string",
-                    "description": "Name of the configuration file"
-                  },
-                  "content": {
-                    "type": "string",
-                    "description": "Configuration file content"
-                  }
-                }
-              }
-            }
-          }
+          { "$ref": "#/components/schemas/StatusResponse" },
+          { "type": "object", "properties": { "data": { "type": "object", "properties": { "filename": { "type": "string" }, "content": { "type": "string" } } } } }
         ]
       },
       "ServerConfigsResponse": {
         "allOf": [
-          {
-            "$ref": "#/components/schemas/StatusResponse"
-          },
+          { "$ref": "#/components/schemas/StatusResponse" },
           {
             "type": "object",
             "properties": {
               "data": {
                 "type": "object",
                 "properties": {
-                  "game_ini": {
-                    "type": "object",
-                    "description": "Game.ini configuration file from base server directory",
-                    "properties": {
-                      "filename": {
-                        "type": "string",
-                        "example": "Game.ini"
-                      },
-                      "content": {
-                        "type": "string",
-                        "description": "File content"
-                      },
-                      "error": {
-                        "type": "string",
-                        "description": "Error message if file not found"
-                      }
-                    }
-                  },
-                  "game_user_settings": {
-                    "type": "object",
-                    "description": "GameUserSettings.ini configuration file from base server directory",
-                    "properties": {
-                      "filename": {
-                        "type": "string",
-                        "example": "GameUserSettings.ini"
-                      },
-                      "content": {
-                        "type": "string",
-                        "description": "File content"
-                      },
-                      "error": {
-                        "type": "string",
-                        "description": "Error message if file not found"
-                      }
-                    }
-                  }
+                  "game_ini": { "type": "object", "properties": { "filename": { "type": "string", "example": "Game.ini" }, "content": { "type": "string" }, "error": { "type": "string" } } },
+                  "game_user_settings": { "type": "object", "properties": { "filename": { "type": "string", "example": "GameUserSettings.ini" }, "content": { "type": "string" }, "error": { "type": "string" } } }
                 }
               }
             }
@@ -2713,51 +1308,15 @@
       },
       "InstanceConfigsResponse": {
         "allOf": [
-          {
-            "$ref": "#/components/schemas/StatusResponse"
-          },
+          { "$ref": "#/components/schemas/StatusResponse" },
           {
             "type": "object",
             "properties": {
               "data": {
                 "type": "object",
                 "properties": {
-                  "game_ini": {
-                    "type": "object",
-                    "description": "Game.ini configuration file for the instance",
-                    "properties": {
-                      "filename": {
-                        "type": "string",
-                        "example": "Game.ini"
-                      },
-                      "content": {
-                        "type": "string",
-                        "description": "File content"
-                      },
-                      "error": {
-                        "type": "string",
-                        "description": "Error message if file not found"
-                      }
-                    }
-                  },
-                  "game_user_settings": {
-                    "type": "object",
-                    "description": "GameUserSettings.ini configuration file for the instance",
-                    "properties": {
-                      "filename": {
-                        "type": "string",
-                        "example": "GameUserSettings.ini"
-                      },
-                      "content": {
-                        "type": "string",
-                        "description": "File content"
-                      },
-                      "error": {
-                        "type": "string",
-                        "description": "Error message if file not found"
-                      }
-                    }
-                  }
+                  "game_ini": { "type": "object", "properties": { "filename": { "type": "string", "example": "Game.ini" }, "content": { "type": "string" }, "error": { "type": "string" } } },
+                  "game_user_settings": { "type": "object", "properties": { "filename": { "type": "string", "example": "GameUserSettings.ini" }, "content": { "type": "string" }, "error": { "type": "string" } } }
                 }
               }
             }
@@ -2766,733 +1325,215 @@
       },
       "FileUploadResponse": {
         "allOf": [
-          {
-            "$ref": "#/components/schemas/StatusResponse"
-          },
+          { "$ref": "#/components/schemas/StatusResponse" },
+          { "type": "object", "properties": { "data": { "type": "object", "properties": { "filename": { "type": "string" }, "size": { "type": "integer" } } } } }
+        ]
+      },
+      "FileUpdateResponse": {
+        "allOf": [
+          { "$ref": "#/components/schemas/StatusResponse" },
+          { "type": "object", "properties": { "data": { "type": "object", "properties": { "filename": { "type": "string" }, "size": { "type": "integer" } } } } }
+        ]
+      },
+      "CountdownStatusResponse": {
+        "allOf": [
+          { "$ref": "#/components/schemas/StatusResponse" },
           {
             "type": "object",
             "properties": {
               "data": {
                 "type": "object",
                 "properties": {
-                  "filename": {
-                    "type": "string",
-                    "description": "Uploaded filename"
-                  },
-                  "size": {
-                    "type": "integer",
-                    "description": "File size in bytes"
-                  }
+                  "active": { "type": "boolean" },
+                  "action": { "type": "string", "enum": ["stop", "restart"] },
+                  "phase": { "type": "string", "description": "Current countdown phase" },
+                  "remaining": { "type": "integer", "format": "int64", "description": "Remaining seconds" }
                 }
               }
             }
           }
         ]
       },
-      "FileUpdateResponse": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/StatusResponse"
-          },
-          {
+      "BatchOperationRequest": {
+        "type": "object",
+        "description": "Request body for /api/server/batch/{start,stop,restart}",
+        "properties": {
+          "instances": { "type": "array", "items": { "type": "string" }, "description": "Instances to operate on" },
+          "delay_seconds": { "type": "integer", "description": "Delay between starting each instance's operation, to avoid saturating the host" },
+          "countdown": { "type": "integer", "description": "Countdown seconds announced in-game before the batch operation begins, 0 = immediate" },
+          "notify_points": { "type": "array", "items": { "type": "integer" }, "description": "Seconds-remaining values at which an announcement fires" },
+          "notify_message": { "type": "string", "description": "Announcement template ({time}/{action}/{instance} placeholders)" },
+          "notify_command": { "type": "string", "enum": ["ServerChat", "Broadcast"] }
+        }
+      },
+      "InstanceResult": {
+        "type": "object",
+        "properties": {
+          "instance_name": { "type": "string" },
+          "status": { "type": "string", "enum": ["pending", "skip_requested", "running", "success", "failed", "skipped", "cancelled"] },
+          "error": { "type": "string" }
+        }
+      },
+      "BatchOperationStartResponse": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean" },
+          "message": { "type": "string" },
+          "data": {
             "type": "object",
             "properties": {
-              "data": {
-                "type": "object",
-                "properties": {
-                  "filename": {
-                    "type": "string",
-                    "description": "Name of the updated configuration file"
-                  },
-                  "size": {
-                    "type": "integer",
-                    "description": "Content size in bytes"
-                  }
-                }
-              }
+              "total": { "type": "integer" },
+              "eligible": { "type": "integer" },
+              "skipped": { "type": "array", "items": { "type": "object", "properties": { "name": { "type": "string" }, "reason": { "type": "string" } } } }
             }
           }
-        ]
+        }
+      },
+      "BatchOperationResponse": {
+        "type": "object",
+        "properties": { "success": { "type": "boolean" }, "message": { "type": "string" } }
+      },
+      "BatchErrorResponse": {
+        "type": "object",
+        "properties": { "success": { "type": "boolean", "example": false }, "message": { "type": "string" }, "error": { "type": "string" } }
+      },
+      "BatchStatusResponse": {
+        "type": "object",
+        "properties": {
+          "active": { "type": "boolean" },
+          "type": { "type": "string", "enum": ["start", "stop", "restart"] },
+          "status": { "type": "string" },
+          "progress": { "type": "object", "properties": { "done": { "type": "integer" }, "total": { "type": "integer" } } },
+          "instances": { "type": "array", "items": { "$ref": "#/components/schemas/InstanceResult" } }
+        }
+      },
+      "BatchLogEntry": {
+        "type": "object",
+        "properties": {
+          "timestamp": { "type": "integer", "format": "int64" },
+          "level": { "type": "string" },
+          "message": { "type": "string" },
+          "instance_name": { "type": "string" }
+        }
+      },
+      "ScheduleTask": {
+        "type": "object",
+        "description": "A scheduled task definition, as persisted in schedules.json",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "type": { "type": "string", "enum": ["update", "restart"], "description": "update stops all instances first (installer requires no live instances), restart is a plain batch restart" },
+          "enabled": { "type": "boolean" },
+          "rule": { "type": "string", "enum": ["interval_hours", "interval_days", "daily"] },
+          "every": { "type": "integer", "description": "Used by interval_hours/interval_days; ignored by daily" },
+          "at": { "type": "string", "description": "\"HH:mm\" time of day; ignored by interval_hours", "example": "04:00" },
+          "instances": { "type": "array", "items": { "type": "string" }, "description": "Only used by restart tasks; empty means all instances" },
+          "countdown": { "type": "integer", "description": "Countdown seconds before execution, 0 = no countdown" },
+          "notify_points": { "type": "array", "items": { "type": "integer" } },
+          "notify_message": { "type": "string" },
+          "notify_command": { "type": "string" },
+          "last_run_at": { "type": "string", "format": "date-time" },
+          "next_run_at": { "type": "string", "format": "date-time" }
+        },
+        "required": ["id", "name", "type", "enabled", "rule"]
+      },
+      "ScheduleTaskRequest": {
+        "type": "object",
+        "description": "Request body to create/update a task. Server-managed fields (id, last_run_at, next_run_at) cannot be set by the client.",
+        "properties": {
+          "name": { "type": "string" },
+          "type": { "type": "string", "enum": ["update", "restart"] },
+          "enabled": { "type": "boolean" },
+          "rule": { "type": "string", "enum": ["interval_hours", "interval_days", "daily"] },
+          "every": { "type": "integer" },
+          "at": { "type": "string", "example": "04:00" },
+          "instances": { "type": "array", "items": { "type": "string" } },
+          "countdown": { "type": "integer" },
+          "notify_points": { "type": "array", "items": { "type": "integer" } },
+          "notify_message": { "type": "string" },
+          "notify_command": { "type": "string" }
+        }
+      },
+      "ScheduleRunRecord": {
+        "type": "object",
+        "description": "Archive of one task execution. Deliberately not step-by-step: batch/update SSE streams already cover live progress.",
+        "properties": {
+          "id": { "type": "string" },
+          "task_id": { "type": "string", "description": "Kept even if the task is later deleted, so history stays readable" },
+          "task_name": { "type": "string" },
+          "task_type": { "type": "string", "enum": ["update", "restart"] },
+          "trigger": { "type": "string", "enum": ["schedule", "manual"], "description": "schedule = fired automatically; manual = triggered via the run-now endpoint" },
+          "started_at": { "type": "string", "format": "date-time" },
+          "duration_ms": { "type": "integer", "format": "int64" },
+          "success": { "type": "boolean" },
+          "message": { "type": "string", "description": "Summary on success, failure reason on failure" }
+        },
+        "required": ["id", "task_id", "task_name", "task_type", "trigger", "started_at", "duration_ms", "success"]
       },
       "ClientMessage": {
         "type": "object",
         "description": "Message sent from WebSocket client to server (for heartbeat, connection identification, etc.)",
         "properties": {
-          "client_id": {
-            "type": "string",
-            "description": "Unique client identifier provided by the client"
-          },
-          "type": {
-            "type": "string",
-            "description": "Type of message",
-            "example": "heartbeat"
-          },
-          "data": {
-            "type": "string",
-            "description": "Optional data payload"
-          }
+          "client_id": { "type": "string", "description": "Unique client identifier provided by the client" },
+          "type": { "type": "string", "description": "Type of message", "example": "heartbeat" },
+          "data": { "type": "string", "description": "Optional data payload" }
         },
         "required": ["client_id"]
       },
       "ServerUpdateSSEStream": {
         "type": "object",
-        "description": "Server-Sent Events (SSE) stream for real-time server update progress",
-        "properties": {
-          "data": {
-            "type": "string",
-            "description": "Progress message from the update process",
-            "example": "Downloading and extracting SteamCMD..."
-          }
-        },
+        "description": "SSE stream for real-time server update progress",
+        "properties": { "data": { "type": "string", "description": "Progress message from the update process" } },
         "examples": {
-          "download_steamcmd": {
-            "summary": "SteamCMD download phase",
-            "value": "data: Downloading and extracting SteamCMD...\n\n"
-          },
-          "update_ark_server": {
-            "summary": "ARK server update phase",
-            "value": "data: Downloading and updating ARK server files...\n\n"
-          },
-          "verify_installation": {
-            "summary": "Server verification phase",
-            "value": "data: Verifying server installation...\n\n"
-          },
-          "success": {
-            "summary": "Update completed successfully",
-            "value": "data: Server update completed successfully!\n\n"
-          },
-          "error": {
-            "summary": "Update error",
-            "value": "data: Error: Failed to download SteamCMD: network error\n\n"
-          }
+          "download_steamcmd": { "summary": "SteamCMD download phase", "value": "data: Downloading and extracting SteamCMD...\n\n" },
+          "update_ark_server": { "summary": "ARK server update phase", "value": "data: Downloading and updating ARK server files...\n\n" },
+          "success": { "summary": "Update completed successfully", "value": "data: Server update completed successfully!\n\n" },
+          "error": { "summary": "Update error", "value": "data: Error: Failed to download SteamCMD: network error\n\n" }
         }
       },
       "ServerInfoSSEStream": {
         "type": "object",
-        "description": "Server-Sent Events (SSE) stream for real-time server resource information (updated every 200ms)",
-        "properties": {
-          "data": {
-            "type": "object",
-            "description": "Server resource information in JSON format",
-            "properties": {
-              "timestamp": {
-                "type": "integer",
-                "format": "int64",
-                "description": "Unix timestamp of the measurement",
-                "example": 1702123456
-              },
-              "memory": {
-                "type": "object",
-                "description": "Memory usage information",
-                "properties": {
-                  "total": {
-                    "type": "integer",
-                    "format": "int64",
-                    "description": "Total memory in bytes",
-                    "example": 102744223744
-                  },
-                  "used": {
-                    "type": "integer",
-                    "format": "int64",
-                    "description": "Used memory in bytes",
-                    "example": 41608970240
-                  },
-                  "available": {
-                    "type": "integer",
-                    "format": "int64",
-                    "description": "Available memory in bytes",
-                    "example": 61135253504
-                  },
-                  "used_percent": {
-                    "type": "number",
-                    "format": "float",
-                    "description": "Memory usage percentage (0-100)",
-                    "example": 40.5
-                  },
-                  "total_gb": {
-                    "type": "number",
-                    "format": "float",
-                    "description": "Total memory in GB",
-                    "example": 95.69
-                  },
-                  "used_gb": {
-                    "type": "number",
-                    "format": "float",
-                    "description": "Used memory in GB",
-                    "example": 38.75
-                  },
-                  "available_gb": {
-                    "type": "number",
-                    "format": "float",
-                    "description": "Available memory in GB",
-                    "example": 56.94
-                  }
-                }
-              },
-              "cpu": {
-                "type": "object",
-                "description": "CPU usage information",
-                "properties": {
-                  "core_count": {
-                    "type": "integer",
-                    "description": "Number of CPU cores",
-                    "example": 32
-                  },
-                  "used_percent": {
-                    "type": "number",
-                    "format": "float",
-                    "description": "CPU usage percentage (0-100)",
-                    "example": 15.23
-                  }
-                }
-              }
-            }
-          }
-        },
-        "examples": {
-          "server_info": {
-            "summary": "Server resource information",
-            "value": "data: {\"timestamp\":1702123456,\"memory\":{\"total\":102744223744,\"used\":41608970240,\"available\":61135253504,\"used_percent\":40.5,\"total_gb\":95.69,\"used_gb\":38.75,\"available_gb\":56.94},\"cpu\":{\"core_count\":32,\"used_percent\":15.23}}\n\n"
-          },
-          "error": {
-            "summary": "Error retrieving server info",
-            "value": "data: {\"error\":\"Failed to get memory info: connection error\"}\n\n"
-          }
-        }
-      },
-      "InstanceInfoSSEStream": {
-        "type": "object",
-        "description": "Server-Sent Events (SSE) stream for real-time instance resource information (updated every 200ms)",
-        "properties": {
-          "data": {
-            "type": "object",
-            "description": "Instance resource information in JSON format",
-            "properties": {
-              "timestamp": {
-                "type": "integer",
-                "format": "int64",
-                "description": "Unix timestamp of the measurement",
-                "example": 1702123456
-              },
-              "instance": {
-                "type": "string",
-                "description": "Instance name",
-                "example": "my-server"
-              },
-              "running": {
-                "type": "boolean",
-                "description": "Whether the instance is currently running",
-                "example": true
-              },
-              "pid": {
-                "type": "integer",
-                "description": "Process ID of the running instance",
-                "example": 12345
-              },
-              "process": {
-                "type": "object",
-                "description": "Process resource usage information",
-                "properties": {
-                  "name": {
-                    "type": "string",
-                    "description": "Process name",
-                    "example": "ArkAscendedServer.exe"
-                  },
-                  "cpu_percent": {
-                    "type": "number",
-                    "format": "float",
-                    "description": "CPU usage percentage (0-100+, can exceed 100 on multi-core systems)",
-                    "example": 45.8
-                  },
-                  "memory_used": {
-                    "type": "integer",
-                    "format": "int64",
-                    "description": "Memory used by process in bytes (RSS)",
-                    "example": 4294967296
-                  },
-                  "memory_percent": {
-                    "type": "number",
-                    "format": "float",
-                    "description": "Memory usage percentage of total system memory (0-100)",
-                    "example": 4.18
-                  },
-                  "memory_used_mb": {
-                    "type": "number",
-                    "format": "float",
-                    "description": "Memory used in MB",
-                    "example": 4096.0
-                  },
-                  "memory_used_gb": {
-                    "type": "number",
-                    "format": "float",
-                    "description": "Memory used in GB",
-                    "example": 4.0
-                  }
-                }
-              }
-            }
-          }
-        },
-        "examples": {
-          "instance_running": {
-            "summary": "Instance resource information (running)",
-            "value": "data: {\"timestamp\":1702123456,\"instance\":\"my-server\",\"running\":true,\"pid\":12345,\"process\":{\"name\":\"ArkAscendedServer.exe\",\"cpu_percent\":45.8,\"memory_used\":4294967296,\"memory_percent\":4.18,\"memory_used_mb\":4096.0,\"memory_used_gb\":4.0}}\n\n"
-          },
-          "instance_not_running": {
-            "summary": "Instance not running",
-            "value": "data: {\"error\":\"Failed to get PID: no process found on port\",\"instance\":\"my-server\",\"running\":false}\n\n"
-          },
-          "error": {
-            "summary": "Error retrieving process info",
-            "value": "data: {\"error\":\"Failed to get process info: process not found\",\"instance\":\"my-server\",\"pid\":12345,\"running\":false}\n\n"
-          }
-        }
-      },
-      "ServerEvent": {
-        "type": "object",
-        "description": "Server event message sent via WebSocket (global broadcast to all connected clients)",
-        "properties": {
-          "event_type": {
-            "type": "string",
-            "description": "Type of event",
-            "enum": [
-              "connected",
-              "server_starting",
-              "server_started",
-              "server_stopping",
-              "server_stopped",
-              "server_start_failed",
-              "server_stop_failed",
-              "server_restart_failed"
-            ]
-          },
-          "instance_name": {
-            "type": "string",
-            "description": "Name of the server instance that triggered the event (empty for connection event)"
-          },
-          "timestamp": {
-            "type": "integer",
-            "format": "int64",
-            "description": "Unix timestamp of the event"
-          },
-          "message": {
-            "type": "string",
-            "description": "Event message"
-          },
-          "status": {
-            "type": "string",
-            "description": "Server status (optional)",
-            "enum": ["starting", "started", "stopping", "stopped", "failed"]
-          }
-        },
-        "required": ["event_type", "timestamp", "message"]
-      },
-      "RCONMessage": {
-        "type": "object",
-        "description": "Message sent from WebSocket client to server for RCON operations",
-        "properties": {
-          "action": {
-            "type": "string",
-            "description": "Action to perform",
-            "enum": ["command", "ping"]
-          },
-          "instance_name": {
-            "type": "string",
-            "description": "Name of the instance (required for command action)"
-          },
-          "command": {
-            "type": "string",
-            "description": "RCON command to execute (required for command action)"
-          }
-        },
-        "required": ["action"]
-      },
-      "ServerRestartAllSSEStream": {
-        "type": "object",
-        "description": "Server-Sent Events (SSE) stream for real-time restart progress of all instances",
-        "properties": {
-          "data": {
-            "type": "string",
-            "description": "Progress message for instance restart operations",
-            "example": "Instance 'server-1' restarted successfully"
-          }
-        },
-        "examples": {
-          "restart_starting": {
-            "summary": "Restart starting phase",
-            "value": "data: Restarting instance 'server-1'...\n\n"
-          },
-          "restart_success": {
-            "summary": "Instance restart successful",
-            "value": "data: Instance 'server-1' restarted successfully\n\n"
-          },
-          "restart_failed": {
-            "summary": "Instance restart failed",
-            "value": "data: Error: Failed to restart instance 'server-1': connection timeout\n\n"
-          },
-          "all_complete": {
-            "summary": "All restarts completed",
-            "value": "data: All 3 servers restarted successfully\n\n"
-          },
-          "error_summary": {
-            "summary": "Restart error summary",
-            "value": "data: Error: 1 of 3 instances failed to restart\n\n"
-          }
-        }
-      },
-      "RCONResponseData": {
-        "type": "object",
-        "description": "Response from RCON operations",
-        "properties": {
-          "success": {
-            "type": "boolean",
-            "description": "Whether the operation succeeded"
-          },
-          "message": {
-            "type": "string",
-            "description": "Operation status message"
-          },
-          "response": {
-            "type": "string",
-            "description": "RCON command execution response (for command action)"
-          },
-          "error": {
-            "type": "string",
-            "description": "Error message if operation failed"
-          },
-          "instance_name": {
-            "type": "string",
-            "description": "Name of the connected instance"
-          }
-        },
-        "required": ["success"]
-      },
-      "FRPConfigRequest": {
-        "type": "object",
-        "description": "FRP configuration update request",
-        "properties": {
-          "config": {
-            "type": "string",
-            "description": "FRP configuration file content (TOML format)"
-          }
-        },
-        "required": ["config"]
-      },
-      "PlayerSnapshot": {
-        "type": "object",
-        "description": "Player state snapshot from arkmonitor",
-        "properties": {
-          "ID": {
-            "type": "integer",
-            "description": "Player ID"
-          },
-          "SteamID": {
-            "type": "string",
-            "description": "Steam ID"
-          },
-          "Name": {
-            "type": "string",
-            "description": "Player name"
-          },
-          "TribeID": {
-            "type": "integer",
-            "description": "Tribe ID the player belongs to"
-          },
-          "Online": {
-            "type": "boolean",
-            "description": "Whether the player is online"
-          },
-          "Location": {
-            "$ref": "#/components/schemas/LocationData"
-          },
-          "Hash": {
-            "type": "integer",
-            "format": "int64",
-            "description": "Snapshot hash for change detection"
-          }
-        }
-      },
-      "TribeSnapshot": {
-        "type": "object",
-        "description": "Tribe state snapshot from arkmonitor",
-        "properties": {
-          "ID": {
-            "type": "integer",
-            "description": "Tribe ID"
-          },
-          "Name": {
-            "type": "string",
-            "description": "Tribe name"
-          },
-          "Members": {
-            "type": "array",
-            "items": {
-              "type": "integer"
-            },
-            "description": "List of player IDs in the tribe"
-          },
-          "Level": {
-            "type": "integer",
-            "description": "Tribe level"
-          },
-          "Hash": {
-            "type": "integer",
-            "format": "int64",
-            "description": "Snapshot hash for change detection"
-          }
-        }
-      },
-      "LocationData": {
-        "type": "object",
-        "description": "3D location coordinates",
-        "properties": {
-          "X": {
-            "type": "number",
-            "format": "double",
-            "description": "X coordinate"
-          },
-          "Y": {
-            "type": "number",
-            "format": "double",
-            "description": "Y coordinate"
-          },
-          "Z": {
-            "type": "number",
-            "format": "double",
-            "description": "Z coordinate"
-          }
-        }
-      },
-      "CachedSaveData": {
-        "type": "object",
-        "description": "Cached save snapshot data from arkmonitor (used by cache and SSE broadcast)",
-        "properties": {
-          "players": {
-            "type": "object",
-            "additionalProperties": {
-              "$ref": "#/components/schemas/PlayerSnapshot"
-            },
-            "description": "Map of player ID to PlayerSnapshot"
-          },
-          "tribes": {
-            "type": "object",
-            "additionalProperties": {
-              "$ref": "#/components/schemas/TribeSnapshot"
-            },
-            "description": "Map of tribe ID to TribeSnapshot"
-          },
-          "timestamp": {
-            "type": "string",
-            "format": "date-time",
-            "description": "Snapshot timestamp"
-          }
-        }
-      },
-      "SavePlayersResponse": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/StatusResponse"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "data": {
-                "type": "object",
-                "properties": {
-                  "players": {
-                    "type": "array",
-                    "items": {
-                      "type": "object"
-                    },
-                    "description": "Array of player data maps from ExportPlayers"
-                  }
-                }
-              }
-            }
-          }
-        ]
-      },
-      "SaveTribesResponse": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/StatusResponse"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "data": {
-                "type": "object",
-                "properties": {
-                  "tribes": {
-                    "type": "array",
-                    "items": {
-                      "type": "object"
-                    },
-                    "description": "Array of tribe data maps from ExportTribes"
-                  }
-                }
-              }
-            }
-          }
-        ]
-      },
-      "SaveAllResponse": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/StatusResponse"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "data": {
-                "oneOf": [
-                  {
-                    "$ref": "#/components/schemas/CachedSaveData"
-                  },
-                  {
-                    "type": "object",
-                    "properties": {
-                      "players": {
-                        "type": "array",
-                        "items": { "type": "object" }
-                      },
-                      "tribes": {
-                        "type": "array",
-                        "items": { "type": "object" }
-                      },
-                      "player_tribe_map": {
-                        "type": "object",
-                        "additionalProperties": { "type": "integer" }
-                      },
-                      "tribe_player_map": {
-                        "type": "object",
-                        "additionalProperties": {
-                          "type": "array",
-                          "items": { "type": "integer" }
-                        }
-                      }
-                    }
-                  }
-                ],
-                "description": "Cached snapshot (CachedSaveData) or parsed fallback (SaveData)"
-              }
-            }
-          }
-        ]
-      },
-      "SaveSSEStream": {
-        "type": "object",
-        "description": "Server-Sent Events (SSE) stream for save data changes (powered by arkmonitor)",
-        "properties": {
-          "type": {
-            "type": "string",
-            "enum": ["cached", "start", "complete", "data", "error"],
-            "description": "Event type"
-          },
-          "instance": {
-            "type": "string",
-            "description": "Instance name"
-          },
-          "map": {
-            "type": "string",
-            "description": "Instance/map name (for start/complete/data events)"
-          },
-          "players": {
-            "type": "integer",
-            "description": "Number of players in snapshot (complete event)"
-          },
-          "tribes": {
-            "type": "integer",
-            "description": "Number of tribes in snapshot (complete event)"
-          },
-          "data": {
-            "$ref": "#/components/schemas/CachedSaveData"
-          }
-        },
-        "examples": {
-          "cached": {
-            "summary": "Initial cached data sent on connect",
-            "value": "data: {\"type\":\"cached\",\"instance\":\"my-server\",\"data\":{\"players\":{},\"tribes\":{},\"timestamp\":\"2024-01-01T00:00:00Z\"}}\n\n"
-          },
-          "start": {
-            "summary": "Save file change detected",
-            "value": "data: {\"type\":\"start\",\"map\":\"my-server\",\"timestamp\":1702123456}\n\n"
-          },
-          "complete": {
-            "summary": "Snapshot processing complete",
-            "value": "data: {\"type\":\"complete\",\"map\":\"my-server\",\"players\":42,\"tribes\":5}\n\n"
-          },
-          "data": {
-            "summary": "Full snapshot data",
-            "value": "data: {\"type\":\"data\",\"map\":\"my-server\",\"data\":{\"players\":{},\"tribes\":{},\"timestamp\":\"2024-01-01T00:00:00Z\"}}\n\n"
-          }
-        }
-      },
-      "ModInfo": {
-        "type": "object",
-        "description": "Mod information entry",
-        "properties": {
-          "id": {
-            "type": "string",
-            "description": "Mod ID"
-          },
-          "name": {
-            "type": "string",
-            "description": "Mod name"
-          }
-        }
-      },
-      "ModInfoResponse": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/StatusResponse"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "data": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/ModInfo"
-                }
-              }
-            }
-          }
-        ]
-      },
-      "AllInstancesInfoSSEStream": {
-        "type": "object",
-        "description": "Server-Sent Events (SSE) stream for all instances resource information (every 2s)",
+        "description": "SSE stream for real-time system resource information (updated every 2s)",
         "properties": {
           "data": {
             "type": "object",
             "properties": {
-              "timestamp": {
-                "type": "integer",
-                "format": "int64",
-                "description": "Unix timestamp"
-              },
-              "cpu": {
-                "type": "object",
-                "properties": {
-                  "core_count": {
-                    "type": "integer"
-                  },
-                  "used_percent": {
-                    "type": "number",
-                    "format": "float"
-                  }
-                }
-              },
+              "timestamp": { "type": "integer", "format": "int64" },
               "memory": {
                 "type": "object",
                 "properties": {
                   "total": { "type": "integer", "format": "int64" },
                   "used": { "type": "integer", "format": "int64" },
                   "available": { "type": "integer", "format": "int64" },
-                  "used_percent": { "type": "number", "format": "float" }
+                  "used_percent": { "type": "number", "format": "float" },
+                  "total_gb": { "type": "number", "format": "float" },
+                  "used_gb": { "type": "number", "format": "float" },
+                  "available_gb": { "type": "number", "format": "float" }
                 }
               },
+              "cpu": {
+                "type": "object",
+                "properties": { "core_count": { "type": "integer" }, "used_percent": { "type": "number", "format": "float" } }
+              }
+            }
+          }
+        },
+        "examples": {
+          "server_info": { "summary": "Server resource information", "value": "data: {\"timestamp\":1702123456,\"memory\":{\"total\":102744223744,\"used\":41608970240,\"available\":61135253504,\"used_percent\":40.5,\"total_gb\":95.69,\"used_gb\":38.75,\"available_gb\":56.94},\"cpu\":{\"core_count\":32,\"used_percent\":15.23}}\n\n" },
+          "error": { "summary": "Error retrieving server info", "value": "data: {\"error\":\"Failed to get memory info: connection error\"}\n\n" }
+        }
+      },
+      "AllInstancesInfoSSEStream": {
+        "type": "object",
+        "description": "SSE stream for all running instances' resource information, sent immediately on connect and then every 2s",
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "timestamp": { "type": "integer", "format": "int64" },
+              "cpu_cores": { "type": "integer" },
+              "running_count": { "type": "integer" },
+              "memory": { "type": "object", "properties": { "total": { "type": "integer", "format": "int64" }, "total_gb": { "type": "number", "format": "float" } } },
               "instances": {
                 "type": "array",
                 "items": {
@@ -3502,7 +1543,7 @@
                     "running": { "type": "boolean" },
                     "pid": { "type": "integer" },
                     "cpu_percent": { "type": "number", "format": "float" },
-                    "cpu_total_percent": { "type": "number", "format": "float" },
+                    "cpu_total_percent": { "type": "number", "format": "float", "description": "instance CPU% normalized by core count" },
                     "memory_used": { "type": "integer", "format": "int64" },
                     "memory_percent": { "type": "number", "format": "float" },
                     "process_name": { "type": "string" },
@@ -3514,49 +1555,136 @@
             }
           }
         }
+      },
+      "ServerEvent": {
+        "type": "object",
+        "description": "Server event message sent via WebSocket (global broadcast to all connected clients)",
+        "properties": {
+          "event_type": {
+            "type": "string",
+            "description": "Type of event",
+            "enum": [
+              "connected", "server_starting", "server_started", "server_stopping", "server_stopped",
+              "server_start_failed", "server_stop_failed", "server_restart_failed",
+              "batch_instance_skipped"
+            ]
+          },
+          "instance_name": { "type": "string", "description": "Name of the server instance that triggered the event (empty for connection/global events)" },
+          "timestamp": { "type": "integer", "format": "int64", "description": "Unix timestamp of the event" },
+          "message": { "type": "string", "description": "Event message" },
+          "status": { "type": "string", "description": "Server status (optional)", "enum": ["starting", "started", "stopping", "stopped", "failed"] }
+        },
+        "required": ["event_type", "timestamp", "message"]
+      },
+      "RCONMessage": {
+        "type": "object",
+        "description": "Message sent from WebSocket client to server for RCON operations",
+        "properties": {
+          "action": { "type": "string", "enum": ["command", "ping"] },
+          "instance_name": { "type": "string", "description": "Name of the instance (required for command action)" },
+          "command": { "type": "string", "description": "RCON command to execute (required for command action)" }
+        },
+        "required": ["action"]
+      },
+      "RCONResponseData": {
+        "type": "object",
+        "description": "Response from RCON operations over WebSocket",
+        "properties": {
+          "success": { "type": "boolean" },
+          "message": { "type": "string" },
+          "response": { "type": "string", "description": "RCON command execution response (for command action)" },
+          "error": { "type": "string" },
+          "instance_name": { "type": "string" }
+        },
+        "required": ["success"]
+      },
+      "FRPConfigRequest": {
+        "type": "object",
+        "description": "FRP configuration update request",
+        "properties": { "config": { "type": "string", "description": "FRP configuration file content (TOML format)" } },
+        "required": ["config"]
+      },
+      "SyncthingConfigRequest": {
+        "type": "object",
+        "description": "Syncthing configuration update request",
+        "properties": { "config": { "type": "string", "description": "Syncthing config.xml content" } },
+        "required": ["config"]
+      },
+      "ManagedServiceStatusResponse": {
+        "type": "object",
+        "description": "Generic response shape shared by the FRP and Syncthing management endpoints",
+        "properties": {
+          "success": { "type": "boolean" },
+          "message": { "type": "string" },
+          "data": { "type": "object" },
+          "error": { "type": "string" }
+        },
+        "required": ["success", "message"]
+      },
+      "ManagedServiceConfigResponse": {
+        "allOf": [
+          { "$ref": "#/components/schemas/ManagedServiceStatusResponse" },
+          { "type": "object", "properties": { "data": { "type": "string", "description": "Raw configuration file content" } } }
+        ]
+      },
+      "ManagedServiceStatusDataResponse": {
+        "allOf": [
+          { "$ref": "#/components/schemas/ManagedServiceStatusResponse" },
+          { "type": "object", "properties": { "data": { "type": "object", "properties": { "status": { "type": "string", "enum": ["running", "stopped"] } } } } }
+        ]
+      },
+      "ManagedServiceStatusEvent": {
+        "type": "object",
+        "properties": { "status": { "type": "string", "enum": ["running", "stopped"] } }
+      },
+      "PlayerListItem": {
+        "type": "object",
+        "description": "Player entry as returned by the save-data endpoints (shape depends on go-arkparser/arkmonitor export; treat as a loosely-typed map)"
+      },
+      "TribeListItem": {
+        "type": "object",
+        "description": "Tribe entry as returned by the save-data endpoints (shape depends on go-arkparser/arkmonitor export; treat as a loosely-typed map)"
+      },
+      "SavePlayersResponse": {
+        "allOf": [
+          { "$ref": "#/components/schemas/StatusResponse" },
+          { "type": "object", "properties": { "data": { "type": "array", "items": { "$ref": "#/components/schemas/PlayerListItem" } } } }
+        ]
+      },
+      "SaveTribesResponse": {
+        "allOf": [
+          { "$ref": "#/components/schemas/StatusResponse" },
+          { "type": "object", "properties": { "data": { "type": "array", "items": { "$ref": "#/components/schemas/TribeListItem" } } } }
+        ]
+      },
+      "ModInfo": {
+        "type": "object",
+        "description": "Mod information entry",
+        "properties": { "id": { "type": "string", "description": "Mod ID" }, "name": { "type": "string", "description": "Mod name" } }
+      },
+      "ModInfoResponse": {
+        "allOf": [
+          { "$ref": "#/components/schemas/StatusResponse" },
+          { "type": "object", "properties": { "data": { "type": "array", "items": { "$ref": "#/components/schemas/ModInfo" } } } }
+        ]
       }
     }
   },
   "tags": [
-    {
-      "name": "Health",
-      "description": "Health check endpoints"
-    },
-    {
-      "name": "Instances",
-      "description": "Instance management endpoints"
-    },
-    {
-      "name": "Server Control",
-      "description": "Server control endpoints"
-    },
-    {
-      "name": "RCON",
-      "description": "RCON command endpoints"
-    },
-    {
-      "name": "Backup",
-      "description": "Backup and restore endpoints"
-    },
-    {
-      "name": "Server Management",
-      "description": "Server management endpoints"
-    },
-    {
-      "name": "Configuration",
-      "description": "Configuration file management endpoints"
-    },
-    {
-      "name": "FRP Management",
-      "description": "FRP client management endpoints"
-    },
-    {
-      "name": "Save Data",
-      "description": "ARK save file parsing and monitoring endpoints"
-    },
-    {
-      "name": "WebSocket",
-      "description": "WebSocket endpoints for real-time events"
-    }
+    { "name": "Health", "description": "Health check endpoints" },
+    { "name": "Instances", "description": "Instance CRUD, configuration and mod info endpoints" },
+    { "name": "Server Control", "description": "Per-instance start/stop/restart/force-stop and countdown control" },
+    { "name": "Batch Operations", "description": "Batch start/stop/restart across multiple instances with SSE progress" },
+    { "name": "RCON", "description": "RCON command endpoints" },
+    { "name": "Backup", "description": "World-save backup and restore endpoints" },
+    { "name": "Server Management", "description": "Server binary update and system/instance resource monitoring" },
+    { "name": "Configuration", "description": "Game.ini / GameUserSettings.ini file management and instance config sync" },
+    { "name": "Save Data", "description": "ARK save file player/tribe data endpoints" },
+    { "name": "Logs", "description": "Log streaming endpoints (instance, AsaApiLoader, system)" },
+    { "name": "Icons", "description": "Creature and item icon lookup" },
+    { "name": "Schedule", "description": "Scheduled task management and execution history" },
+    { "name": "WebSocket", "description": "WebSocket endpoints for real-time events and interactive RCON" },
+    { "name": "FRP Management", "description": "FRP client management endpoints" },
+    { "name": "Syncthing Management", "description": "Syncthing client management endpoints" }
   ]
 }
