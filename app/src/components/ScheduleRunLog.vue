@@ -85,7 +85,7 @@ async function loadLogs() {
     logs.value = data?.logs ?? []
     total.value = data?.total ?? 0
   } catch (e) {
-    MessagePlugin.error('获取执行日志失败')
+    MessagePlugin.error(e?.message || '获取执行日志失败')
   } finally {
     loading.value = false
   }
@@ -97,7 +97,7 @@ async function onClear() {
     MessagePlugin.success('执行日志已清空')
     await loadLogs()
   } catch (e) {
-    MessagePlugin.error(e?.response?.data?.error || '清空失败')
+    MessagePlugin.error(e?.message || '清空失败')
   }
 }
 

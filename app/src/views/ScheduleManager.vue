@@ -87,8 +87,8 @@
         cancel-btn="取消"
         width="560px"
     >
-      <t-form :data="form" label-width="100px">
-        <t-form-item label="任务名称">
+      <t-form ref="formRef" :data="form" label-width="100px">
+        <t-form-item label="任务名称" name="name" :rules="[{ required: true, message: '任务名称不能为空' }]">
           <t-input v-model="form.name" placeholder="例如：每日凌晨重启"/>
         </t-form-item>
 
@@ -119,15 +119,18 @@
           </t-select>
         </t-form-item>
 
-        <t-form-item v-if="form.rule === 'interval_days'" label="间隔天数">
+        <t-form-item v-if="form.rule === 'interval_days'" label="间隔天数" name="every"
+                     :rules="[{ required: true, message: '间隔天数不能为空' }, { validator: (val) => Number.isInteger(val) && val >= 1, message: '间隔天数必须大于 0' }]">
           <t-input-number v-model="form.every" :min="1" :max="365"/>
         </t-form-item>
 
-        <t-form-item v-if="form.rule === 'interval_hours'" label="间隔小时">
+        <t-form-item v-if="form.rule === 'interval_hours'" label="间隔小时" name="every"
+                     :rules="[{ required: true, message: '间隔小时不能为空' }, { validator: (val) => Number.isInteger(val) && val >= 1, message: '间隔小时数必须大于 0' }]">
           <t-input-number v-model="form.every" :min="1" :max="8760"/>
         </t-form-item>
 
-        <t-form-item v-if="form.rule !== 'interval_hours'" label="执行时刻">
+        <t-form-item v-if="form.rule !== 'interval_hours'" label="执行时刻" name="at"
+                     :rules="[{ required: true, message: '执行时刻不能为空' }]">
           <t-time-picker v-model="form.at" format="HH:mm"/>
         </t-form-item>
 
@@ -178,6 +181,7 @@ const runLogRef = ref(null)
 
 const dialogVisible = ref(false)
 const editingId = ref(null)
+const formRef = ref(null)
 
 const countdownValid = ref(true)
 
@@ -219,7 +223,7 @@ async function loadTasks() {
     const {data} = await listScheduleTasks()
     tasks.value = data?.tasks ?? []
   } catch (e) {
-    MessagePlugin.error('获取定时任务失败')
+    MessagePlugin.error(e?.message || '获取定时任务失败')
   } finally {
     loading.value = false
   }
@@ -285,6 +289,12 @@ function buildPayload() {
 }
 
 async function onSubmit() {
+  // 表单字段（名称/间隔/执行时刻）先过一遍客户端校验，与 schedule.Task.Validate() 对齐
+  const result = await formRef.value?.validate()
+  if (result !== true) {
+    return false
+  }
+
   // 后端也会校验，这里拦一道是为了让用户当场看到是哪个字段不对
   if (!countdownValid.value) {
     MessagePlugin.error('倒计时配置有误，请检查')
@@ -303,7 +313,8 @@ async function onSubmit() {
     dialogVisible.value = false
     await loadTasks()
   } catch (e) {
-    MessagePlugin.error(e?.response?.data?.error || '保存失败')
+    // http.js 拦截器已经把后端 error 字段提取进了 e.message，不是 e.response.data.error
+    MessagePlugin.error(e?.message || '保存失败')
   } finally {
     saving.value = false
   }
@@ -314,7 +325,7 @@ async function onToggle(row, enabled) {
     await toggleScheduleTask(row.id, enabled)
     await loadTasks()
   } catch (e) {
-    MessagePlugin.error(e?.response?.data?.error || '操作失败')
+    MessagePlugin.error(e?.message || '操作失败')
     await loadTasks()
   }
 }
@@ -332,7 +343,7 @@ function onDelete(row) {
         MessagePlugin.success('已删除')
         await loadTasks()
       } catch (e) {
-        MessagePlugin.error('删除失败')
+        MessagePlugin.error(e?.message || '删除失败')
       }
     },
   })
@@ -355,7 +366,7 @@ function onRunNow(row) {
         // 执行结果会通过 WS 推到右侧日志面板，这里不用轮询
         MessagePlugin.success('已触发执行，结果将出现在右侧执行日志')
       } catch (e) {
-        MessagePlugin.error(e?.response?.data?.error || '触发失败')
+        MessagePlugin.error(e?.message || '触发失败')
       }
     },
   })

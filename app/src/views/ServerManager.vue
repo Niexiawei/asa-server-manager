@@ -470,7 +470,7 @@ const stopInstance = async (name) => {
       console.error('停止实例失败:', data.error)
     }
   } catch (error) {
-    MessagePlugin.error(error?.response?.data?.error || `停止实例失败: ${error.message}`)
+    MessagePlugin.error(`停止实例失败: ${error.message}`)
     console.error('停止实例失败:', error)
   }
 }
@@ -490,7 +490,7 @@ const restartInstance = async (name) => {
     }
   } catch (error) {
     console.error('重启实例失败:', error)
-    MessagePlugin.error(error?.response?.data?.error || '重启实例失败')
+    MessagePlugin.error(error?.message || '重启实例失败')
   }
 }
 
@@ -504,7 +504,7 @@ const cancelCountdown = async (name) => {
       MessagePlugin.error(data.error || '取消倒计时失败')
     }
   } catch (error) {
-    MessagePlugin.error(error?.response?.data?.error || '取消倒计时失败')
+    MessagePlugin.error(error?.message || '取消倒计时失败')
   }
 }
 
