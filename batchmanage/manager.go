@@ -153,10 +153,18 @@ func (lb *LogBroadcaster) Send(entry BatchLogEntry) {
 	}
 }
 
-// Subscribe 订阅日志流
-func (lb *LogBroadcaster) Subscribe() (chan BatchLogEntry, func()) {
+// Subscribe 订阅日志流。
+//
+// ok 为 false 表示广播器已经停止（进程正在退出），此时不要拿这个通道去 select——
+// 不会有任何东西到达，也不会有人来关它，handler 会一直挂到客户端断开。
+// running 的读写都在 lb.mu 之下，所以「Stop 跑完之后才订阅」这个竞态在这里就被关掉了。
+func (lb *LogBroadcaster) Subscribe() (chan BatchLogEntry, func(), bool) {
 	subscriber := make(chan BatchLogEntry, 50)
 	lb.mu.Lock()
+	if !lb.running {
+		lb.mu.Unlock()
+		return nil, func() {}, false
+	}
 	lb.subscribers[subscriber] = true
 	lb.mu.Unlock()
 
@@ -171,7 +179,7 @@ func (lb *LogBroadcaster) Subscribe() (chan BatchLogEntry, func()) {
 			lb.mu.Unlock()
 		}
 	}
-	return subscriber, unsubscribe
+	return subscriber, unsubscribe, true
 }
 
 func (lb *LogBroadcaster) broadcast() {
@@ -215,6 +223,11 @@ type BatchOperation struct {
 	// countdown 为 nil 表示不倒计时。见 runCountdownPhase 的编排说明。
 	countdown *countdown.Config
 
+	// countdownTargets 是通过预检、值得播报倒计时的实例。
+	// 与 Instances 的差集在 StartOperation 阶段就被标成 skipped：
+	// 对着已经停止的实例倒计时既发不出公告，也只会白占住单例锁。
+	countdownTargets []string
+
 	logBroadcaster *LogBroadcaster
 	logHistory     []BatchLogEntry
 	mu             sync.RWMutex
@@ -227,13 +240,26 @@ type BatchManager struct {
 	// 下一次批量开始时被覆盖，常驻开销是一个 op 对象 + 至多 maxLogHistory 条日志。
 	last *BatchOperation
 	mu   sync.Mutex
+
+	// logBroadcaster 全程存活，不随单次操作创建/销毁。
+	// SSE 客户端（批量操作弹窗）连上后要跨多次批量操作持续收日志：
+	// 广播器要是随操作一起拆掉，订阅者就会被踢下线，前端只能靠重连补救——
+	// 而 EventSource 分不清「正常收尾」和「连接抖断」，那就成了每 3 秒一次的重连风暴。
+	logBroadcaster *LogBroadcaster
 }
 
 var globalManager *BatchManager
 
 // Initialize 初始化全局 BatchManager
 func Initialize() {
-	globalManager = &BatchManager{}
+	lb := NewLogBroadcaster()
+	lb.Start()
+	globalManager = &BatchManager{logBroadcaster: lb}
+}
+
+// GetLogBroadcaster 返回全程存活的日志广播器。
+func (bm *BatchManager) GetLogBroadcaster() *LogBroadcaster {
+	return bm.logBroadcaster
 }
 
 // GetGlobalManager 获取全局 BatchManager
@@ -248,12 +274,13 @@ func (bm *BatchManager) StartOperation(
 	delaySeconds int,
 	cdCfg *countdown.Config,
 ) (*BatchOperation, error) {
-	bm.mu.Lock()
-	defer bm.mu.Unlock()
-
-	if bm.current != nil && bm.current.Status == "running" {
+	// 廉价快路径：正在跑就别白做下面的预检。不是权威判断，锁内还会复查一次
+	if bm.IsRunning() {
 		return nil, ErrOperationInProgress
 	}
+
+	// —— 以下准备工作一律不持 bm.mu ——
+	// 预检要跑 netstat，占着锁会把 /api/batch/status 的轮询一起拖住
 
 	// 配错的倒计时要在这里就拦下，不能等阶段一跑起来才发现点位永远触发不到
 	if err := cdCfg.Validate(); err != nil {
@@ -286,6 +313,33 @@ func (bm *BatchManager) StartOperation(
 		delaySeconds = 300
 	}
 
+	// 初始化实例结果，并在倒计时之前就把不可操作的实例剔除。
+	// 放在这里而不是留给阶段二的 CAS：CAS 在倒计时**之后**才跑，
+	// 等它发现实例早就停了，一整轮倒计时已经白烧完，单例也白占了那么久。
+	results := make([]*InstanceResult, len(instances))
+	countdownTargets := make([]string, 0, len(instances))
+	for i, inst := range instances {
+		results[i] = &InstanceResult{
+			InstanceName: inst,
+			Status:       InstancePending,
+		}
+		ok, reason := operable(inst, opType)
+		if !ok {
+			results[i].Status = InstanceSkipped
+			results[i].Error = reason
+			continue
+		}
+		countdownTargets = append(countdownTargets, inst)
+	}
+
+	// —— 发布单例，以下需要持锁 ——
+	bm.mu.Lock()
+	defer bm.mu.Unlock()
+
+	if bm.current != nil && bm.current.Status == "running" {
+		return nil, ErrOperationInProgress
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// 创建 skip channels 及其一次性关闭守卫
@@ -296,32 +350,22 @@ func (bm *BatchManager) StartOperation(
 		skipOnce[inst] = new(sync.Once)
 	}
 
-	// 初始化实例结果
-	results := make([]*InstanceResult, len(instances))
-	for i, inst := range instances {
-		results[i] = &InstanceResult{
-			InstanceName: inst,
-			Status:       InstancePending,
-		}
-	}
-
-	logBroadcaster := NewLogBroadcaster()
-	logBroadcaster.Start()
-
 	op := &BatchOperation{
-		Type:            opType,
-		Instances:       instances,
-		DelayBetween:    time.Duration(delaySeconds) * time.Second,
-		Status:          "running",
-		InstanceResults: results,
-		ctx:             ctx,
-		cancel:          cancel,
-		skipChannels:    skipChannels,
-		skipOnce:        skipOnce,
-		done:            make(chan struct{}),
-		countdown:       cdCfg,
-		logBroadcaster:  logBroadcaster,
-		logHistory:      make([]BatchLogEntry, 0, 50),
+		Type:             opType,
+		Instances:        instances,
+		DelayBetween:     time.Duration(delaySeconds) * time.Second,
+		Status:           "running",
+		InstanceResults:  results,
+		ctx:              ctx,
+		cancel:           cancel,
+		skipChannels:     skipChannels,
+		skipOnce:         skipOnce,
+		done:             make(chan struct{}),
+		countdown:        cdCfg,
+		countdownTargets: countdownTargets,
+		// 用 manager 的共享广播器，不新建：订阅者要跨操作存活
+		logBroadcaster: bm.logBroadcaster,
+		logHistory:     make([]BatchLogEntry, 0, 50),
 	}
 
 	bm.current = op
@@ -362,6 +406,15 @@ func (op *BatchOperation) IsRunning() bool {
 	op.mu.RLock()
 	defer op.mu.RUnlock()
 	return op.Status == "running"
+}
+
+// Cancel 取消这一次批量操作。
+//
+// 调用方自己的 ctx 结束时不能只是 return：批量操作的 ctx 派生自 Background，
+// 不掐断的话它会继续跑完整轮倒计时，把单例一直占着，顶掉下一次调度。
+// 与 BatchManager.CancelCurrent 的区别是它只作用于这一次操作，不会误伤已经换代的新操作。
+func (op *BatchOperation) Cancel() {
+	op.cancel()
 }
 
 // CancelCurrent 取消当前操作
@@ -419,9 +472,17 @@ func (bm *BatchManager) SkipInstance(instanceName string) (bool, string) {
 // Shutdown 关闭时取消当前操作
 func (bm *BatchManager) Shutdown() {
 	bm.mu.Lock()
-	defer bm.mu.Unlock()
 	if bm.current != nil && bm.current.Status == "running" {
 		bm.current.cancel()
+	}
+	bm.mu.Unlock()
+
+	// 广播器活到进程退出为止，收口只能在这里做。
+	// 不关的话 SSE handler 会一直挂着，把 srv.Shutdown 的 30 秒宽限期整个占满——
+	// Stop 会关掉所有订阅者通道，handler 随之退出。
+	// 放在锁外：Stop 要等 broadcast goroutine 收尾，不该攥着 bm.mu 等。
+	if bm.logBroadcaster != nil {
+		bm.logBroadcaster.Stop()
 	}
 }
 
@@ -469,6 +530,20 @@ func (op *BatchOperation) resultStatus(instanceName string) InstanceOpStatus {
 	return ""
 }
 
+// skippedByPrecheck 快照出被预检剔除的实例。
+// 此刻主循环还没开始跑，除了预检没人写过 InstanceSkipped，所以按状态筛选就够。
+func (op *BatchOperation) skippedByPrecheck() []InstanceResult {
+	op.mu.RLock()
+	defer op.mu.RUnlock()
+	var skipped []InstanceResult
+	for _, r := range op.InstanceResults {
+		if r.Status == InstanceSkipped {
+			skipped = append(skipped, *r)
+		}
+	}
+	return skipped
+}
+
 // signalSkip 让主循环跳过指定实例。
 //
 // 用户主动跳过与倒计时被取消都走这里：两条路径可能先后落在同一个实例上，
@@ -498,7 +573,9 @@ func (bm *BatchManager) runBatchOperation(op *BatchOperation) {
 		op.mu.Lock()
 		op.Status = "completed"
 		op.mu.Unlock()
-		op.logBroadcaster.Stop()
+
+		// 注意：不要在这里 Stop 广播器。它归 manager 所有、全程存活，
+		// 拆掉会把仍开着弹窗的 SSE 客户端一起踢下线
 
 		bm.mu.Lock()
 		if bm.current == op {
@@ -521,6 +598,12 @@ func (bm *BatchManager) runBatchOperation(op *BatchOperation) {
 	totalInstances := len(op.Instances)
 	realtime.BroadcastBatchOperationStarted(opTypeStr, totalInstances)
 	op.sendLog("info", fmt.Sprintf("Batch %s started with %d instances", opTypeStr, totalInstances), "")
+
+	// 预检剔除的实例在 StartOperation 里就标好了，这里补上日志：
+	// 广播器那时还没启动，不补的话前端只看到实例凭空变成 skipped，没有原因
+	for _, r := range op.skippedByPrecheck() {
+		op.sendLog("warning", fmt.Sprintf("Instance '%s' skipped: %s", r.InstanceName, r.Error), r.InstanceName)
+	}
 
 	// 阶段一：倒计时统一前置
 	if cancelled := op.runCountdownPhase(); cancelled {
@@ -549,6 +632,11 @@ func (bm *BatchManager) runBatchOperation(op *BatchOperation) {
 			op.sendLog("completed", fmt.Sprintf("[COMPLETED] %d/%d succeeded, %d failed (cancelled)", succeeded, totalInstances, failed), "")
 			return
 		default:
+		}
+
+		// 预检已经判定不可操作的实例，原因比 CAS 的通用文案精确，别让下面把它盖掉
+		if op.resultStatus(instanceName) == InstanceSkipped {
+			continue
 		}
 
 		// 检查跳过
@@ -628,6 +716,14 @@ func (op *BatchOperation) runCountdownPhase() bool {
 		return false
 	}
 
+	// 目标全被预检剔除（例如所有实例本来就是停止的）：没人可通知，直接进阶段二。
+	// 不早退的话这里会对着死实例空烧一整轮倒计时，公告发不出去、最后也停不掉，
+	// 期间单例锁一直被占，下一次批量操作只会拿到 ErrOperationInProgress。
+	if len(op.countdownTargets) == 0 {
+		op.sendLog("info", "没有正在运行的实例，跳过倒计时", "")
+		return false
+	}
+
 	action := countdown.ActionStop
 	if op.Type == BatchRestart {
 		action = countdown.ActionRestart
@@ -635,23 +731,36 @@ func (op *BatchOperation) runCountdownPhase() bool {
 
 	op.sendLog("info", fmt.Sprintf(
 		"倒计时开始：%d 秒后%s %d 个实例",
-		int(op.countdown.Total.Seconds()), action.Label(), len(op.Instances),
+		int(op.countdown.Total.Seconds()), action.Label(), len(op.countdownTargets),
 	), "")
 
-	res, err := countdown.Wait(op.ctx, op.Instances, action, op.countdown)
+	res, err := countdown.Wait(op.ctx, op.countdownTargets, action, op.countdown)
 	if err != nil {
 		op.sendLog("warning", "倒计时被取消，批量操作未执行", "")
 		return true
 	}
 
-	// 被单独取消的实例接进已有的 skip 机制，阶段二无需为此再加一条分支
+	// 没走完倒计时的实例接进已有的 skip 机制，阶段二无需为此再加一条分支。
+	// 「实例未运行」是 countdown 层的兜底命中（预检没拦住的漏网之鱼），
+	// 与「用户取消」是两回事，标错了会把排查引到错误的方向
+	notRunning := 0
 	for _, name := range res.Cancelled {
+		if errors.Is(res.Reason(name), countdown.ErrNotRunning) {
+			op.setResult(name, InstanceSkipped, "实例未运行")
+			op.signalSkip(name)
+			op.sendLog("warning", fmt.Sprintf("实例 '%s' 未在运行，将跳过", name), name)
+			notRunning++
+			continue
+		}
 		op.setResult(name, InstanceCancelled, "倒计时被取消")
 		op.signalSkip(name)
 		op.sendLog("warning", fmt.Sprintf("实例 '%s' 的倒计时被取消，将跳过", name), name)
 	}
 
-	if res.AllCancelled(len(op.Instances)) {
+	// 只有「用户把每一台都取消了」才算整批中止。
+	// 兜底判出的「未运行」不算——那些实例本来就无事可做，让阶段二的 CAS 正常收场即可，
+	// 否则会打出「倒计时被取消，批量操作未执行」这种把排查带偏的日志
+	if res.AllCancelled(len(op.countdownTargets)) && notRunning == 0 {
 		op.sendLog("warning", "所有实例的倒计时都被取消，批量操作未执行", "")
 		return true
 	}
@@ -736,6 +845,20 @@ func (op *BatchOperation) GetLogBroadcaster() *LogBroadcaster {
 // 不至于在批量操作卡住时被无限期拖住。
 func (op *BatchOperation) Done() <-chan struct{} {
 	return op.done
+}
+
+// operable 是阶段一之前的预检：这台实例现在值不值得纳入本轮批量操作。
+//
+// 与阶段二的 batchDoCAS 不是重复——CAS 在倒计时之后才跑，只能事后把实例标成 skipped；
+// 预检把判断提到倒计时之前，避免对着已停止的实例空播一轮公告。
+// CAS 仍然保留：倒计时期间状态可能变化，那一层才是权威门禁。
+//
+// 启动一律放行：启动本来就没有倒计时，交给阶段二的 CAS 判即可。
+func operable(instanceName string, opType BatchOperationType) (bool, string) {
+	if opType == BatchStart {
+		return true, ""
+	}
+	return instancepkg.IsStoppable(instanceName)
 }
 
 // batchDoCAS 为批量操作做原子 CAS。成功（ok=true）时状态已设置，调用方应传 WithStatePreset。

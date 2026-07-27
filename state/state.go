@@ -356,6 +356,25 @@ func GetLatestInstanceState(instanceName string) (InstanceState, error) {
 	return *status, err
 }
 
+// GetInstanceStateOrDefault 返回实例最新状态；无记录时按 stopped 处理。
+//
+// 与 CompareAndSwapInstanceState 的判据一致——那里也是把「无记录」当 stopped。
+// 需要区分「无记录」和「真的 stopped」时才用 GetLatestInstanceState：
+// 拿着它的 error 各自默默做假设，正是「界面显示已停止、预检却放行」那类分歧的来源。
+func GetInstanceStateOrDefault(instanceName string) InstanceState {
+	if instanceStateManager == nil {
+		return InstanceState{
+			InstanceName:  instanceName,
+			OperationTime: time.Now(),
+			Status:        StatusStopped,
+		}
+	}
+
+	instanceStateManager.mu.RLock()
+	defer instanceStateManager.mu.RUnlock()
+	return instanceStateManager.getLatestStateOrDefaultLocked(instanceName)
+}
+
 func GetInstanceStateIsStart(instanceName string) bool {
 	state, err := GetLatestInstanceState(instanceName)
 	if err != nil {

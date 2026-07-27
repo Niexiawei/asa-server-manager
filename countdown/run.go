@@ -3,10 +3,12 @@ package countdown
 import (
 	instancepkg "asa-server/instance"
 	"asa-server/logger"
+	procpkg "asa-server/process"
 	"asa-server/rconx"
 	"asa-server/realtime"
 	statepkg "asa-server/state"
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"sync"
@@ -124,7 +126,7 @@ func Wait(ctx context.Context, instances []string, action Action, cfg *Config) (
 // opts 透传给 instance.StopServer，调用方通常传 WithStatePreset。
 func Stop(ctx context.Context, instanceName string, cfg *Config, opts ...instancepkg.StartServerOptionsFunc) error {
 	if err := waitOne(ctx, instanceName, ActionStop, cfg); err != nil {
-		_ = statepkg.WriteInstanceState(instanceName, statepkg.StatusStarted, "")
+		rollbackState(instanceName, err)
 		return err
 	}
 
@@ -139,7 +141,7 @@ func Stop(ctx context.Context, instanceName string, cfg *Config, opts ...instanc
 // Restart 倒计时结束后重启实例。语义与 Stop 一致，最终调用 instance.RestartServer。
 func Restart(ctx context.Context, instanceName string, cfg *Config, opts ...instancepkg.StartServerOptionsFunc) error {
 	if err := waitOne(ctx, instanceName, ActionRestart, cfg); err != nil {
-		_ = statepkg.WriteInstanceState(instanceName, statepkg.StatusStarted, "")
+		rollbackState(instanceName, err)
 		return err
 	}
 
@@ -148,6 +150,27 @@ func Restart(ctx context.Context, instanceName string, cfg *Config, opts ...inst
 	}
 
 	return instancepkg.RestartServer(instanceName, opts...)
+}
+
+// isAlive 是 runOne 的存活判据。做成变量是为了让测试能绕开它——
+// 测试用的实例名都是假的，真去查进程只会一律判死。生产代码不要改写它。
+var isAlive = procpkg.IsInstanceProcessAlive
+
+// rollbackState 把调用方在 CAS 时抢占的 stopping/restarting 状态还回去。
+//
+// 倒计时被取消时回滚成 started 是对的：服务器这段时间一直正常跑着。
+// 但 ErrNotRunning 意味着实例本来就没在跑——给一台已经死掉的实例写出 started，
+// 会让下一次预检以为它还活着，正是「已停止的实例仍被拉进倒计时」那个 bug 的温床。
+func rollbackState(instanceName string, err error) {
+	_ = statepkg.WriteInstanceState(instanceName, rollbackStatusFor(err), "")
+}
+
+// rollbackStatusFor 是 rollbackState 的判定部分，单独拆出来便于测试。
+func rollbackStatusFor(err error) statepkg.InstanceStatus {
+	if errors.Is(err, ErrNotRunning) {
+		return statepkg.StatusStopped
+	}
+	return statepkg.StatusStarted
 }
 
 // waitOne 为单个实例跑一轮倒计时。未启用倒计时时直接返回 nil。
@@ -180,6 +203,19 @@ func waitOne(ctx context.Context, instanceName string, action Action, cfg *Confi
 func runOne(ctx context.Context, instanceName string, action Action, cfg *Config, deadline time.Time) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+
+	// 收口处的兜底：实例没在跑就别开这一轮。
+	//
+	// 判断本该由调用方做（batchmanage 的预检、serverapi 的 ensureStoppable），
+	// 但这里是所有倒计时的唯一入口，而漏判的代价很大：公告一条都发不出去，
+	// 前端却会挂出一条永远不会兑现的倒计时，到点了动作还是失败。
+	// 放在 register 之前——不登记，前端就不会看到那条假倒计时。
+	if !isAlive(instanceName) {
+		logger.GetLogger().Warnf(
+			"Skipping countdown for instance %s: %v", instanceName, ErrNotRunning,
+		)
+		return ErrNotRunning
+	}
 
 	if err := register(instanceName, action, deadline, cancel); err != nil {
 		logger.GetLogger().Warnf(

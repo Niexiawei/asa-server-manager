@@ -154,7 +154,7 @@
         <div class="select-header">批量操作日志</div>
         <div class="update-log-container">
           <div id="batchLogContainer" class="update-log">
-            <div v-if="batchLogs.length === 0 && !logsHydrating" class="log-line">
+            <div v-if="batchLogs.length === 0" class="log-line">
               暂无操作日志...
             </div>
             <div
@@ -188,7 +188,7 @@
 </template>
 
 <script setup>
-import {ref, computed, onMounted, onBeforeUnmount, nextTick, watch} from 'vue'
+import {ref, computed, onMounted, onBeforeUnmount, onDeactivated, nextTick, watch} from 'vue'
 import {
   batchStartServers,
   batchStopServers,
@@ -226,7 +226,6 @@ const OP_TYPE_LABELS = {start: '启动', stop: '停止', restart: '重启'}
 const batchRunning = ref(false)
 const batchLogs = ref([])
 // 日志拉取中：清空后到第一条到达之间为 true，用于抑制「暂无日志」占位闪烁
-const logsHydrating = ref(false)
 const batchProgress = ref(null)
 const batchOpType = ref('')
 const delaySeconds = ref(0)
@@ -298,16 +297,21 @@ watch(selectedInstances, (val) => {
 })
 
 // ========== 弹窗开关 ==========
-// 允许在批量运行中关闭：SSE 订阅位于组件作用域而非弹窗内容，
-// destroy-on-close 只销毁 DOM，关闭期间日志照常接收，重开即最新状态
+// 允许在批量运行中关闭：日志流跟着弹窗走，关闭即断开。
+// 关闭期间不会丢东西——运行态与进度由 WebSocket 经 serverStore 推送，与这条 SSE 无关；
+// 后端保留最近 500 条日志，重开时会完整回放
 function onDialogClose() {
   emits('update:visible', false)
 }
 
 watch(() => props.visible, (visible) => {
-  if (!visible) return
+  if (!visible) {
+    stopLogSubscription()
+    return
+  }
   // 重开时与后端同步一次，兜底关闭期间的状态漂移（如别处发起的批量）
   hydrateBatchStatus()
+  ensureLogSubscription()
   // destroy-on-close 重建了日志容器，滚动位置需要重新贴底
   scrollLogToBottom()
 })
@@ -365,7 +369,8 @@ async function submitBatch(opType, countdown) {
     batchProgress.value = {done: 0, total: res.data?.total || instances.length}
     instanceOpStatus.value = new Map(instances.map(name => [name, 'pending']))
 
-    startLogSubscription()
+    // 弹窗此刻必然开着；已有连接就复用，新日志会顺着同一条流推过来
+    ensureLogSubscription()
   } catch (error) {
     MessagePlugin.error(error.message || `${OP_TYPE_LABELS[opType]}操作失败`)
   }
@@ -382,6 +387,17 @@ function stopLogSubscription() {
   closeFn()
 }
 
+// ensureLogSubscription 是唯一该被外部调用的订阅入口。
+//
+// 只在弹窗打开时才连日志流：本组件挂在 ServerManager 上、无 v-if，
+// 而 ServerManager 又被 KeepAlive 缓存，不设这道闸的话首页一加载就会开一条流并一直挂着。
+// 已有连接就复用——后端是长连接，跨多轮批量都不用重连。
+function ensureLogSubscription() {
+  if (!props.visible) return
+  if (batchLogCloseFn) return
+  startLogSubscription()
+}
+
 function startLogSubscription() {
   stopLogSubscription()
   const seq = ++logSubscriptionSeq
@@ -390,12 +406,10 @@ function startLogSubscription() {
   // 后端订阅时会回放完整历史日志，必须先清空，否则重连会产生重复行。
   // 清空到第一条日志到达之间不显示「暂无日志」，免得闪一下
   batchLogs.value = []
-  logsHydrating.value = true
 
   batchLogCloseFn = streamBatchLogsSSE(
       (entry) => {
         if (!isCurrent()) return
-        logsHydrating.value = false
         batchLogs.value.push(entry)
         applyLogToInstanceStatus(entry)
         if (entry.level === 'success' || entry.level === 'error' ||
@@ -409,17 +423,12 @@ function startLogSubscription() {
       },
       (error) => {
         if (!isCurrent()) return
-        logsHydrating.value = false
-        // 没有批量在跑时这是一次历史回放探测，从未跑过批量就会 404，属预期
-        if (batchRunning.value) {
-          console.error('Batch log SSE error:', error)
-        }
+        console.error('Batch log SSE error:', error)
       },
       () => {
         if (!isCurrent()) return
-        logsHydrating.value = false
-        // 流已结束，句柄失效。不清掉的话，下一轮批量启动时
-        // hydrateBatchStatus 的 `!batchLogCloseFn` 守卫会被僵尸句柄挡住，导致收不到日志
+        // 走到这里说明连接是真的断了（服务端退出或致命错误）——主动关闭有 isCurrent 守卫拦着。
+        // 句柄要清掉，否则 ensureLogSubscription 会被僵尸句柄挡住，重开弹窗收不到日志
         batchLogCloseFn = null
         onBatchCompleted()
       }
@@ -466,7 +475,8 @@ function updateProgressFromLog() {
 function onBatchCompleted() {
   if (!batchRunning.value) return
   batchRunning.value = false
-  stopLogSubscription()
+  // 不断开日志流：它是跨操作的长连接，只跟着弹窗的开关走。
+  // 这里断开的话，紧接着再发起一轮批量就得重连，又回到「频繁建连」的老毛病
   emits('refresh')
   selectedInstances.value = []
 }
@@ -511,9 +521,7 @@ async function hydrateBatchStatus() {
             res.data.instances.map(r => [r.instance_name, r.status])
         )
       }
-      if (!batchLogCloseFn) {
-        startLogSubscription()
-      }
+      ensureLogSubscription()
       return
     }
 
@@ -532,12 +540,9 @@ async function hydrateBatchStatus() {
       onBatchCompleted()
     }
 
-    // 没有批量在跑：把上一轮的日志拉回来。后端回放完历史即关闭流，
-    // 所以这是一次性拉取而非长连接。已有日志时不重复拉——startLogSubscription
-    // 会先清空，万一服务端此刻没有历史（404）就会把现有日志白白清掉。
-    if (batchLogs.value.length === 0 && !batchLogCloseFn) {
-      startLogSubscription()
-    }
+    // 没有批量在跑：连上去把上一轮的日志拉回来，并继续挂着等新日志。
+    // 后端是长连接，回放完历史不会关流，之后新发起的批量也走这同一条
+    ensureLogSubscription()
   } catch (e) {
     // ignore
   }
@@ -576,10 +581,16 @@ function formatLogTime(ts) {
 
 // ========== 生命周期 ==========
 onMounted(() => {
-  // hydrateBatchStatus 内部已覆盖从 serverStore 兜底恢复的分支
+  // 只同步状态，不连日志流——挂载时弹窗通常是关着的，ensureLogSubscription 会自行拦下
   hydrateBatchStatus()
   batchStoreCallback = (eventType, event) => handleBatchStoreEvent(eventType, event)
   serverStore.batchCallbacks.push(batchStoreCallback)
+})
+
+// ServerManager 被 KeepAlive 缓存，切到别的页面时只 deactivate 不 unmount，
+// 只靠 onBeforeUnmount 的话这条流会在后台一直挂着
+onDeactivated(() => {
+  stopLogSubscription()
 })
 
 onBeforeUnmount(() => {

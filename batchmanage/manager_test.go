@@ -1,10 +1,14 @@
 package batchmanage
 
 import (
+	"asa-server/countdown"
+	instancepkg "asa-server/instance"
 	"asa-server/logger"
+	"context"
 	"os"
 	"sync"
 	"testing"
+	"time"
 )
 
 // 生产代码在部分路径上直接调 logger.GetLogger()，未初始化时它返回 nil。
@@ -195,5 +199,111 @@ func TestResultStatus(t *testing.T) {
 
 	if got := op.resultStatus("not-in-this-batch"); got != "" {
 		t.Errorf("不在本批中的实例应返回空串，实际 %q", got)
+	}
+}
+
+// newTestManager 构造一个带共享日志广播器的 manager，形态与 Initialize 一致。
+// 广播器归 manager 所有、跨操作存活，所以它的生命周期挂在测试上而非单次操作上。
+func newTestManager(t *testing.T) *BatchManager {
+	t.Helper()
+	lb := NewLogBroadcaster()
+	lb.Start()
+	t.Cleanup(lb.Stop)
+	return &BatchManager{logBroadcaster: lb}
+}
+
+// newRunnableOperation 构造一个可以真的跑 runBatchOperation 的操作。
+//
+// 比 newTestOperation 多出 ctx 与日志广播器：主循环要读 ctx.Done()、要发日志，
+// 缺一个就 nil 解引用。realtime 的广播在 hub 未初始化时是空操作，无需处理。
+func newRunnableOperation(bm *BatchManager, cd *countdown.Config, instances ...string) *BatchOperation {
+	op := newTestOperation(instances...)
+	op.ctx, op.cancel = context.WithCancel(context.Background())
+	op.countdown = cd
+	op.logBroadcaster = bm.logBroadcaster
+	return op
+}
+
+// 预检把实例全剔光时，阶段一必须直接退出。
+//
+// 这正是「所有服务器都已停止，却报 a batch operation is already running」的成因：
+// 早退没了的话，这里会对着死实例空烧一整轮倒计时，期间单例锁一直被占着。
+// 逻辑退化时本用例会卡满倒计时时长而超时，能直接抓到。
+func TestCountdownPhaseSkippedWhenNoTargets(t *testing.T) {
+	cd := countdown.FromSeconds(60, nil, "", "")
+	if !cd.Enabled() {
+		t.Fatal("测试前提：倒计时配置应为启用状态")
+	}
+
+	op := newRunnableOperation(newTestManager(t), cd, "inst-a", "inst-b")
+	op.countdownTargets = nil
+
+	done := make(chan bool, 1)
+	go func() { done <- op.runCountdownPhase() }()
+
+	select {
+	case cancelled := <-done:
+		if cancelled {
+			t.Error("没有倒计时目标不等于整批被取消，阶段二应照常执行")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("阶段一没有早退，说明对着无目标的批次仍在跑倒计时")
+	}
+}
+
+// 预检漏掉的实例由 countdown 层的兜底拦下（测试实例名不存在，判活必然为假）。
+// 要点有二：整批不能因此中止（那些实例本来就无事可做），
+// 且原因必须标成「实例未运行」而不是「倒计时被取消」——标错会把排查带偏。
+func TestCountdownPhaseMarksNotRunningRatherThanCancelled(t *testing.T) {
+	const name = "inst-a"
+	op := newRunnableOperation(newTestManager(t), countdown.FromSeconds(60, nil, "", ""), name)
+	op.countdownTargets = []string{name}
+
+	done := make(chan bool, 1)
+	go func() { done <- op.runCountdownPhase() }()
+
+	select {
+	case cancelled := <-done:
+		if cancelled {
+			t.Error("兜底判出的「未运行」不该让整批中止")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("未运行的实例应被兜底立即拦下，不该真的跑倒计时")
+	}
+
+	if got := op.resultStatus(name); got != InstanceSkipped {
+		t.Errorf("状态应为 skipped，实际 %q", got)
+	}
+	if got := op.InstanceResults[0].Error; got != "实例未运行" {
+		t.Errorf("原因应为「实例未运行」，实际 %q", got)
+	}
+}
+
+// 预检给出的原因比阶段二 CAS 的通用文案精确，主循环不能盖掉它。
+// 全部实例都被预检剔除时，整批还应当立刻结束——单例锁不该被白占。
+func TestPreSkippedResultKeepsReason(t *testing.T) {
+	const name = "inst-a"
+
+	bm := newTestManager(t)
+	op := newRunnableOperation(bm, nil, name)
+	op.setResult(name, InstanceSkipped, instancepkg.ReasonNotStarted)
+	bm.current = op
+
+	go bm.runBatchOperation(op)
+
+	select {
+	case <-op.Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("全部实例都被预检剔除时，批量操作应立刻结束")
+	}
+
+	if got := op.resultStatus(name); got != InstanceSkipped {
+		t.Errorf("状态应保持 skipped，实际 %q", got)
+	}
+	if got := op.InstanceResults[0].Error; got != instancepkg.ReasonNotStarted {
+		t.Errorf("预检原因被覆盖了，实际 %q", got)
+	}
+	if bm.current != nil {
+		t.Error("操作结束后应释放单例，否则下一次会拿到 ErrOperationInProgress")
 	}
 }

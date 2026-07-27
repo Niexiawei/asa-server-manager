@@ -80,7 +80,7 @@ func (h *Handler) listInstances(c *gin.Context) {
 	for _, instanceName := range instances {
 		running, err := procpkg.IsServerRunning(instanceName)
 		config, cfgErr := cfgpkg.LoadInstanceConfig(instanceName)
-		_status, _ := statepkg.GetLatestInstanceState(instanceName)
+		_status := statepkg.GetInstanceStateOrDefault(instanceName)
 		history, _ := statepkg.GetInstanceStateHistory(instanceName, 200)
 
 		info := InstanceInfo{
@@ -204,7 +204,7 @@ func (h *Handler) getInstanceStatus(c *gin.Context) {
 	}
 	running, err := procpkg.IsServerRunning(name)
 	config, cfgErr := cfgpkg.LoadInstanceConfig(name)
-	_status, _ := statepkg.GetLatestInstanceState(name)
+	_status := statepkg.GetInstanceStateOrDefault(name)
 	history, _ := statepkg.GetInstanceStateHistory(name, 200)
 	info := InstanceInfo{
 		Name:          name,

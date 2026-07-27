@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"asa-server/realtime"
 
@@ -138,25 +139,26 @@ func getBatchStatus(c *gin.Context) {
 	})
 }
 
+// streamBatchLogs 是一条**长连接**：连上就回放历史，之后新日志——包括连接期间
+// 新发起的那几轮批量——继续在同一条流里推，直到客户端断开或进程退出。
+//
+// 千万别再因为「当前没有批量在跑」就提前 return。以前那样做的后果是：
+// 200 已经提交，流却在亚毫秒内结束，而 EventSource 分不清「服务端正常收尾」和
+// 「连接抖断」，于是按默认 3 秒无限重连，日志里全是 0ms 的 200。
+// 连接的建立与断开由前端弹窗的开启状态决定，这里只管一直推。
 func streamBatchLogs(c *gin.Context) {
 	mgr := GetGlobalManager()
 	if mgr == nil {
 		c.JSON(http.StatusNotFound, gin.H{
 			"success": false,
-			"error":   "No active batch operation",
+			"error":   "Batch manager not initialized",
 		})
 		return
 	}
 
-	// 用 GetCurrentOrLast：没有进行中的操作时回放最近一轮的历史日志
-	op := mgr.GetCurrentOrLast()
-	if op == nil {
-		c.JSON(http.StatusNotFound, gin.H{
-			"success": false,
-			"error":   "No batch operation logs available",
-		})
-		return
-	}
+	// 先订阅再回放，避免两者之间的日志漏帧
+	subscriber, unsubscribe, ok := mgr.GetLogBroadcaster().Subscribe()
+	defer unsubscribe()
 
 	// 设置 SSE headers
 	c.Header("Content-Type", "text/event-stream")
@@ -166,38 +168,55 @@ func streamBatchLogs(c *gin.Context) {
 	c.Header("X-Accel-Buffering", "no")
 	c.Writer.Flush()
 
-	// 先回放历史日志
-	history := op.GetLogHistory()
-	for _, entry := range history {
-		data, _ := json.Marshal(entry)
-		fmt.Fprintf(c.Writer, "data: %s\n\n", data)
+	// 回放历史。用 GetCurrentOrLast：没有进行中的操作时回放最近一轮的日志；
+	// 一次都没跑过时它是 nil，跳过回放照样把连接挂着等新日志
+	if op := mgr.GetCurrentOrLast(); op != nil {
+		for _, entry := range op.GetLogHistory() {
+			data, _ := json.Marshal(entry)
+			fmt.Fprintf(c.Writer, "data: %s\n\n", data)
+		}
 		c.Writer.Flush()
 	}
 
-	// 已结束的操作只回放历史就够了。它的 broadcaster 已经 Stop，
-	// 订阅上去只会把这个 handler goroutine 挂到客户端断开，且永远收不到任何东西。
-	if !op.IsRunning() {
+	// 广播器已停止（进程正在退出）：回放完就收工
+	if !ok {
+		sendStreamEnd(c)
 		return
 	}
 
-	// 订阅新日志
-	subscriber, unsubscribe := op.GetLogBroadcaster().Subscribe()
-	defer unsubscribe()
+	// 长时间没有批量时这条流是零流量的，定期发个注释帧免得被反向代理判空闲掐掉
+	keepalive := time.NewTicker(30 * time.Second)
+	defer keepalive.Stop()
 
 	ctx := c.Request.Context()
 	for {
 		select {
-		case entry, ok := <-subscriber:
-			if !ok {
+		case entry, chOpen := <-subscriber:
+			if !chOpen {
+				// 广播器被 Stop，即进程正在退出
+				sendStreamEnd(c)
 				return
 			}
 			data, _ := json.Marshal(entry)
 			fmt.Fprintf(c.Writer, "data: %s\n\n", data)
 			c.Writer.Flush()
+		case <-keepalive.C:
+			fmt.Fprint(c.Writer, ": keepalive\n\n")
+			c.Writer.Flush()
 		case <-ctx.Done():
+			// 客户端主动断开（弹窗关了）：不用发 end，对面已经不听了
 			return
 		}
 	}
+}
+
+// sendStreamEnd 告诉客户端这条流是**服务端主动收尾**的，别再重连。
+//
+// EventSource 分不清正常收尾和连接抖断，两者都是 error + readyState CONNECTING，
+// 不显式说一声，浏览器就会按默认 3 秒一直重连。
+func sendStreamEnd(c *gin.Context) {
+	fmt.Fprint(c.Writer, "event: end\ndata: {}\n\n")
+	c.Writer.Flush()
 }
 
 func cancelBatch(c *gin.Context) {

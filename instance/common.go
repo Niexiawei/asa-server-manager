@@ -6,7 +6,9 @@ import (
 	"asa-server/mirror"
 	"asa-server/pkg/tail"
 	"asa-server/pkg/winproc"
+	procpkg "asa-server/process"
 	"asa-server/rconx"
+	statepkg "asa-server/state"
 	"bufio"
 	"bytes"
 	"context"
@@ -22,6 +24,68 @@ import (
 	"time"
 	"unicode/utf8"
 )
+
+// 停止类操作的预检文案，面向用户，可直接展示。
+const (
+	ReasonNotStarted  = "实例当前不处于已启动状态"
+	ReasonProcessGone = "实例进程已不存在"
+)
+
+// IsStoppable 判断实例是否真的可以停止：状态必须是 started，且进程确实还活着。
+// 返回的 reason 面向用户，可直接展示。
+//
+// 为什么两个判据都要看：状态是 BadgerDB 里的记录，服务器崩溃时不会自动更新；
+// 只看状态会让已经死掉的实例被拉进倒计时，白等一轮公告发不出去，最后还是停不掉。
+//
+// **副作用**：实例没有状态记录时会补写一条（见 reconcileMissingState）。
+func IsStoppable(instanceName string) (bool, string) {
+	state, err := statepkg.GetLatestInstanceState(instanceName)
+	if err != nil {
+		return reconcileMissingState(instanceName)
+	}
+	if state.Status != statepkg.StatusStarted {
+		return false, ReasonNotStarted
+	}
+	// 先状态后进程：全停的场景下一次 netstat 都不会跑
+	if !procpkg.IsInstanceProcessAlive(instanceName) {
+		return false, ReasonProcessGone
+	}
+	return true, ""
+}
+
+// reconcileMissingState 处理「读不到状态记录」：改用进程存活作判据，并补写一条记录。
+//
+// 不能像以前那样直接放行。GetLatestInstanceState 在实例从没写过状态时会返回
+// "no state found"（新建的实例、改过名的实例——状态键前缀是 state:{name}:，
+// 改名后旧记录就成了孤儿——或者状态库被重置过）。
+// 而 CompareAndSwapInstanceState 对这种情况**并不报错**：它把无记录当 stopped，
+// 悄悄 return false 把实例 skip 掉。放行的话，倒计时会先白烧一整轮，
+// 公告一条都发不出去，等 CAS 收场时人已经等完了。
+//
+// 补写记录是为了让 CAS、前端列表、下一次预检读到同一个事实：
+// 进程活着就补 started（否则倒计时跑完，CAS 仍会因「无记录 = stopped」把它 skip 掉），
+// 进程没了就补 stopped。
+func reconcileMissingState(instanceName string) (bool, string) {
+	alive := procpkg.IsInstanceProcessAlive(instanceName)
+
+	status := statepkg.StatusStopped
+	if alive {
+		status = statepkg.StatusStarted
+	}
+
+	logger.GetLogger().Warnf(
+		"Instance '%s' has no state record; reconciling to %s based on the live process",
+		instanceName, status,
+	)
+	if err := statepkg.WriteInstanceState(instanceName, status, ""); err != nil {
+		logger.GetLogger().Errorf("Failed to reconcile state for instance '%s': %v", instanceName, err)
+	}
+
+	if !alive {
+		return false, ReasonProcessGone
+	}
+	return true, ""
+}
 
 func killGameServer(pid int) {
 	if err := exec.Command("taskkill", "/PID", fmt.Sprintf("%d", pid), "/T").Run(); err != nil {

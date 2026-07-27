@@ -23,7 +23,7 @@ A comprehensive ARK Server Ascended (ASA) server management tool built with Go a
 ## System Requirements
 
 - **Operating System**: Windows 10/11 (64-bit)
-- **Go Version**: 1.25.4 or higher (for development)
+- **Go Version**: 1.26 or higher (for development)
 - **Node.js**: 16.x or higher (for frontend development)
 - **Disk Space**: Minimum 20GB for server files and instances
 - **RAM**: 8GB minimum, 16GB recommended
@@ -159,24 +159,45 @@ The dashboard provides a user-friendly interface for:
 
 ### Directory Structure
 
+The former `asaserver` god-package has been split by single responsibility into the domain
+packages below; pure utilities live under `pkg/`. See
+[docs/PACKAGE_RESTRUCTURE_PLAN.md](docs/PACKAGE_RESTRUCTURE_PLAN.md) for the rationale.
+
 ```
-d:\golang\asa-server\
-├── actions/             # Command-line action handlers
-├── app/                 # Vue.js frontend application
-├── asaserver/           # Core server management logic
-├── backup/              # Backup and restore functionality
-├── docs/                # Documentation files
-├── frpmanage/           # FRP integration
-├── logger/              # Logging system
-├── processjob/          # Process management
-├── serverinfo/          # Server information gathering
-├── syncthingmanage/     # Syncthing integration
-├── tui/                 # Text-based user interface components
-├── webapi/              # HTTP API implementation
-├── win32api/            # Windows API bindings
-├── winservice/          # Windows service functionality
-├── main.go              # Application entry point
-└── README.md            # This file
+asa-server/
+├── main.go              # Entry point: CLI, GUI, Windows service detection
+│
+│  ── Domain packages (bottom-up, no cycles) ──
+├── pkg/                 # Leaf utilities: fsutil, winproc, netutil, tail, console, iox,
+│                        #   processjob (Windows Job Objects), serverinfo (gopsutil metrics)
+├── config/              # Directory layout, InstanceConfig, INI read/write, config sync
+├── process/             # PID store + IsServerRunning (breaks the state <-> instance cycle)
+├── rconx/               # RCON connection & command execution (retries, sentinel errors)
+├── realtime/            # WebSocket hub: server events + interactive RCON
+├── state/               # BadgerDB instance state persistence (CAS state machine)
+├── installer/           # SteamCMD download / ARK server update
+├── mirror/              # Per-instance NTFS junction mirrors
+├── instance/            # Lifecycle: Start/Stop/Restart, saves, mod extraction, ASA version
+├── countdown/           # Delayed stop/restart orchestration: countdown + in-game announcements
+├── batchmanage/         # Batch start/stop/restart across instances (see docs/BATCH_OPERATION.md)
+├── schedule/            # Cron-like scheduled tasks (restart / update)
+├── updatemanage/        # Server update task singleton
+│
+│  ── Interfaces ──
+├── webapi/              # HTTP API, split by domain: instanceapi, serverapi, backupapi,
+│                        #   configapi, saveapi, logapi, iconapi, apiresp
+├── app/                 # Embedded Vue.js frontend (//go:embed dist)
+├── gui/                 # Fyne desktop GUI (system tray, service mgmt, log viewer)
+├── winservice/          # Windows service integration (kardianos/service)
+├── actions/             # CLI command handlers
+│
+│  ── Supporting ──
+├── backup/              # tar+zstd backup/restore with functional options
+├── frpmanage/           # FRP reverse proxy management (embedded frpc.exe)
+├── syncthingmanage/     # Syncthing file sync management (embedded syncthing.exe)
+├── parseserver/         # ARK save file parsing
+├── logger/              # Zap + lumberjack structured logging with rotation
+└── docs/                # Documentation (see index below)
 ```
 
 ### Instance Directory Structure
@@ -193,7 +214,7 @@ instances/
 
 ## HTTP API
 
-The HTTP API provides RESTful endpoints for all server management functions. For detailed documentation, see the [API Documentation](docs/API_GUIDE.md).
+The HTTP API provides RESTful endpoints for all server management functions. For detailed documentation, see the [API Reference](docs/API_REFERENCE.md).
 
 ### Key API Endpoints
 
@@ -242,7 +263,7 @@ Syncthing integration allows for easy synchronization of configuration files acr
 
 ### Prerequisites
 
-- Go 1.25.4 or higher
+- Go 1.26 or higher
 - Node.js 16.x or higher
 - npm 8.x or higher
 
@@ -300,6 +321,61 @@ Ensure `asa-manager.exe` is in your PATH or run it from the correct directory.
 #### API Server Not Accessible
 - Check if the service is running
 - Verify firewall settings allow traffic on port 19193
+
+## Documentation
+
+All documentation lives in [`docs/`](docs/). Start with [docs/README.md](docs/README.md) for the
+Chinese overview, or jump straight to a topic below.
+
+### Architecture & Design
+
+| Document | What it covers |
+|----------|----------------|
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | System architecture and design patterns |
+| [PACKAGE_RESTRUCTURE_PLAN.md](docs/PACKAGE_RESTRUCTURE_PLAN.md) | Splitting the `asaserver` god-package into domain packages |
+| [STATE_CONTROL.md](docs/STATE_CONTROL.md) | Instance state machine, CAS transitions, mutual exclusion |
+| [V2_MIRROR_STARTUP_ARCHITECTURE.md](docs/V2_MIRROR_STARTUP_ARCHITECTURE.md) | NTFS junction mirrors for parallel instance startup |
+| [instance-manager-daemon.md](docs/instance-manager-daemon.md) | Instance manager daemon design |
+
+### Features
+
+| Document | What it covers |
+|----------|----------------|
+| [BATCH_OPERATION.md](docs/BATCH_OPERATION.md) | **Batch start/stop/restart** — orchestration, preflight, CAS, SSE log stream |
+| [stop-restart-countdown.md](docs/stop-restart-countdown.md) | Delayed stop/restart countdown with in-game announcements |
+| [COUNTDOWN_RCON_REFACTOR_PLAN.md](docs/COUNTDOWN_RCON_REFACTOR_PLAN.md) | Extracting the `countdown` and `rconx` packages |
+| [SCHEDULE_RUN_LOG_DESIGN.md](docs/SCHEDULE_RUN_LOG_DESIGN.md) | Scheduled tasks and their run logs |
+| [ARK_SAVE_PARSE_SOLUTION.md](docs/ARK_SAVE_PARSE_SOLUTION.md) | ARK save file parsing |
+| [PARSESERVER_REDESIGN.md](docs/PARSESERVER_REDESIGN.md) | `parseserver` redesign |
+| [state-change-ws-push.md](docs/state-change-ws-push.md) | Pushing state changes over WebSocket |
+| [ws-state-push-refactor.md](docs/ws-state-push-refactor.md) | WebSocket state push refactor |
+| [VirtualLogList.md](docs/VirtualLogList.md) | Virtualized log list (frontend) |
+
+### Reference
+
+| Document | What it covers |
+|----------|----------------|
+| [API_REFERENCE.md](docs/API_REFERENCE.md) | Complete HTTP API reference |
+| [CHEATSHEET.md](docs/CHEATSHEET.md) | Commands, config, and RCON quick reference |
+| [asa-server-configuration.md](docs/asa-server-configuration.md) | ARK server configuration reference |
+| [asa-game-configuration-reference.md](docs/asa-game-configuration-reference.md) | Game.ini / GameUserSettings.ini reference |
+| [game-ini-visual-config-guide.md](docs/game-ini-visual-config-guide.md) | Visual guide to Game.ini options |
+| [asa-creatureids.md](docs/asa-creatureids.md) · [asa-itemsids.md](docs/asa-itemsids.md) · [asa-engrams.md](docs/asa-engrams.md) | Creature / item / engram ID tables |
+
+### Migration & History
+
+| Document | What it covers |
+|----------|----------------|
+| [MIGRATION.md](docs/MIGRATION.md) | Migrating from the old bash scripts |
+| [V2_MIGRATION_PLAN.md](docs/V2_MIGRATION_PLAN.md) · [V2_MIGRATION_CHANGELOG.md](docs/V2_MIGRATION_CHANGELOG.md) | v2 migration plan and changelog |
+| [STARTUP_FIXES.md](docs/STARTUP_FIXES.md) | Startup/shutdown fixes log |
+
+### Tooling
+
+| Document | What it covers |
+|----------|----------------|
+| [ark-translation-tool.md](docs/ark-translation-tool.md) | ARK translation tool |
+| [download-creature-icons.md](docs/download-creature-icons.md) · [download-item-icons.md](docs/download-item-icons.md) | Icon download scripts |
 
 ## Contributing
 

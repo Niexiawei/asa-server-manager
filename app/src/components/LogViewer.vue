@@ -90,6 +90,7 @@ import {ref, computed, nextTick, watch, onUnmounted} from 'vue'
 import {streamInstanceLogs, streamAsaApiLogs} from '@/apis/api.js'
 import {getInstanceStatus} from '@/store/serverStore.js'
 import VirtualLogList from '@/components/VirtualLogList.vue'
+import {isShouldMonitorLogs} from "@/composables/useInstanceState.js";
 
 const props = defineProps({
   instanceName: {
@@ -171,7 +172,7 @@ watch(
     },
     (newVal) => {
       const shouldMonitor = newVal.isStartingOrRunning === true ||
-          ['starting', 'started', 'stopping', 'restarting', 'restarted'].includes(newVal.status)
+          isShouldMonitorLogs(newVal.status)
 
       allChannels.forEach((ch) => {
         if (shouldMonitor && !ch.isStreaming.value) {

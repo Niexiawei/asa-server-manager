@@ -89,6 +89,31 @@ func (h *Handler) startServer(c *gin.Context) {
 	})
 }
 
+// ensureStoppable 在 CAS 之前确认实例真的还活着，返回 false 表示已写过响应、调用方直接 return。
+//
+// CAS 只看 BadgerDB 里的状态，而服务器崩溃时那条记录还停在 started。
+// 只靠 CAS 放行的话，实例会带着一轮倒计时空转：公告发不出去（RCON 连不上），
+// 到点了 StopServer 还是失败。进程确实没了就顺手把状态修正回 stopped，
+// 免得用户反复点停止、每次都要等一轮倒计时才失败。
+func ensureStoppable(c *gin.Context, name string) bool {
+	ok, reason := instancepkg.IsStoppable(name)
+	if ok {
+		return true
+	}
+
+	if reason == instancepkg.ReasonProcessGone {
+		if err := statepkg.WriteInstanceState(name, statepkg.StatusStopped, ""); err != nil {
+			logger.GetLogger().Errorf("Failed to reconcile state for instance '%s': %v", name, err)
+		}
+	}
+
+	c.JSON(http.StatusConflict, apiresp.StatusResponse{
+		Success: false,
+		Error:   fmt.Sprintf("服务器 '%s' %s", name, reason),
+	})
+	return false
+}
+
 func (h *Handler) stopServer(c *gin.Context) {
 	name := c.Param("name")
 
@@ -97,6 +122,10 @@ func (h *Handler) stopServer(c *gin.Context) {
 	cfg, err := countdown.FromQuery(c.Query)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, apiresp.StatusResponse{Success: false, Error: err.Error()})
+		return
+	}
+
+	if !ensureStoppable(c, name) {
 		return
 	}
 
@@ -133,6 +162,10 @@ func (h *Handler) restartServer(c *gin.Context) {
 	cfg, err := countdown.FromQuery(c.Query)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, apiresp.StatusResponse{Success: false, Error: err.Error()})
+		return
+	}
+
+	if !ensureStoppable(c, name) {
 		return
 	}
 

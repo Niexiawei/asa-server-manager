@@ -72,38 +72,48 @@ http://localhost:19193/health # 健康检查
 
 ## 项目结构
 
+原 `asaserver` 神包已按单一职责拆分为下列领域包，纯工具集中到 `pkg/`。
+拆分理由见 [PACKAGE_RESTRUCTURE_PLAN.md](PACKAGE_RESTRUCTURE_PLAN.md)。
+
 ```
 asa-server/
 ├── main.go                  # 入口：CLI 命令、GUI、Windows 服务检测
-├── asaserver/               # 核心：实例生命周期、配置、RCON、安装器、状态管理
-│   ├── config.go            # 目录布局、InstanceConfig、INI 读写
-│   ├── server.go            # 启动/停止/重启、RCON 命令
-│   ├── common.go            # 日志 tail（fsnotify）、文件工具、mod 提取
-│   ├── installer.go         # SteamCMD 下载、ARK 服务器更新
-│   └── state_manager.go     # BadgerDB 实例状态持久化
-├── asaserverv2/             # 核心 v2：重构中的实例管理（mirror、force_stop 等）
-├── webapi/                  # HTTP API + WebSocket + SSE
-│   ├── actions.go           # APIServer 结构、路由注册
-│   ├── api.go               # 所有 HTTP 处理器
-│   ├── broadcast.go         # TaskBroadcaster 发布/订阅
-│   ├── task.go              # 后台任务（更新、批量操作）
-│   └── ws.go                # WebSocket 事件广播 + RCON
-├── gui/                     # Fyne 桌面 GUI（系统托盘、服务管理、日志查看）
-├── winservice/              # Windows 服务集成（kardianos/service）
-├── actions/                 # CLI 命令处理器（update）
-├── backup/                  # tar+zstd 备份/恢复（函数选项模式）
-├── frpmanage/               # FRP 反向代理管理（内嵌 frpc.exe）
-├── syncthingmanage/         # Syncthing 文件同步管理（内嵌 syncthing.exe）
-├── processjob/              # Windows Job Object 进程树管理
-├── serverinfo/              # CPU/内存/进程指标（gopsutil）
-├── parseserver/             # ARK 存档解析（go-arkparser + save_monitor）
-├── win32api/                # Windows API 互操作（user32/kernel32）
-├── common/                  # 共享工具（DNS 解析、WMI 查询）
-├── githubreleases/          # GitHub Releases API 客户端（带下载进度）
-├── logger/                  # Zap + lumberjack 结构化日志（带轮转）
+│
+│  ── 领域包（自底向上，无环）──
+├── pkg/                     # 叶子工具：fsutil、winproc、netutil、tail、console、iox、
+│                            #   processjob（Windows Job Object）、serverinfo（gopsutil 指标）
+├── config/                  # 目录布局、InstanceConfig、INI 读写、配置同步
+├── process/                 # PID 文件存储 + IsServerRunning（解 state ↔ instance 环的关键层）
+├── rconx/                   # RCON 连接与命令执行（重试、哨兵错误）
+├── realtime/                # WebSocket 中枢：服务器事件 + 交互式 RCON
+├── state/                   # BadgerDB 实例状态持久化（CAS 状态机）
+├── installer/               # SteamCMD 下载、ARK 服务器更新
+├── mirror/                  # 实例镜像 / NTFS junction 管理
+├── instance/                # 生命周期 Start/Stop/Restart、存档、Mod 提取、ASA 版本
+├── countdown/               # 延迟停止/重启编排：倒计时 + 游戏内公告 + 登记表
+├── batchmanage/             # 多实例批量启停（详见 BATCH_OPERATION.md）
+├── schedule/                # 定时任务（重启 / 更新）
+├── updatemanage/            # 服务器更新任务单例
+│
+│  ── 交互层 ──
+├── webapi/                  # HTTP API，按领域拆子包
+│   ├── actions.go           # APIServer 装配 + setupRoutes
+│   ├── state_dispatcher.go  # 状态变更 WS 推送
+│   └── instanceapi/ serverapi/ backupapi/ configapi/ saveapi/ logapi/ iconapi/ apiresp/
 ├── app/                     # 内嵌 Vue.js 前端（//go:embed dist）
 │   ├── appembed.go          # 内嵌 dist/ 供 Gin 静态服务
 │   └── src/                 # Vue.js 源码（TDesign 组件）
+├── gui/                     # Fyne 桌面 GUI（系统托盘、服务管理、日志查看）
+├── winservice/              # Windows 服务集成（kardianos/service）
+├── actions/                 # CLI 命令处理器（update）
+│
+│  ── 支撑 ──
+├── backup/                  # tar+zstd 备份/恢复（函数选项模式）
+├── frpmanage/               # FRP 反向代理管理（内嵌 frpc.exe）
+├── syncthingmanage/         # Syncthing 文件同步管理（内嵌 syncthing.exe）
+├── parseserver/             # ARK 存档解析（go-arkparser + save_monitor）
+├── githubreleases/          # GitHub Releases API 客户端（带下载进度）
+├── logger/                  # Zap + lumberjack 结构化日志（带轮转）
 └── docs/                    # 文档
 ```
 
@@ -125,6 +135,8 @@ asa-server/
 ├── syncthing/               # 提取的 syncthing.exe
 ├── database_file/           # BadgerDB 状态数据
 ├── logs/                    # asaServer.log、arkApiLog.log
+├── schedules.json           # 定时任务定义（顶层数组，可手改）
+├── schedule_logs.json       # 定时任务执行日志（全局滚动窗口，最多 500 条）
 └── log_mapping.json         # 实例到日志文件的映射
 ```
 
@@ -149,16 +161,55 @@ asa-server/
 
 ## 文档索引
 
+### 架构与设计
+
 | 文档 | 说明 |
 |------|------|
-| [API_REFERENCE.md](API_REFERENCE.md) | HTTP API 完整参考（56 个端点） |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | 系统架构与设计模式 |
-| [CHEATSHEET.md](CHEATSHEET.md) | 命令、配置、RCON 速查 |
-| [MIGRATION.md](MIGRATION.md) | 从 bash 脚本迁移指南 |
-| [STATE_CONTROL.md](STATE_CONTROL.md) | 实例状态控制与互斥机制 |
-| [STARTUP_FIXES.md](STARTUP_FIXES.md) | 启动/停止流程修复记录 |
+| [PACKAGE_RESTRUCTURE_PLAN.md](PACKAGE_RESTRUCTURE_PLAN.md) | `asaserver` 神包按领域拆分方案 |
+| [STATE_CONTROL.md](STATE_CONTROL.md) | 实例状态机、CAS 转换与互斥机制 |
+| [V2_MIRROR_STARTUP_ARCHITECTURE.md](V2_MIRROR_STARTUP_ARCHITECTURE.md) | NTFS 镜像目录方案，支持多实例并行启动 |
+| [instance-manager-daemon.md](instance-manager-daemon.md) | 实例管理守护进程设计 |
+
+### 功能设计
+
+| 文档 | 说明 |
+|------|------|
+| [BATCH_OPERATION.md](BATCH_OPERATION.md) | **批量启停** —— 编排流程、预检、CAS、SSE 日志长连接 |
+| [stop-restart-countdown.md](stop-restart-countdown.md) | 延迟停止/重启倒计时与游戏内公告 |
+| [COUNTDOWN_RCON_REFACTOR_PLAN.md](COUNTDOWN_RCON_REFACTOR_PLAN.md) | `countdown` / `rconx` 包拆分方案 |
+| [SCHEDULE_RUN_LOG_DESIGN.md](SCHEDULE_RUN_LOG_DESIGN.md) | 定时任务与执行日志 |
 | [ARK_SAVE_PARSE_SOLUTION.md](ARK_SAVE_PARSE_SOLUTION.md) | ARK 存档解析设计方案 |
-| [V2_MIGRATION_CHANGELOG.md](V2_MIGRATION_CHANGELOG.md) | asaserverv2 → asaserver 迁移变更日志 |
+| [PARSESERVER_REDESIGN.md](PARSESERVER_REDESIGN.md) | `parseserver` 重构设计 |
+| [state-change-ws-push.md](state-change-ws-push.md) | 状态变更的 WebSocket 推送 |
+| [ws-state-push-refactor.md](ws-state-push-refactor.md) | WebSocket 状态推送重构 |
+| [VirtualLogList.md](VirtualLogList.md) | 前端虚拟滚动日志列表 |
+
+### 参考手册
+
+| 文档 | 说明 |
+|------|------|
+| [API_REFERENCE.md](API_REFERENCE.md) | HTTP API 完整参考 |
+| [CHEATSHEET.md](CHEATSHEET.md) | 命令、配置、RCON 速查 |
+| [asa-server-configuration.md](asa-server-configuration.md) | ARK 服务器配置参考 |
+| [asa-game-configuration-reference.md](asa-game-configuration-reference.md) | Game.ini / GameUserSettings.ini 参考 |
+| [game-ini-visual-config-guide.md](game-ini-visual-config-guide.md) | Game.ini 可视化配置指南 |
+| [asa-creatureids.md](asa-creatureids.md) · [asa-itemsids.md](asa-itemsids.md) · [asa-engrams.md](asa-engrams.md) | 生物 / 物品 / 引擎蓝图 ID 对照表 |
+
+### 迁移与历史
+
+| 文档 | 说明 |
+|------|------|
+| [MIGRATION.md](MIGRATION.md) | 从 bash 脚本迁移指南 |
+| [V2_MIGRATION_PLAN.md](V2_MIGRATION_PLAN.md) · [V2_MIGRATION_CHANGELOG.md](V2_MIGRATION_CHANGELOG.md) | v2 迁移方案与变更日志 |
+| [STARTUP_FIXES.md](STARTUP_FIXES.md) | 启动/停止流程修复记录 |
+
+### 工具
+
+| 文档 | 说明 |
+|------|------|
+| [ark-translation-tool.md](ark-translation-tool.md) | ARK 翻译工具 |
+| [download-creature-icons.md](download-creature-icons.md) · [download-item-icons.md](download-item-icons.md) | 图标下载脚本 |
 
 ## 开发说明
 

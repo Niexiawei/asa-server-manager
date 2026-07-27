@@ -1,6 +1,7 @@
 package countdown
 
 import (
+	statepkg "asa-server/state"
 	"context"
 	"errors"
 	"sync"
@@ -401,4 +402,71 @@ func waitForRegistration(t *testing.T, instanceName string) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("实例 %s 未在预期时间内进入登记表", instanceName)
+}
+
+// withAlive 临时改写存活判据，用于验证兜底本身。
+func withAlive(t *testing.T, alive bool) {
+	t.Helper()
+	prev := isAlive
+	isAlive = func(string) bool { return alive }
+	t.Cleanup(func() { isAlive = prev })
+}
+
+// 实例没在运行时，倒计时压根不该开始，更不该在登记表里留下条目——
+// 留了的话前端就会挂出一条永远不会兑现的「x 分 y 秒后关闭」，
+// 而公告一条都发不出去。这是本轮 bug 的直接回归防线。
+func TestRunOneRejectsDeadInstance(t *testing.T) {
+	const name = "___countdown_dead_instance"
+	withAlive(t, false)
+
+	cfg, deadline := shortConfig(50 * time.Millisecond)
+	err := runOne(context.Background(), name, ActionStop, &cfg, deadline)
+
+	if !errors.Is(err, ErrNotRunning) {
+		t.Fatalf("应返回 ErrNotRunning，实际 %v", err)
+	}
+	if _, ok := Get(name); ok {
+		t.Error("被拒绝的实例不应出现在登记表里，否则前端会显示假倒计时")
+	}
+}
+
+// Wait 侧同样要拦住，并把原因如实带回给调用方（batchmanage 靠它区分
+// 「实例未运行」和「用户取消」，标错会把排查引到错误的方向）
+func TestWaitReportsNotRunning(t *testing.T) {
+	const name = "___countdown_dead_via_wait"
+	withAlive(t, false)
+
+	cfg := &Config{Total: MinTotal, Points: []time.Duration{10 * time.Second}}
+
+	done := make(chan Result, 1)
+	go func() {
+		res, err := Wait(context.Background(), []string{name}, ActionStop, cfg)
+		if err != nil {
+			t.Errorf("父 ctx 未取消，不该返回 error: %v", err)
+		}
+		done <- res
+	}()
+
+	select {
+	case res := <-done:
+		if !res.IsCancelled(name) {
+			t.Fatal("未运行的实例应出现在 Cancelled 里")
+		}
+		if !errors.Is(res.Reason(name), ErrNotRunning) {
+			t.Errorf("原因应为 ErrNotRunning，实际 %v", res.Reason(name))
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Wait 应立即返回，不该真的跑满一轮倒计时")
+	}
+}
+
+// 回滚不能把一台已经死掉的实例写成 started：
+// 那正是「已停止的实例仍被拉进倒计时」的温床——下一次预检会以为它还活着。
+func TestRollbackStateDistinguishesNotRunning(t *testing.T) {
+	if got := rollbackStatusFor(ErrNotRunning); got != statepkg.StatusStopped {
+		t.Errorf("ErrNotRunning 应回滚为 stopped，实际 %q", got)
+	}
+	if got := rollbackStatusFor(ErrCancelled); got != statepkg.StatusStarted {
+		t.Errorf("用户取消应回滚为 started，实际 %q", got)
+	}
 }

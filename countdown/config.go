@@ -54,10 +54,17 @@ var defaultPoints = []time.Duration{
 	15 * time.Minute,
 	10 * time.Minute,
 	5 * time.Minute,
+	4 * time.Minute,
 	3 * time.Minute,
+	2 * time.Minute,
 	time.Minute,
 	30 * time.Second,
 	10 * time.Second,
+	5 * time.Second,
+	4 * time.Second,
+	3 * time.Second,
+	2 * time.Second,
+	1 * time.Second,
 }
 
 // Config 停止/重启前的倒计时与游戏内公告配置。

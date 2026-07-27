@@ -45,6 +45,7 @@ export function streamBatchLogs(onLog, onError, onClose) {
     const eventSource = new EventSource(buildEventSourceUrl('/api/server/batch/logs'))
 
     eventSource.onmessage = (event) => {
+        console.log(event)
         if (onLog) {
             try {
                 const entry = JSON.parse(event.data)
@@ -54,6 +55,15 @@ export function streamBatchLogs(onLog, onError, onClose) {
             }
         }
     }
+
+    // 服务端主动收尾（进程退出）会发这一帧。EventSource 分不清「正常收尾」和
+    // 「连接抖断」，不显式关掉的话浏览器会按默认 3 秒一直重连
+    eventSource.addEventListener('end', () => {
+        eventSource.close()
+        if (onClose) {
+            onClose()
+        }
+    })
 
     eventSource.onerror = (error) => {
         console.error('Batch log SSE error:', error)

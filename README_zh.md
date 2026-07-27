@@ -23,7 +23,7 @@
 ## 系统要求
 
 - **操作系统**：Windows 10/11（64位）
-- **Go 版本**：1.25.4 或更高（用于开发）
+- **Go 版本**：1.26 或更高（用于开发）
 - **Node.js**：16.x 或更高（用于前端开发）
 - **磁盘空间**：服务器文件和实例至少需要 20GB
 - **内存**：最小 8GB，推荐 16GB
@@ -159,24 +159,44 @@ http://localhost:19193
 
 ### 目录结构
 
+原 `asaserver` 神包已按单一职责拆分为下列领域包，纯工具集中到 `pkg/`。
+拆分理由见 [docs/PACKAGE_RESTRUCTURE_PLAN.md](docs/PACKAGE_RESTRUCTURE_PLAN.md)。
+
 ```
-d:\golang\asa-server\
-├── actions/             # 命令行操作处理器
-├── app/                 # Vue.js 前端应用程序
-├── asaserver/           # 核心服务器管理逻辑
-├── backup/              # 备份和恢复功能
-├── docs/                # 文档文件
-├── frpmanage/           # FRP 集成
-├── logger/              # 日志系统
-├── processjob/          # 进程管理
-├── serverinfo/          # 服务器信息收集
-├── syncthingmanage/     # Syncthing 集成
-├── tui/                 # 基于文本的用户界面组件
-├── webapi/              # HTTP API 实现
-├── win32api/            # Windows API 绑定
-├── winservice/          # Windows 服务功能
-├── main.go              # 应用程序入口点
-└── README.md            # 本文件
+asa-server/
+├── main.go              # 入口：CLI 命令、GUI、Windows 服务检测
+│
+│  ── 领域包（自底向上，无环）──
+├── pkg/                 # 叶子工具：fsutil、winproc、netutil、tail、console、iox、
+│                        #   processjob（Windows Job Object）、serverinfo（gopsutil 指标）
+├── config/              # 目录布局、InstanceConfig、INI 读写、配置同步
+├── process/             # PID 文件存储 + IsServerRunning（解 state ↔ instance 环的关键层）
+├── rconx/               # RCON 连接与命令执行（重试、哨兵错误）
+├── realtime/            # WebSocket 中枢：服务器事件 + 交互式 RCON
+├── state/               # BadgerDB 实例状态持久化（CAS 状态机）
+├── installer/           # SteamCMD 下载 / ARK 服务器更新
+├── mirror/              # 实例镜像 / NTFS junction 管理
+├── instance/            # 生命周期 Start/Stop/Restart、存档、Mod 提取、ASA 版本
+├── countdown/           # 延迟停止/重启编排：倒计时 + 游戏内公告
+├── batchmanage/         # 多实例批量启停（详见 docs/BATCH_OPERATION.md）
+├── schedule/            # 定时任务（重启 / 更新）
+├── updatemanage/        # 服务器更新任务单例
+│
+│  ── 交互层 ──
+├── webapi/              # HTTP API，按领域拆子包：instanceapi、serverapi、backupapi、
+│                        #   configapi、saveapi、logapi、iconapi、apiresp
+├── app/                 # 内嵌 Vue.js 前端（//go:embed dist）
+├── gui/                 # Fyne 桌面 GUI（系统托盘、服务管理、日志查看）
+├── winservice/          # Windows 服务集成（kardianos/service）
+├── actions/             # CLI 命令处理器
+│
+│  ── 支撑 ──
+├── backup/              # tar+zstd 备份/恢复（函数选项模式）
+├── frpmanage/           # FRP 反向代理管理（内嵌 frpc.exe）
+├── syncthingmanage/     # Syncthing 文件同步管理（内嵌 syncthing.exe）
+├── parseserver/         # ARK 存档解析
+├── logger/              # Zap + lumberjack 结构化日志（带轮转）
+└── docs/                # 文档（索引见下）
 ```
 
 ### 实例目录结构
@@ -193,7 +213,7 @@ instances/
 
 ## HTTP API
 
-HTTP API 为所有服务器管理功能提供 RESTful 端点。有关详细文档，请参阅 [API 文档](docs/API_GUIDE.md)。
+HTTP API 为所有服务器管理功能提供 RESTful 端点。有关详细文档，请参阅 [API 参考](docs/API_REFERENCE.md)。
 
 ### 主要 API 端点
 
@@ -242,7 +262,7 @@ Syncthing 集成允许跨多个服务器轻松同步配置文件。
 
 ### 先决条件
 
-- Go 1.25.4 或更高版本
+- Go 1.26 或更高版本
 - Node.js 16.x 或更高版本
 - npm 8.x 或更高版本
 
@@ -300,6 +320,60 @@ Syncthing 集成允许跨多个服务器轻松同步配置文件。
 #### API 服务器无法访问
 - 检查服务是否正在运行
 - 验证防火墙设置是否允许端口 19193 上的流量
+
+## 文档索引
+
+全部文档位于 [`docs/`](docs/)，总览见 [docs/README.md](docs/README.md)。
+
+### 架构与设计
+
+| 文档 | 说明 |
+|------|------|
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | 系统架构与设计模式 |
+| [PACKAGE_RESTRUCTURE_PLAN.md](docs/PACKAGE_RESTRUCTURE_PLAN.md) | `asaserver` 神包按领域拆分方案 |
+| [STATE_CONTROL.md](docs/STATE_CONTROL.md) | 实例状态机、CAS 转换与互斥机制 |
+| [V2_MIRROR_STARTUP_ARCHITECTURE.md](docs/V2_MIRROR_STARTUP_ARCHITECTURE.md) | NTFS 镜像目录方案，支持多实例并行启动 |
+| [instance-manager-daemon.md](docs/instance-manager-daemon.md) | 实例管理守护进程设计 |
+
+### 功能设计
+
+| 文档 | 说明 |
+|------|------|
+| [BATCH_OPERATION.md](docs/BATCH_OPERATION.md) | **批量启停** —— 编排流程、预检、CAS、SSE 日志长连接 |
+| [stop-restart-countdown.md](docs/stop-restart-countdown.md) | 延迟停止/重启倒计时与游戏内公告 |
+| [COUNTDOWN_RCON_REFACTOR_PLAN.md](docs/COUNTDOWN_RCON_REFACTOR_PLAN.md) | `countdown` / `rconx` 包拆分方案 |
+| [SCHEDULE_RUN_LOG_DESIGN.md](docs/SCHEDULE_RUN_LOG_DESIGN.md) | 定时任务与执行日志 |
+| [ARK_SAVE_PARSE_SOLUTION.md](docs/ARK_SAVE_PARSE_SOLUTION.md) | ARK 存档解析设计方案 |
+| [PARSESERVER_REDESIGN.md](docs/PARSESERVER_REDESIGN.md) | `parseserver` 重构设计 |
+| [state-change-ws-push.md](docs/state-change-ws-push.md) | 状态变更的 WebSocket 推送 |
+| [ws-state-push-refactor.md](docs/ws-state-push-refactor.md) | WebSocket 状态推送重构 |
+| [VirtualLogList.md](docs/VirtualLogList.md) | 前端虚拟滚动日志列表 |
+
+### 参考手册
+
+| 文档 | 说明 |
+|------|------|
+| [API_REFERENCE.md](docs/API_REFERENCE.md) | HTTP API 完整参考 |
+| [CHEATSHEET.md](docs/CHEATSHEET.md) | 命令、配置、RCON 速查 |
+| [asa-server-configuration.md](docs/asa-server-configuration.md) | ARK 服务器配置参考 |
+| [asa-game-configuration-reference.md](docs/asa-game-configuration-reference.md) | Game.ini / GameUserSettings.ini 参考 |
+| [game-ini-visual-config-guide.md](docs/game-ini-visual-config-guide.md) | Game.ini 可视化配置指南 |
+| [asa-creatureids.md](docs/asa-creatureids.md) · [asa-itemsids.md](docs/asa-itemsids.md) · [asa-engrams.md](docs/asa-engrams.md) | 生物 / 物品 / 引擎蓝图 ID 对照表 |
+
+### 迁移与历史
+
+| 文档 | 说明 |
+|------|------|
+| [MIGRATION.md](docs/MIGRATION.md) | 从 bash 脚本迁移指南 |
+| [V2_MIGRATION_PLAN.md](docs/V2_MIGRATION_PLAN.md) · [V2_MIGRATION_CHANGELOG.md](docs/V2_MIGRATION_CHANGELOG.md) | v2 迁移方案与变更日志 |
+| [STARTUP_FIXES.md](docs/STARTUP_FIXES.md) | 启动/停止流程修复记录 |
+
+### 工具
+
+| 文档 | 说明 |
+|------|------|
+| [ark-translation-tool.md](docs/ark-translation-tool.md) | ARK 翻译工具 |
+| [download-creature-icons.md](docs/download-creature-icons.md) · [download-item-icons.md](docs/download-item-icons.md) | 图标下载脚本 |
 
 ## 贡献
 

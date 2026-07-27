@@ -17,6 +17,11 @@ var (
 
 	// ErrCancelled 表示倒计时被用户取消，目标动作不应执行。
 	ErrCancelled = errors.New("countdown cancelled")
+
+	// ErrNotRunning 表示实例并没有在运行，这一轮倒计时压根不该开始。
+	// 与 ErrCancelled 区分开：它不是「用户反悔了」，而是「本来就没什么可通知、可停的」，
+	// 调用方据此不应把实例状态回滚成 started。
+	ErrNotRunning = errors.New("instance is not running")
 )
 
 // Status 是某个实例当前的倒计时状态，供 HTTP 查询。

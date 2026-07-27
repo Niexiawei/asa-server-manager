@@ -255,6 +255,22 @@ func (s *Scheduler) execute(ctx context.Context, t *Task, trigger TriggerSource)
 	})
 }
 
+// awaitBatch 等一次批量操作跑完，任务 ctx 先结束时把它一并取消。
+//
+// 不能只是 return：批量操作的 ctx 派生自 Background，任务退出后它会继续跑完整轮倒计时，
+// 一直占着 batchmanage 的单例，把下一次调度顶成 ErrOperationInProgress。
+// 取消后仍等 Done()，确保单例确实被释放了再返回。
+func awaitBatch(ctx context.Context, op *batchmanage.BatchOperation) error {
+	select {
+	case <-op.Done():
+		return nil
+	case <-ctx.Done():
+		op.Cancel()
+		<-op.Done()
+		return ctx.Err()
+	}
+}
+
 // runRestart 批量重启。空实例列表由 batchmanage 解释为「全部实例」。
 // 成功时返回一句摘要，供执行日志展示。
 func (s *Scheduler) runRestart(ctx context.Context, t *Task) (string, error) {
@@ -265,10 +281,8 @@ func (s *Scheduler) runRestart(ctx context.Context, t *Task) (string, error) {
 		return "", fmt.Errorf("failed to start batch restart: %w", err)
 	}
 
-	select {
-	case <-op.Done():
-	case <-ctx.Done():
-		return "", ctx.Err()
+	if err := awaitBatch(ctx, op); err != nil {
+		return "", err
 	}
 
 	// 批量操作本身「完成」了不代表每个实例都重启成功。
@@ -317,10 +331,8 @@ func (s *Scheduler) runUpdate(ctx context.Context, t *Task) (string, error) {
 		// 尤其是 ErrOperationInProgress：此时实例多半正活着，硬着头皮更新必被拒
 		return "", fmt.Errorf("更新前的批量停服未能启动: %w", err)
 	default:
-		select {
-		case <-op.Done():
-		case <-ctx.Done():
-			return "", ctx.Err()
+		if err := awaitBatch(ctx, op); err != nil {
+			return "", err
 		}
 		for _, r := range op.InstanceResults {
 			if r.Status == batchmanage.InstanceSuccess {
