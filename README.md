@@ -335,6 +335,7 @@ Chinese overview, or jump straight to a topic below.
 | [PACKAGE_RESTRUCTURE_PLAN.md](docs/PACKAGE_RESTRUCTURE_PLAN.md) | Splitting the `asaserver` god-package into domain packages |
 | [STATE_CONTROL.md](docs/STATE_CONTROL.md) | Instance state machine, CAS transitions, mutual exclusion |
 | [V2_MIRROR_STARTUP_ARCHITECTURE.md](docs/V2_MIRROR_STARTUP_ARCHITECTURE.md) | NTFS junction mirrors for parallel instance startup |
+| [HTTP2_CONNECTION_OPTIMIZATION.md](docs/HTTP2_CONNECTION_OPTIMIZATION.md) | HTTP/2 plan to lift the browser's 6-connection-per-origin cap on SSE |
 | [instance-manager-daemon.md](docs/instance-manager-daemon.md) | Instance manager daemon design |
 
 ### Features

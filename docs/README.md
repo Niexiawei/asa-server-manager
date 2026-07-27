@@ -169,6 +169,7 @@ asa-server/
 | [PACKAGE_RESTRUCTURE_PLAN.md](PACKAGE_RESTRUCTURE_PLAN.md) | `asaserver` 神包按领域拆分方案 |
 | [STATE_CONTROL.md](STATE_CONTROL.md) | 实例状态机、CAS 转换与互斥机制 |
 | [V2_MIRROR_STARTUP_ARCHITECTURE.md](V2_MIRROR_STARTUP_ARCHITECTURE.md) | NTFS 镜像目录方案，支持多实例并行启动 |
+| [HTTP2_CONNECTION_OPTIMIZATION.md](HTTP2_CONNECTION_OPTIMIZATION.md) | HTTP/2 连接数优化方案（SSE 挤占浏览器 6 条额度） |
 | [instance-manager-daemon.md](instance-manager-daemon.md) | 实例管理守护进程设计 |
 
 ### 功能设计
