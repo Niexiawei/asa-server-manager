@@ -3,19 +3,38 @@
 
 let wsConnection = null;
 let heartbeatInterval = null;
-let reconnectInterval = null;
+let reconnectTimer = null;
 let isReconnecting = false;
 let clientId = null;
 let eventListeners = new Map(); // 存储事件监听器
 let isIntentionalDisconnect = false; // 标记是否是用户主动断开
+let authFailed = false;          // 鉴权失败后不再重连，直到主线程明确要求
+let reconnectAttempt = 0;        // 退避指数
+
+// 服务端在会话失效时发送的应用级关闭码（4000-4999 为应用私有区间）。
+// 必须和普通断线区别对待：普通断线要重连，这个要彻底停下来去登录。
+const CLOSE_AUTH_FAILED = 4401;
 
 // WebSocket 配置
 const WS_CONFIG = {
     events: '', // 将从主线程接收此 URL
     heartbeatInterval: 5000,      // 心跳间隔 5 秒
-    reconnectInterval: 10000,     // 重连间隔 10 秒
-    maxReconnectAttempts: null    // 无限重连
+    // 重连采用指数退避 + 全抖动，而不是固定间隔。
+    //
+    // 固定间隔的问题不是"太快"，而是**相位锁定**：所有客户端的会话在同一
+    // 时刻过期，于是同时掉线、同时按同一节奏重连，此后永远保持同步，
+    // 每隔 N 秒就对服务端来一次并发脉冲。而每次重连都是一次完整的 TLS 握手。
+    // 全抖动（在 [0, cap) 上均匀取值）能把这个尖峰彻底打散。
+    reconnectBaseDelay: 1000,
+    reconnectMaxDelay: 30000
 };
+
+// 计算下一次重连延迟：min(max, base * 2^n) 之内均匀随机
+function nextReconnectDelay() {
+    const cap = Math.min(WS_CONFIG.reconnectMaxDelay, WS_CONFIG.reconnectBaseDelay * Math.pow(2, reconnectAttempt));
+    reconnectAttempt++;
+    return Math.random() * cap;
+}
 
 // 生成唯一的客户端 ID
 function generateClientId() {
@@ -67,6 +86,9 @@ function connectWebSocket(wsUrl) {
         ws.onopen = () => {
             if (ws !== wsConnection) return;
             console.log('[WebSocket Worker] Connected with client ID:', clientId);
+            // 连接成功必须重置退避指数，否则下次断线会直接从上次的最大延迟起步
+            reconnectAttempt = 0;
+            stopReconnect();
             // 发送初始化消息，包含客户端 ID
             const initMessage = createEventMessage('heartbeat');
             ws.send(JSON.stringify(initMessage));
@@ -112,18 +134,28 @@ function connectWebSocket(wsUrl) {
             });
         };
 
-        ws.onclose = () => {
+        ws.onclose = (event) => {
             if (ws !== wsConnection) return; // 非当前连接的 close 不清引用、不重连
-            console.log('[WebSocket Worker] Closed');
+            console.log('[WebSocket Worker] Closed, code =', event && event.code);
             wsConnection = null;
             stopHeartbeat();
+
+            // 鉴权失败是**致命**的，不是网络抖动：再怎么重连也不会成功。
+            // 把它当成可重试错误，就会变成每个标签页一个永久热循环，
+            // 而且每次尝试都是一次完整的 TLS 握手 + 一条服务端错误日志。
+            if (event && event.code === CLOSE_AUTH_FAILED) {
+                authFailed = true;
+                stopReconnect();
+                postMessage({ type: 'WS_AUTH_FAILED' });
+                return;
+            }
 
             postMessage({
                 type: 'WS_CLOSE'
             });
 
-            // 如果不是主动断开，则尝试重连
-            if (!isIntentionalDisconnect) {
+            // 如果不是主动断开、也不是鉴权问题，才退避重连
+            if (!isIntentionalDisconnect && !authFailed) {
                 startReconnect();
             }
         };
@@ -205,29 +237,38 @@ function isWebSocketConnected() {
     return wsConnection !== null && wsConnection.readyState === WebSocket.OPEN;
 }
 
-// 启动自动重连机制
+// 启动自动重连机制（指数退避 + 全抖动）
 function startReconnect() {
     if (isReconnecting) {
         return;
     }
-
-    isReconnecting = true;
-    console.log('[WebSocket Worker Reconnect] Starting auto-reconnect mechanism (interval: ' + WS_CONFIG.reconnectInterval + 'ms)');
-
-    // 清除之前的重连定时器
-    if (reconnectInterval) {
-        clearInterval(reconnectInterval);
+    // 鉴权失败后不重连：得先让用户去登录。登录成功后主线程会发 RECONNECT。
+    if (authFailed) {
+        console.log('[WebSocket Worker Reconnect] Skipped: 需要重新登录');
+        return;
     }
 
-    // 立即尝试一次
-    attemptReconnect();
+    isReconnecting = true;
+    scheduleReconnect();
+}
 
-    // 然后每 10 秒尝试一次
-    reconnectInterval = setInterval(() => {
-        if (!isWebSocketConnected() && isReconnecting) {
+// 用递归 setTimeout 而不是 setInterval：
+// setInterval 在单次连接尝试耗时超过间隔时会**堆积**回调，
+// 网络差的时候反而制造出更多并发连接。
+function scheduleReconnect() {
+    clearTimeout(reconnectTimer);
+    const delay = nextReconnectDelay();
+    console.log('[WebSocket Worker Reconnect] 第 ' + reconnectAttempt + ' 次尝试将在 ' + Math.round(delay) + 'ms 后进行');
+    reconnectTimer = setTimeout(() => {
+        if (!isReconnecting || authFailed) return;
+        if (!isWebSocketConnected()) {
             attemptReconnect();
+            // 这一次没连上的话，下一轮延迟会更长；连上了 onopen 会 stopReconnect
+            if (isReconnecting) {
+                scheduleReconnect();
+            }
         }
-    }, WS_CONFIG.reconnectInterval);
+    }, delay);
 }
 
 // 尝试重新连接
@@ -238,12 +279,12 @@ function attemptReconnect() {
     }
 
     console.log('[WebSocket Worker Reconnect] Attempting to reconnect...');
-    
+
     // 通知主线程正在尝试重连
     postMessage({
         type: 'WS_RECONNECT_ATTEMPT'
     });
-    
+
     if (WS_CONFIG.events) {
         connectWebSocket(WS_CONFIG.events);
     }
@@ -251,12 +292,11 @@ function attemptReconnect() {
 
 // 停止自动重连
 function stopReconnect() {
-    if (reconnectInterval) {
-        clearInterval(reconnectInterval);
-        reconnectInterval = null;
+    if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
     }
     isReconnecting = false;
-    console.log('[WebSocket Worker Reconnect] Stopped');
 }
 
 // 处理来自主线程的消息
@@ -275,6 +315,12 @@ self.onmessage = function(event) {
                 console.log('[WebSocket Worker] INIT_WS ignored: reconnecting in progress');
                 break;
             }
+            if (authFailed) {
+                // 会话已失效，连了也是白连。等主线程登录成功后发 RECONNECT。
+                console.log('[WebSocket Worker] INIT_WS ignored: 需要重新登录');
+                postMessage({ type: 'WS_AUTH_FAILED' });
+                break;
+            }
             // 首次初始化：正常流程
             WS_CONFIG.events = data.wsUrl;
             clientId = generateClientId();
@@ -282,7 +328,8 @@ self.onmessage = function(event) {
             break;
 
         case 'RECONNECT':
-            // 手动重连：停止现有重连 + 清除旧状态 + 新连接
+            // 手动重连：停止现有重连 + 清除旧状态 + 新连接。
+            // 登录成功后主线程会发这条消息，它是解除 authFailed 的唯一途径。
             stopReconnect();
             stopHeartbeat();
             if (wsConnection) {
@@ -293,6 +340,8 @@ self.onmessage = function(event) {
             WS_CONFIG.events = data.wsUrl;
             clientId = generateClientId();
             isIntentionalDisconnect = false;
+            authFailed = false;
+            reconnectAttempt = 0;
             connectWebSocket(WS_CONFIG.events);
             break;
 
@@ -329,7 +378,8 @@ self.onmessage = function(event) {
                 type: 'WS_CONNECTION_STATUS',
                 connected: isWebSocketConnected(),
                 clientId: clientId,
-                reconnecting: isReconnecting
+                reconnecting: isReconnecting,
+                authFailed: authFailed
             });
             break;
             

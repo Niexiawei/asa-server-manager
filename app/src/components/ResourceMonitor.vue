@@ -95,6 +95,7 @@
 import {ref, watch, onUnmounted, onMounted} from 'vue'
 import {ErrorCircleFilledIcon} from 'tdesign-icons-vue-next'
 import {getInstanceStatus} from '@/store/serverStore.js'
+import {handleSSECheckAuth, registerSSEWorker, unregisterSSEWorker} from '@/utils/sseAuthGate.js'
 import {getSSEBaseUrl} from "@/utils/utils.js";
 
 const props = defineProps({
@@ -124,6 +125,7 @@ const getSharedWorker = () => {
       console.log('[ResourceMonitor] Creating SharedWorker')
       sharedWorker = new SharedWorker(new URL('@/workers/sharedResourceWorker.js', import.meta.url))
       workerPort = sharedWorker.port
+      registerSSEWorker(workerPort)
 
       // 设置消息处理
       workerPort.onmessage = (event) => {
@@ -141,6 +143,10 @@ const getSharedWorker = () => {
             break
           case 'SSE_CONNECTED':
             console.log('[ResourceMonitor] SharedWorker SSE connected')
+            break
+          case 'SSE_CHECK_AUTH':
+            // Worker 看不到 HTTP 状态码，由主线程确认是不是会话失效
+            handleSSECheckAuth(workerPort)
             break
         }
       }

@@ -6,6 +6,24 @@
 import {buildWebSocketUrl} from "@/utils/utils.js";
 import {computed, ref, watch} from 'vue';
 import { useDocumentVisibility } from '@vueuse/core';
+import {authState, setUnauthenticated} from '@/store/authStore.js';
+
+// 收到 4401 后把用户送去登录页。用动态 import 取 router，
+// 避免 wsManager → router → 各视图 → wsManager 的循环依赖。
+let authRedirecting = false;
+
+function handleAuthFailure() {
+    setUnauthenticated();
+    if (authRedirecting) return;
+    authRedirecting = true;
+    import('@/router/index.js').then(({default: router}) => {
+        if (router.currentRoute.value.path !== '/login') {
+            router.replace({path: '/login'});
+        }
+    }).finally(() => {
+        setTimeout(() => { authRedirecting = false; }, 500);
+    });
+}
 
 // ============ Web Worker 管理 ============
 let wsWorker = null;
@@ -71,6 +89,14 @@ function initWorker() {
                     clientId = workerClientId;
                     isReconnecting = reconnecting;
                     break;
+                case 'WS_AUTH_FAILED':
+                    // 鉴权失效是致命的，Worker 已经彻底停止重连。
+                    // 这里把用户送去登录页 —— 否则他只会看到一个永远转圈的
+                    // "连接中"，完全不知道该做什么。
+                    wsConnectedRef.value = false;
+                    clientId = null;
+                    handleAuthFailure();
+                    break;
             }
         };
     }
@@ -106,8 +132,16 @@ function createEventMessage(type = 'ping', extraData = {}) {
  * 先查询 Worker 状态，只在未连接且未重连时才发 INIT_WS
  */
 export function connectWebSocket(onOpen, onError, onClose) {
+    // 未登录时根本不发起连接。服务端只会一路拒绝，而客户端会把它当成
+    // 网络故障不断重试，每次都是一次完整的 TLS 握手。
+    // 登录成功后由 authStore 的回调触发 forceReconnect()。
+    if (authState.authEnabled && !authState.authenticated && !authState.bypassed) {
+        console.log('[WebSocket Manager] 未登录，跳过连接');
+        return;
+    }
+
     const wsUrl = WS_CONFIG.events
-    
+
     // 初始化并获取 Worker
     const worker = initWorker();
     
@@ -270,6 +304,11 @@ export function stopReconnect() {
 const visibility = useDocumentVisibility();
 
 watch(visibility, (current) => {
+    // 未登录时不要因为切回前台就去重连——那正是会话过期后
+    // 每切一次标签页就多打一次服务端的来源
+    if (authState.authEnabled && !authState.authenticated && !authState.bypassed) {
+        return;
+    }
     if (current === 'visible' && wsWorker) {
         console.log('[WebSocket Manager] Page visible, checking connection status...');
         // 先查询 Worker 状态，只在确认未连接且未重连时才触发

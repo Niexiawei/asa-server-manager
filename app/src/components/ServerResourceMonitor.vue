@@ -86,6 +86,7 @@
 <script setup>
 import {ref, onMounted, onUnmounted} from 'vue'
 import {DashboardIcon, ErrorCircleFilledIcon} from 'tdesign-icons-vue-next'
+import {handleSSECheckAuth, registerSSEWorker, unregisterSSEWorker} from '@/utils/sseAuthGate.js'
 import {getSSEBaseUrl} from "@/utils/utils.js";
 
 const isMonitoring = ref(false)
@@ -113,8 +114,13 @@ const createWorker = () => {
         case 'ERROR':
           resourceData.value = {error: payload.error}
           break
+        case 'SSE_CHECK_AUTH':
+          // Worker 看不到 HTTP 状态码，由主线程确认是不是会话失效
+          handleSSECheckAuth(worker)
+          break
       }
     }
+    registerSSEWorker(worker)
 
     // Handle worker errors
     worker.onerror = (error) => {

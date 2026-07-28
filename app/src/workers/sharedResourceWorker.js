@@ -3,7 +3,23 @@
 
 // Configuration
 const CHANGE_THRESHOLD = 0.5;
-const RECONNECT_INTERVAL = 10000; // Reconnect interval 10 seconds
+// SSE 重连采用指数退避 + 全抖动，而不是固定间隔。
+//
+// 固定间隔的问题不是"太快"，而是**相位锁定**：会话过期时所有客户端同时掉线、
+// 同时按同一节奏重连，此后永远保持同步，每隔 N 秒给服务端来一次并发脉冲。
+// 全抖动（在 [0, cap) 上均匀取值）能把这个尖峰打散。
+const RECONNECT_BASE_DELAY = 1000;
+const RECONNECT_MAX_DELAY = 30000;
+let reconnectAttempt = 0;
+// 鉴权失效后停止重连，等主线程登录成功再说。EventSource 拿不到 HTTP 状态码，
+// 所以由主线程去问 /api/auth/state 来判定。
+let sseAuthBlocked = false;
+
+function nextReconnectDelay() {
+  const cap = Math.min(RECONNECT_MAX_DELAY, RECONNECT_BASE_DELAY * Math.pow(2, reconnectAttempt));
+  reconnectAttempt++;
+  return Math.random() * cap;
+}
 
 // Store all connected ports
 const ports = new Set();
@@ -42,6 +58,17 @@ self.onconnect = (event) => {
 
       case 'UNSUBSCRIBE':
         handleUnsubscribe(port, instanceId);
+        break;
+
+      // 主线程确认过鉴权状态后告诉 Worker 该停还是该继续。
+      // Worker 自己看不到 HTTP 状态码，这个判断只能由主线程做。
+      case 'AUTH_BLOCKED':
+        sseAuthBlocked = true;
+        stopReconnect();
+        break;
+      case 'AUTH_RESUMED':
+        sseAuthBlocked = false;
+        reconnectAttempt = 0;
         break;
 
       case 'CLOSE_ALL':
@@ -107,6 +134,9 @@ function startSSEConnection() {
     eventSource = new EventSource(`${API_BASE_URL}/api/server/all-info`);
 
     eventSource.onopen = () => {
+      // 连接成功必须重置退避指数，否则下次断线会直接从上次的最大延迟起步
+      reconnectAttempt = 0;
+      stopReconnect();
       console.log('[SharedWorker] SSE connection established');
       stopReconnect();
       broadcastToAllPorts({
@@ -148,6 +178,9 @@ function startSSEConnection() {
         console.error('[SharedWorker] SSE connection closed, will reconnect');
         closeSSEConnection();
         broadcastErrorToAllPorts('SSE connection error');
+        // CLOSED 说明浏览器已放弃（服务端返回了非 200，比如 401）。
+        // 请主线程确认是不是鉴权失效——EventSource 拿不到状态码。
+        broadcastToAllPorts({ type: 'SSE_CHECK_AUTH' });
         startReconnect();
       }
       // readyState === CONNECTING means browser is auto-retrying, no action needed
@@ -164,20 +197,31 @@ function startReconnect() {
   if (isReconnecting) {
     return;
   }
+  // 鉴权失效时不要重连：服务端只会一路 401，而每次尝试都是一条新连接。
+  if (sseAuthBlocked) {
+    console.log('[SharedWorker] 重连已暂停：需要重新登录');
+    return;
+  }
   isReconnecting = true;
-  console.log('[SharedWorker] Starting auto-reconnect (interval: ' + RECONNECT_INTERVAL + 'ms)');
-
   broadcastToAllPorts({ type: 'SSE_RECONNECTING' });
+  scheduleReconnect();
+}
 
-  // Attempt immediately
-  attemptReconnect();
-
-  // Then retry on interval
-  reconnectTimer = setInterval(() => {
-    if (!eventSource && isReconnecting) {
+// 用递归 setTimeout 而不是 setInterval：setInterval 在单次尝试耗时超过间隔时
+// 会**堆积**回调，网络差的时候反而制造出更多并发连接。
+function scheduleReconnect() {
+  clearTimeout(reconnectTimer);
+  const delay = nextReconnectDelay();
+  console.log('[SharedWorker] 第 ' + reconnectAttempt + ' 次重连将在 ' + Math.round(delay) + 'ms 后进行');
+  reconnectTimer = setTimeout(() => {
+    if (!isReconnecting || sseAuthBlocked) return;
+    if (!eventSource) {
       attemptReconnect();
+      if (isReconnecting) {
+        scheduleReconnect();
+      }
     }
-  }, RECONNECT_INTERVAL);
+  }, delay);
 }
 
 // Attempt a single reconnect
@@ -193,7 +237,7 @@ function attemptReconnect() {
 // Stop auto-reconnect
 function stopReconnect() {
   if (reconnectTimer) {
-    clearInterval(reconnectTimer);
+    clearTimeout(reconnectTimer);
     reconnectTimer = null;
   }
   isReconnecting = false;

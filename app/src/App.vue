@@ -1,5 +1,9 @@
 <template>
-  <div class="main-body">
+  <!-- 登录 / 首次引导是整页布局，不套主框架：
+       未登录时顶部菜单、实例标签、资源监控都没有数据可显示。 -->
+  <router-view v-if="isStandalone"/>
+
+  <div v-else class="main-body">
     <div class="_content">
       <div class="header-content">
         <div class="icon">
@@ -36,6 +40,13 @@
             <WSStatusIndicator/>
             <ServerResourceMonitor/>
             <WSEventNotification/>
+            <!-- 没开鉴权时整块隐藏，界面和引入鉴权之前一模一样 -->
+            <t-dropdown v-if="authState.authEnabled" :options="userMenuOptions" @click="onUserMenu">
+              <t-button variant="text" size="small">
+                {{ authState.bypassed ? '内网访问' : (authState.user?.username || '未登录') }}
+                <template #suffix>▾</template>
+              </t-button>
+            </t-dropdown>
           </div>
         </div>
       </div>
@@ -65,9 +76,35 @@ import ServerResourceMonitor from '@/components/ServerResourceMonitor.vue';
 import WSStatusIndicator from '@/components/WSStatusIndicator.vue';
 import InstanceTabs from '@/components/InstanceTabs.vue';
 import {useElementSize} from "@vueuse/core";
+import {authState, isAdmin, doLogout} from '@/store/authStore.js';
 
 const router = useRouter()
 const route = useRoute()
+
+// 登录 / 首次引导页自带整页布局
+const isStandalone = computed(() => !!route.meta?.standalone)
+
+const userMenuOptions = computed(() => {
+  if (authState.bypassed) {
+    // 内网免鉴权的请求没有具体账户身份，个人设置之类的操作无从谈起
+    return [{content: '当前通过内网免鉴权访问', value: 'noop', disabled: true}]
+  }
+  const items = [{content: '个人设置', value: 'profile'}]
+  if (isAdmin.value) {
+    items.push({content: '用户管理', value: 'users'})
+  }
+  items.push({content: '退出登录', value: 'logout'})
+  return items
+})
+
+async function onUserMenu({value}) {
+  if (value === 'profile') return router.push('/profile')
+  if (value === 'users') return router.push('/user-manager')
+  if (value === 'logout') {
+    await doLogout()
+    router.replace('/login')
+  }
+}
 const InstanceTabRef = ref()
 const currentRoute = ref('manager');
 const el = useTemplateRef('contentWrapperRef')

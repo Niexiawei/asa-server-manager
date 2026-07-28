@@ -1,48 +1,35 @@
-export function buildWebSocketUrl(url, token = "") {
+// WebSocket / SSE 一律走**同源**地址，由 vite 代理（dev）或本服务自身（生产）转发。
+//
+// 以前 dev 模式是直连后端 https://localhost:19193，而页面在 http://localhost:3000。
+// 上了 Cookie 鉴权之后这条路走不通了：
+//   - scheme 不同（http vs https）就算跨站，SameSite=Lax 的会话 Cookie 不会被带上
+//   - 改成 SameSite=None 又要求 Secure，而 dev 页面是明文 http，浏览器会拒绝写入
+// 走同源则两个问题都不存在。顺带还省掉了「dev 必须先把本地 CA 装进系统信任存储
+// 才能用 EventSource」这个老麻烦 —— vite 代理侧已经配了 secure: false。
+//
+// basePrefix：
+//   dev  —— VITE_API_ROOT 是 /api，vite 代理会剥掉这一层再转发给后端，所以要补上
+//   生产 —— 用 window.location.pathname，保留部署在子路径下的支持
+//           （hash 路由下 pathname 是稳定的，路由信息都在 # 后面）
+function basePrefix() {
+    return import.meta.env.DEV
+        ? (import.meta.env.VITE_API_ROOT || '/')
+        : window.location.pathname
+}
 
-    // Use shortToken if available (without base64 encoding), otherwise use regular token (with base64 encoding)
-    let authParam = [
-        `token=${token}`,
-        `clientId=${generateClientId()}`
-    ]
-
-    // In development mode, connect directly to backend server.
-    // 协议必须跟着后端走，而不是跟着页面走：dev 页面是 http://localhost:3000，
-    // 后端默认已启用 TLS，按 location.protocol 推导会得到 ws:// 去敲 wss 端口，连不上。
-    if (import.meta.env.DEV) {
-        const proxyTarget = import.meta.env.VITE_PROXY_TARGET || 'https://localhost:19193'
-        const wsTarget = proxyTarget.replace(/^https:/, 'wss:').replace(/^http:/, 'ws:')
-        return urlJoin(wsTarget, url, `?${authParam.join('&')}`)
-    }
-
-    // In production mode, use current host
+export function buildWebSocketUrl(url) {
+    // 凭证走 HttpOnly Cookie，浏览器会自动带上，不需要在 query 里传令牌。
+    // （令牌进 query 会落到 access log、反代日志和浏览器历史里。）
     const protocol = location.protocol === 'https:' ? 'wss://' : 'ws://'
-    return urlJoin(protocol + window.location.host, window.location.pathname, url, `?${authParam.join('&')}`)
+    return urlJoin(protocol + window.location.host, basePrefix(), url, `?clientId=${generateClientId()}`)
 }
 
 export function buildEventSourceUrl(url) {
-    // In production mode, use current host
-    const protocol = location.protocol
-
-    // In development mode, connect directly to backend server.
-    // EventSource 没有任何忽略证书错误的手段，所以 dev 直连 https 后端要求
-    // 本地 CA 已装进系统受信任存储（默认行为，见 certmgr 包）。
-    if (import.meta.env.DEV) {
-        const proxyTarget = import.meta.env.VITE_PROXY_TARGET || 'https://localhost:19193'
-        return urlJoin(proxyTarget, url)
-    }
-
-    return urlJoin(protocol + "//" + window.location.host, window.location.pathname, url)
+    return urlJoin(window.location.origin, basePrefix(), url)
 }
 
 export function getSSEBaseUrl() {
-    // In production mode, use current host
-    const protocol = location.protocol
-    // In development mode, connect directly to backend server
-    if (import.meta.env.DEV) {
-        return import.meta.env.VITE_PROXY_TARGET || 'https://localhost:19193'
-    }
-    return protocol + "//" + window.location.host, window.location.pathname
+    return urlJoin(window.location.origin, basePrefix())
 }
 
 function urlJoin(...args) {
