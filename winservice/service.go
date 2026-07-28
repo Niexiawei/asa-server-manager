@@ -1,6 +1,7 @@
 package winservice
 
 import (
+	"asa-server/certmgr"
 	"asa-server/frpmanage"
 	"asa-server/webapi"
 	"context"
@@ -104,6 +105,12 @@ func RemoveService() error {
 	err = s.Uninstall()
 	if err != nil {
 		return err
+	}
+
+	// 服务以 LocalSystem 运行，本地 CA 多半装在 LocalMachine\Root。
+	// 往用户系统里装了根证书就必须在移除时清理掉，否则它会一直留在受信任列表里。
+	if err := certmgr.UntrustCAOnCleanup(); err != nil {
+		fmt.Printf("Warning: failed to remove local CA from the trusted root store: %v\n", err)
 	}
 
 	fmt.Printf("Service %s removed successfully\n", ServiceName)

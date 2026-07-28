@@ -484,7 +484,7 @@ func (g *GUIApp) startAPIServer() {
 		}
 	}()
 
-	g.showSuccess("API 服务器启动成功!\n访问 http://localhost:19193")
+	g.showSuccess(fmt.Sprintf("API 服务器启动成功!\n访问 %s", webUIURL()))
 }
 
 // stopAPIServer stops the API server
@@ -528,10 +528,15 @@ func (g *GUIApp) updateAPIServerUI() {
 	}
 }
 
+// webUIURL 按当前 TLS 开关拼出 WebUI 地址：启用 TLS 时必须是 https，
+// 否则浏览器会用 http 去敲一个 TLS 端口，直接连不上
+func webUIURL() string {
+	return fmt.Sprintf("%s://localhost:%d", webapi.Scheme(), webapi.ApiServerPort)
+}
+
 // openWebUI opens the web UI in browser
 func (g *GUIApp) openWebUI() {
-	url := "http://localhost:19193"
-	cmd := exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+	cmd := exec.Command("rundll32", "url.dll,FileProtocolHandler", webUIURL())
 	err := cmd.Start()
 	if err != nil {
 		g.showError(fmt.Errorf("打开浏览器失败: %v", err))

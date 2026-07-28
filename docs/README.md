@@ -63,12 +63,17 @@ cd ..
 
 ### 默认端口
 
-HTTP API 默认端口：**19193**
+HTTP API 默认端口：**19193**，默认以 HTTPS + HTTP/2 提供服务。
 
 ```
-http://localhost:19193        # Web UI
-http://localhost:19193/health # 健康检查
+https://localhost:19193        # Web UI
+https://localhost:19193/health # 健康检查
 ```
+
+首次启动会生成本地 CA 并写入 Windows 受信任根存储，浏览器无证书警告；
+`asa-server cert status` 可查看，`cert uninstall` 可移除。
+用 `--tls=false` 可退回明文 HTTP/1.1。详见
+[HTTP2_CONNECTION_OPTIMIZATION.md](HTTP2_CONNECTION_OPTIMIZATION.md)。
 
 ## 项目结构
 
@@ -84,6 +89,7 @@ asa-server/
 │                            #   processjob（Windows Job Object）、serverinfo（gopsutil 指标）
 ├── config/                  # 目录布局、InstanceConfig、INI 读写、配置同步
 ├── process/                 # PID 文件存储 + IsServerRunning（解 state ↔ instance 环的关键层）
+├── certmgr/                 # 本地 CA + 叶子证书、Windows 受信任根存储（HTTPS/h2）
 ├── rconx/                   # RCON 连接与命令执行（重试、哨兵错误）
 ├── realtime/                # WebSocket 中枢：服务器事件 + 交互式 RCON
 ├── state/                   # BadgerDB 实例状态持久化（CAS 状态机）
@@ -131,6 +137,7 @@ asa-server/
 ├── server-files/            # ARK 服务器安装目录
 ├── steamcmd/                # SteamCMD
 ├── backups/                 # 备份文件（.zstd）
+├── certs/                   # 本地 CA（ca.crt/ca.key）与服务器证书（server.crt/server.key）
 ├── frp/                     # 提取的 frpc.exe
 ├── syncthing/               # 提取的 syncthing.exe
 ├── database_file/           # BadgerDB 状态数据
@@ -169,7 +176,7 @@ asa-server/
 | [PACKAGE_RESTRUCTURE_PLAN.md](PACKAGE_RESTRUCTURE_PLAN.md) | `asaserver` 神包按领域拆分方案 |
 | [STATE_CONTROL.md](STATE_CONTROL.md) | 实例状态机、CAS 转换与互斥机制 |
 | [V2_MIRROR_STARTUP_ARCHITECTURE.md](V2_MIRROR_STARTUP_ARCHITECTURE.md) | NTFS 镜像目录方案，支持多实例并行启动 |
-| [HTTP2_CONNECTION_OPTIMIZATION.md](HTTP2_CONNECTION_OPTIMIZATION.md) | HTTP/2 连接数优化方案（SSE 挤占浏览器 6 条额度） |
+| [HTTP2_CONNECTION_OPTIMIZATION.md](HTTP2_CONNECTION_OPTIMIZATION.md) | **HTTPS + HTTP/2**（已实施）——本地 CA、受信任存储、反向代理兼容 |
 | [instance-manager-daemon.md](instance-manager-daemon.md) | 实例管理守护进程设计 |
 
 ### 功能设计

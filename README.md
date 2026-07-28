@@ -134,17 +134,53 @@ asa-manager service remove
 #### HTTP API Server
 
 ```bash
-# Start HTTP API server
+# Start HTTP API server (HTTPS + HTTP/2 by default)
 asa-manager api
+
+# Fall back to plain HTTP/1.1
+asa-manager api --tls=false
+
+# Use your own certificate instead of the local CA
+asa-manager api --cert-file C:\certs\asa.crt --key-file C:\certs\asa.key
+
+# Add extra names to the certificate SAN (e.g. the domain your proxy serves)
+asa-manager api --tls-domains asa.example.com
 ```
 
 The API server runs on port 19193 by default.
+
+#### HTTPS & the Local CA
+
+The server speaks **HTTPS with HTTP/2** out of the box. This is not (only) about
+encryption: browsers negotiate HTTP/2 exclusively over TLS via ALPN, and HTTP/2 lifts
+the "6 connections per origin" limit that persistent SSE streams otherwise exhaust.
+See [docs/HTTP2_CONNECTION_OPTIMIZATION.md](docs/HTTP2_CONNECTION_OPTIMIZATION.md).
+
+On first start the program generates a local CA under `{BaseDir}/certs/` and installs
+it into the Windows trusted root store, so `https://localhost:19193` opens without any
+certificate warning. The CA private key is generated **on your machine** and is never
+shipped in the binary.
+
+```bash
+# Show CA fingerprint, validity and whether it is trusted
+asa-manager cert status
+
+# Install manually (--machine installs for all users, requires administrator)
+asa-manager cert install [--machine]
+
+# Remove the CA from the trusted root store
+asa-manager cert uninstall
+```
+
+`asa-manager service remove` removes the CA automatically. To never touch the trusted
+root store, run with `--tls-trust=false` (the browser will then show a warning you must
+accept once), or turn TLS off entirely with `--tls=false`.
 
 ### Web Dashboard
 
 Once the HTTP API server is running, access the web dashboard at:
 ```
-http://localhost:19193
+https://localhost:19193
 ```
 
 The dashboard provides a user-friendly interface for:
@@ -171,6 +207,7 @@ asa-server/
 ├── pkg/                 # Leaf utilities: fsutil, winproc, netutil, tail, console, iox,
 │                        #   processjob (Windows Job Objects), serverinfo (gopsutil metrics)
 ├── config/              # Directory layout, InstanceConfig, INI read/write, config sync
+├── certmgr/             # Local CA + leaf certificate, Windows trusted root store (HTTPS/h2)
 ├── process/             # PID store + IsServerRunning (breaks the state <-> instance cycle)
 ├── rconx/               # RCON connection & command execution (retries, sentinel errors)
 ├── realtime/            # WebSocket hub: server events + interactive RCON

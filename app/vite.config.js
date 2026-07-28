@@ -53,9 +53,11 @@ export default ({mode}) => {
             proxy: {
                 '/api': {
                     target: env.VITE_PROXY_TARGET,
-                    //target: 'http://192.168.2.26:19193',
+                    //target: 'https://192.168.2.26:19193',
                     changeOrigin: true,
+                    // 后端用的是本地 CA 签发的证书，Node 侧不校验（浏览器侧靠 CA 已进系统存储）
                     secure: false,
+                    ws: true,
                     rewrite: path => path.replace(/^\/api/, '')
                 },
             },

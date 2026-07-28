@@ -2,6 +2,7 @@ package main
 
 import (
 	"asa-server/actions"
+	"asa-server/certmgr"
 	cfgpkg "asa-server/config"
 	"asa-server/gui"
 	"asa-server/logger"
@@ -63,6 +64,39 @@ func main() {
 				Value:       19193,
 				Destination: &webapi.ApiServerPort,
 			},
+			&cli.BoolFlag{
+				Name:        "tls",
+				Usage:       "Serve over HTTPS (required for browsers to negotiate HTTP/2)",
+				Value:       true,
+				Destination: &webapi.EnableTLS,
+			},
+			&cli.BoolFlag{
+				Name:        "tls-trust",
+				Usage:       "Install the local CA into the Windows trusted root store (no browser warning)",
+				Value:       true,
+				Destination: &webapi.TrustLocalCA,
+			},
+			&cli.StringFlag{
+				Name:        "cert-file",
+				Usage:       "Use an existing certificate instead of the local CA (requires --key-file)",
+				Destination: &webapi.TLSCertFile,
+			},
+			&cli.StringFlag{
+				Name:        "key-file",
+				Usage:       "Private key matching --cert-file",
+				Destination: &webapi.TLSKeyFile,
+			},
+			&cli.StringFlag{
+				Name:        "tls-domains",
+				Usage:       "Extra domains to include in the certificate SAN, comma separated",
+				Destination: &webapi.TLSDomains,
+			},
+			&cli.StringFlag{
+				Name:        "trusted-proxies",
+				Usage:       "Proxies allowed to set X-Forwarded-For, comma separated (empty = trust none)",
+				Value:       "127.0.0.1,::1",
+				Destination: &webapi.TrustedProxies,
+			},
 		},
 		Commands: []*cli.Command{
 			{
@@ -119,6 +153,7 @@ func main() {
 				Usage:  "Start GUI mode",
 				Action: actionGUI,
 			},
+			certmgr.Command(),
 			{
 				Name:  "state",
 				Usage: "State database management",

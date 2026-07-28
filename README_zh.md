@@ -134,17 +134,52 @@ asa-manager service remove
 #### HTTP API 服务器
 
 ```bash
-# 启动 HTTP API 服务器
+# 启动 HTTP API 服务器（默认 HTTPS + HTTP/2）
 asa-manager api
+
+# 退回明文 HTTP/1.1
+asa-manager api --tls=false
+
+# 使用自备证书，不生成本地 CA
+asa-manager api --cert-file C:\certs\asa.crt --key-file C:\certs\asa.key
+
+# 往证书 SAN 里追加域名（例如反向代理对外用的域名）
+asa-manager api --tls-domains asa.example.com
 ```
 
 API 服务器默认在端口 19193 上运行。
+
+#### HTTPS 与本地 CA
+
+服务默认以 **HTTPS + HTTP/2** 提供。这不只是加密问题：浏览器只在 TLS 上通过 ALPN
+协商 HTTP/2，而 HTTP/2 才能摆脱「每源 6 条连接」的限制——常驻的 SSE 流会把这 6 条额度
+吃光，导致普通请求静静排队。详见
+[docs/HTTP2_CONNECTION_OPTIMIZATION.md](docs/HTTP2_CONNECTION_OPTIMIZATION.md)。
+
+首次启动时程序会在 `{BaseDir}/certs/` 下生成本地 CA，并写入 Windows 受信任根存储，
+浏览器打开 `https://localhost:19193` 不会有任何证书警告。CA 私钥**在你本机生成**，
+绝不随二进制分发。
+
+```bash
+# 查看 CA 指纹、有效期与是否已受信任
+asa-manager cert status
+
+# 手动安装（--machine 装给所有用户，需要管理员权限）
+asa-manager cert install [--machine]
+
+# 从受信任根存储移除 CA
+asa-manager cert uninstall
+```
+
+`asa-manager service remove` 会自动移除 CA。若不希望程序碰系统受信任存储，
+用 `--tls-trust=false`（浏览器会提示一次证书警告，手动信任即可）；
+若连 TLS 都不想要，用 `--tls=false`。
 
 ### Web 仪表盘
 
 HTTP API 服务器运行后，可通过以下地址访问 Web 仪表盘：
 ```
-http://localhost:19193
+https://localhost:19193
 ```
 
 仪表盘提供用户友好的界面，用于：
@@ -171,6 +206,7 @@ asa-server/
 │                        #   processjob（Windows Job Object）、serverinfo（gopsutil 指标）
 ├── config/              # 目录布局、InstanceConfig、INI 读写、配置同步
 ├── process/             # PID 文件存储 + IsServerRunning（解 state ↔ instance 环的关键层）
+├── certmgr/             # 本地 CA + 叶子证书、Windows 受信任根存储（HTTPS/h2）
 ├── rconx/               # RCON 连接与命令执行（重试、哨兵错误）
 ├── realtime/            # WebSocket 中枢：服务器事件 + 交互式 RCON
 ├── state/               # BadgerDB 实例状态持久化（CAS 状态机）

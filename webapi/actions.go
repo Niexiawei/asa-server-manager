@@ -3,6 +3,7 @@ package webapi
 import (
 	"asa-server/app"
 	"asa-server/batchmanage"
+	"asa-server/certmgr"
 	cfgpkg "asa-server/config"
 	"asa-server/frpmanage"
 	"asa-server/logger"
@@ -47,7 +48,31 @@ type APIServer struct {
 	saveDataManager *parseserver.SaveDataManager
 }
 
-var ApiServerPort = 19193
+var (
+	ApiServerPort = 19193
+
+	// EnableTLS 决定是否以 HTTPS 提供服务。这不只是加密问题：浏览器只在 TLS 上
+	// 通过 ALPN 协商 HTTP/2，没有任何主流浏览器支持明文 h2c，所以关掉 TLS 就等于
+	// 退回 HTTP/1.1 的「每源 6 条连接」限制，常驻 SSE 会把 REST 请求饿死。
+	// 详见 docs/HTTP2_CONNECTION_OPTIMIZATION.md
+	EnableTLS = true
+
+	// TrustLocalCA 决定是否把自签的本地 CA 写入 Windows 受信任根存储，
+	// 写入后浏览器打开 https://localhost:19193 不再有证书警告
+	TrustLocalCA = true
+
+	// TLSCertFile / TLSKeyFile 为用户自备证书（有域名时推荐）。两者都给出时
+	// 不再生成本地 CA，也不碰系统受信任存储。
+	TLSCertFile string
+	TLSKeyFile  string
+
+	// TLSDomains 追加进证书 SAN 的域名，逗号分隔（反代对外域名等）
+	TLSDomains string
+
+	// TrustedProxies 是允许其设置 X-Forwarded-For 的来源，逗号分隔。
+	// gin 的默认行为是信任所有代理，等于让任何客户端都能伪造来源 IP，必须收紧。
+	TrustedProxies = "127.0.0.1,::1"
+)
 
 // NewAPIServer creates a new API server instance
 func NewAPIServer() *APIServer {
@@ -57,6 +82,10 @@ func NewAPIServer() *APIServer {
 	gin.SetMode(gin.ReleaseMode)
 	engine := gin.Default()
 	engine.Use(cors.Default())
+	if err := engine.SetTrustedProxies(parseTrustedProxies(TrustedProxies)); err != nil {
+		logger.GetLogger().Warnf("设置可信代理失败，将忽略 X-Forwarded-For: %v", err)
+		_ = engine.SetTrustedProxies(nil)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	saveDataManager, err := parseserver.NewSaveDataManager()
 	if err != nil {
@@ -113,20 +142,48 @@ func (s *APIServer) Start() error {
 	// Start listening on port
 	addr := fmt.Sprintf(":%d", s.port)
 	srv := &http.Server{
-		Addr:    addr,
-		Handler: s.engine,
+		Addr:      addr,
+		Handler:   s.engine,
+		Protocols: protocolsH1H2(),
+		HTTP2:     http2Config(),
 	}
+
+	scheme := "http"
+	if EnableTLS {
+		tlsConfig, err := certmgr.EnsureTLSConfig(certmgr.Options{
+			CertFile:     TLSCertFile,
+			KeyFile:      TLSKeyFile,
+			Trust:        TrustLocalCA && TLSCertFile == "",
+			ExtraDomains: splitList(TLSDomains),
+		})
+		if err != nil {
+			// 证书出问题不该让整个管理面板起不来：退回明文 HTTP/1.1，
+			// 功能全在，只是失去 HTTP/2 的多路复用
+			logger.GetLogger().Errorf("TLS 初始化失败，退回明文 HTTP: %v", err)
+		} else {
+			srv.TLSConfig = tlsConfig
+			scheme = "https"
+		}
+	}
+	currentScheme.Store(scheme)
 
 	go func() {
 		// service connections
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		var err error
+		if scheme == "https" {
+			// 证书与私钥已经在 TLSConfig 里，这里传空串
+			err = srv.ListenAndServeTLS("", "")
+		} else {
+			err = srv.ListenAndServe()
+		}
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.GetLogger().Errorf("Failed to listen and serve: %v", err)
 			log.Fatalf("listen: %s\n", err)
 		}
 	}()
 
-	logger.GetStdout().Infof("Starting API server on %s", addr)
-	log.Printf("Starting API server on %s \n", addr)
+	logger.GetStdout().Infof("Starting API server on %s://localhost:%d", scheme, s.port)
+	log.Printf("Starting API server on %s://localhost:%d \n", scheme, s.port)
 	<-s.serverCtx.Done()
 	log.Println("Shutdown Server ...")
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)

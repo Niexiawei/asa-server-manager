@@ -6,10 +6,12 @@ export function buildWebSocketUrl(url, token = "") {
         `clientId=${generateClientId()}`
     ]
 
-    // In development mode, connect directly to backend server
+    // In development mode, connect directly to backend server.
+    // 协议必须跟着后端走，而不是跟着页面走：dev 页面是 http://localhost:3000，
+    // 后端默认已启用 TLS，按 location.protocol 推导会得到 ws:// 去敲 wss 端口，连不上。
     if (import.meta.env.DEV) {
-        const proxyTarget = import.meta.env.VITE_PROXY_TARGET || 'http://localhost:19193'
-        const wsTarget = proxyTarget.replace(/^https?:/, location.protocol === 'https:' ? 'wss:' : 'ws:')
+        const proxyTarget = import.meta.env.VITE_PROXY_TARGET || 'https://localhost:19193'
+        const wsTarget = proxyTarget.replace(/^https:/, 'wss:').replace(/^http:/, 'ws:')
         return urlJoin(wsTarget, url, `?${authParam.join('&')}`)
     }
 
@@ -22,9 +24,11 @@ export function buildEventSourceUrl(url) {
     // In production mode, use current host
     const protocol = location.protocol
 
-    // In development mode, connect directly to backend server
+    // In development mode, connect directly to backend server.
+    // EventSource 没有任何忽略证书错误的手段，所以 dev 直连 https 后端要求
+    // 本地 CA 已装进系统受信任存储（默认行为，见 certmgr 包）。
     if (import.meta.env.DEV) {
-        const proxyTarget = import.meta.env.VITE_PROXY_TARGET || 'http://localhost:19193'
+        const proxyTarget = import.meta.env.VITE_PROXY_TARGET || 'https://localhost:19193'
         return urlJoin(proxyTarget, url)
     }
 
@@ -36,7 +40,7 @@ export function getSSEBaseUrl() {
     const protocol = location.protocol
     // In development mode, connect directly to backend server
     if (import.meta.env.DEV) {
-        return import.meta.env.VITE_PROXY_TARGET || 'http://localhost:19193'
+        return import.meta.env.VITE_PROXY_TARGET || 'https://localhost:19193'
     }
     return protocol + "//" + window.location.host, window.location.pathname
 }
