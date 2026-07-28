@@ -2,6 +2,8 @@ package webapi
 
 import (
 	"asa-server/app"
+	"asa-server/appconfig"
+	"asa-server/auth"
 	"asa-server/batchmanage"
 	"asa-server/certmgr"
 	cfgpkg "asa-server/config"
@@ -13,6 +15,7 @@ import (
 	statepkg "asa-server/state"
 	"asa-server/syncthingmanage"
 	"asa-server/updatemanage"
+	"asa-server/webapi/authapi"
 	"asa-server/webapi/backupapi"
 	"asa-server/webapi/configapi"
 	"asa-server/webapi/iconapi"
@@ -81,7 +84,7 @@ func NewAPIServer() *APIServer {
 	InitializationBasicComponents()
 	gin.SetMode(gin.ReleaseMode)
 	engine := gin.Default()
-	engine.Use(cors.Default())
+	setupCORS(engine)
 	if err := engine.SetTrustedProxies(parseTrustedProxies(TrustedProxies)); err != nil {
 		logger.GetLogger().Warnf("设置可信代理失败，将忽略 X-Forwarded-For: %v", err)
 		_ = engine.SetTrustedProxies(nil)
@@ -128,6 +131,7 @@ func (s *APIServer) Start() error {
 		panic(err)
 	}
 	s.startStateChangeDispatcher(s.serverCtx)
+	startAuthHousekeeping(s.serverCtx)
 
 	// 定时调度必须在状态管理器之后启动：批量启停依赖 state 的 CAS
 	if sched := schedule.GetGlobalScheduler(); sched != nil {
@@ -240,12 +244,72 @@ func (s *APIServer) Stop() error {
 	if err := statepkg.CloseStateManager(); err != nil {
 		logger.GetLogger().Warnf("Error closing state manager: %v", err)
 	}
+	if m := auth.GetManager(); m != nil {
+		if err := m.Close(); err != nil {
+			logger.GetLogger().Warnf("关闭鉴权数据库出错: %v", err)
+		}
+	}
 
 	return nil
 }
 
+// startAuthHousekeeping 周期性清理过期的令牌吊销记录并裁剪审计日志。
+// 后者尤其必要：一次密码爆破就能往审计表里刷进上万条。
+func startAuthHousekeeping(ctx context.Context) {
+	m := auth.GetManager()
+	if m == nil {
+		return
+	}
+	go func() {
+		ticker := time.NewTicker(time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if err := m.Housekeeping(ctx); err != nil {
+					logger.GetLogger().Warnf("鉴权数据清理失败: %v", err)
+				}
+			}
+		}
+	}()
+}
+
+// setupCORS 配置跨域。
+//
+// 上了 Cookie 之后不能再用 cors.Default()：它是 AllowAllOrigins，而浏览器
+// 明令禁止 Access-Control-Allow-Origin: * 与凭证共存。
+// 生产部署里 SPA 由本服务自己提供，是同源的，根本不需要 CORS。
+func setupCORS(engine *gin.Engine) {
+	cfg := appconfig.Get()
+	origins := cfg.Server.CORS.AllowedOrigins
+
+	if len(origins) == 0 {
+		if cfg.Auth.Enabled {
+			// 开了鉴权又没显式配置来源：只服务同源请求。
+			// 跨域访问需要用户在 server.cors.allowed_origins 里写明域名。
+			return
+		}
+		// 没开鉴权时保持既有行为，避免升级打断已有的跨域用法
+		engine.Use(cors.Default())
+		return
+	}
+
+	engine.Use(cors.New(cors.Config{
+		AllowOrigins:     origins,
+		AllowCredentials: true, // 让浏览器带上会话 Cookie
+		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowHeaders:     []string{"Content-Type", "X-Requested-With", "Accept", "Origin"},
+		MaxAge:           12 * time.Hour,
+	}))
+}
+
 // setupRoutes configures all API endpoints
 func (s *APIServer) setupRoutes() {
+	// 鉴权闸门必须挂在所有业务路由之前
+	s.engine.Use(authapi.Middleware())
+	authapi.NewHandler().RegisterRouter(s.engine)
 
 	// Domain handlers register their own routes (each package exposes RegisterRouter)
 	instanceapi.NewHandler().RegisterRouter(s.engine)
@@ -257,7 +321,10 @@ func (s *APIServer) setupRoutes() {
 	iconapi.NewHandler().RegisterRouter(s.engine)
 	scheduleapi.NewHandler().RegisterRouter(s.engine)
 
-	// WebSocket endpoints
+	// WebSocket endpoints。
+	// AuthGate 是纵深防御：中间件已经拦过一道，但 handler 内部还会周期性复查，
+	// 这样连接期间会话被吊销时能主动以 4401 断开。
+	realtime.AuthGate = authapi.IsAuthenticated
 	s.engine.GET("/api/ws/events", realtime.HandleServerEvents)
 	s.engine.GET("/api/ws/rcon", realtime.HandleRCONEvents)
 
@@ -297,6 +364,7 @@ func (s *APIServer) setupRoutes() {
 }
 
 func InitializationBasicComponents() {
+	initializeAuth()
 	// Initialize frpc manager
 	if _, err := frpmanage.Initialize(cfgpkg.BaseDir); err != nil {
 		log.Fatal(err)
@@ -312,6 +380,40 @@ func InitializationBasicComponents() {
 	// Initialize schedule scheduler (loads persisted tasks; Start() begins the loop)
 	if err := schedule.Initialize(); err != nil {
 		log.Fatal(err)
+	}
+}
+
+// initializeAuth 在鉴权开启时打开 auth.db、执行迁移、加载内存副本。
+//
+// auth.enabled 为 false 时**完全不碰** auth.db —— 没开鉴权的实例不该因为
+// 数据库有问题而受到任何影响。
+//
+// 反过来，开了鉴权却初始化失败时必须拒绝启动：静默降级成"不鉴权"会把一个
+// 安全故障变成安全漏洞，而这台机器很可能正暴露在公网上。
+func initializeAuth() {
+	if !appconfig.Get().Auth.Enabled {
+		return
+	}
+	m, err := auth.Initialize(cfgpkg.BaseDir)
+	if err != nil {
+		logger.GetStdout().Errorf("鉴权初始化失败: %v", err)
+		log.Fatalf("鉴权已启用但初始化失败，服务不会以无鉴权状态启动。\n"+
+			"可执行 asa-server db migrate --dry-run 诊断，或 asa-server db verify 检查数据库。\n%v", err)
+	}
+	if m.UserCount() == 0 {
+		scheme := "https"
+		if !appconfig.Get().Server.TLS.Enabled {
+			scheme = "http"
+		}
+		msg := fmt.Sprintf("[鉴权] 已启用鉴权但尚未创建任何账号。\n"+
+			"       请在本机浏览器打开 %s://localhost:%d/#/setup 创建管理员账号，\n"+
+			"       或执行 asa-server user add <用户名> --role admin", scheme, ApiServerPort)
+		logger.GetStdout().Warn(msg)
+		logger.GetLogger().Warn(msg)
+	}
+	if appconfig.Get().Auth.LANBypass.Enabled {
+		logger.GetStdout().Warn("[安全] lan_bypass 已开启：来自内网网段且不带 X-Forwarded-For 的请求将跳过鉴权。" +
+			"若反代未设置 XFF（如 frpc 的 tcp 类型代理），公网访问将完全绕过鉴权。")
 	}
 }
 

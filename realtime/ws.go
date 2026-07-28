@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"sync"
 	"time"
 
@@ -29,8 +30,48 @@ type RCONResponse struct {
 	InstanceName string `json:"instance_name,omitempty"`
 }
 
+// CloseAuthFailed 是鉴权失效时使用的应用级关闭码（4000-4999 为应用私有区间）。
+//
+// 前端必须把它和普通断线区别对待：普通断线要退避重连，4401 要**彻底停止**
+// 重连并跳转登录页。否则会话过期后每个标签页都会陷入永久重连循环，
+// 而每次重连都是一次完整的 TLS 握手。
+const CloseAuthFailed = 4401
+
+// AuthGate 由 webapi 在启动时注入（authapi.IsAuthenticated）。
+//
+// 用函数变量而不是直接 import，是为了不让实时层反向依赖 HTTP 接入层。
+// nil 表示未配置鉴权，一律放行。
+var AuthGate func(c *gin.Context) bool
+
+// sessionRecheckInterval 是连接建立后复查会话有效性的间隔。
+// WebSocket 可以挂好几天，期间会话可能过期或被管理员吊销。
+const sessionRecheckInterval = 60 * time.Second
+
+func authorized(c *gin.Context) bool {
+	return AuthGate == nil || AuthGate(c)
+}
+
+// closeUnauthorized 发送 4401 关闭帧后断开。
+// 与"直接 Close"的区别在于前端能据此判断这是鉴权问题、不该重连。
+func closeUnauthorized(conn *websocket.Conn, mu *sync.Mutex) {
+	mu.Lock()
+	_ = conn.WriteControl(websocket.CloseMessage,
+		websocket.FormatCloseMessage(CloseAuthFailed, "session expired"),
+		time.Now().Add(time.Second))
+	mu.Unlock()
+	conn.Close()
+}
+
 // HandleServerEvents handles WebSocket connections for server events (global broadcast)
 func HandleServerEvents(c *gin.Context) {
+	// 在 Upgrade **之前**拒绝，绝不"先升级再关闭"。
+	// 中间件其实已经拦过一道，这里是纵深防御：防止将来有人把这条路由
+	// 挪出中间件的覆盖范围。
+	if !authorized(c) {
+		c.AbortWithStatus(http.StatusUnauthorized)
+		return
+	}
+
 	conn, err := WSUpgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		logger.GetLogger().Warnf("WebSocket upgrade error: %v", err)
@@ -50,15 +91,30 @@ func HandleServerEvents(c *gin.Context) {
 	done := make(chan struct{})
 	defer close(done)
 
-	// 启动心跳超时检测 goroutine
+	// 启动心跳超时 + 会话复查 goroutine
+	authTicker := time.NewTicker(sessionRecheckInterval)
+	defer authTicker.Stop()
 	go func() {
-		select {
-		case <-heartbeatTicker.C:
-			logger.GetLogger().Warnf("Server events WebSocket: Client heartbeat timeout, closing connection")
-			conn.Close()
-			globalHub.RemoveClient(conn)
-		case <-done:
-			// Connection closed normally, exit goroutine
+		for {
+			select {
+			case <-heartbeatTicker.C:
+				logger.GetLogger().Warnf("Server events WebSocket: Client heartbeat timeout, closing connection")
+				conn.Close()
+				globalHub.RemoveClient(conn)
+				return
+			case <-authTicker.C:
+				// 连接期间会话可能过期或被吊销（改密码、管理员踢人）。
+				// 用 4401 关闭，前端才知道该跳登录页而不是重连。
+				if !authorized(c) {
+					logger.GetLogger().Infof("Server events WebSocket: 会话已失效，主动断开")
+					closeUnauthorized(conn, connMu)
+					globalHub.RemoveClient(conn)
+					return
+				}
+			case <-done:
+				// Connection closed normally, exit goroutine
+				return
+			}
 		}
 	}()
 
@@ -111,6 +167,12 @@ func HandleServerEvents(c *gin.Context) {
 
 // HandleRCONEvents handles WebSocket connections for RCON commands
 func HandleRCONEvents(c *gin.Context) {
+	// RCON 能直接对游戏服务器下命令，鉴权检查必须在 Upgrade 之前
+	if !authorized(c) {
+		c.AbortWithStatus(http.StatusUnauthorized)
+		return
+	}
+
 	conn, err := WSUpgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		logger.GetLogger().Warnf("WebSocket upgrade error for RCON: %v", err)
@@ -131,15 +193,27 @@ func HandleRCONEvents(c *gin.Context) {
 	done := make(chan struct{})
 	defer close(done)
 
-	// 启动心跳超时检测 goroutine
+	// 启动心跳超时 + 会话复查 goroutine
 	// C10 fix: select on done channel to exit when connection closes
+	authTicker := time.NewTicker(sessionRecheckInterval)
+	defer authTicker.Stop()
 	go func() {
-		select {
-		case <-heartbeatTicker.C:
-			logger.GetLogger().Warnf("RCON WebSocket: Client heartbeat timeout, closing connection")
-			conn.Close()
-		case <-done:
-			// Connection closed normally, exit goroutine
+		for {
+			select {
+			case <-heartbeatTicker.C:
+				logger.GetLogger().Warnf("RCON WebSocket: Client heartbeat timeout, closing connection")
+				conn.Close()
+				return
+			case <-authTicker.C:
+				if !authorized(c) {
+					logger.GetLogger().Infof("RCON WebSocket: 会话已失效，主动断开")
+					closeUnauthorized(conn, connMu)
+					return
+				}
+			case <-done:
+				// Connection closed normally, exit goroutine
+				return
+			}
 		}
 	}()
 
