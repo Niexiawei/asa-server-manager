@@ -111,6 +111,11 @@ func (l *LANBypassConfig) validate() error {
 	if len(l.Networks) == 0 {
 		l.Networks = slices.Clone(DefaultPrivateNetworks)
 	}
+	if l.AutoDetectLocalSubnets {
+		// 始终追加，不管上面 Networks 用的是默认值还是用户自定义：
+		// 语义统一为"在你配置的网段之外，再信任我当前连接的物理局域网段"。
+		l.Networks = append(l.Networks, detectLocalPrivateSubnets()...)
+	}
 	for i, n := range l.Networks {
 		n = strings.TrimSpace(n)
 		if _, _, err := net.ParseCIDR(n); err != nil {

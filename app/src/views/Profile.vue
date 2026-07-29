@@ -10,6 +10,9 @@
     </t-card>
 
     <t-card title="修改密码" :bordered="false" class="profile-card">
+      <t-alert theme="info" message="修改密码后，其他设备上的登录会立刻失效（当前设备会自动续期）。"
+               style="margin-bottom: var(--td-comp-paddingTB-l)"
+      />
       <t-form label-width="90px" style="max-width:420px">
         <t-form-item label="当前密码">
           <t-input v-model="pwd.old" type="password" autocomplete="current-password"/>
@@ -24,7 +27,6 @@
           <t-button theme="primary" :loading="pwdLoading" @click="onChangePassword">保存</t-button>
         </t-form-item>
       </t-form>
-      <t-alert theme="info" message="修改密码后，其他设备上的登录会立刻失效（当前设备会自动续期）。"/>
     </t-card>
 
     <t-card title="两步验证" :bordered="false" class="profile-card">
@@ -302,6 +304,10 @@ onMounted(loadPasskeys)
 .profile {
   padding: 16px;
   max-width: 760px;
+
+  :deep(.t-card__body) {
+    padding: 0 var(--td-comp-paddingLR-xl) var(--td-comp-paddingTB-l) var(--td-comp-paddingLR-xl);
+  }
 }
 
 .profile-card {

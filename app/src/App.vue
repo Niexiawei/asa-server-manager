@@ -42,7 +42,7 @@
             <WSEventNotification/>
             <!-- 没开鉴权时整块隐藏，界面和引入鉴权之前一模一样 -->
             <t-dropdown v-if="authState.authEnabled" :options="userMenuOptions" @click="onUserMenu">
-              <t-button variant="text" size="small">
+              <t-button variant="text" shape="round">
                 {{ authState.bypassed ? '内网访问' : (authState.user?.username || '未登录') }}
                 <template #suffix>▾</template>
               </t-button>
@@ -105,6 +105,7 @@ async function onUserMenu({value}) {
     router.replace('/login')
   }
 }
+
 const InstanceTabRef = ref()
 const currentRoute = ref('manager');
 const el = useTemplateRef('contentWrapperRef')
@@ -269,8 +270,12 @@ const handleTabChange = (tab) => {
       flex: 0 0 auto;
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 10px;
       flex-shrink: 0;
+
+      :deep(.t-button--variant-text) {
+        font-size: 16px;
+      }
     }
   }
 }

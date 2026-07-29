@@ -308,6 +308,31 @@ func TestValidateNormalizesLANBypass(t *testing.T) {
 	}
 }
 
+// 默认关闭时不应引入任何副作用——行为必须与 TestValidateNormalizesLANBypass
+// 完全一致，升级到带这个开关的版本不能悄悄改变已有部署的信任范围。
+func TestAutoDetectLocalSubnetsDefaultOffNoSideEffect(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.Auth.LANBypass.Networks = []string{"10.0.0.0/8"}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	if len(cfg.Auth.LANBypass.Networks) != 1 || cfg.Auth.LANBypass.Networks[0] != "10.0.0.0/8" {
+		t.Errorf("auto_detect_local_subnets 默认关闭时不应追加任何网段，实际 %v", cfg.Auth.LANBypass.Networks)
+	}
+}
+
+// 开启后应在已有网段基础上追加探测结果（不假设具体内容，只断言不会变少、无错误）。
+func TestAutoDetectLocalSubnetsAppendsWhenEnabled(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.Auth.LANBypass.AutoDetectLocalSubnets = true
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	if len(cfg.Auth.LANBypass.Networks) < len(DefaultPrivateNetworks) {
+		t.Errorf("开启探测后网段数不应少于默认集，实际 %d 项", len(cfg.Auth.LANBypass.Networks))
+	}
+}
+
 func TestValidateDeduplicatesDomains(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.Auth.WebAuthn.Domains = []string{"example.com", "EXAMPLE.com.", "other.com"}

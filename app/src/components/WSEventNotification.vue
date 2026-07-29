@@ -1,5 +1,5 @@
 <template>
-  <div class="ws-notification" style="margin-left: auto; padding-right: 20px;">
+  <div class="ws-notification">
     <t-popup placement="bottom-right" trigger="click" showArrow overlayClassName="ws-notification-popover">
       <template #content>
         <t-card headerBordered>
@@ -208,7 +208,8 @@ onUnmounted(() => {
     width: 100%;
     padding: 15px 0;
     box-sizing: border-box;
-    :deep(.t-timeline-item__wrapper){
+
+    :deep(.t-timeline-item__wrapper) {
       margin-left: 20px !important;
     }
 

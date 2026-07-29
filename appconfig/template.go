@@ -78,6 +78,10 @@ auth:
       - fc00::/7
       - fe80::/10
     deny_if_forwarded: true
+    # 额外自动信任本机「物理网卡」当前所在的子网（按 IP+子网掩码算出精确 CIDR），
+    # 排除 Docker/Hyper-V/WSL2/VPN 等虚拟适配器。默认关闭，是对上面 networks
+    # 列表的补充而非替换。启用前确认本机没有物理网卡直接暴露在公网。
+    auto_detect_local_subnets: false
 
   # 两步验证（TOTP，兼容 Google Authenticator / Microsoft Authenticator 等）
   totp:

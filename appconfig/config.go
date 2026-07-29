@@ -85,6 +85,10 @@ type LANBypassConfig struct {
 	Enabled         bool     `mapstructure:"enabled"`
 	Networks        []string `mapstructure:"networks"`
 	DenyIfForwarded bool     `mapstructure:"deny_if_forwarded"`
+	// AutoDetectLocalSubnets 额外把本机「物理网卡」当前所在的子网追加进 Networks，
+	// 排除 Docker/Hyper-V/WSL2/VPN 等虚拟适配器，且只信任私有/链路本地地址。
+	// 默认关闭：是对 Networks 的补充，不是替换，不能在升级后悄悄扩大信任范围。
+	AutoDetectLocalSubnets bool `mapstructure:"auto_detect_local_subnets"`
 }
 
 type TOTPConfig struct {
@@ -237,9 +241,10 @@ func defaultConfig() Config {
 				SameSite:    "lax",
 			},
 			LANBypass: LANBypassConfig{
-				Enabled:         false,
-				Networks:        DefaultPrivateNetworks,
-				DenyIfForwarded: true,
+				Enabled:                false,
+				Networks:               DefaultPrivateNetworks,
+				DenyIfForwarded:        true,
+				AutoDetectLocalSubnets: false,
 			},
 			TOTP: TOTPConfig{
 				Enabled: true,
@@ -286,6 +291,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("auth.lan_bypass.enabled", d.Auth.LANBypass.Enabled)
 	v.SetDefault("auth.lan_bypass.networks", d.Auth.LANBypass.Networks)
 	v.SetDefault("auth.lan_bypass.deny_if_forwarded", d.Auth.LANBypass.DenyIfForwarded)
+	v.SetDefault("auth.lan_bypass.auto_detect_local_subnets", d.Auth.LANBypass.AutoDetectLocalSubnets)
 
 	v.SetDefault("auth.totp.enabled", d.Auth.TOTP.Enabled)
 	v.SetDefault("auth.totp.required", d.Auth.TOTP.Required)

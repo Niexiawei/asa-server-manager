@@ -408,7 +408,6 @@ func initializeAuth() {
 		msg := fmt.Sprintf("[鉴权] 已启用鉴权但尚未创建任何账号。\n"+
 			"       请在本机浏览器打开 %s://localhost:%d/#/setup 创建管理员账号，\n"+
 			"       或执行 asa-server user add <用户名> --role admin", scheme, ApiServerPort)
-		logger.GetStdout().Warn(msg)
 		logger.GetLogger().Warn(msg)
 	}
 	if appconfig.Get().Auth.LANBypass.Enabled {

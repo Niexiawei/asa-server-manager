@@ -228,7 +228,6 @@ func loadAppConfig() *appconfig.Config {
 
 	msg := fmt.Sprintf("加载 %s 失败，将使用默认配置继续启动: %v", appconfig.ConfigFileName, err)
 	logger.GetLogger().Error(msg)
-	logger.GetStdout().Error(msg)
 	return appconfig.Get()
 }
 

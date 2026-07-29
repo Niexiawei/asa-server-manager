@@ -131,18 +131,16 @@ func HandleServerEvents(c *gin.Context) {
 		var msg ClientMessage
 		err := conn.ReadJSON(&msg)
 		if err != nil {
-			connMu.Lock()
-			err2 := conn.WriteJSON(gin.H{
-				"error": err.Error(),
-			})
-			connMu.Unlock()
-
-			if err2 != nil {
-				logger.GetLogger().Debugf("Failed to send error response: %v", err)
-				globalHub.RemoveClient(conn)
-				break
+			// 读错误后连接的读侧已不可用：gorilla/websocket 一旦 NextReader 出错
+			// 就会把连接标记为损坏，再次调用 ReadJSON 会直接 panic
+			// ("repeated read on failed websocket connection")。所以这里必须
+			// 无条件退出循环，不能尝试写回错误消息后 continue 再读一次
+			// （写侧短暂可用不代表读侧健康）。写法与 HandleRCONEvents 保持一致。
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				logger.GetLogger().Warnf("Server events WebSocket: read error: %v", err)
 			}
-			continue
+			globalHub.RemoveClient(conn)
+			break
 		}
 
 		// 重置心跳超时 ticker（收到任何消息）

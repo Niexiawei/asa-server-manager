@@ -552,6 +552,29 @@ func shouldBypass(c *gin.Context, cfg *appconfig.AuthConfig) bool {
 但这要改 `APIServer.Start()` 起两个 `http.Server`，证书/端口都要重新规划。**本期不做**，
 记在这里作为 lan_bypass 出问题时的升级路径。
 
+### 4.6 `auto_detect_local_subnets`：自动补充本机物理网卡子网
+
+`auth.lan_bypass.networks` 默认是写死的 RFC1918 大网段（`10.0.0.0/8` 等）。这类大网段
+在企业内网里可能过宽——同属 `10.0.0.0/8` 但并非同一物理局域网段的机器也会被信任。
+
+`auth.lan_bypass.auto_detect_local_subnets`（默认 `false`）开启后，会在上述
+`networks` 列表之外，**追加**本机当前所在物理网卡的精确子网（按 IP + 子网掩码计算，
+例如网卡是 `192.168.1.42/24` 就追加 `192.168.1.0/24`）。要点：
+
+- **只是补充，不替换**：默认的 `networks` 列表始终保留。
+- **只信任私有/链路本地地址**（`net.IP.IsPrivate()` / `IsLinkLocalUnicast()`）。
+  物理网卡也可能直连公网（例如云主机），此时探测到的公网子网绝不会被加入信任列表，
+  否则等于把免鉴权开放给整个公网子网段。
+- **默认排除虚拟适配器**：Docker / Hyper-V / WSL2 / VPN / 隧道类网卡（按名称关键字
+  识别，见 `appconfig/localnet.go` 的 `virtualAdapterKeywords`）一律不参与探测——
+  这些虚拟子网里的进程理论上都能连到宿主机管理接口，纳入信任会把攻击面从
+  "同一物理局域网" 扩大到 "本机上跑的任意容器"。名称启发式无法达到 WMI
+  `Win32_NetworkAdapter.PhysicalAdapter` 那样的精确度，但 `appconfig` 是只依赖
+  标准库 + viper 的叶子包（见包头注释），不为此引入 WMI 依赖；误判方向也刻意选择
+  "宁可漏判物理网卡"而不是"误信虚拟网卡"。
+- 探测只在配置 `Load()`/`reload` 时计算一次，不做运行时周期性重新探测
+  （与其余配置项的生效模型一致，DHCP 续租导致子网变化需要手动 reload）。
+
 ---
 
 ## 5. 中间件与豁免清单
