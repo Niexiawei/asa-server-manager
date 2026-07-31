@@ -6,10 +6,10 @@
 package updatemanage
 
 import (
-	"asa-server/installer"
-	"asa-server/logger"
-	procpkg "asa-server/process"
-	"asa-server/realtime"
+	"asa-server/internal/installer"
+	"asa-server/internal/logger"
+	procpkg "asa-server/internal/process"
+	"asa-server/internal/realtime"
 	"context"
 	"fmt"
 	"strings"

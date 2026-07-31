@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"asa-server/appconfig"
+	"asa-server/internal/appconfig"
 
 	"golang.org/x/crypto/bcrypt"
 )

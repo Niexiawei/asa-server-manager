@@ -1,12 +1,12 @@
 package gui
 
 import (
-	cfgpkg "asa-server/config"
-	"asa-server/logger"
-	"asa-server/pkg/serverinfo"
-	procpkg "asa-server/process"
-	"asa-server/webapi"
-	"asa-server/winservice"
+	cfgpkg "asa-server/internal/config"
+	"asa-server/internal/logger"
+	"asa-server/internal/pkg/serverinfo"
+	procpkg "asa-server/internal/process"
+	"asa-server/internal/webapi"
+	"asa-server/internal/winservice"
 	"context"
 	_ "embed"
 	"fmt"

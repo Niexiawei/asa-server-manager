@@ -1,9 +1,9 @@
 package configapi
 
 import (
-	cfgpkg "asa-server/config"
-	"asa-server/logger"
-	"asa-server/webapi/apiresp"
+	cfgpkg "asa-server/internal/config"
+	"asa-server/internal/logger"
+	"asa-server/internal/webapi/apiresp"
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"io"

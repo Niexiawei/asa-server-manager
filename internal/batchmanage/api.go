@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"asa-server/realtime"
+	"asa-server/internal/realtime"
 
 	"github.com/gin-gonic/gin"
 )

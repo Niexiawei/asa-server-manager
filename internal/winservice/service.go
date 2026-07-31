@@ -1,9 +1,9 @@
 package winservice
 
 import (
-	"asa-server/certmgr"
-	"asa-server/frpmanage"
-	"asa-server/webapi"
+	"asa-server/internal/certmgr"
+	"asa-server/internal/frpmanage"
+	"asa-server/internal/webapi"
 	"context"
 	"errors"
 	"fmt"

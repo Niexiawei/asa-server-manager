@@ -1,12 +1,12 @@
 package batchmanage
 
 import (
-	cfgpkg "asa-server/config"
-	"asa-server/countdown"
-	instancepkg "asa-server/instance"
-	"asa-server/logger"
-	"asa-server/realtime"
-	statepkg "asa-server/state"
+	cfgpkg "asa-server/internal/config"
+	"asa-server/internal/countdown"
+	instancepkg "asa-server/internal/instance"
+	"asa-server/internal/logger"
+	"asa-server/internal/realtime"
+	statepkg "asa-server/internal/state"
 	"context"
 	"errors"
 	"fmt"

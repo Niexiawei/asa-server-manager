@@ -1,8 +1,8 @@
 package saveapi
 
 import (
-	"asa-server/parseserver"
-	"asa-server/webapi/apiresp"
+	"asa-server/internal/parseserver"
+	"asa-server/internal/webapi/apiresp"
 	"context"
 	"errors"
 	"net/http"

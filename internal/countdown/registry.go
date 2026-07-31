@@ -1,7 +1,7 @@
 package countdown
 
 import (
-	"asa-server/realtime"
+	"asa-server/internal/realtime"
 	"context"
 	"errors"
 	"sync"

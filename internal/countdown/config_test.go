@@ -1,7 +1,7 @@
 package countdown
 
 import (
-	"asa-server/logger"
+	"asa-server/internal/logger"
 	"os"
 	"strings"
 	"testing"

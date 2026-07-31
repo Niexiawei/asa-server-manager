@@ -6,9 +6,9 @@
 package rconx
 
 import (
-	cfgpkg "asa-server/config"
-	"asa-server/logger"
-	procpkg "asa-server/process"
+	cfgpkg "asa-server/internal/config"
+	"asa-server/internal/logger"
+	procpkg "asa-server/internal/process"
 	"context"
 	"errors"
 	"fmt"

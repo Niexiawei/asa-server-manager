@@ -1,8 +1,8 @@
 package instance
 
 import (
-	"asa-server/logger"
-	statepkg "asa-server/state"
+	"asa-server/internal/logger"
+	statepkg "asa-server/internal/state"
 	"os"
 	"testing"
 )

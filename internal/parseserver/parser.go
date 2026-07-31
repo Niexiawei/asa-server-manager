@@ -1,7 +1,7 @@
 package parseserver
 
 import (
-	cfgpkg "asa-server/config"
+	cfgpkg "asa-server/internal/config"
 	"context"
 	"fmt"
 	"maps"

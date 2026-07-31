@@ -1,9 +1,9 @@
 package instance
 
 import (
-	cfgpkg "asa-server/config"
-	"asa-server/logger"
-	statepkg "asa-server/state"
+	cfgpkg "asa-server/internal/config"
+	"asa-server/internal/logger"
+	statepkg "asa-server/internal/state"
 	"fmt"
 	"testing"
 )

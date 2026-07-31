@@ -4,7 +4,7 @@ import (
 	"errors"
 	"net/http"
 
-	"asa-server/auth"
+	"asa-server/internal/auth"
 
 	"github.com/gin-gonic/gin"
 )

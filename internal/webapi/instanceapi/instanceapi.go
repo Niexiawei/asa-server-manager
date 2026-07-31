@@ -1,13 +1,13 @@
 package instanceapi
 
 import (
-	cfgpkg "asa-server/config"
-	instancepkg "asa-server/instance"
-	"asa-server/logger"
-	"asa-server/pkg/fsutil"
-	procpkg "asa-server/process"
-	statepkg "asa-server/state"
-	"asa-server/webapi/apiresp"
+	cfgpkg "asa-server/internal/config"
+	instancepkg "asa-server/internal/instance"
+	"asa-server/internal/logger"
+	"asa-server/internal/pkg/fsutil"
+	procpkg "asa-server/internal/process"
+	statepkg "asa-server/internal/state"
+	"asa-server/internal/webapi/apiresp"
 	"encoding/json"
 	"fmt"
 	"github.com/gin-gonic/gin"

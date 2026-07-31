@@ -3,7 +3,7 @@
 package schedule
 
 import (
-	"asa-server/countdown"
+	"asa-server/internal/countdown"
 	"fmt"
 	"time"
 )

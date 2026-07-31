@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"asa-server/appconfig"
+	"asa-server/internal/appconfig"
 )
 
 var (

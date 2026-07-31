@@ -1,9 +1,9 @@
 package batchmanage
 
 import (
-	"asa-server/countdown"
-	instancepkg "asa-server/instance"
-	"asa-server/logger"
+	"asa-server/internal/countdown"
+	instancepkg "asa-server/internal/instance"
+	"asa-server/internal/logger"
 	"context"
 	"os"
 	"sync"

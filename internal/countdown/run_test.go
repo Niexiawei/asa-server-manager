@@ -1,7 +1,7 @@
 package countdown
 
 import (
-	statepkg "asa-server/state"
+	statepkg "asa-server/internal/state"
 	"context"
 	"errors"
 	"sync"

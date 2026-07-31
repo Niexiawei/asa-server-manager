@@ -1,8 +1,8 @@
 package serverapi
 
 import (
-	"asa-server/countdown"
-	"asa-server/webapi/apiresp"
+	"asa-server/internal/countdown"
+	"asa-server/internal/webapi/apiresp"
 	"fmt"
 	"net/http"
 

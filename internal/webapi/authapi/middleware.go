@@ -9,9 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"asa-server/appconfig"
-	"asa-server/auth"
-	"asa-server/logger"
+	"asa-server/internal/appconfig"
+	"asa-server/internal/auth"
+	"asa-server/internal/logger"
 
 	"github.com/gin-gonic/gin"
 )

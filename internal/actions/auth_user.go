@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"asa-server/appconfig"
-	"asa-server/auth"
-	cfgpkg "asa-server/config"
+	"asa-server/internal/appconfig"
+	"asa-server/internal/auth"
+	cfgpkg "asa-server/internal/config"
 
 	"github.com/mattn/go-runewidth"
 	"github.com/urfave/cli/v3"

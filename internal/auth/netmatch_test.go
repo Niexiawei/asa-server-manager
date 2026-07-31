@@ -4,7 +4,7 @@ import (
 	"net"
 	"testing"
 
-	"asa-server/appconfig"
+	"asa-server/internal/appconfig"
 )
 
 func TestIsInNetworks(t *testing.T) {

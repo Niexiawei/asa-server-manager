@@ -1,7 +1,7 @@
 package config
 
 import (
-	"asa-server/pkg/fsutil"
+	"asa-server/internal/pkg/fsutil"
 	"bufio"
 	"fmt"
 	"io"

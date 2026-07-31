@@ -1,8 +1,8 @@
 package schedule
 
 import (
-	cfgpkg "asa-server/config"
-	"asa-server/logger"
+	cfgpkg "asa-server/internal/config"
+	"asa-server/internal/logger"
 	"encoding/json"
 	"os"
 	"path/filepath"

@@ -1,14 +1,14 @@
 package instance
 
 import (
-	cfgpkg "asa-server/config"
-	"asa-server/logger"
-	"asa-server/mirror"
-	"asa-server/pkg/tail"
-	"asa-server/pkg/winproc"
-	procpkg "asa-server/process"
-	"asa-server/rconx"
-	statepkg "asa-server/state"
+	cfgpkg "asa-server/internal/config"
+	"asa-server/internal/logger"
+	"asa-server/internal/mirror"
+	"asa-server/internal/pkg/tail"
+	"asa-server/internal/pkg/winproc"
+	procpkg "asa-server/internal/process"
+	"asa-server/internal/rconx"
+	statepkg "asa-server/internal/state"
 	"bufio"
 	"bytes"
 	"context"

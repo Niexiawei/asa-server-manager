@@ -5,8 +5,8 @@ import (
 	"sync"
 	"time"
 
-	"asa-server/appconfig"
-	"asa-server/auth"
+	"asa-server/internal/appconfig"
+	"asa-server/internal/auth"
 
 	"github.com/gin-gonic/gin"
 )

@@ -1,8 +1,8 @@
 package realtime
 
 import (
-	"asa-server/logger"
-	"asa-server/rconx"
+	"asa-server/internal/logger"
+	"asa-server/internal/rconx"
 	"context"
 	"errors"
 	"fmt"

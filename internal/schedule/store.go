@@ -1,7 +1,7 @@
 package schedule
 
 import (
-	cfgpkg "asa-server/config"
+	cfgpkg "asa-server/internal/config"
 	"encoding/json"
 	"fmt"
 	"os"

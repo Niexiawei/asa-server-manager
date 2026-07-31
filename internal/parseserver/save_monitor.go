@@ -1,9 +1,9 @@
 package parseserver
 
 import (
-	cfgpkg "asa-server/config"
-	"asa-server/logger"
-	"asa-server/realtime"
+	cfgpkg "asa-server/internal/config"
+	"asa-server/internal/logger"
+	"asa-server/internal/realtime"
 	"context"
 	"fmt"
 	"path/filepath"

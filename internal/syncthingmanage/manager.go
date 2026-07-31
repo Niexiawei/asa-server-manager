@@ -1,8 +1,8 @@
 package syncthingmanage
 
 import (
-	"asa-server/pkg/processjob"
-	"asa-server/pkg/winproc"
+	"asa-server/internal/pkg/processjob"
+	"asa-server/internal/pkg/winproc"
 	"bufio"
 	"context"
 	"crypto/md5"
@@ -17,7 +17,7 @@ import (
 	"sync"
 	"time"
 
-	"asa-server/logger"
+	"asa-server/internal/logger"
 )
 
 //go:embed syncthing.exe

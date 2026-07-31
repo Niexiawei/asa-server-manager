@@ -1,7 +1,7 @@
 package certmgr
 
 import (
-	"asa-server/logger"
+	"asa-server/internal/logger"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"

@@ -1,12 +1,12 @@
 package schedule
 
 import (
-	"asa-server/batchmanage"
-	instancepkg "asa-server/instance"
-	"asa-server/logger"
-	procpkg "asa-server/process"
-	"asa-server/realtime"
-	"asa-server/updatemanage"
+	"asa-server/internal/batchmanage"
+	instancepkg "asa-server/internal/instance"
+	"asa-server/internal/logger"
+	procpkg "asa-server/internal/process"
+	"asa-server/internal/realtime"
+	"asa-server/internal/updatemanage"
 	"context"
 	"errors"
 	"fmt"

@@ -1,7 +1,7 @@
 package schedule
 
 import (
-	"asa-server/logger"
+	"asa-server/internal/logger"
 	"encoding/json"
 	"os"
 	"path/filepath"

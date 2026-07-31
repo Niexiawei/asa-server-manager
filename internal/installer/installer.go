@@ -2,11 +2,11 @@ package installer
 
 import (
 	"archive/zip"
-	cfgpkg "asa-server/config"
-	"asa-server/logger"
-	"asa-server/pkg/console"
-	"asa-server/pkg/netutil"
-	procpkg "asa-server/process"
+	cfgpkg "asa-server/internal/config"
+	"asa-server/internal/logger"
+	"asa-server/internal/pkg/console"
+	"asa-server/internal/pkg/netutil"
+	procpkg "asa-server/internal/process"
 	"context"
 	"fmt"
 	"io"

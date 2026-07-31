@@ -1,9 +1,9 @@
 package scheduleapi
 
 import (
-	cfgpkg "asa-server/config"
-	"asa-server/schedule"
-	"asa-server/webapi/apiresp"
+	cfgpkg "asa-server/internal/config"
+	"asa-server/internal/schedule"
+	"asa-server/internal/webapi/apiresp"
 	"fmt"
 	"net/http"
 	"slices"

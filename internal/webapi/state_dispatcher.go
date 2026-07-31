@@ -1,8 +1,8 @@
 package webapi
 
 import (
-	"asa-server/realtime"
-	statepkg "asa-server/state"
+	"asa-server/internal/realtime"
+	statepkg "asa-server/internal/state"
 	"context"
 	"fmt"
 )

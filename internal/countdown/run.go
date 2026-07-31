@@ -1,12 +1,12 @@
 package countdown
 
 import (
-	instancepkg "asa-server/instance"
-	"asa-server/logger"
-	procpkg "asa-server/process"
-	"asa-server/rconx"
-	"asa-server/realtime"
-	statepkg "asa-server/state"
+	instancepkg "asa-server/internal/instance"
+	"asa-server/internal/logger"
+	procpkg "asa-server/internal/process"
+	"asa-server/internal/rconx"
+	"asa-server/internal/realtime"
+	statepkg "asa-server/internal/state"
 	"context"
 	"errors"
 	"fmt"

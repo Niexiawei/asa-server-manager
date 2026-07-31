@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"asa-server/appconfig"
+	"asa-server/internal/appconfig"
 
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"

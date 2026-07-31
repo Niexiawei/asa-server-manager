@@ -1,7 +1,7 @@
 package realtime
 
 import (
-	"asa-server/logger"
+	"asa-server/internal/logger"
 	"fmt"
 	"net/http"
 	"strings"

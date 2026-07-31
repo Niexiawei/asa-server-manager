@@ -1,10 +1,10 @@
 package backupapi
 
 import (
-	"asa-server/backup"
-	cfgpkg "asa-server/config"
-	"asa-server/logger"
-	"asa-server/webapi/apiresp"
+	"asa-server/internal/backup"
+	cfgpkg "asa-server/internal/config"
+	"asa-server/internal/logger"
+	"asa-server/internal/webapi/apiresp"
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"net/http"

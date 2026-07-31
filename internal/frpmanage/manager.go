@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"asa-server/logger"
+	"asa-server/internal/logger"
 )
 
 //go:embed frpc.exe

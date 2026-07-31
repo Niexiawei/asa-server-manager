@@ -1,9 +1,9 @@
 package actions
 
 import (
-	"asa-server/installer"
-	"asa-server/logger"
-	statepkg "asa-server/state"
+	"asa-server/internal/installer"
+	"asa-server/internal/logger"
+	statepkg "asa-server/internal/state"
 	"context"
 	"fmt"
 	"os"
