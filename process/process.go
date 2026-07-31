@@ -113,8 +113,29 @@ func IsServerRunning(instanceName string) (bool, error) {
 	return false, nil
 }
 
+// expectedExecutables 是本项目会启动、且会写 PID 文件的可执行文件名（小写）。
+// 见 instance/server.go 的 ArkAscendedServer.exe / AsaApiLoader.exe。
+var expectedExecutables = map[string]bool{
+	"arkascendedserver.exe": true,
+	"asaapiloader.exe":      true,
+}
+
+// isExpectedProcess 核对 pid 当前对应的可执行文件是否是本项目会启动的那几个。
+//
+// PID 文件一旦写入就不会再被清理（进程正常停止或崩溃都不会删它），而 Windows
+// 会把退出进程的 PID 号码回收复用给完全无关的新进程。只看"这个 PID 存在"会把
+// 崩溃后凑巧复用了旧 PID 的无关进程误判成"实例还活着"。查不到镜像名（进程已
+// 退出、或权限不足）一律当作"不是"——宁可漏判存活，也不能误判存活。
+func isExpectedProcess(pid uint32) bool {
+	imagePath, err := winproc.ProcessImageName(pid)
+	if err != nil {
+		return false
+	}
+	return expectedExecutables[strings.ToLower(filepath.Base(imagePath))]
+}
+
 // IsServerRunningByPID checks if a server instance is running by verifying the
-// saved PID process still exists.
+// saved PID process still exists and is one of the expected game executables.
 func IsServerRunningByPID(instanceName string) (bool, error) {
 	pid, err := GetInstancePID(instanceName)
 	if err != nil {
@@ -126,7 +147,7 @@ func IsServerRunningByPID(instanceName string) (bool, error) {
 		return false, fmt.Errorf("failed to check process status: %w", err)
 	}
 
-	if exited {
+	if exited || !isExpectedProcess(uint32(pid)) {
 		return false, nil
 	}
 
@@ -142,17 +163,19 @@ func IsInstanceProcessAlive(instanceName string) bool {
 		return true
 	}
 
-	// 方法 2：检查进程是否存在
+	// 方法 2：检查保存的 PID 对应的进程是否还在，且确实是本项目会启动的可执行文件。
+	// 端口没绑上不代表进程真的还在跑，但也不能只凭 PID 号码存在就判定存活——
+	// 见 isExpectedProcess 的说明。
 	pid, err := GetInstancePID(instanceName)
 	if err != nil || pid <= 0 {
 		return false
 	}
 
 	exited, err := winproc.IsProcessExited(uint32(pid))
-	if err != nil {
+	if err != nil || exited {
 		return false
 	}
-	return !exited
+	return isExpectedProcess(uint32(pid))
 }
 
 // ListAliveInstances returns the names of all instances currently judged alive.

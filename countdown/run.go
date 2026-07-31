@@ -89,6 +89,13 @@ func Wait(ctx context.Context, instances []string, action Action, cfg *Config) (
 				// 失败路径不碰登记表：被取消时 runOne 已经清理过，
 				// 而 ErrInProgress 意味着那条登记属于**另一轮**倒计时，
 				// 在这里 release 会把别人的 cancel 函数丢掉。
+				//
+				// 但持久化状态必须回滚，与单实例的 Stop/Restart 保持一致：
+				// ErrNotRunning 意味着这台实例本来就没在跑（多半是崩溃），不回滚
+				// 的话它会一直卡在过期的 started。其它取消原因回滚成 started 是
+				// 幂等的空写——batchmanage 的 CAS 在阶段一倒计时之后才跑，
+				// 这里还没有人改过状态。
+				rollbackState(name, err)
 				mu.Lock()
 				reasons[name] = err
 				mu.Unlock()

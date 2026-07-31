@@ -1,18 +1,18 @@
 package state
 
 import (
+	cfgpkg "asa-server/config"
+	"asa-server/logger"
+	procpkg "asa-server/process"
 	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
-
-	cfgpkg "asa-server/config"
-	"asa-server/logger"
-	procpkg "asa-server/process"
 
 	"github.com/dgraph-io/badger/v4"
 )
@@ -592,13 +592,7 @@ func (sm *StateManager) compareAndSwapState(instanceName string, allowedStates [
 	currentState := sm.getLatestStateOrDefaultLocked(instanceName)
 
 	// 检查当前状态是否在允许列表中
-	allowed := false
-	for _, s := range allowedStates {
-		if currentState.Status == s {
-			allowed = true
-			break
-		}
-	}
+	allowed := slices.Contains(allowedStates, currentState.Status)
 
 	if !allowed {
 		return false, nil
@@ -693,20 +687,68 @@ func IsOperationAllowed(instanceName string, op OperationType) (bool, string) {
 
 const stuckThreshold = 10 * time.Minute
 
+// crashCheckInterval 比 stuckThreshold 的 30 秒 tick 慢得多：这里要对每个
+// started 实例跑一次进程存活检测（含 netstat 子进程），拉太勤在多实例场景下
+// 会变成持续的后台开销，而崩溃检测本来就不需要秒级响应。
+const crashCheckInterval = 2 * time.Minute
+
 // startStuckStateWatcher 启动卡住状态自动恢复 watcher（私有方法，仅由 NewStateManager 调用）
 func (sm *StateManager) startStuckStateWatcher(ctx context.Context) {
 	go func() {
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
+		crashTicker := time.NewTicker(crashCheckInterval)
+		defer crashTicker.Stop()
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
 				sm.recoverStuckStates()
+			case <-crashTicker.C:
+				sm.recoverCrashedInstances()
 			}
 		}
 	}()
+}
+
+// recoverCrashedInstances 扫描所有状态为 started 的实例，进程已经不在的话
+// 补写 stopped——正常停止会经 StopServer 把状态写成 stopped，这里捕获的是
+// 那条路径没跑过的崩溃（没有任何 Stop/Restart/批量操作碰过这个实例）。
+// 写法与 recoverStuckStates 一致：锁内采集候选，锁外做慢检测，写回前在锁内
+// 双检，防止期间状态已被其它路径改写。
+func (sm *StateManager) recoverCrashedInstances() {
+	sm.mu.Lock()
+	instances, err := sm.getAllInstancesLocked()
+	if err != nil {
+		sm.mu.Unlock()
+		return
+	}
+	var started []string
+	for _, name := range instances {
+		if state, err := sm.getLatestStateLocked(name); err == nil && state != nil && state.Status == StatusStarted {
+			started = append(started, name)
+		}
+	}
+	sm.mu.Unlock()
+
+	for _, name := range started {
+		if procpkg.IsInstanceProcessAlive(name) {
+			continue
+		}
+		sm.mu.Lock()
+		if latest, err := sm.getLatestStateLocked(name); err == nil && latest != nil && latest.Status == StatusStarted {
+			logger.GetLogger().Warnf(
+				"Instance '%s' crashed unexpectedly (state was started, process is gone); marking stopped", name)
+			_ = sm.writeStateLocked(InstanceState{
+				InstanceName:  name,
+				OperationTime: time.Now(),
+				Status:        StatusStopped,
+				ErrorMessage:  "auto-recovered: process exited unexpectedly",
+			})
+		}
+		sm.mu.Unlock()
+	}
 }
 
 // recoverStuckStates 扫描所有实例，恢复卡住的中间态为 stopped

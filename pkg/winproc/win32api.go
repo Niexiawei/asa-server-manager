@@ -20,10 +20,11 @@ var (
 	procIsWindowVisible          = user32.NewProc("IsWindowVisible")
 	procIsWindow                 = user32.NewProc("IsWindow")
 
-	kernel32               = windows.NewLazySystemDLL("kernel32.dll")
-	procOpenProcess        = kernel32.NewProc("OpenProcess")
-	procCloseHandle        = kernel32.NewProc("CloseHandle")
-	procGetExitCodeProcess = kernel32.NewProc("GetExitCodeProcess")
+	kernel32                       = windows.NewLazySystemDLL("kernel32.dll")
+	procOpenProcess                = kernel32.NewProc("OpenProcess")
+	procCloseHandle                = kernel32.NewProc("CloseHandle")
+	procGetExitCodeProcess         = kernel32.NewProc("GetExitCodeProcess")
+	procQueryFullProcessImageNameW = kernel32.NewProc("QueryFullProcessImageNameW")
 
 	shell32           = windows.NewLazySystemDLL("shell32.dll")
 	procShellExecuteW = shell32.NewProc("ShellExecuteW")
@@ -37,6 +38,10 @@ const (
 
 const (
 	STILL_ACTIVE = 259
+
+	// processQueryLimitedInformation 只够查镜像名，不需要 PROCESS_QUERY_INFORMATION
+	// 那么高的权限，对着系统进程/权限更高的进程也能查。
+	processQueryLimitedInformation = 0x1000
 )
 
 // enumWindows collects all HWNDs for which match(hwnd) == true
@@ -123,6 +128,36 @@ func IsProcessExited(pid uint32) (bool, error) {
 
 	// If the exit code is STILL_ACTIVE, the process is still running
 	return exitCode != STILL_ACTIVE, nil
+}
+
+// ProcessImageName 返回指定 PID 对应可执行文件的完整路径。
+// 进程不存在或没有查询权限时返回 error。
+//
+// 用途：PID 会被系统回收复用给完全无关的新进程，光凭"这个 PID 存在"判断
+// 存活会有误判风险；调用方应该把这里返回的文件名和期望的可执行文件核对一遍。
+func ProcessImageName(pid uint32) (string, error) {
+	handle, _, _ := procOpenProcess.Call(
+		processQueryLimitedInformation,
+		0,
+		uintptr(pid),
+	)
+	if handle == 0 {
+		return "", fmt.Errorf("process %d not found or inaccessible", pid)
+	}
+	defer procCloseHandle.Call(handle)
+
+	buf := make([]uint16, windows.MAX_PATH)
+	size := uint32(len(buf))
+	ret, _, err := procQueryFullProcessImageNameW.Call(
+		handle,
+		0,
+		uintptr(unsafe.Pointer(&buf[0])),
+		uintptr(unsafe.Pointer(&size)),
+	)
+	if ret == 0 {
+		return "", fmt.Errorf("QueryFullProcessImageName failed: %w", err)
+	}
+	return windows.UTF16ToString(buf[:size]), nil
 }
 func MinimizeWindowsByPID(pid uint32, onlyVisible bool) ([]uintptr, error) {
 	hwnds, err := enumWindows(func(hwnd windows.Handle) bool {

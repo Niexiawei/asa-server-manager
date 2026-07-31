@@ -48,9 +48,26 @@ func IsStoppable(instanceName string) (bool, string) {
 	}
 	// 先状态后进程：全停的场景下一次 netstat 都不会跑
 	if !procpkg.IsInstanceProcessAlive(instanceName) {
-		return false, ReasonProcessGone
+		return reconcileCrashedState(instanceName)
 	}
 	return true, ""
+}
+
+// reconcileCrashedState 处理「状态是 started，但进程已经不在」：多半是异常崩溃。
+// 补写一条 stopped 记录，写法与 reconcileMissingState 一致——不补的话这台实例会
+// 一直卡在过期的 started，后续所有依赖状态判断的路径（批量操作预检、前端列表、
+// 下一次调度）都会继续被这条记录误导，包括「重新启动它」都会被 CAS 拒绝
+// （Start 只接受 stopped/failed 系状态，不接受 started）。
+func reconcileCrashedState(instanceName string) (bool, string) {
+	logger.GetLogger().Warnf(
+		"Instance '%s' state says started but its process is gone; reconciling to stopped",
+		instanceName,
+	)
+	if err := statepkg.WriteInstanceState(instanceName, statepkg.StatusStopped,
+		"auto-recovered: process exited unexpectedly"); err != nil {
+		logger.GetLogger().Errorf("Failed to reconcile crashed state for instance '%s': %v", instanceName, err)
+	}
+	return false, ReasonProcessGone
 }
 
 // reconcileMissingState 处理「读不到状态记录」：改用进程存活作判据，并补写一条记录。
