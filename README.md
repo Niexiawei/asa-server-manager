@@ -1,5 +1,7 @@
 # ASA Server Manager
 
+> Go package directories have been consolidated under `internal/`; package names and layering are unchanged (see `docs/INTERNAL_LAYOUT_MIGRATION.md`).
+
 A comprehensive ARK Server Ascended (ASA) server management tool built with Go and Vue.js, featuring a command-line interface, HTTP API, and web dashboard.
 
 ## Features

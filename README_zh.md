@@ -1,5 +1,7 @@
 # ASA Server Manager
 
+> 目录已于本次迁移收进 `internal/`，包名与分层不变（详见 `docs/INTERNAL_LAYOUT_MIGRATION.md`）。
+
 一个基于 Go 和 Vue.js 构建的全面的 ARK Server Ascended (ASA) 服务器管理工具，具有命令行界面、HTTP API 和 Web 仪表盘。
 
 ## 功能特性
