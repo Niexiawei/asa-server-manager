@@ -80,12 +80,12 @@ scripts/
 
 ```powershell
 # PowerShell（Windows）
-Start-Process -NoNewWindow -FilePath node -ArgumentList "scripts/item_icon_download_server.mjs"
+Start-Process -NoNewWindow -FilePath node -ArgumentList "scripts/icons/item_icon_download_server.mjs"
 ```
 
 ```bash
 # Bash
-node scripts/item_icon_download_server.mjs &
+node scripts/icons/item_icon_download_server.mjs &
 ```
 
 服务器接口：
@@ -117,7 +117,7 @@ node scripts/item_icon_download_server.mjs &
 ### 步骤 4：更新 markdown 路径
 
 ```bash
-node scripts/update_item_md_icon_paths.mjs
+node scripts/icons/update_item_md_icon_paths.mjs
 ```
 
 扫描 `asa-itemsids.md` 中 Icon 列仍为远程 URL 的行，若对应文件已存在于 `icon/items/`，则替换为本地路径：

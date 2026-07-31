@@ -2,15 +2,15 @@
 """
 ARK: Survival Ascended - 翻译插入工具
 
-从 ASA-Translation/*.jsonc 提取 Source→中文 映射，插入到 markdown 表格中。
+从 data/ark-translation/*.jsonc 提取 Source→中文 映射，插入到 markdown 表格中。
 
 Usage:
-  python tools/ark_translate.py docs/asa-creatureids.md
-  python tools/ark_translate.py docs/asa-itemsids.md
-  python tools/ark_translate.py docs/asa-engrams.md
-  python tools/ark_translate.py docs/asa-creatureids.md --dry-run
-  python tools/ark_translate.py docs/asa-creatureids.md --source-col 名称 --target-col 名称（中文）
-  python tools/ark_translate.py docs/asa-creatureids.md --show-missed
+  python scripts/translate/ark_translate.py docs/asa-creatureids.md
+  python scripts/translate/ark_translate.py docs/asa-itemsids.md
+  python scripts/translate/ark_translate.py docs/asa-engrams.md
+  python scripts/translate/ark_translate.py docs/asa-creatureids.md --dry-run
+  python scripts/translate/ark_translate.py docs/asa-creatureids.md --source-col 名称 --target-col 名称（中文）
+  python scripts/translate/ark_translate.py docs/asa-creatureids.md --show-missed
 """
 
 import json
@@ -21,8 +21,8 @@ from pathlib import Path
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 SCRIPT_DIR = Path(__file__).parent
-REPO_ROOT   = SCRIPT_DIR.parent
-TRANS_DIR   = REPO_ROOT / "ASA-Translation"
+REPO_ROOT   = SCRIPT_DIR.parents[1]
+TRANS_DIR   = REPO_ROOT / "data" / "ark-translation"
 
 TRANS_FILES = [
     "007-飞升附加.jsonc",

@@ -47,12 +47,12 @@ scripts/
 
 ```powershell
 # PowerShell（Windows）
-Start-Process -NoNewWindow -FilePath node -ArgumentList "scripts/icon_download_server.mjs"
+Start-Process -NoNewWindow -FilePath node -ArgumentList "scripts/icons/icon_download_server.mjs"
 ```
 
 ```bash
 # Bash
-node scripts/icon_download_server.mjs &
+node scripts/icons/icon_download_server.mjs &
 ```
 
 服务器启动后自动解析 `asa-creatureids.md`，提取唯一图标列表。兼容两种格式：
@@ -86,7 +86,7 @@ node scripts/icon_download_server.mjs &
 ### 步骤 4：更新 markdown 路径
 
 ```bash
-node scripts/update_md_icon_paths.mjs
+node scripts/icons/update_md_icon_paths.mjs
 ```
 
 执行内容：

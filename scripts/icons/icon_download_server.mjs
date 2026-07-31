@@ -20,7 +20,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const ROOT = path.resolve(__dirname, '..');
+const ROOT = path.resolve(__dirname, '..', '..');
 const ICON_DIR = path.join(ROOT, 'icon', 'creature');
 const MD_PATH  = path.join(ROOT, 'docs', 'asa-creatureids.md');
 const PORT     = 19194;

@@ -13,7 +13,7 @@ import path from 'path';
 import {fileURLToPath} from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const root = path.resolve(__dirname, '..');
+const root = path.resolve(__dirname, '..', '..');
 const mdPath = path.join(root, 'docs', 'asa-itemsids.md');
 const iconDir = path.join(root, 'icon', 'items');
 
