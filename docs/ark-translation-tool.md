@@ -10,13 +10,15 @@
 
 ```
 asa-server/
-├── tools/
-│   └── ark_translate.py          # 翻译插入脚本
-├── ASA-Translation/
-│   ├── 000-OBT.jsonc             # OBT 版本翻译（~10,694 条）
-│   ├── 001-Official.jsonc        # 官方正式版翻译（~11,729 条）
-│   ├── 007-飞升附加.jsonc         # 飞升 DLC 追加翻译（~94 条）
-│   └── custom.json               # 自定义补充翻译（用户维护）
+├── scripts/
+│   └── translate/
+│       └── ark_translate.py      # 翻译插入脚本
+├── data/
+│   └── ark-translation/
+│       ├── 000-OBT.jsonc         # OBT 版本翻译（~10,694 条）
+│       ├── 001-Official.jsonc    # 官方正式版翻译（~11,729 条）
+│       ├── 007-飞升附加.jsonc     # 飞升 DLC 追加翻译（~94 条）
+│       └── custom.json           # 自定义补充翻译（用户维护）
 └── docs/
     ├── asa-creatureids.md        # 生物 ID 表（529 条）
     ├── asa-itemsids.md           # 物品 ID 表（1630 条）
@@ -120,13 +122,13 @@ while i < n:
 
 ```bash
 # 填充生物中文名
-python tools/ark_translate.py docs/asa-creatureids.md
+python scripts/translate/ark_translate.py docs/asa-creatureids.md
 
 # 填充物品中文名（列名不同）
-python tools/ark_translate.py docs/asa-itemsids.md --source-col Name --target-col "Chinese Name"
+python scripts/translate/ark_translate.py docs/asa-itemsids.md --source-col Name --target-col "Chinese Name"
 
 # 填充印痕中文名
-python tools/ark_translate.py docs/asa-engrams.md --source-col Item --target-col "名称（中文）"
+python scripts/translate/ark_translate.py docs/asa-engrams.md --source-col Item --target-col "名称（中文）"
 ```
 
 ### 常用参数
@@ -142,9 +144,9 @@ python tools/ark_translate.py docs/asa-engrams.md --source-col Item --target-col
 ### 更新 custom.json 后刷新所有文件
 
 ```bash
-python tools/ark_translate.py docs/asa-creatureids.md --overwrite
-python tools/ark_translate.py docs/asa-itemsids.md --source-col Name --target-col "Chinese Name" --overwrite
-python tools/ark_translate.py docs/asa-engrams.md --source-col Item --target-col "名称（中文）" --overwrite
+python scripts/translate/ark_translate.py docs/asa-creatureids.md --overwrite
+python scripts/translate/ark_translate.py docs/asa-itemsids.md --source-col Name --target-col "Chinese Name" --overwrite
+python scripts/translate/ark_translate.py docs/asa-engrams.md --source-col Item --target-col "名称（中文）" --overwrite
 ```
 
 ---
@@ -157,7 +159,7 @@ python tools/ark_translate.py docs/asa-engrams.md --source-col Item --target-col
 | `asa-itemsids.md` | 1312 | 1630 | 80.5% | 节日皮肤、活动道具 |
 | `asa-engrams.md` | 722 | 731 | 98.8% | 少量 DLC 专属配方 |
 
-未翻译条目已收集至 `ASA-Translation/custom.json`（共 399 条，值为空字符串待填写）。
+未翻译条目已收集至 `data/ark-translation/custom.json`（共 399 条，值为空字符串待填写）。
 
 ---
 

@@ -1,5 +1,7 @@
 # 系统架构
 
+> 目录已于本次迁移收进 `internal/`，包名与分层不变（详见 `docs/INTERNAL_LAYOUT_MIGRATION.md`）。
+
 ASA Server Manager 系统架构文档。
 
 ---

@@ -60,7 +60,7 @@ https://ark.wiki.gg/images/thumb/Absorbent_Substrate.png/256px-Absorbent_Substra
 ## 方案架构
 
 ```
-scripts/
+scripts/icons/
   item_icon_download_server.mjs   - 本地 HTTP 服务器（端口 19195）
   download_item_icons_wiki.js     - 注入 wiki 页面执行的下载脚本
   update_item_md_icon_paths.mjs   - 下载完成后将 md 中的远程 URL 替换为本地路径
@@ -80,12 +80,12 @@ scripts/
 
 ```powershell
 # PowerShell（Windows）
-Start-Process -NoNewWindow -FilePath node -ArgumentList "scripts/item_icon_download_server.mjs"
+Start-Process -NoNewWindow -FilePath node -ArgumentList "scripts/icons/item_icon_download_server.mjs"
 ```
 
 ```bash
 # Bash
-node scripts/item_icon_download_server.mjs &
+node scripts/icons/item_icon_download_server.mjs &
 ```
 
 服务器接口：
@@ -102,7 +102,7 @@ node scripts/item_icon_download_server.mjs &
 
 ### 步骤 3：注入下载脚本
 
-通过 MCP `evaluate_script` 在 wiki 页面注入 `scripts/download_item_icons_wiki.js`。
+通过 MCP `evaluate_script` 在 wiki 页面注入 `scripts/icons/download_item_icons_wiki.js`。
 
 脚本执行流程：
 1. `GET localhost:19195/existing` — 获取已存在文件名集合
@@ -117,7 +117,7 @@ node scripts/item_icon_download_server.mjs &
 ### 步骤 4：更新 markdown 路径
 
 ```bash
-node scripts/update_item_md_icon_paths.mjs
+node scripts/icons/update_item_md_icon_paths.mjs
 ```
 
 扫描 `asa-itemsids.md` 中 Icon 列仍为远程 URL 的行，若对应文件已存在于 `icon/items/`，则替换为本地路径：
@@ -152,7 +152,8 @@ D:\golang\asa-server\
 │       ├── Absorbent_Substrate.png
 │       └── ...
 └── scripts/
-    ├── item_icon_download_server.mjs    # 本地 HTTP 服务器
-    ├── download_item_icons_wiki.js      # wiki 页面注入脚本
-    └── update_item_md_icon_paths.mjs    # 更新 md 本地路径
+    └── icons/
+        ├── item_icon_download_server.mjs    # 本地 HTTP 服务器
+        ├── download_item_icons_wiki.js      # wiki 页面注入脚本
+        └── update_item_md_icon_paths.mjs    # 更新 md 本地路径
 ```

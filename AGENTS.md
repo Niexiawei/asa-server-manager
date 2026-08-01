@@ -1,5 +1,7 @@
 # AGENTS.md - ASA Server Manager
 
+> 目录已于本次迁移收进 `internal/`，包名与分层不变（详见 `docs/INTERNAL_LAYOUT_MIGRATION.md`）；本文档下方的目录树未随该迁移更新，权威结构以 `CLAUDE.md` 为准。
+
 ## Project Overview
 
 ASA Server Manager is a **Windows-only** management tool for ARK: Survival Ascended (ASA) dedicated game servers. Written in Go with a Vue.js frontend, it provides a GUI (Fyne), HTTP API (Gin), CLI, and Windows service integration for managing ARK server instances.
