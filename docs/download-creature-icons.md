@@ -27,7 +27,7 @@ Wiki URL 中的文件名可能包含特殊字符（如括号 `%28` `%29`），�
 ## 方案架构
 
 ```
-scripts/
+scripts/icons/
   icon_download_server.mjs   - 本地 HTTP 服务器（端口 19194）
   download_icons_wiki.js     - 注入 wiki 页面执行的下载脚本
   update_md_icon_paths.mjs   - 下载完成后将 md 中的远程 URL 替换为本地路径
@@ -74,7 +74,7 @@ node scripts/icons/icon_download_server.mjs &
 
 ### 步骤 3：注入下载脚本
 
-通过 MCP `evaluate_script` 在 wiki 页面中注入 `scripts/download_icons_wiki.js`。
+通过 MCP `evaluate_script` 在 wiki 页面中注入 `scripts/icons/download_icons_wiki.js`。
 
 脚本执行流程：
 1. `GET localhost:19194/icons` — 获取待下载列表
@@ -122,7 +122,8 @@ D:\golang\asa-server\
 │       ├── Dinopithecus_King_Gamma.png
 │       └── ...
 └── scripts/
-    ├── icon_download_server.mjs        # 本地 HTTP 服务器
-    ├── download_icons_wiki.js          # wiki 页面注入脚本
-    └── update_md_icon_paths.mjs        # 更新 md 本地路径
+    └── icons/
+        ├── icon_download_server.mjs    # 本地 HTTP 服务器
+        ├── download_icons_wiki.js      # wiki 页面注入脚本
+        └── update_md_icon_paths.mjs    # 更新 md 本地路径
 ```
