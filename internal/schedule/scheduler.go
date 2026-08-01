@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -26,6 +27,11 @@ const (
 	// 下一个执行点会重试，好过带着存活实例去更新然后被 installer 拒绝。
 	forceStopTimeout = 2 * time.Minute
 	stopPollInterval = 3 * time.Second
+
+	// restoreStartDelaySeconds 是更新后恢复启动时，实例之间的间隔秒数。
+	// 批量启动本来就是串行的（StartServer 要等到启动检测完成才返回），天然有间隔，
+	// 所以默认不额外等；机器吃力时把这里调大即可。
+	restoreStartDelaySeconds = 0
 )
 
 // Scheduler 定时任务调度器。
@@ -313,16 +319,22 @@ func (s *Scheduler) runRestart(ctx context.Context, t *Task) (string, error) {
 	return summary, nil
 }
 
-// runUpdate 先停全部实例再更新。
+// runUpdate 先停全部实例，更新，再把本次任务亲手停掉的那批原样拉起来。
 //
-// 停服不是顺手做的好事，而是硬前提：installer 在有实例存活时会直接拒绝更新，
-// 不先停服的话定时更新到点必然失败。
+// 停服不是顺手做的好事，而是硬前提：installer 在有实例存活时会直接拒绝更新。
+// 而停完不管才是真正的坑——实例状态被写成 stopped 之后，再挂一个定时重启任务也救不回来：
+// 重启的预检（IsStoppable）和 CAS 都只接受 started，停着的实例会被整批 skip 掉。
+// 所以「谁把它停的谁负责起回来」这件事只能由这里做。
 func (s *Scheduler) runUpdate(ctx context.Context, t *Task) (string, error) {
+	// stoppedByTask 记录本次任务真正停掉的实例，按停服顺序保存，更新后按同样顺序拉回来。
+	// 只记「我们停的」而不是「所有实例」：任务开始前本来就停着的实例，
+	// 不该被一次定时更新顺手拉起来。
+	var stoppedByTask []string
+
 	// 倒计时作用于这一步的停服：半夜自动更新同样要提前通知玩家
 	op, err := batchmanage.GetGlobalManager().StartOperation(
 		batchmanage.BatchStop, nil, 0, t.CountdownConfig(),
 	)
-	stopped := 0
 	switch {
 	case errors.Is(err, batchmanage.ErrNoInstances):
 		// 一个实例都没有，没什么可停的，直接进入更新
@@ -336,7 +348,7 @@ func (s *Scheduler) runUpdate(ctx context.Context, t *Task) (string, error) {
 		}
 		for _, r := range op.InstanceResults {
 			if r.Status == batchmanage.InstanceSuccess {
-				stopped++
+				stoppedByTask = append(stoppedByTask, r.InstanceName)
 			}
 		}
 	}
@@ -353,11 +365,18 @@ func (s *Scheduler) runUpdate(ctx context.Context, t *Task) (string, error) {
 			if err := instancepkg.ForceStopServer(name); err != nil {
 				logger.GetLogger().Errorf("Failed to force stop instance '%s': %v", name, err)
 			}
+			// 强停的同样算「被本次任务停掉」：它们进程活着就说明本来在跑，
+			// 只是状态记录没跟上。漏掉的话更新完就再没人负责把它们起回来。
+			// 去重是因为 StopServer 返回时进程可能仍在退出中，会与上面那批重叠。
+			stoppedByTask = appendUnique(stoppedByTask, name)
 		}
 	}
 
 	if alive := waitInstancesStopped(ctx, forceStopTimeout); len(alive) > 0 {
-		return "", fmt.Errorf("以下实例无法停止，更新已取消：%s", strings.Join(alive, "、"))
+		// 更新做不成了，但已经被停下来的那批是被本次任务连累的，得还回去
+		restored, restoreErr := restoreInstances(ctx, excludeNames(stoppedByTask, alive))
+		return "", fmt.Errorf("以下实例无法停止，更新已取消：%s%s",
+			strings.Join(alive, "、"), restoreNote(restored, restoreErr))
 	}
 
 	mgr := updatemanage.GetGlobalManager()
@@ -370,16 +389,114 @@ func (s *Scheduler) runUpdate(ctx context.Context, t *Task) (string, error) {
 	case <-done:
 		// 更新的失败只体现在 Result() 里：run() 内部把错误发给 SSE 订阅者后就正常收尾，
 		// 只等 done 关闭会把每一次失败都记成「成功」
-		if err := mgr.Result(); err != nil {
-			return "", err
-		}
-		if stopped == 0 {
+		updateErr := mgr.Result()
+
+		// 更新失败也要恢复：把服务器一直停着比更新没做成更糟，
+		// 下一个执行点可能是 24 小时之后
+		restored, restoreErr := restoreInstances(ctx, stoppedByTask)
+
+		switch {
+		case updateErr != nil:
+			return "", fmt.Errorf("%w%s", updateErr, restoreNote(restored, restoreErr))
+		case restoreErr != nil:
+			return "", fmt.Errorf("更新完成，但恢复启动失败：%w", restoreErr)
+		case len(stoppedByTask) == 0:
 			return "无实例需停止，更新完成", nil
+		default:
+			return fmt.Sprintf("已停止 %d 个实例并完成更新，已重新启动 %d 个",
+				len(stoppedByTask), restored), nil
 		}
-		return fmt.Sprintf("已停止 %d 个实例并完成更新", stopped), nil
 	case <-ctx.Done():
 		return "", ctx.Err()
 	}
+}
+
+// restoreInstances 把 names 里的实例重新拉起来，返回成功启动的数量。
+//
+// 用 BatchStart 而不是 BatchRestart：重启的预检与 CAS 都只接受 started，
+// 对着已经停掉的实例发重启，整批都会被 skip 掉（这正是「更新任务后面挂个重启任务」
+// 救不回来的原因）。
+func restoreInstances(ctx context.Context, names []string) (int, error) {
+	if len(names) == 0 {
+		return 0, nil
+	}
+	// 调度器正在停止（或任务已被取消）：这时候再拉起实例只会被 awaitBatch 立刻掐断，
+	// 白留一批 start_initialization 的中间状态
+	if ctx.Err() != nil {
+		return 0, fmt.Errorf("任务已取消，%d 个实例未恢复启动：%s",
+			len(names), strings.Join(names, "、"))
+	}
+
+	logger.GetLogger().Infof("Restoring %d instance(s) stopped by the scheduled update: %s",
+		len(names), strings.Join(names, "、"))
+
+	op, err := batchmanage.GetGlobalManager().StartOperation(
+		batchmanage.BatchStart, names, restoreStartDelaySeconds, nil,
+	)
+	if err != nil {
+		// 尤其是 ErrOperationInProgress：更新期间有人从 UI 发起了别的批量操作。
+		// 不能吞——吞了就等于实例悄悄留在停止状态，和改动之前一样
+		return 0, fmt.Errorf("恢复启动未能发起: %w", err)
+	}
+	if err := awaitBatch(ctx, op); err != nil {
+		return 0, err
+	}
+
+	restored := 0
+	var failed []string
+	for _, r := range op.InstanceResults {
+		switch r.Status {
+		case batchmanage.InstanceSuccess:
+			restored++
+		case batchmanage.InstanceFailed:
+			failed = append(failed, r.InstanceName)
+		}
+		// skipped：CAS 拒绝，通常是这台已经被别人启动了，既不算成功也不算失败
+	}
+	if len(failed) > 0 {
+		return restored, fmt.Errorf("%d/%d 个实例启动失败：%s",
+			len(failed), len(names), strings.Join(failed, "、"))
+	}
+	return restored, nil
+}
+
+// restoreNote 把恢复结果拼成一句可以挂在别的消息后面的补充说明，无事可说时返回空串。
+func restoreNote(restored int, err error) string {
+	switch {
+	case err != nil:
+		return fmt.Sprintf("（恢复启动失败：%v）", err)
+	case restored > 0:
+		return fmt.Sprintf("（已恢复启动 %d 个实例）", restored)
+	default:
+		return ""
+	}
+}
+
+// appendUnique 追加一个尚未出现过的名字，保持首次出现的顺序。
+// 实例数量在几十的量级，线性查找足够，不值得为它建一个 map。
+func appendUnique(names []string, name string) []string {
+	if slices.Contains(names, name) {
+		return names
+	}
+	return append(names, name)
+}
+
+// excludeNames 从 names 中剔除 exclude 里出现过的名字，保持原顺序。
+func excludeNames(names, exclude []string) []string {
+	if len(exclude) == 0 {
+		return names
+	}
+	drop := make(map[string]struct{}, len(exclude))
+	for _, n := range exclude {
+		drop[n] = struct{}{}
+	}
+	kept := make([]string, 0, len(names))
+	for _, n := range names {
+		if _, ok := drop[n]; !ok {
+			kept = append(kept, n)
+		}
+	}
+	return kept
 }
 
 // waitInstancesStopped 等所有实例进程真正消失，返回超时时仍存活的实例名。
