@@ -5,7 +5,7 @@ package process
 
 import (
 	cfgpkg "asa-server/internal/config"
-	"asa-server/internal/pkg/winproc"
+	"asa-server/pkg/winproc"
 	"fmt"
 	"os"
 	"os/exec"

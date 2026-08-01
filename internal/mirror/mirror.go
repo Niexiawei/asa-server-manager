@@ -10,7 +10,7 @@ import (
 
 	cfgpkg "asa-server/internal/config"
 	"asa-server/internal/logger"
-	"asa-server/internal/pkg/fsutil"
+	"asa-server/pkg/fsutil"
 
 	"golang.org/x/sys/windows"
 	"znkr.io/diff"

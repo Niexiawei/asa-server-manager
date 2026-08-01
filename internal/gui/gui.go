@@ -3,10 +3,10 @@ package gui
 import (
 	cfgpkg "asa-server/internal/config"
 	"asa-server/internal/logger"
-	"asa-server/internal/pkg/serverinfo"
 	procpkg "asa-server/internal/process"
 	"asa-server/internal/webapi"
 	"asa-server/internal/winservice"
+	"asa-server/pkg/serverinfo"
 	"context"
 	_ "embed"
 	"fmt"

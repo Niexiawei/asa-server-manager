@@ -3,8 +3,8 @@ package logapi
 import (
 	instancepkg "asa-server/internal/instance"
 	"asa-server/internal/logger"
-	"asa-server/internal/pkg/tail"
 	"asa-server/internal/webapi/apiresp"
+	"asa-server/pkg/tail"
 	"context"
 	"fmt"
 	"github.com/gin-gonic/gin"

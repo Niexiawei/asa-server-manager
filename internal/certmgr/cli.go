@@ -1,7 +1,7 @@
 package certmgr
 
 import (
-	"asa-server/internal/pkg/winproc"
+	"asa-server/pkg/winproc"
 	"context"
 	"fmt"
 	"os"
