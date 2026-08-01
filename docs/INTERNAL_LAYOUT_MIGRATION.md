@@ -513,3 +513,86 @@ gofmt -l main.go internal app icon   # 4. 输出应为空
 | 验证 | 编译 + 测试 + 4 项运行时验证 | 手动 | 20 min |
 
 合计约 1.5 小时，其中真正需要动脑的只有阶段 5 的路径层级修正与阶段 6 的文档更新。相比初版方案，`app/` 与 `icon/` 不迁移省掉了约 2200 处连带改动和一个 79MB 的重命名 commit。
+
+---
+
+## 9. 修正说明：`pkg/` 移出 `internal/`，回到仓库根目录
+
+> 本节记录对本文档 §2/§7 已执行内容的一次后续修正。**§2、§7 正文中出现的 `internal/pkg/` 字样是历史执行记录，保留原样不改**；本节是最终生效的准则，两者冲突时以本节为准。
+
+### 9.1 为什么要改
+
+上线后发现 §2 把 `pkg/` 放进了 `internal/pkg/`，这个位置是错的，原因有两条，指向同一个结论：
+
+1. **Go 社区惯例**（golang-standards/project-layout）：`/internal` 是编译器强制私有的领域代码，`/pkg` 是"可以安全被外部项目导入"的库代码，两者是**并列**关系，不是包含关系。`internal/` 里的东西本来就已经是私有的（Go 工具链强制），再嵌一层 `pkg` 不会增加任何隐私性，却抹掉了"这是可安全复用的基础设施"这个信号——外部读者看到 `internal/pkg/winproc` 会以为它和 `internal/auth` 一样是领域私有代码，而不是零依赖的通用工具。
+2. **本仓库自己的既有文档**：`docs/PACKAGE_RESTRUCTURE_PLAN.md`（上一轮神包拆分的原始方案）从一开始就明确写着"**扁平根目录 + `pkg/`** 约定"（该文档第 6 行）、"目标目录结构（扁平根 + pkg/）"（该文档第 34 行标题），把 `pkg/` 设计成根级平级目录。§2 把 `pkg` 塞进 `internal/pkg/` 其实是偏离了这份既有方案，这次是纠正回去，不是引入新约定。
+
+`pkg/` 里 8 个子包（`console`/`fsutil`/`iox`/`netutil`/`processjob`/`serverinfo`/`tail`/`winproc`）的**内容和准入标准不变**，只改位置。
+
+### 9.2 准入标准（取代 §2 中 `internal/pkg/` 的准入标准，标准本身不变，只是挂载位置变了）
+
+判定标准三条全中才进 `pkg/`：
+
+1. **不认识本项目的领域概念**——包里搜不到 instance / 存档 / RCON / 实例状态 这类词；换个 ARK 之外的项目照样能用。
+2. **零领域依赖**——只 import 标准库和第三方库，不 import 任何 `asa-server/internal/<领域包>`。这是最硬的一条，可以用 `go list -deps` 机器校验。
+3. **无全局状态、无生命周期**——不持有 DB 连接、不起后台 goroutine、不做进程编排。
+
+`config`（认识 InstanceConfig）、`process`（认识实例 PID 文件）、`certmgr`（依赖 `config` 的目录布局）虽然听着"底层"，都**不满足第 1/2 条**，所以留在 `internal/` 平铺层，不进 `pkg/`。
+
+校验脚本（可选，路径改为根级 `pkg/`）：
+
+```bash
+go list -deps ./pkg/... | grep '^asa-server/internal/' \
+  && echo "❌ pkg/ 混入了领域依赖" || echo "✅ pkg/ 保持纯净"
+```
+
+### 9.3 更新后的目标树（局部，取代 §2 中 `internal/pkg/` 那一块）
+
+```
+asa-server/
+├── main.go
+├── internal/                # 领域包 + HTTP API（导入路径前缀 asa-server/internal/）
+│   ├── config/ certmgr/ process/ rconx/ realtime/ state/ installer/ mirror/
+│   ├── instance/ countdown/ batchmanage/ schedule/ updatemanage/
+│   ├── appconfig/ auth/ webapi/(+子包)
+│   └── actions/ backup/ frpmanage/ syncthingmanage/ parseserver/ gui/ logger/ winservice/
+├── pkg/                     # 基础设施库（导入路径 asa-server/pkg/，不带 internal/ 前缀）
+│   ├── console/ fsutil/ iox/ netutil/ processjob/ serverinfo/ tail/ winproc/
+├── app/                     # 前端，已知例外
+├── icon/                    # 图标资源，已知例外
+├── data/ scripts/ docs/
+```
+
+### 9.4 更新后的判定规则表（取代 §2 表格）
+
+| 目录 | 是 Go 包？ | 内容 | 判定依据 |
+|---|---|---|---|
+| `internal/**` | ✅ | 领域包、工具包、HTTP API | 规范目录名，Go 工具链强制私有 |
+| `pkg/**` | ✅ | 基础设施库，可安全对外复用 | Go 社区惯例（golang-standards/project-layout），与 `internal/` 并列 |
+| `main.go` | ✅ | 程序入口 | 根级唯一 `.go` |
+| `app/` | ⚠️ 例外：仅 `appembed.go` | Vue 前端工程 | `//go:embed` 不能跨越 `..`（§3.2） |
+| `icon/` | ⚠️ 例外：仅 `iconembed.go` | 静态图标资源 | 同上（§3.3） |
+| `docs/` `scripts/` `data/` | ❌ | 文档/脚本/数据 | — |
+| `database_file/` `bin/` `*.exe` | ❌ | 运行时/构建产物 | 已在 `.gitignore` |
+
+一句话规则更新为：根目录下允许出现 Go 代码的位置只有四处——`main.go`（入口）、`internal/`（编译器强制私有的领域代码）、`pkg/`（可安全对外复用的基础设施，与 `internal/` 并列而非嵌套）、以及 `app/`/`icon/` 两个因 `//go:embed` 限制留下的 shim 例外。
+
+CI 断言（取代 §2 中的断言代码块）：
+
+```bash
+test "$(ls *.go)" = "main.go"
+! find . -name '*.go' -not -path './internal/*' -not -path './pkg/*' \
+         -not -path './app/*' -not -path './icon/*' -not -name 'main.go' | grep .
+test "$(ls app/*.go)"  = "app/appembed.go"
+test "$(ls icon/*.go)" = "icon/iconembed.go"
+```
+
+### 9.5 执行记录
+
+在 `feat/internal-layout-migration` 分支上执行，`git mv internal/pkg pkg` 整体重命名同样因 IDE（GoLand）对嵌套子目录持有文件句柄而报 `Permission denied`，按 §0/阶段 1 已验证过的降级方案逐子目录搬移解决（`console/testdata/` 需要再拆一层）。
+
+**新发现的风险，记录备查**：验证阶段为对比迁移前后的测试行为，曾用 `git stash` / `git stash pop` 临时切换工作区状态。本仓库 `core.autocrlf=true`，`git stash pop` 这类走 checkout 过滤器的操作会把工作区文件的 LF 行尾静默转成 CRLF——对 `.go` 源码无影响（`gofmt -w` 可修复，编译/vet 不受影响），但对 **byte-exact 比较的 golden 测试夹具**（`pkg/console/testdata/asaapi_pty.{golden,log}`）是致命的：CRLF 转换会让 `TestCleanScreenOutputGolden` 这类逐字节比较测试失败，且失败信息里 `got`/`want` 肉眼看起来完全一样（差异只在不可见的 `\r`），很容易误判成别的问题。
+
+处理方式：从修改前的 commit 用 `git show <rev>:<path>` 取出原始字节内容覆盖回工作区，`git diff` 确认恢复后与已提交 blob 完全一致（0 行变更）再提交。**教训**：仓库里如果以后还有别的 byte-exact fixture 文件，任何涉及 `git stash`/`git checkout` 的操作前后都应该用 `md5sum`/`git diff --stat` 校验一遍，不能只看 `go build`/`go vet` 是否通过。
+
+**测试验证结果**：`go test ./pkg/console/... ./pkg/netutil/...`（有意义、非环境耦合的测试）全部通过。另外发现 `pkg/serverinfo`（`TestGetProcessInfo`）、`internal/countdown`（`TestNormalizePoints`）、`internal/instance`（`Test_SaveWorldSafely`/`Test_GetAllInstanceNames`）等测试失败——经在**移动前**的提交上重跑同一批测试确认，这些失败在 `pkg/` 挪位置之前就已存在（多是硬编码了作者本机的真实 ARK 实例名/路径/PID，环境耦合），与本次修正无关，不在本次范围内处理。
