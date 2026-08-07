@@ -61,7 +61,11 @@
             </template>
 
             <template #op="{ row }">
-              <t-space size="small">
+              <t-space v-if="runningTasks.has(row.id)" size="small" align="center">
+                <t-tag theme="warning" variant="light" size="small">{{ phaseLabel(runningTasks.get(row.id).phase) }}</t-tag>
+                <t-link theme="danger" @click="onCancelRun(row)">取消</t-link>
+              </t-space>
+              <t-space v-else size="small">
                 <t-link theme="primary" @click="openEdit(row)">编辑</t-link>
                 <t-link theme="warning" @click="onRunNow(row)">立即执行</t-link>
                 <t-link theme="danger" @click="onDelete(row)">删除</t-link>
@@ -148,7 +152,7 @@
 </template>
 
 <script setup>
-import {ref, onMounted} from 'vue'
+import {ref, onMounted, onUnmounted} from 'vue'
 import {MessagePlugin, DialogPlugin} from 'tdesign-vue-next'
 import {
   listScheduleTasks,
@@ -157,10 +161,25 @@ import {
   deleteScheduleTask,
   toggleScheduleTask,
   runScheduleTaskNow,
+  listScheduleRuns,
+  cancelScheduleRun,
   listInstances,
 } from '@/apis/api.js'
 import CountdownOptions from '@/components/CountdownOptions.vue'
 import ScheduleRunLog from '@/components/ScheduleRunLog.vue'
+import {serverStore} from '@/store/serverStore.js'
+
+const PHASE_LABELS = {
+  countdown: '倒计时中',
+  stopping: '停服中',
+  updating: '更新中',
+  restoring: '恢复启动中',
+  restarting: '重启中',
+}
+
+function phaseLabel(phase) {
+  return PHASE_LABELS[phase] || '执行中'
+}
 
 const columns = [
   {colKey: 'name', title: '名称', width: 160},
@@ -182,6 +201,13 @@ const runLogRef = ref(null)
 const dialogVisible = ref(false)
 const editingId = ref(null)
 const formRef = ref(null)
+
+// taskId -> { runId, phase }。用于渲染「取消」按钮与执行阶段标签。
+// 依赖 WS 的 schedule_run_started / schedule_run 维持，进页面时先拉一次兜底
+// （任务可能在页面没开着的时候就开始了）
+const runningTasks = ref(new Map())
+let scheduleRunsPollTimer = null
+let onScheduleStoreEvent = null
 
 const countdownValid = ref(true)
 
@@ -231,7 +257,60 @@ async function loadTasks() {
 
 // 刷新按钮同时刷新左列任务与右列日志
 async function refreshAll() {
-  await Promise.all([loadTasks(), runLogRef.value?.loadLogs()])
+  await Promise.all([loadTasks(), runLogRef.value?.loadLogs(), loadRuns()])
+}
+
+// 拉一次正在执行的任务列表。作为 WS 事件的兜底：任务可能在页面没开着的时候
+// 就开始了，光靠 schedule_run_started 事件不够及时
+async function loadRuns() {
+  try {
+    const {data} = await listScheduleRuns()
+    const next = new Map()
+    for (const run of data?.runs ?? []) {
+      next.set(run.task_id, {runId: run.run_id, phase: run.phase})
+    }
+    runningTasks.value = next
+  } catch (e) {
+    console.error('获取正在执行的任务失败:', e)
+  }
+}
+
+function onScheduleEvent(type, event) {
+  if (type === 'schedule_run_started') {
+    const d = event?.data
+    if (!d?.task_id) return
+    runningTasks.value.set(d.task_id, {runId: d.run_id, phase: 'countdown'})
+  } else if (type === 'schedule_run') {
+    const d = event?.data
+    if (d?.task_id) {
+      runningTasks.value.delete(d.task_id)
+    }
+  }
+}
+
+function onCancelRun(row) {
+  const running = runningTasks.value.get(row.id)
+  if (!running) return
+
+  const extraWarning = running.phase === 'updating'
+      ? '当前正在更新服务端文件，取消会中断更新，服务端文件可能不完整，建议之后重新执行一次更新。'
+      : ''
+
+  const dialog = DialogPlugin.confirm({
+    header: '确认取消',
+    body: `取消后将停止本次任务，并把执行前正在运行的实例重新启动。${extraWarning}`,
+    confirmBtn: {content: '确认取消', theme: 'danger'},
+    cancelBtn: '再想想',
+    onConfirm: async () => {
+      dialog.hide()
+      try {
+        await cancelScheduleRun(running.runId)
+        MessagePlugin.info('已发送取消指令，正在回滚实例状态')
+      } catch (e) {
+        MessagePlugin.error(e?.message || '取消失败')
+      }
+    },
+  })
 }
 
 async function loadInstances() {
@@ -375,6 +454,24 @@ function onRunNow(row) {
 onMounted(() => {
   loadTasks()
   loadInstances()
+  loadRuns()
+  onScheduleStoreEvent = onScheduleEvent
+  serverStore.scheduleCallbacks.push(onScheduleStoreEvent)
+  // 15s 兜底轮询：WS 事件是主要信号，轮询只是防它偶尔漏一条
+  scheduleRunsPollTimer = setInterval(loadRuns, 15000)
+})
+
+onUnmounted(() => {
+  if (scheduleRunsPollTimer) {
+    clearInterval(scheduleRunsPollTimer)
+    scheduleRunsPollTimer = null
+  }
+  if (onScheduleStoreEvent) {
+    const idx = serverStore.scheduleCallbacks.indexOf(onScheduleStoreEvent)
+    if (idx !== -1) {
+      serverStore.scheduleCallbacks.splice(idx, 1)
+    }
+  }
 })
 </script>
 

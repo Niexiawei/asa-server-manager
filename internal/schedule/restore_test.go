@@ -57,22 +57,40 @@ func TestExcludeNames(t *testing.T) {
 
 func TestRestoreNote(t *testing.T) {
 	cases := []struct {
-		name     string
-		restored int
-		err      error
-		want     string
+		name string
+		out  restoreOutcome
+		err  error
+		want string
 	}{
-		{"error present", 0, errors.New("1/2 个实例启动失败：a"), "（恢复启动失败：1/2 个实例启动失败：a）"},
-		{"success count", 3, nil, "（已恢复启动 3 个实例）"},
-		{"nothing to say", 0, nil, ""},
+		{"error present", restoreOutcome{}, errors.New("1/2 个实例启动失败：a"), "（恢复启动失败：1/2 个实例启动失败：a）"},
+		{"success count", restoreOutcome{Restored: []string{"a", "b", "c"}}, nil, "（已恢复启动 3 个实例）"},
+		{"nothing to say", restoreOutcome{}, nil, ""},
 	}
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := restoreNote(c.restored, c.err)
+			got := restoreNote(c.out, c.err)
 			if got != c.want {
-				t.Errorf("restoreNote(%d, %v) = %q, want %q", c.restored, c.err, got, c.want)
+				t.Errorf("restoreNote(%v, %v) = %q, want %q", c.out, c.err, got, c.want)
 			}
 		})
+	}
+}
+
+func TestRestoreOutcome_Handled(t *testing.T) {
+	out := restoreOutcome{Restored: []string{"a"}, Skipped: []string{"b"}, Failed: []string{"c"}, Cancelled: []string{"d"}}
+	got := out.handled()
+	want := []string{"a", "b"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("handled() = %v, want %v", got, want)
+	}
+}
+
+func TestRestoreOutcome_StillOwed(t *testing.T) {
+	out := restoreOutcome{Restored: []string{"a"}, Skipped: []string{"b"}, Failed: []string{"c"}, Cancelled: []string{"d"}}
+	got := out.stillOwed()
+	want := []string{"c", "d"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("stillOwed() = %v, want %v", got, want)
 	}
 }

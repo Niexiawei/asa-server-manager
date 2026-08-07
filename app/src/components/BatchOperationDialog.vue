@@ -2,7 +2,7 @@
   <!-- 批量操作主弹窗 -->
   <t-dialog
       :visible="visible"
-      header="服务器批量操作"
+      :header="dialogHeader"
       width="85vw"
       @close="onDialogClose"
       destroy-on-close
@@ -11,6 +11,9 @@
       attach="body"
       :footer="false"
   >
+    <!-- 非用户手动发起时提一句是谁发起的——「我没点过为什么在跑」当场有答案 -->
+    <t-alert v-if="batchRunning && batchOrigin" theme="warning"
+             :message="`本次操作由「${batchOrigin.label}」自动发起`" class="mb-3"/>
     <!-- 批量操作状态提示 -->
     <t-alert v-if="batchRunning" theme="info" :message="batchStatusText" class="mb-3"/>
 
@@ -228,6 +231,7 @@ const batchLogs = ref([])
 // 日志拉取中：清空后到第一条到达之间为 true，用于抑制「暂无日志」占位闪烁
 const batchProgress = ref(null)
 const batchOpType = ref('')
+const batchOrigin = ref(null) // { kind, label }，null 表示用户手动发起
 const delaySeconds = ref(0)
 const selectedInstances = ref([])
 const countdownDialogRef = ref(null)
@@ -250,6 +254,11 @@ const batchStatusText = computed(() => {
     return `批量${text}操作进行中... (${batchProgress.value.done}/${batchProgress.value.total})`
   }
   return `批量${text}操作进行中...`
+})
+const dialogHeader = computed(() => {
+  return batchRunning.value && batchOrigin.value
+      ? `服务器批量操作 · ${batchOrigin.value.label}`
+      : '服务器批量操作'
 })
 
 // ========== Mod 名称映射 ==========
@@ -513,6 +522,9 @@ async function hydrateBatchStatus() {
     if (res.data?.active) {
       batchRunning.value = true
       batchOpType.value = res.data.type || ''
+      batchOrigin.value = (res.data.origin_kind && res.data.origin_kind !== 'user')
+          ? {kind: res.data.origin_kind, label: res.data.origin_label || ''}
+          : null
       if (res.data.progress) {
         batchProgress.value = res.data.progress
       }
@@ -528,6 +540,7 @@ async function hydrateBatchStatus() {
     if (serverStore.batchRunning) {
       batchRunning.value = true
       batchOpType.value = serverStore.batchOpType
+      batchOrigin.value = serverStore.batchOrigin
       if (serverStore.batchProgress) {
         batchProgress.value = {...serverStore.batchProgress}
       }
@@ -552,6 +565,9 @@ function handleBatchStoreEvent(eventType, event) {
   if (eventType === 'batch_started') {
     batchRunning.value = true
     batchOpType.value = event.data?.type || event.status || ''
+    batchOrigin.value = (event.data?.origin_kind && event.data.origin_kind !== 'user')
+        ? {kind: event.data.origin_kind, label: event.data.origin_label || ''}
+        : null
     if (event.data?.total != null) {
       batchProgress.value = {done: 0, total: event.data.total}
     }

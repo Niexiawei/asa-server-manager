@@ -11,11 +11,39 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 // BatchOperationType 批量操作类型
 type BatchOperationType string
+
+// BatchOriginKind 说明这一轮批量是谁发起的。
+//
+// 加它的直接原因：schedule 会自动发起停服/启动批量，用户看到操作弹窗自己动起来时，
+// 必须能一眼看出是谁干的，否则唯一合理的反应就是恐慌点取消。
+type BatchOriginKind string
+
+const (
+	OriginUser              BatchOriginKind = "user"              // 用户在 UI 上发起
+	OriginScheduleRestart   BatchOriginKind = "schedule_restart"   // 定时重启任务
+	OriginScheduleUpdate    BatchOriginKind = "schedule_update"    // 定时更新任务的停服阶段
+	OriginUpdateRestore     BatchOriginKind = "update_restore"     // 更新后自动恢复启动
+	OriginManualRestore     BatchOriginKind = "manual_restore"     // 用户确认的待恢复启动
+	OriginTaskCancelRestore BatchOriginKind = "task_cancel_restore" // 取消定时任务后的状态回滚
+)
+
+// BatchOrigin 批量操作的来源。Label 面向用户，直接显示在操作弹窗标题和日志里，
+// 所以要带上具体是哪个任务——只说「定时任务」在有多个任务时等于没说。
+type BatchOrigin struct {
+	Kind  BatchOriginKind `json:"kind"`
+	Label string          `json:"label"`
+}
+
+// UserOrigin 是最常见的来源：用户在 UI 上手动发起。
+func UserOrigin() BatchOrigin {
+	return BatchOrigin{Kind: OriginUser, Label: "手动批量操作"}
+}
 
 const (
 	BatchStart   BatchOperationType = "start"
@@ -203,10 +231,18 @@ func (lb *LogBroadcaster) broadcast() {
 // BatchOperation 单次批量操作
 type BatchOperation struct {
 	Type            BatchOperationType `json:"type"`
+	Origin          BatchOrigin        `json:"origin"`
 	Instances       []string           `json:"instances"`
 	DelayBetween    time.Duration      `json:"-"`
 	Status          string             `json:"status"` // running / completed / cancelled
 	InstanceResults []*InstanceResult  `json:"instance_results"`
+
+	// cancelledAll 记录这一轮批量是否被**整体**取消（op.Cancel() / CancelCurrent）。
+	//
+	// 不能靠扫 InstanceResults 里有没有 InstanceCancelled 来推断：单台实例的倒计时
+	// 被取消时也会写这个状态（见 runCountdownPhase 对单台的处理），那属于「放过这一台」，
+	// 整批仍在正常执行，两者必须分开，否则调用方会把「跳过一台」误判成「整批作废」。
+	cancelledAll atomic.Bool
 
 	ctx          context.Context
 	cancel       context.CancelFunc
@@ -267,12 +303,17 @@ func GetGlobalManager() *BatchManager {
 	return globalManager
 }
 
-// StartOperation 创建并启动批量操作
+// StartOperation 创建并启动批量操作。
+//
+// origin 是位置参数而不是可选项：这样旧调用点不改也能编译的话，会留下一批
+// Kind 为空的批量，而「不知道是谁发起的」正是引入 BatchOrigin 要消灭的状态。
+// 位置参数强制每个调用点各自表态，编译器替我们查漏。
 func (bm *BatchManager) StartOperation(
 	opType BatchOperationType,
 	instances []string,
 	delaySeconds int,
 	cdCfg *countdown.Config,
+	origin BatchOrigin,
 ) (*BatchOperation, error) {
 	// 廉价快路径：正在跑就别白做下面的预检。不是权威判断，锁内还会复查一次
 	if bm.IsRunning() {
@@ -352,6 +393,7 @@ func (bm *BatchManager) StartOperation(
 
 	op := &BatchOperation{
 		Type:             opType,
+		Origin:           origin,
 		Instances:        instances,
 		DelayBetween:     time.Duration(delaySeconds) * time.Second,
 		Status:           "running",
@@ -406,6 +448,30 @@ func (op *BatchOperation) IsRunning() bool {
 	op.mu.RLock()
 	defer op.mu.RUnlock()
 	return op.Status == "running"
+}
+
+// WasCancelled 报告这一轮批量是否被**整体**取消（而不是单台实例的倒计时被取消）。
+// 只在 op 结束后（Done() 已关闭）读才有意义。
+//
+// 不能靠 op.Status == "cancelled" 判断：runBatchOperation 的收尾 defer 会把 Status
+// 无条件改成 "completed"，"cancelled" 只在那一瞬间可见；cancelledAll 是一次性置位、
+// 永不回退的标志，专为事后判断而设。
+func (op *BatchOperation) WasCancelled() bool {
+	return op.cancelledAll.Load()
+}
+
+// batchActionLabel 把操作类型翻成中文动词，供日志文案使用。
+func batchActionLabel(opType BatchOperationType) string {
+	switch opType {
+	case BatchStart:
+		return "启动"
+	case BatchStop:
+		return "停止"
+	case BatchRestart:
+		return "重启"
+	default:
+		return string(opType)
+	}
 }
 
 // Cancel 取消这一次批量操作。
@@ -596,8 +662,12 @@ func (bm *BatchManager) runBatchOperation(op *BatchOperation) {
 	// 通知批量操作开始
 	opTypeStr := string(op.Type)
 	totalInstances := len(op.Instances)
-	realtime.BroadcastBatchOperationStarted(opTypeStr, totalInstances)
-	op.sendLog("info", fmt.Sprintf("Batch %s started with %d instances", opTypeStr, totalInstances), "")
+	realtime.BroadcastBatchOperationStarted(opTypeStr, totalInstances, string(op.Origin.Kind), op.Origin.Label)
+	startLog := fmt.Sprintf("批量%s开始，共 %d 个实例", batchActionLabel(op.Type), totalInstances)
+	if op.Origin.Label != "" {
+		startLog = fmt.Sprintf("[%s] %s", op.Origin.Label, startLog)
+	}
+	op.sendLog("info", startLog, "")
 
 	// 预检剔除的实例在 StartOperation 里就标好了，这里补上日志：
 	// 广播器那时还没启动，不补的话前端只看到实例凭空变成 skipped，没有原因
@@ -608,6 +678,7 @@ func (bm *BatchManager) runBatchOperation(op *BatchOperation) {
 	// 阶段一：倒计时统一前置
 	if cancelled := op.runCountdownPhase(); cancelled {
 		op.markRemainingCancelled()
+		op.cancelledAll.Store(true)
 		op.mu.Lock()
 		op.Status = "cancelled"
 		op.mu.Unlock()
@@ -623,8 +694,9 @@ func (bm *BatchManager) runBatchOperation(op *BatchOperation) {
 		// 检查取消
 		select {
 		case <-op.ctx.Done():
-			op.sendLog("warning", "Batch operation cancelled", "")
+			op.sendLog("warning", "批量操作已取消", "")
 			op.markRemainingFrom(i, InstanceCancelled, "cancelled")
+			op.cancelledAll.Store(true)
 			op.mu.Lock()
 			op.Status = "cancelled"
 			op.mu.Unlock()

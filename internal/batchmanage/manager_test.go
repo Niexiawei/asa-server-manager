@@ -307,3 +307,37 @@ func TestPreSkippedResultKeepsReason(t *testing.T) {
 		t.Error("操作结束后应释放单例，否则下一次会拿到 ErrOperationInProgress")
 	}
 }
+
+// 回归点：早期实现曾提议用「InstanceResults 里有没有 InstanceCancelled」来判断
+// 整批是否被取消，但单台实例的倒计时被取消（runCountdownPhase 对单个目标的处理）
+// 也会写这个状态，其余实例照常执行——那种判据会把「放过这一台」误报成「整批作废」。
+// WasCancelled() 必须只反映 cancelledAll 这个显式标志，不能靠扫状态推断。
+func TestWasCancelled_FalseAfterSingleInstanceCountdownCancel(t *testing.T) {
+	op := newTestOperation("inst-a", "inst-b")
+	op.setResult("inst-a", InstanceCancelled, "倒计时被取消")
+
+	if op.WasCancelled() {
+		t.Error("单台实例的倒计时被取消不应让 WasCancelled() 变为 true")
+	}
+}
+
+// 批量操作因 ctx 被取消（对应 CancelCurrent / op.Cancel()）而整体中止时，
+// WasCancelled() 必须为 true——这是 schedule 包据此判断「任务被取消」的唯一依据。
+func TestWasCancelled_TrueWhenCtxCancelledMidLoop(t *testing.T) {
+	bm := newTestManager(t)
+	op := newRunnableOperation(bm, nil, "inst-a", "inst-b")
+	op.cancel() // 模拟 CancelCurrent()：立刻让 op.ctx 结束
+	bm.current = op
+
+	go bm.runBatchOperation(op)
+
+	select {
+	case <-op.Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("批量操作应当因 ctx 被取消而立刻收尾")
+	}
+
+	if !op.WasCancelled() {
+		t.Error("op.ctx 被取消后 WasCancelled() 应为 true")
+	}
+}

@@ -345,3 +345,31 @@ export function listScheduleLogs(taskId, limit) {
 export function clearScheduleLogs() {
     return apiClient.delete('/api/schedule/logs')
 }
+
+// 获取当前正在执行的任务，供任务列表页渲染「取消」按钮与执行阶段标签
+export function listScheduleRuns() {
+    return apiClient.get('/api/schedule/runs')
+}
+
+// 取消一次正在执行的任务。状态回滚（把执行前活着的实例拉回来）由后端完成，
+// 这里立即返回
+export function cancelScheduleRun(runId) {
+    return apiClient.post(`/api/schedule/runs/${runId}/cancel`)
+}
+
+// ==================== 待恢复实例 ====================
+
+// 查询「定时更新后未恢复启动」的现场，无现场时 data.pending 为 null
+export function getPendingRestore() {
+    return apiClient.get('/api/schedule/pending-restore')
+}
+
+// 确认恢复：后台批量启动，接口立即返回
+export function confirmPendingRestore() {
+    return apiClient.post('/api/schedule/pending-restore/confirm')
+}
+
+// 忽略：删除现场记录，不再提示（实例保持停止状态）
+export function ignorePendingRestore() {
+    return apiClient.delete('/api/schedule/pending-restore')
+}

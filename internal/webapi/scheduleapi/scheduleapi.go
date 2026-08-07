@@ -4,6 +4,7 @@ import (
 	cfgpkg "asa-server/internal/config"
 	"asa-server/internal/schedule"
 	"asa-server/internal/webapi/apiresp"
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
@@ -28,6 +29,11 @@ func (h *Handler) RegisterRouter(r *gin.Engine) {
 		s.POST("/tasks/:id/run", h.runTaskNow)
 		s.GET("/logs", h.listRunLogs)
 		s.DELETE("/logs", h.clearRunLogs)
+		s.GET("/runs", h.listRuns)
+		s.POST("/runs/:run_id/cancel", h.cancelRun)
+		s.GET("/pending-restore", h.getPendingRestore)
+		s.POST("/pending-restore/confirm", h.confirmPendingRestore)
+		s.DELETE("/pending-restore", h.ignorePendingRestore)
 	}
 }
 
@@ -219,4 +225,67 @@ func (h *Handler) runTaskNow(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, apiresp.StatusResponse{Success: true, Message: "已触发执行"})
+}
+
+// listRuns 返回当前正在执行的任务，供前端渲染「取消」按钮与执行阶段标签。
+func (h *Handler) listRuns(c *gin.Context) {
+	c.JSON(http.StatusOK, apiresp.StatusResponse{
+		Success: true,
+		Data:    gin.H{"runs": schedule.GetGlobalScheduler().ListRuns()},
+	})
+}
+
+// cancelRun 取消一次正在执行的任务；状态回滚（把执行前活着的实例拉回来）
+// 由任务自己的 goroutine 完成，这里只负责传导取消信号并立即返回。
+func (h *Handler) cancelRun(c *gin.Context) {
+	err := schedule.GetGlobalScheduler().CancelRun(c.Param("run_id"))
+	switch {
+	case err == nil:
+		c.JSON(http.StatusOK, apiresp.StatusResponse{Success: true, Message: "已取消，正在回滚实例状态"})
+	case errors.Is(err, schedule.ErrRunNotFound):
+		c.JSON(http.StatusNotFound, apiresp.StatusResponse{Success: false, Error: err.Error()})
+	case errors.Is(err, schedule.ErrRunAlreadyCancelling):
+		c.JSON(http.StatusConflict, apiresp.StatusResponse{Success: false, Error: err.Error()})
+	default:
+		badRequest(c, err)
+	}
+}
+
+// getPendingRestore 查询「定时更新后未恢复启动」的现场，无现场时 pending 为 null——
+// 前端每次挂载都会调它，不该用 404，那会在控制台刷一片红。
+func (h *Handler) getPendingRestore(c *gin.Context) {
+	p, ok := schedule.GetGlobalScheduler().GetPendingRestore()
+	if !ok {
+		c.JSON(http.StatusOK, apiresp.StatusResponse{Success: true, Data: gin.H{"pending": nil}})
+		return
+	}
+	c.JSON(http.StatusOK, apiresp.StatusResponse{Success: true, Data: gin.H{"pending": p}})
+}
+
+// confirmPendingRestore 确认恢复：后台批量启动，接口立即返回，进度走批量操作既有的 SSE/WS。
+func (h *Handler) confirmPendingRestore(c *gin.Context) {
+	err := schedule.GetGlobalScheduler().ConfirmPendingRestore()
+	switch {
+	case err == nil:
+		c.JSON(http.StatusOK, apiresp.StatusResponse{Success: true, Message: "已开始恢复启动"})
+	case errors.Is(err, schedule.ErrNoPendingRestore):
+		c.JSON(http.StatusNotFound, apiresp.StatusResponse{Success: false, Error: err.Error()})
+	case errors.Is(err, schedule.ErrRestoreInProgress):
+		c.JSON(http.StatusConflict, apiresp.StatusResponse{Success: false, Error: err.Error()})
+	default:
+		badRequest(c, err)
+	}
+}
+
+// ignorePendingRestore 忽略：删除现场记录，不再提示。幂等——无现场时同样返回成功，
+// 两个页面同时点忽略不该报错。
+func (h *Handler) ignorePendingRestore(c *gin.Context) {
+	if err := schedule.GetGlobalScheduler().IgnorePendingRestore(); err != nil {
+		c.JSON(http.StatusInternalServerError, apiresp.StatusResponse{
+			Success: false,
+			Error:   fmt.Sprintf("忽略待恢复现场失败: %v", err),
+		})
+		return
+	}
+	c.JSON(http.StatusOK, apiresp.StatusResponse{Success: true, Message: "已忽略，实例保持停止状态"})
 }

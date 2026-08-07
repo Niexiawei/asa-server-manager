@@ -38,19 +38,19 @@
         <div
             v-for="log in logs"
             :key="log.id"
-            :class="['log-entry', log.success ? 'ok' : 'failed']"
+            :class="['log-entry', outcomeClass(log)]"
         >
           <div class="log-line">
             <span class="log-time">{{ formatTime(log.started_at) }}</span>
             <span class="log-trigger">[{{ log.trigger === 'manual' ? '手动' : '定时' }}]</span>
             <span class="log-task" :title="log.task_name">{{ log.task_name }}</span>
-            <span :class="['log-status', log.success ? 'ok' : 'failed']">
-              {{ log.success ? '成功' : '失败' }}
+            <span :class="['log-status', outcomeClass(log)]">
+              {{ outcomeLabel(log) }}
             </span>
             <span class="log-dur">{{ formatDuration(log.duration_ms) }}</span>
           </div>
           <div class="log-message" v-if="log.message">
-            <span class="log-arrow">{{ log.success ? '›' : '✗' }}</span>
+            <span class="log-arrow">{{ outcomeArrow(log) }}</span>
             <span>{{ log.message }}</span>
           </div>
         </div>
@@ -118,6 +118,31 @@ function onScheduleEvent(type, event) {
   if (logs.value.length > FETCH_LIMIT) {
     logs.value.length = FETCH_LIMIT
   }
+}
+
+// 存量记录（没有 outcome 字段）按 success 二分派生——它们产生时还不存在
+// 「已取消」这种结局，二分推导是准确的；与后端 outcomeOf 的兼容规则保持一致
+function outcome(log) {
+  if (log.outcome) return log.outcome
+  return log.success ? 'success' : 'failed'
+}
+
+function outcomeClass(log) {
+  const o = outcome(log)
+  if (o === 'cancelled') return 'cancelled'
+  return o === 'success' ? 'ok' : 'failed'
+}
+
+function outcomeLabel(log) {
+  const o = outcome(log)
+  if (o === 'cancelled') return '已取消'
+  return o === 'success' ? '成功' : '失败'
+}
+
+function outcomeArrow(log) {
+  const o = outcome(log)
+  if (o === 'cancelled') return '⊘'
+  return o === 'success' ? '›' : '✗'
 }
 
 function formatTime(value) {
@@ -272,6 +297,10 @@ defineExpose({loadLogs})
   &.failed {
     color: #f44747; // 红：失败
   }
+
+  &.cancelled {
+    color: #ce9178; // 橙：已取消（用户主动叫停，不是故障，不用失败的红）
+  }
 }
 
 .log-dur {
@@ -300,6 +329,14 @@ defineExpose({loadLogs})
 
   .log-arrow {
     color: #f44747;
+  }
+}
+
+.log-entry.cancelled .log-message {
+  color: #ce9178;
+
+  .log-arrow {
+    color: #ce9178;
   }
 }
 </style>

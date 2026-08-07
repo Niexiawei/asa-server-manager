@@ -39,6 +39,18 @@ const (
 	TriggerManual   TriggerSource = "manual"   // 用户点了「立即执行」
 )
 
+// RunOutcome 一次执行的结局。
+//
+// 取消必须与失败分开：前者是用户主动叫停，后者是任务没干成。混成一个
+// Success=false 会让「最近 7 天失败 5 次」这种统计彻底失真。
+type RunOutcome string
+
+const (
+	OutcomeSuccess   RunOutcome = "success"
+	OutcomeFailed    RunOutcome = "failed"
+	OutcomeCancelled RunOutcome = "cancelled"
+)
+
 // RunRecord 一次任务执行的档案。
 //
 // 刻意不做逐步骤的流式日志：批量重启的过程日志 batchmanage 已有完整 SSE 流
@@ -57,11 +69,28 @@ type RunRecord struct {
 	StartedAt  time.Time `json:"started_at"`
 	DurationMs int64     `json:"duration_ms"`
 
+	// Success 保留：存量记录与旧前端还在读。写入侧与 Outcome 同时写，
+	// 保证 Success == (Outcome == OutcomeSuccess)，两者永远不打架。
 	Success bool `json:"success"`
 
-	// Message 成功时是摘要（「已重启 5 个实例」），失败时是原因
+	// Outcome 三态结局。省略时（存量记录）用 outcomeOf 从 Success 派生——
+	// 那些记录产生时还不存在「已取消」这种结局，二分推导是准确的。
+	Outcome RunOutcome `json:"outcome,omitempty"`
+
+	// Message 成功时是摘要（「已重启 5 个实例」），失败/取消时是原因
 	// （「2/5 个实例重启失败：jibian、meijue」）。
 	Message string `json:"message"`
+}
+
+// outcomeOf 兼容没有 outcome 字段的存量记录。
+func outcomeOf(r *RunRecord) RunOutcome {
+	if r.Outcome != "" {
+		return r.Outcome
+	}
+	if r.Success {
+		return OutcomeSuccess
+	}
+	return OutcomeFailed
 }
 
 // runRecordSeq 给同一纳秒内产生的记录去重。
@@ -171,6 +200,8 @@ func (s *logStore) list(taskID string, limit int) ([]*RunRecord, int) {
 		total++
 		if len(out) < limit {
 			clone := *r
+			// 存量记录没有 Outcome，读取侧统一在这里补齐，调用方不必各自散判
+			clone.Outcome = outcomeOf(&clone)
 			out = append(out, &clone)
 		}
 	}

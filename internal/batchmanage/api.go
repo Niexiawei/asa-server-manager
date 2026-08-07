@@ -58,7 +58,7 @@ func handleBatchOperation(c *gin.Context, opType BatchOperationType) {
 		return
 	}
 
-	op, err := mgr.StartOperation(opType, req.Instances, req.DelaySeconds, req.CountdownConfig())
+	op, err := mgr.StartOperation(opType, req.Instances, req.DelaySeconds, req.CountdownConfig(), UserOrigin())
 	if err != nil {
 		status := http.StatusConflict
 		if err.Error() == "no instances to operate on" {
@@ -136,6 +136,11 @@ func getBatchStatus(c *gin.Context) {
 			"total": len(op.Instances),
 		},
 		"instances": op.InstanceResults,
+		// origin 说明这一轮批量是谁发起的（用户手动/定时任务/恢复启动等）。
+		// 弹窗打开时可能批量早已在跑，光靠 WS 的 batch_started 事件拿不到——
+		// 那条消息在弹窗打开之前就已经发过了
+		"origin_kind":  string(op.Origin.Kind),
+		"origin_label": op.Origin.Label,
 	})
 }
 

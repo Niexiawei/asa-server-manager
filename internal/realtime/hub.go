@@ -327,20 +327,41 @@ func BroadcastServerRestartedEvent(instanceName string) {
 	BroadcastServerEvent("server_restarted", instanceName, fmt.Sprintf("Server '%s' restarted successfully", instanceName), "restarted")
 }
 
-// BroadcastBatchOperationStarted broadcasts batch operation started event
-func BroadcastBatchOperationStarted(opType string, totalInstances int) {
+// batchActionLabel 把批量操作类型翻成中文动词，供 WS 消息文案使用。
+// realtime 不能 import batchmanage（会成环，batchmanage 已经 import 了 realtime），
+// 所以这里独立维护一份小映射，而不是复用 batchmanage.batchActionLabel。
+func batchActionLabel(opType string) string {
+	switch opType {
+	case "start":
+		return "启动"
+	case "stop":
+		return "停止"
+	case "restart":
+		return "重启"
+	default:
+		return opType
+	}
+}
+
+// BroadcastBatchOperationStarted broadcasts batch operation started event.
+//
+// originKind/originLabel 说明这一轮批量是谁发起的（用户手动 / 定时任务 / 恢复启动等）。
+// 不能直接传 batchmanage.BatchOrigin 结构体：会形成 import 环，只能拆成两个 string。
+func BroadcastBatchOperationStarted(opType string, totalInstances int, originKind, originLabel string) {
 	BroadcastServerEventWithData("batch_started", "",
-		fmt.Sprintf("Batch %s started with %d instances", opType, totalInstances), opType,
+		fmt.Sprintf("批量%s开始，共 %d 个实例", batchActionLabel(opType), totalInstances), opType,
 		map[string]any{
-			"type":  opType,
-			"total": totalInstances,
+			"type":         opType,
+			"total":        totalInstances,
+			"origin_kind":  originKind,
+			"origin_label": originLabel,
 		})
 }
 
 // BroadcastBatchProgress broadcasts batch operation progress after each instance completes
 func BroadcastBatchProgress(opType string, done, total int, instanceName string) {
 	BroadcastServerEventWithData("batch_progress", instanceName,
-		fmt.Sprintf("Batch %s progress: %d/%d", opType, done, total), opType,
+		fmt.Sprintf("批量%s进度：%d/%d", batchActionLabel(opType), done, total), opType,
 		map[string]any{
 			"type":          opType,
 			"done":          done,
@@ -352,7 +373,7 @@ func BroadcastBatchProgress(opType string, done, total int, instanceName string)
 // BroadcastBatchOperationCompleted broadcasts batch operation completed event
 func BroadcastBatchOperationCompleted(opType string, succeeded, failed, total int) {
 	BroadcastServerEventWithData("batch_completed", "",
-		fmt.Sprintf("Batch %s completed: %d succeeded, %d failed of %d", opType, succeeded, failed, total),
+		fmt.Sprintf("批量%s完成：成功 %d，失败 %d，共 %d 个", batchActionLabel(opType), succeeded, failed, total),
 		opType,
 		map[string]any{
 			"type":      opType,
@@ -366,7 +387,7 @@ func BroadcastBatchOperationCompleted(opType string, succeeded, failed, total in
 // 该实例此时尚未真正跳过，只是意图已被记录，等待主循环轮到它。
 func BroadcastBatchInstanceSkipped(opType, instanceName string) {
 	BroadcastServerEventWithData("batch_instance_skipped", instanceName,
-		fmt.Sprintf("Instance '%s' skip requested", instanceName), opType,
+		fmt.Sprintf("实例 '%s' 已请求跳过", instanceName), opType,
 		map[string]any{
 			"type":          opType,
 			"instance_name": instanceName,
@@ -394,17 +415,51 @@ func BroadcastUpdateCancelled() {
 // BroadcastScheduleRun 推送一条定时任务的执行结果。
 //
 // 前端 ScheduleManager 的执行日志面板据此实时插入新记录，不必轮询。
-// data 是 RunRecord 的扁平化字段，由 schedule 包组装——realtime 不能反向
-// 依赖 schedule（那会成环），所以这里只接受 map。
-func BroadcastScheduleRun(taskName string, success bool, data map[string]any) {
-	status := "success"
-	message := fmt.Sprintf("定时任务「%s」执行成功", taskName)
-	if !success {
-		status = "failed"
+// data 是 RunRecord 的扁平化字段（含 outcome），由 schedule 包组装——realtime
+// 不能反向依赖 schedule（那会成环），所以这里只接受 map。
+//
+// outcome 是 "success" / "failed" / "cancelled" 三态之一：取消是用户主动叫停，
+// 不是故障，必须与失败分开文案，否则执行日志的失败率统计会失真。
+func BroadcastScheduleRun(taskName string, outcome string, data map[string]any) {
+	var message string
+	switch outcome {
+	case "cancelled":
+		message = fmt.Sprintf("定时任务「%s」已取消", taskName)
+	case "success":
+		message = fmt.Sprintf("定时任务「%s」执行成功", taskName)
+	default:
 		message = fmt.Sprintf("定时任务「%s」执行失败", taskName)
 	}
 
-	BroadcastServerEventWithData("schedule_run", "", message, status, data)
+	BroadcastServerEventWithData("schedule_run", "", message, outcome, data)
+}
+
+// BroadcastScheduleRunStarted 推送一条定时任务**开始执行**的通知。
+//
+// 前端据此维护「正在运行的任务」列表，用来在任务列表页显示可点击的「取消」按钮——
+// 任务可能在页面没开着的时候就开始了，光靠进页面时拉一次 GET /runs 不够及时。
+func BroadcastScheduleRunStarted(runID, taskID, taskName, taskType, trigger string) {
+	BroadcastServerEventWithData("schedule_run_started", "",
+		fmt.Sprintf("定时任务「%s」开始执行", taskName), "running",
+		map[string]any{
+			"run_id":    runID,
+			"task_id":   taskID,
+			"task_name": taskName,
+			"task_type": taskType,
+			"trigger":   trigger,
+		})
+}
+
+// BroadcastPendingRestore 推送「待恢复现场」的变化。
+//
+// exists=false 表示现场已被恢复或忽略，前端据此收起提示——多个页面同时开着时，
+// 一个人点了确认/忽略，其他人的提示也要跟着消失。
+func BroadcastPendingRestore(exists bool, data map[string]any) {
+	msg := "有实例在定时更新后未恢复启动"
+	if !exists {
+		msg = "待恢复实例已处理"
+	}
+	BroadcastServerEventWithData("pending_restore", "", msg, "warning", data)
 }
 
 // 倒计时阶段。前端据此决定显示「x 秒后重启」还是「服务器重启中…」，

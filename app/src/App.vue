@@ -40,6 +40,7 @@
             <WSStatusIndicator/>
             <ServerResourceMonitor/>
             <WSEventNotification/>
+            <PendingRestoreDialog/>
             <!-- 没开鉴权时整块隐藏，界面和引入鉴权之前一模一样 -->
             <t-dropdown v-if="authState.authEnabled" :options="userMenuOptions" @click="onUserMenu">
               <t-button variant="text" shape="round">
@@ -72,6 +73,7 @@
 import {ref, watch, computed, provide, useTemplateRef} from 'vue';
 import {useRouter, useRoute} from "vue-router";
 import WSEventNotification from '@/components/WSEventNotification.vue';
+import PendingRestoreDialog from '@/components/PendingRestoreDialog.vue';
 import ServerResourceMonitor from '@/components/ServerResourceMonitor.vue';
 import WSStatusIndicator from '@/components/WSStatusIndicator.vue';
 import InstanceTabs from '@/components/InstanceTabs.vue';

@@ -18,11 +18,13 @@ export const serverStore = reactive({
     gameLogPathEvent: new Map(), // 存储游戏日志路径事件，用于自动开启日志监听
     batchRunning: false,  // 是否有批量操作在运行
     batchOpType: '',      // 当前批量操作类型
+    batchOrigin: null,    // 当前批量操作的来源 { kind, label }，null 表示未知/用户手动
     batchProgress: null,  // { done, total }
     batchCallbacks: [],   // 批量状态变更回调
     updateRunning: false, // 是否有服务器更新在运行
     updateCallbacks: [],   // 更新状态变更回调
-    scheduleCallbacks: [], // 定时任务执行完成回调
+    scheduleCallbacks: [], // 定时任务执行完成/开始回调
+    pendingRestoreCallbacks: [], // 待恢复现场变更回调
     restartPending: new Set(), // 重启进行中（等待 server_restarted / server_restart_failed）
     // 停止/重启倒计时：instanceName -> { action, phase, remaining }
     // phase: counting（倒计时中）/ executing（已归零，正在执行）
@@ -171,6 +173,10 @@ function handleServerEvent(event) {
         case 'batch_started':
             serverStore.batchRunning = true
             serverStore.batchOpType = data?.type || status || ''
+            // origin_kind 为空/'user' 表示用户在 UI 上手动发起，null 让弹窗按默认标题渲染
+            serverStore.batchOrigin = (data?.origin_kind && data.origin_kind !== 'user')
+                ? {kind: data.origin_kind, label: data.origin_label || ''}
+                : null
             if (data?.total != null) {
                 serverStore.batchProgress = {done: 0, total: data.total}
             }
@@ -191,6 +197,7 @@ function handleServerEvent(event) {
         case 'batch_completed':
             serverStore.batchRunning = false
             serverStore.batchOpType = ''
+            serverStore.batchOrigin = null
             serverStore.batchProgress = null
             serverStore.batchCallbacks.forEach(cb => cb('batch_completed', event))
             break
@@ -214,6 +221,19 @@ function handleServerEvent(event) {
         // ScheduleManager 的执行日志面板直接把它插到列表头，不必重新拉取
         case 'schedule_run':
             serverStore.scheduleCallbacks.forEach(cb => cb('schedule_run', event))
+            break
+
+        // 定时任务开始执行。用于任务列表页维护「正在运行」状态并显示可点击的
+        // 取消按钮——任务可能在页面没开着的时候就开始了，光靠进页面拉一次
+        // GET /runs 不够及时
+        case 'schedule_run_started':
+            serverStore.scheduleCallbacks.forEach(cb => cb('schedule_run_started', event))
+            break
+
+        // 待恢复现场（定时更新后未拉起的实例）发生变化：产生 / 已恢复 / 已忽略。
+        // 多个页面开着时，一个人处理完，其他人的提示也要跟着消失或更新
+        case 'pending_restore':
+            serverStore.pendingRestoreCallbacks.forEach(cb => cb('pending_restore', event))
             break
 
         case 'countdown':
