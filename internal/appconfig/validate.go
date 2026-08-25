@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 )
@@ -16,7 +17,10 @@ func (c *Config) Validate() error {
 	if err := c.Server.validate(); err != nil {
 		return err
 	}
-	return c.Auth.validate()
+	if err := c.Auth.validate(); err != nil {
+		return err
+	}
+	return c.Download.validate()
 }
 
 func (s *ServerConfig) validate() error {
@@ -123,6 +127,28 @@ func (l *LANBypassConfig) validate() error {
 			}
 		}
 		l.Networks[i] = n
+	}
+	return nil
+}
+
+func (d *DownloadConfig) validate() error {
+	for name, raw := range map[string]string{
+		"download.github_proxy": d.GithubProxy,
+		"download.http_proxy":   d.HTTPProxy,
+	} {
+		if raw == "" {
+			continue
+		}
+		u, err := url.Parse(raw)
+		if err != nil || u.Scheme == "" || u.Host == "" {
+			return fmt.Errorf("%s: %q 不是合法的 http(s) URL", name, raw)
+		}
+	}
+	if d.Timeout <= 0 {
+		return fmt.Errorf("download.timeout: 必须为正数时长，例如 30s")
+	}
+	if d.Retries < 1 {
+		return fmt.Errorf("download.retries: 必须至少为 1，当前为 %d", d.Retries)
 	}
 	return nil
 }

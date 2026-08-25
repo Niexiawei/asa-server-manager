@@ -6,11 +6,11 @@ import (
 	"asa-server/internal/logger"
 	procpkg "asa-server/internal/process"
 	"asa-server/pkg/console"
+	"asa-server/pkg/download"
 	"asa-server/pkg/netutil"
 	"context"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -125,8 +125,11 @@ func DownloadAndExtractSteamCmd(ctx context.Context, outputCallback ...io.Writer
 
 	// Download the SteamCMD zip file
 	zipPath := filepath.Join(cfgpkg.SteamCmdDir, "steamcmd.zip")
-	if err := downloadFile(cfgpkg.SteamCmdURL, zipPath); err != nil {
+	if err := download.Fetch(ctx, download.Options{URL: cfgpkg.SteamCmdURL, Dest: zipPath, Resume: true}); err != nil {
 		return fmt.Errorf("failed to download SteamCMD: %w", err)
+	}
+	if fi, err := os.Stat(zipPath); err == nil {
+		logger.GetLogger().Infof("Downloaded: %s (%d bytes)", zipPath, fi.Size())
 	}
 
 	logMsg = "Extracting SteamCMD..."
@@ -165,37 +168,6 @@ func DownloadAndExtractSteamCmd(ctx context.Context, outputCallback ...io.Writer
 	if outputWriter != nil {
 		outputWriter.Write([]byte(logMsg + "\n"))
 	}
-	return nil
-}
-
-// downloadFile downloads a file from the given URL and saves it to the given path
-func downloadFile(url string, filepath string) error {
-	// Create the file
-	out, err := os.Create(filepath)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-
-	// Make HTTP GET request
-	resp, err := http.Get(url)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	// Check HTTP response status
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("bad status: %s", resp.Status)
-	}
-
-	// Write the body to file
-	_, err = io.Copy(out, resp.Body)
-	if err != nil {
-		return err
-	}
-
-	logger.GetLogger().Infof("Downloaded: %s (%d bytes)", filepath, resp.ContentLength)
 	return nil
 }
 

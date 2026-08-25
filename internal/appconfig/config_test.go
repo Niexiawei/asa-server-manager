@@ -30,6 +30,12 @@ func TestLoadCreatesTemplateWhenMissing(t *testing.T) {
 	if !cfg.Server.TLS.Enabled {
 		t.Error("tls.enabled 默认应为 true")
 	}
+	if cfg.Download.GithubProxy != "" {
+		t.Error("download.github_proxy 默认应为空（直连）")
+	}
+	if cfg.Download.Retries != 3 {
+		t.Errorf("download.retries 默认应为 3，实际 %d", cfg.Download.Retries)
+	}
 }
 
 // 模板文件本身必须能被解析和校验通过。否则用户第一次运行生成了配置，
@@ -221,6 +227,10 @@ func TestValidateRejectsBadValues(t *testing.T) {
 		{"bcrypt 成本越界", func(c *Config) { c.Auth.Password.BcryptCost = 99 }, "bcrypt_cost"},
 		{"失败次数为零", func(c *Config) { c.Auth.RateLimit.MaxFailures = 0 }, "max_failures"},
 		{"审计条数过少", func(c *Config) { c.Auth.Audit.MaxRows = 1 }, "max_rows"},
+		{"github_proxy 非法 URL", func(c *Config) { c.Download.GithubProxy = "not-a-url" }, "github_proxy"},
+		{"http_proxy 非法 URL", func(c *Config) { c.Download.HTTPProxy = "not-a-url" }, "http_proxy"},
+		{"download timeout 为零", func(c *Config) { c.Download.Timeout = 0 }, "timeout"},
+		{"download retries 为零", func(c *Config) { c.Download.Retries = 0 }, "retries"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

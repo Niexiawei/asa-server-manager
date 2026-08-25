@@ -103,4 +103,15 @@ auth:
 
   audit:
     max_rows: 2000   # 审计日志滚动保留条数
+
+# 全局下载器（SteamCMD 等大文件下载走这里；将来 Linux 运行时的 umu/GE-Proton/Syncthing 下载也共用这份配置）
+download:
+  # GitHub 加速代理，前缀重写型（形如 https://ghproxy.example.com/），不是标准 HTTP CONNECT 代理。
+  # 只对 github.com / raw.githubusercontent.com / objects.githubusercontent.com 生效，
+  # 其余地址（如 Steam CDN）不受影响、始终直连。留空 = 直连 GitHub。
+  github_proxy: ""
+  # 标准 HTTP(S)_PROXY，对全部下载生效（含非 GitHub 的），留给只有通用出口代理的用户兜底。
+  http_proxy: ""
+  timeout: 30s   # 只约束连接建立与响应头等待，不含大文件传输本身
+  retries: 3
 `
