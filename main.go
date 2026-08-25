@@ -10,6 +10,7 @@ import (
 	"asa-server/internal/mirror"
 	"asa-server/internal/webapi"
 	"asa-server/internal/winservice"
+	"asa-server/pkg/download"
 	"asa-server/pkg/winproc"
 	"context"
 	"errors"
@@ -248,6 +249,13 @@ func applyAppConfig(cfg *appconfig.Config) {
 	webapi.TLSKeyFile = cfg.Server.TLS.KeyFile
 	webapi.TLSDomains = strings.Join(cfg.Server.TLS.Domains, ",")
 	webapi.TrustedProxies = strings.Join(cfg.Server.TrustedProxies, ",")
+
+	download.Configure(download.Config{
+		GithubProxy: cfg.Download.GithubProxy,
+		HTTPProxy:   cfg.Download.HTTPProxy,
+		Timeout:     cfg.Download.Timeout,
+		Retries:     cfg.Download.Retries,
+	})
 }
 
 // actionGUI starts the GUI application

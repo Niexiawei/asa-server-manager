@@ -24,8 +24,9 @@ const ConfigFileName = "config.yaml"
 
 // Config 是整份应用配置
 type Config struct {
-	Server ServerConfig `mapstructure:"server"`
-	Auth   AuthConfig   `mapstructure:"auth"`
+	Server   ServerConfig   `mapstructure:"server"`
+	Auth     AuthConfig     `mapstructure:"auth"`
+	Download DownloadConfig `mapstructure:"download"`
 }
 
 // ServerConfig 对应 HTTP 服务本身
@@ -110,6 +111,21 @@ type RateLimitConfig struct {
 
 type AuditConfig struct {
 	MaxRows int `mapstructure:"max_rows"`
+}
+
+// DownloadConfig 是 pkg/download 的全局下载器配置，两平台都读
+// （Syncthing/SteamCMD 等在 Windows 上同样要下载，不只是 Linux 运行时）。
+type DownloadConfig struct {
+	// GithubProxy 是前缀重写型代理，形如 "https://ghproxy.example.com/"；
+	// 命中 github.com / raw.githubusercontent.com / objects.githubusercontent.com
+	// 时把原始 URL 整串拼接在其后代理下载。留空 = 直连。
+	GithubProxy string `mapstructure:"github_proxy"`
+	// HTTPProxy 是标准 HTTP(S)_PROXY 语义，作用于全部下载（含非 GitHub 的），
+	// 供只有通用出口代理、没有专用 GitHub 加速服务的用户兜底。留空 = 不使用。
+	HTTPProxy string `mapstructure:"http_proxy"`
+	// Timeout 只约束连接建立与响应头等待，不含大文件传输本身。
+	Timeout time.Duration `mapstructure:"timeout"`
+	Retries int           `mapstructure:"retries"`
 }
 
 // current 让读侧无锁：热重载时整体换指针即可。
@@ -241,6 +257,10 @@ func defaultConfig() Config {
 			RateLimit: RateLimitConfig{MaxFailures: 5, Window: 15 * time.Minute, Lockout: 15 * time.Minute},
 			Audit:     AuditConfig{MaxRows: 2000},
 		},
+		Download: DownloadConfig{
+			Timeout: 30 * time.Second,
+			Retries: 3,
+		},
 	}
 }
 
@@ -284,4 +304,9 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("auth.ratelimit.lockout", d.Auth.RateLimit.Lockout)
 
 	v.SetDefault("auth.audit.max_rows", d.Auth.Audit.MaxRows)
+
+	v.SetDefault("download.github_proxy", "")
+	v.SetDefault("download.http_proxy", "")
+	v.SetDefault("download.timeout", d.Download.Timeout)
+	v.SetDefault("download.retries", d.Download.Retries)
 }
