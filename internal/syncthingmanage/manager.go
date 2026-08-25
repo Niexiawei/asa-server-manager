@@ -5,8 +5,6 @@ import (
 	"asa-server/pkg/winproc"
 	"bufio"
 	"context"
-	"crypto/md5"
-	"embed"
 	"fmt"
 	"io"
 	"os"
@@ -19,9 +17,6 @@ import (
 
 	"asa-server/internal/logger"
 )
-
-//go:embed syncthing.exe
-var syncthingAssets embed.FS
 
 // SyncthingManager manages the syncthing process lifecycle
 type SyncthingManager struct {
@@ -44,7 +39,13 @@ const (
 var globalManager *SyncthingManager
 var syncthingConfigDir string // Syncthing 配置文件和可执行文件目录
 
-// Initialize initializes the syncthing manager and extracts syncthing.exe, returns config directory path
+// Initialize initializes the syncthing manager and returns the config
+// directory path. It ensures a syncthing binary is present, downloading the
+// pinned release from GitHub on first run (see install.go), but a download
+// failure does not fail Initialize itself — this runs at API server startup
+// (InitializationBasicComponents), and a network hiccup fetching an optional
+// companion tool must not take down the whole server. Start() surfaces the
+// missing binary as its own error instead.
 func Initialize(basedir string) (string, error) {
 	// Use BaseDir instead of temp directory
 	dir := filepath.Join(basedir, "syncthing")
@@ -54,46 +55,19 @@ func Initialize(basedir string) (string, error) {
 		return "", fmt.Errorf("failed to create syncthing directory: %v", err)
 	}
 
-	syncthingPath := filepath.Join(dir, "syncthing.exe")
-	// Extract syncthing.exe from embedded files
-	data, err := syncthingAssets.ReadFile("syncthing.exe")
-	if err != nil {
-		return "", fmt.Errorf("failed to read embedded syncthing.exe: %v", err)
-	}
-
-	// Calculate MD5 of embedded file
-	embeddedMD5 := md5.Sum(data)
-
-	// Check if file already exists and compare MD5
-	if fileInfo, err := os.Stat(syncthingPath); err == nil && fileInfo.Mode().IsRegular() {
-		existingData, err := os.ReadFile(syncthingPath)
-		if err == nil {
-			existingMD5 := md5.Sum(existingData)
-			if existingMD5 == embeddedMD5 {
-				// MD5 matches, skip writing
-				logger.GetLogger().Infof("syncthing.exe MD5 matches, skipping write")
-				syncthingConfigDir = dir
-				globalManager = &SyncthingManager{
-					runDir:        dir,
-					syncthingPath: syncthingPath,
-					running:       false,
-				}
-				return dir, nil
-			}
-		}
-	}
-
-	// Write to file
-	if err := os.WriteFile(syncthingPath, data, 0755); err != nil {
-		return "", fmt.Errorf("failed to write syncthing.exe to syncthing directory: %v", err)
-	}
-
 	syncthingConfigDir = dir
 	globalManager = &SyncthingManager{
-		runDir:        dir,
-		syncthingPath: syncthingPath,
-		running:       false,
+		runDir:  dir,
+		running: false,
 	}
+
+	binPath, err := ensureSyncthingBinary(context.Background(), dir)
+	if err != nil {
+		logger.GetLogger().Errorf(
+			"syncthing binary unavailable, start/restart will fail until this is resolved (check network access / download.github_proxy): %v", err)
+		return dir, nil
+	}
+	globalManager.syncthingPath = binPath
 
 	return dir, nil
 }
@@ -105,6 +79,9 @@ func (m *SyncthingManager) Start() error {
 
 	if m.running {
 		return fmt.Errorf("syncthing is already running")
+	}
+	if m.syncthingPath == "" {
+		return fmt.Errorf("syncthing binary is not available (download failed at startup, see logs)")
 	}
 
 	// Clear previous error
