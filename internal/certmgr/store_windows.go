@@ -1,8 +1,9 @@
+//go:build windows
+
 package certmgr
 
 import (
 	"asa-server/internal/logger"
-	"crypto/sha1"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -27,13 +28,6 @@ type storeLocation struct {
 var storeLocations = []storeLocation{
 	{"LocalMachine", windows.CERT_SYSTEM_STORE_LOCAL_MACHINE},
 	{"CurrentUser", windows.CERT_SYSTEM_STORE_CURRENT_USER},
-}
-
-// Fingerprint 返回证书 DER 的 SHA-1 指纹（大写十六进制），与 Windows
-// 证书管理器里显示的「指纹」一致，也是本包做幂等判断的唯一依据。
-func Fingerprint(der []byte) string {
-	sum := sha1.Sum(der)
-	return strings.ToUpper(hex.EncodeToString(sum[:]))
 }
 
 // TrustCA 把本地 CA 写入系统受信任根存储。已存在同指纹的证书时直接返回，

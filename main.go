@@ -5,12 +5,10 @@ import (
 	"asa-server/internal/appconfig"
 	"asa-server/internal/certmgr"
 	cfgpkg "asa-server/internal/config"
-	"asa-server/internal/gui"
 	"asa-server/internal/logger"
 	"asa-server/internal/webapi"
 	"asa-server/internal/winservice"
 	"asa-server/pkg/download"
-	"asa-server/pkg/winproc"
 	"context"
 	"errors"
 	"fmt"
@@ -243,11 +241,4 @@ func applyAppConfig(cfg *appconfig.Config) {
 		Timeout:     cfg.Download.Timeout,
 		Retries:     cfg.Download.Retries,
 	})
-}
-
-// actionGUI starts the GUI application
-func actionGUI(ctx context.Context, cmd *cli.Command) error {
-	guiApp := gui.NewGUIApp()
-	guiApp.Run()
-	return nil
 }

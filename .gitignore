@@ -3,6 +3,7 @@ instances/
 server-files/
 steamcmd/
 *.exe
+/asa-server
 .idea/
 .instance_log_mapping.json
 *.exe~

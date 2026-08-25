@@ -4,7 +4,7 @@
 > 通过 [umu-launcher](https://github.com/Open-Wine-Components/umu-launcher) + GE-Proton 提供 Wine 运行时。
 > 参考实现：`scripts/ark_instance_manager.sh`（社区脚本，已在 Linux 上跑通完整 ASA 多实例流程，本方案大量沿用它踩过的坑）。
 >
-> 状态：**设计方案，尚未实施**。文档给出耦合点清单、抽象层设计、分阶段实施计划与验收标准。
+> 状态：**设计方案，P0 已实施，P1 起尚未实施**。文档给出耦合点清单、抽象层设计、分阶段实施计划与验收标准。
 
 ---
 
@@ -867,7 +867,7 @@ linux:
 
 | 阶段 | 内容 | 产出 / 验收 | 估算 |
 |---|---|---|---|
-| **P0 构建打通** | 加构建约束；`gui` 整包 windows-only；`main.go` 拆平台文件；`certmgr`/`tail`/`processjob` 拆平台文件（Linux 侧先写**返回「未实现」的存根**）；**`mirror` 补 `junction_linux.go`（这个不写存根，直接写真实现，8 行）**；`pkg/download`（§5.13，Fetch + Configure + GitHub 代理重写，两平台通用）；`syncthing` 内嵌改按需下载并接到 `pkg/download` | `CGO_ENABLED=0 GOOS=linux go build` 通过；`GOOS=windows go build` 与 `go vet` 无回归；`pkg/download` 单测覆盖「命中代理域名重写」「不命中直连」「校验失败删除产物」三种路径 | 1–2 天 |
+| **P0 构建打通** ✅ 已完成 | 加构建约束；`gui` 整包 windows-only；`main.go` 拆平台文件；`certmgr`/`tail`/`processjob` 拆平台文件（Linux 侧先写**返回「未实现」的存根**，`tail`/`mirror` 的 linux 实现足够小，直接写了真实现而非存根）；**`mirror` 补 `junction_linux.go`（真实现，非存根）**；`pkg/download`（§5.13，Fetch + Configure + GitHub 代理重写，两平台通用，已在 `feat/global-downloader-github-proxy` 合入）；`syncthing` 内嵌改按需下载并接到 `pkg/download`（已用真实 GitHub release 端到端验证） | `CGO_ENABLED=0 GOOS=linux go build ./...` 通过；`GOOS=windows go build`、两平台 `go vet` 均无回归；`pkg/download` 单测覆盖「命中代理域名重写」「不命中直连」「校验失败删除产物」三种路径。落在 `feat/linux-p0-build-unblock` 分支，8 个提交。顺带修掉一个已存在于 master 的死代码 bug（`main.go` 残留的 `pkg/winproc` 未用导入，被 Linux 编译约束长期掩盖） | 1–2 天 |
 | **F 轨道（frp 库内调用，可并行、可先行）** | 见 **§5.10.6**，步骤 F0–F5。**与 Linux 兼容解耦**，建议先在 Windows 上独立做完 | frp 退出 Linux 兼容工作清单；仓库不再有 `frpc.exe` | 2–3 天 |
 | **W 轨道（Windows，可并行）** | Wails 取代 Fyne + 安装程序 + 首次运行引导 —— 见 **§10**，步骤 W0–W9 | Fyne 依赖清空；双击安装 → 引导 → 服务注册运行 | 另计，见 §10.8 |
 | **P1 进程原语** | `pkg/winproc` → `pkg/procx`；Linux `/proc` 实现（`QueryProcess`/`IsProcessExited`/`ProcessImageName` 等价物）；端口→PID 两平台统一切 gopsutil；`proctree` Linux 实现；`taskkill` → `procx.Terminate*` 全量替换 | Linux 上能查到任意进程；Windows 端口→PID 与旧 `netstat` 行为一致（对拍测试） | 2–3 天 |

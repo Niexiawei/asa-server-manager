@@ -1,13 +1,11 @@
 package tail
 
 import (
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"context"
@@ -268,15 +266,6 @@ func (t *Tailer) cleanup() {
 	if t.ticker != nil {
 		t.ticker.Stop()
 	}
-}
-
-// fileKey returns a stable file identity that changes only on rotation (new file
-// created), not on writes. On Windows, CreationTime serves this role perfectly.
-func fileKey(fi os.FileInfo) string {
-	if v, ok := fi.Sys().(*syscall.Win32FileAttributeData); ok {
-		return fmt.Sprintf("ctime:%d%d", v.CreationTime.HighDateTime, v.CreationTime.LowDateTime)
-	}
-	return fmt.Sprintf("size:%d_mod:%d", fi.Size(), fi.ModTime().UnixNano())
 }
 
 // readLastNLines returns the last n lines of filePath.
