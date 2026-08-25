@@ -276,6 +276,14 @@
               </t-card>
             </div>
           </t-collapse-panel>
+          <t-collapse-panel value="plugin-data" header="ArkApi 插件配置">
+            <plugin-data-panel
+                ref="pluginPanelRef"
+                :instance-name="instanceName"
+                :interval="instanceData?.config?.PluginSnapshotInterval || 0"
+                @update:interval="saveSnapshotInterval"
+            />
+          </t-collapse-panel>
           <t-collapse-panel value="backup-list" header="游戏存档备份">
             <div style="margin-bottom: 12px">
               <t-button
@@ -429,6 +437,7 @@
 import {computed, onMounted, onUnmounted, ref, watch} from 'vue'
 import {useRoute, useRouter} from 'vue-router'
 import ConfigEditor from '@/components/ConfigEditor.vue'
+import PluginDataPanel from '@/components/PluginDataPanel.vue'
 import ConfigFileViewer from '@/components/ConfigFileViewer.vue'
 import ConfigDiffModal from '@/components/ConfigDiffModal.vue'
 import ConfigEditModal from '@/components/ConfigEditModal.vue'
@@ -571,7 +580,25 @@ watch(activeCollapseKeys, (keys) => {
   if (keys.includes('backup-list') && backups.value.length === 0) {
     fetchBackups()
   }
+  // 插件面板展开时刷新一次：数据文件大小与快照时间会随实例运行不断变化
+  if (keys.includes('plugin-data')) {
+    pluginPanelRef.value?.reload()
+  }
 })
+
+const pluginPanelRef = ref(null)
+
+// 插件数据库在线快照周期（分钟）。0 = 用默认值（5 分钟），-1 = 关闭。
+const saveSnapshotInterval = async (minutes) => {
+  try {
+    const data = await updateInstanceConfig(instanceName, {PluginSnapshotInterval: minutes})
+    if (data?.success && instanceData.value?.config) {
+      instanceData.value.config.PluginSnapshotInterval = minutes
+    }
+  } catch (err) {
+    MessagePlugin.error(`保存快照周期失败: ${err.message ?? err}`)
+  }
+}
 // 获取所有配置项
 const getAllConfigItems = () => {
   return [

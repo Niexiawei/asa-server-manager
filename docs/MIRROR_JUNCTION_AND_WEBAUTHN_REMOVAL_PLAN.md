@@ -5,7 +5,9 @@
 > 1. **镜像去管理员化**：把 `createJunction` 换成真正的 NTFS junction，消除整套 Windows 提权逻辑。
 > 2. **移除 WebAuthn**：只保留「密码 + TOTP 两步验证 + 恢复码」。
 >
-> 状态：**设计方案，尚未实施**。
+> 状态：**两部分均已实施完成**。
+> 第一部分（镜像去管理员化）见提交 `refactor(mirror)`；第二部分（移除 WebAuthn）见提交 `refactor(auth)`。
+> 实施中对本文的两处修正已就地标注：§1.3 的后果描述（原文夸大为数据丢失）与 §1.4 #7（`RunAsAdmin` 不能删）。
 > 相关文档：[`LINUX_COMPATIBILITY_PLAN.md`](./LINUX_COMPATIBILITY_PLAN.md)（§5.6 / §10.10 与本文第一部分有交集）、
 > [`AUTH_LOGIN_DESIGN.md`](./AUTH_LOGIN_DESIGN.md)（第二部分要同步修订）。
 
@@ -80,17 +82,26 @@ if fi.Mode()&os.ModeSymlink != 0 {
 ```
 
 Go 1.23 起，Windows 上的 mount point（junction）不再被报告为 symlink，改报 `ModeIrregular`。
-**所以只改 `createJunction` 而不改 `isJunctionOrSymlink`，后果是灾难性的**：
+**所以只改 `createJunction` 而不改 `isJunctionOrSymlink`，同步逻辑会持续出错。**
 
-| 调用点 | 失效后的后果 |
+> ⚠️ **本节初稿把后果写成了「会穿过 junction 把源文件删掉」，那是错的，已按实测更正。**
+> 实测方式：把 `isJunctionOrSymlink` 改回只查 `ModeSymlink`，跑 `TestSyncDoesNotDeleteThroughJunctions`。
+
+真实后果如下：
+
+| 调用点 | 识别失效后的后果 |
 |---|---|
-| `syncMirrorEntries` / `collectSourceEntries` 的 diff | **穿过 junction 递归进源目录**，把源侧内容判为「镜像侧多余条目」并**删除** —— 正是 `mirror.go:155-157`、`296-298` 注释反复警告的那起事故 |
-| `migrateExceptionJunctions`（`mirror.go:309`） | 真 junction 被当成普通目录，每次同步都重建 |
-| `processFile`（`mirror.go:416`） | 「父目录已是 junction」判断失效，穿过 junction 建文件链接 |
-| `mergeMissingInto`（`mirror.go:347`） | 「链接不搬」失效，把链接内容拷进源 |
-| `CleanupInstanceMirror`（`mirror.go:508`） | 「仅删除链接本身，不删除链接目标」的保证失效，**可能删到源目录** |
+| `collectMirrorEntries` | junction 被归成 `EntryTypeFile`（源侧意图是 `EntryTypeSymlink`），**每轮同步都判类型不匹配、把所有 junction 删掉重建** |
+| `reconcileEntry` | 顺着上一条，对着一个目录调 `fsutil.CopyFile`，报 `Incorrect function`；同步返回错误后触发整个镜像重建 |
+| `migrateExceptionJunctions`（`mirror.go:281`） | 该处另有 `!fi.IsDir()` 兜底（`os.Lstat` 对 junction 返回 `IsDir()==false`），**不会误迁移** |
+| `CleanupInstanceMirror` / `removeMirrorEntry` | junction 落到 `os.Remove` 分支，**只删链接本身**，源目标安全 |
 
-> **这两处必须在同一个提交里原子地一起改，绝不能分两次上。**
+**为什么不会删到源**：`os.Lstat` 对 junction 返回 `IsDir()==false`，`filepath.Walk` 因此**不会递归进 junction**，
+`migrateExceptionJunctions` 的 `!fi.IsDir()` 也拦得住。这层结构性保护与 `isJunctionOrSymlink` 无关，
+所以识别失效表现为**性能与稳定性问题**，而不是数据丢失。
+
+即便如此，**这两处仍应在同一个提交里一起改** —— 分开上线会留下一个每次同步都全量重建 junction、
+且日志里刷满 `Incorrect function` 的中间版本。
 
 **✅ 定案：用 `os.Readlink` 判定。**
 
@@ -125,7 +136,7 @@ func isJunctionOrSymlink(path string) bool {
 | 4 | `mirror.IsElevated()`（`mirror.go:95`）及 `elevated`/`elevatedErr`/`once` 全局变量 | 删除 | 唯一用途就是这套提权 |
 | 5 | `main.go:273 ensureAdminElevation()` / `buildElevatedArgs()` / `quoteArg()` | 删除 | 连同 `main.go:194` 的调用 |
 | 6 | `main.go` 的 `--no-admin` 标志与 `hasArgFlag` | 删除 | 提权没了，开关失去意义 |
-| 7 | `pkg/winproc.RunAsAdmin`（`win32api.go:257`） | 删除 | 确认无其他调用方后再删 |
+| 7 | ~~`pkg/winproc.RunAsAdmin`~~ | ❌ **保留** | 实施时发现 `internal/certmgr/cli.go:67` 也在用它（`cert install --machine` 写 `LocalMachine\Root` 确实需要管理员）。本项计划有误，已放弃 |
 | 8 | `certmgr.IsElevated()`（`store.go:210`） | **保留** | 写 `LocalMachine\Root` 证书存储仍需管理员，与镜像无关 |
 | 9 | `CLAUDE.md` / `LINUX_COMPATIBILITY_PLAN.md` §5.6、§10.10 | 同步措辞 | 「uses NTFS junctions」到这时才名副其实 |
 

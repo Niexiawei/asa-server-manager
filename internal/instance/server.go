@@ -5,6 +5,7 @@ import (
 	"asa-server/internal/installer"
 	"asa-server/internal/logger"
 	"asa-server/internal/mirror"
+	"asa-server/internal/plugindata"
 	procpkg "asa-server/internal/process"
 	"asa-server/internal/rconx"
 	statepkg "asa-server/internal/state"
@@ -246,6 +247,13 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 		startErr = err
 		return err
 	}
+	// 插件的配置与运行期数据必须在镜像同步与校验**之后**才能注入：
+	// 放在之前会被同步的 MD5 回写覆盖掉。
+	// 先 Rescue 再 Inject 的顺序不能颠倒 —— 上一轮若是崩溃退出，镜像里留着的
+	// 才是最新数据，先抢救回实例目录，再拿实例目录那一份注入。
+	plugindata.Rescue(instanceName, mirrorDir)
+	plugindata.Inject(instanceName, mirrorDir)
+
 	exeWorkDir := filepath.Join(mirrorDir, "ShooterGame/Binaries/Win64")
 
 	// Build the command
@@ -421,6 +429,10 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 		logger.GetLogger().Warnf("Failed to save PID for instance %s: %v", instanceName, err)
 	}
 
+	// 进程起来了就开始给插件数据库做在线快照：回收只在正常停止时执行，
+	// 崩溃、断电、管理器被杀这些路径靠快照把最坏损失收窄到一个周期。
+	plugindata.StartSnapshots(instanceName, mirrorDir, pluginSnapshotInterval(config))
+
 	logger.GetLogger().Infof("Server started for instance: %s. It should be fully operational in approximately 60 seconds.", instanceName)
 	logger.GetLogger().Infof("Game log file: %s", gameLogPath)
 
@@ -527,6 +539,10 @@ func stopServerInternal(instanceName string) error {
 	}
 
 	logger.GetLogger().Infof("Stopping server for instance: %s", instanceName)
+
+	// 先停快照：saveworld 与进程退出期间的磁盘 I/O 不该再被 VACUUM INTO 争用
+	plugindata.StopSnapshots(instanceName)
+
 	// Try graceful shutdown with RCON
 
 	config, configErr := cfgpkg.LoadInstanceConfig(instanceName)
@@ -590,6 +606,10 @@ func stopServerInternal(instanceName string) error {
 		}
 	}
 
+	// 进程已完全退出，此时才能安全地整组拷回 SQLite 文件 ——
+	// 运行中拷会拷出主库与 -wal 互相撕裂的组合。
+	plugindata.Reclaim(instanceName, mirror.InstanceMirrorDir(instanceName))
+
 	_ = statepkg.WriteInstanceState(instanceName, statepkg.StatusStopped, "")
 	return nil
 }
@@ -597,6 +617,9 @@ func stopServerInternal(instanceName string) error {
 // ForceStopServer 强制停止实例：杀死进程 + 重置状态 + 清理镜像
 // v2: 不再需要 WaitForNoInitializing（每个实例的镜像独立）
 func ForceStopServer(instanceName string) error {
+	// 0. 停掉插件数据库快照；镜像里的插件数据由 CleanupInstanceMirror 内部的
+	//    Rescue 抢救回实例目录，这里不必再单独回收
+	plugindata.StopSnapshots(instanceName)
 	// 1. 先停止 AsaApiLoader（asaServerApi）进程（best effort）
 	if apiPid, pidErr := procpkg.GetAsaServerApiPID(instanceName); pidErr == nil && apiPid > 0 {
 		killGameServer(apiPid)
@@ -786,4 +809,16 @@ func syncConfigFile(sourcePath, destPath string) error {
 	}
 
 	return nil
+}
+
+// pluginSnapshotInterval 把实例配置里的分钟数换算成快照周期。
+// 0 表示用 plugindata 的默认值，负数表示关闭。
+func pluginSnapshotInterval(cfg *cfgpkg.InstanceConfig) time.Duration {
+	if cfg == nil || cfg.PluginSnapshotInterval == 0 {
+		return 0
+	}
+	if cfg.PluginSnapshotInterval < 0 {
+		return -1
+	}
+	return time.Duration(cfg.PluginSnapshotInterval) * time.Minute
 }
