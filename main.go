@@ -279,10 +279,12 @@ func ensureAdminElevation() {
 	// 构建参数并提权重启
 	argStr := buildElevatedArgs()
 
+	// 提权失败不是致命错误：Web 界面、配置编辑、备份等都不需要管理员，
+	// 直接返回让调用方继续跑，用户至少能进到界面里看到发生了什么。
 	if err := winproc.RunAsAdmin(argStr); err != nil {
 		logger.GetStdout().Warnf("管理员提权失败: %v", err)
 		logger.GetStdout().Warnf("[警告] 将以非管理员模式继续运行，镜像启动将使用文件复制模式，占用更多磁盘空间")
-		os.Exit(1)
+		return
 	}
 
 	// 提权成功，退出当前低权限进程
