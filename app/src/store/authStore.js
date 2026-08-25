@@ -16,12 +16,6 @@ export const authState = reactive({
     user: null,              // { username, role, totp_enabled, ... }
     totpEnabledGlobal: false,
     totpRequired: false,
-
-    // WebAuthn 是密码登录的补充。任何一项条件不满足都会是 false，
-    // 此时前端**隐藏** Passkey 入口，用户继续用密码登录。
-    webauthnAvailable: false,
-    webauthnReason: '',      // disabled | no_domains | insecure_context | domain_not_allowed
-    webauthnRpId: '',
 })
 
 export const isAdmin = computed(() =>
@@ -43,9 +37,6 @@ function applyState(data) {
     authState.user = data.user || null
     authState.totpEnabledGlobal = !!data.totp_enabled_global
     authState.totpRequired = !!data.totp_required
-    authState.webauthnAvailable = !!data.webauthn_available
-    authState.webauthnReason = data.webauthn_reason || ''
-    authState.webauthnRpId = data.webauthn_rp_id || ''
     authState.ready = true
 }
 
@@ -120,18 +111,4 @@ function onLoggedIn() {
             console.error('[auth] 登录后回调执行失败:', e)
         }
     })
-}
-
-/** WebAuthn 不可用时给用户看的解释。返回空串表示不必解释。 */
-export function webauthnReasonText() {
-    switch (authState.webauthnReason) {
-        case 'domain_not_allowed':
-            return '当前访问地址不支持 Passkey（IP 地址无法用于 WebAuthn）。请通过已配置的域名访问。'
-        case 'insecure_context':
-            return 'Passkey 需要 HTTPS 环境。请通过 https:// 访问，或使用 localhost。'
-        case 'no_domains':
-            return '服务端已启用 WebAuthn 但未配置 webauthn.domains，功能未生效。'
-        default:
-            return ''
-    }
 }

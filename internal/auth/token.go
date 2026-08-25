@@ -35,8 +35,6 @@ const (
 	AMRPassword = "pwd"
 	AMRTOTP     = "totp"
 	AMRRecovery = "recovery"
-	AMRWebAuthn = "webauthn"
-	AMRUserVfy  = "uv" // WebAuthn 断言里通过了用户验证（PIN / 生物识别）
 )
 
 var (

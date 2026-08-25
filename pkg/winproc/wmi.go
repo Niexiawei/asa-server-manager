@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/microsoft/wmi/pkg/base/instance"
+	"github.com/yusufpapurcu/wmi"
 )
 
 // WaitProcessExit blocks until the process with the given pid has exited or ctx is done.
@@ -30,59 +30,42 @@ func WaitProcessExit(ctx context.Context, pid int, interval time.Duration) bool 
 }
 
 // Win32Process is a subset of Win32_Process WMI properties.
+// 字段名必须与 WMI 属性名一致：wmi.Query 靠反射按名字回填。
 type Win32Process struct {
-	Name        string
-	ProcessId   uint32
-	CommandLine string // 可能为 nil
+	Name      string
+	ProcessId uint32
+	// CommandLine 在 WMI 里可能是 NULL（权限不足或系统进程），
+	// 此时 wmi 库跳过该字段，保持零值空串。
+	CommandLine string
 }
 
-// escapeWQL escapes special characters in WQL LIKE patterns
+// escapeWQL 转义 WQL 字符串字面量与 LIKE 通配符。
+//
+// WQL 的 LIKE 不认反斜杠转义，通配符只能用方括号集合字面化：
+// `%` -> `[%]`、`_` -> `[_]`、`[` -> `[[]`；`]` 在集合外本就是字面量。
+// 单引号按 SQL 惯例翻倍。`[` 必须最先替换，否则会把后面新插入的括号再转一遍。
 func escapeWQL(s string) string {
-	// Escape single quotes and WQL LIKE wildcards
 	s = strings.ReplaceAll(s, "'", "''")
-	s = strings.ReplaceAll(s, `%`, `\%`)
-	s = strings.ReplaceAll(s, `_`, `\_`)
+	s = strings.ReplaceAll(s, "[", "[[]")
+	s = strings.ReplaceAll(s, "%", "[%]")
+	s = strings.ReplaceAll(s, "_", "[_]")
 	return s
 }
 
-// QueryProcess queries Windows processes by name and optional command line
+// QueryProcess queries Windows processes by name and optional command line.
 func QueryProcess(name, commandLine string) ([]Win32Process, error) {
-	im, err := instance.GetWmiInstanceManager("", `root\cimv2`, "", "", "")
-	if err != nil {
-		return nil, err
-	}
-	args := []any{
-		escapeWQL(name), // H10 fix: escape WQL injection
-	}
-
-	// WQL：查询进程名和 PID、命令行
-	query := `SELECT Name, ProcessId, CommandLine FROM Win32_Process where Name like '%%%s%%'`
+	query := fmt.Sprintf(
+		`SELECT Name, ProcessId, CommandLine FROM Win32_Process WHERE Name LIKE '%%%s%%'`,
+		escapeWQL(name),
+	)
 	if commandLine != "" {
-		query += ` and CommandLine like '%%%s%%'`
-		args = append(args, escapeWQL(commandLine)) // H10/M15 fix: escape WQL injection
+		query += fmt.Sprintf(` AND CommandLine LIKE '%%%s%%'`, escapeWQL(commandLine))
 	}
-	query = fmt.Sprintf(query, args...)
-	res, err := im.QueryInstances(query)
-	if err != nil {
+
+	// wmi.Query 内部自己做 COM 初始化，并用全局锁 + LockOSThread 串行化，可并发调用。
+	var result []Win32Process
+	if err := wmi.Query(query, &result); err != nil {
 		return nil, err
-	}
-	result := make([]Win32Process, 0, len(res))
-	// res 是 *[]Instance（接口），逐个读取属性
-	for _, inst := range res {
-		nameVal, _ := inst.GetProperty("Name")
-		pidVal, _ := inst.GetProperty("ProcessId")
-		cmdVal, _ := inst.GetProperty("CommandLine")
-
-		// H11 fix: Use comma-ok pattern to prevent nil type assertion panic
-		nameStr, _ := nameVal.(string)
-		pidInt, _ := pidVal.(int32)
-		cmdStr, _ := cmdVal.(string)
-
-		result = append(result, Win32Process{
-			Name:        nameStr,
-			ProcessId:   uint32(pidInt),
-			CommandLine: cmdStr,
-		})
 	}
 	return result, nil
 }

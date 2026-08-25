@@ -31,15 +31,13 @@ var usernamePattern = regexp.MustCompile(`^[a-zA-Z0-9_-]{3,32}$`)
 
 // User 是一个登录账户。
 //
-// PasswordHash 恒非空：WebAuthn 只是补充，任何账户都必须能用密码登录。
-// 这是"域名闸门未命中时退回密码登录"能成立的前提。
+// PasswordHash 恒非空：任何账户都必须能用密码登录。
 type User struct {
 	ID             int64
 	Username       string
 	PasswordHash   string
 	Role           string
 	SessionVersion int
-	WebAuthnHandle []byte // 32 字节随机值，WebAuthn user handle，不含任何 PII
 	TOTPEnabled    bool
 	TOTPSecret     string
 	TOTPLastStep   int64
@@ -60,7 +58,7 @@ type queryer interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }
 
-const userColumns = `id, username, password_hash, role, session_version, webauthn_handle,
+const userColumns = `id, username, password_hash, role, session_version,
 	totp_enabled, totp_secret, totp_last_step, disabled, created_at, last_login_at`
 
 // ValidateUsername 校验用户名格式
@@ -91,16 +89,11 @@ func CreateUser(ctx context.Context, q queryer, username, passwordHash, role str
 		return nil, ErrPasswordEmpty
 	}
 
-	handle, err := NewWebAuthnHandle()
-	if err != nil {
-		return nil, err
-	}
-
 	now := time.Now().Unix()
 	res, err := q.ExecContext(ctx,
-		`INSERT INTO users(username, username_lower, password_hash, role, webauthn_handle, created_at)
-		 VALUES(?, ?, ?, ?, ?, ?)`,
-		username, strings.ToLower(username), passwordHash, role, handle, now)
+		`INSERT INTO users(username, username_lower, password_hash, role, created_at)
+		 VALUES(?, ?, ?, ?, ?)`,
+		username, strings.ToLower(username), passwordHash, role, now)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return nil, ErrUserExists
@@ -115,7 +108,6 @@ func CreateUser(ctx context.Context, q queryer, username, passwordHash, role str
 		PasswordHash:   passwordHash,
 		Role:           role,
 		SessionVersion: 1,
-		WebAuthnHandle: handle,
 		CreatedAt:      time.Unix(now, 0),
 	}, nil
 }
@@ -254,7 +246,7 @@ func SetDisabled(ctx context.Context, db *sql.DB, username string, disabled bool
 }
 
 // DeleteUser 删除账户。删除最后一个管理员会被拒绝。
-// 关联的恢复码、WebAuthn 凭证由外键级联删除。
+// 关联的恢复码由外键级联删除。
 func DeleteUser(ctx context.Context, db *sql.DB, username string) error {
 	return inTx(ctx, db, func(tx *sql.Tx) error {
 		u, err := GetUser(ctx, tx, username)
@@ -295,7 +287,7 @@ func requireAnotherAdmin(ctx context.Context, q queryer, excludeID int64) error 
 func scanUser(row *sql.Row) (*User, error) {
 	var u User
 	var createdAt, lastLogin int64
-	err := row.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &u.SessionVersion, &u.WebAuthnHandle,
+	err := row.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &u.SessionVersion,
 		&u.TOTPEnabled, &u.TOTPSecret, &u.TOTPLastStep, &u.Disabled, &createdAt, &lastLogin)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrUserNotFound
@@ -313,7 +305,7 @@ func scanUser(row *sql.Row) (*User, error) {
 func scanUserRows(rows *sql.Rows) (*User, error) {
 	var u User
 	var createdAt, lastLogin int64
-	err := rows.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &u.SessionVersion, &u.WebAuthnHandle,
+	err := rows.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &u.SessionVersion,
 		&u.TOTPEnabled, &u.TOTPSecret, &u.TOTPLastStep, &u.Disabled, &createdAt, &lastLogin)
 	if err != nil {
 		return nil, fmt.Errorf("读取用户失败: %w", err)

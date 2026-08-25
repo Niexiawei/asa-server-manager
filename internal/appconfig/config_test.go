@@ -66,11 +66,10 @@ auth:
   session:
     ttl: 2h
     same_site: strict
-  webauthn:
-    enabled: true
-    domains:
-      - LocalHost
-      - ark.example.com.
+  lan_bypass:
+    networks:
+      - 192.168.50.0/24
+      - 10.1.2.3
 `
 	writeConfig(t, dir, yaml)
 
@@ -92,12 +91,12 @@ auth:
 	if cfg.Auth.Password.BcryptCost != 12 {
 		t.Errorf("bcrypt_cost 应回落到默认 12，实际 %d", cfg.Auth.Password.BcryptCost)
 	}
-	// 归一化：小写 + 去掉 FQDN 尾点
-	want := []string{"localhost", "ark.example.com"}
-	if len(cfg.Auth.WebAuthn.Domains) != 2 ||
-		cfg.Auth.WebAuthn.Domains[0] != want[0] ||
-		cfg.Auth.WebAuthn.Domains[1] != want[1] {
-		t.Errorf("domains 应被归一化为 %v，实际 %v", want, cfg.Auth.WebAuthn.Domains)
+	// 归一化：裸 IP 自动补成单主机网段
+	want := []string{"192.168.50.0/24", "10.1.2.3/32"}
+	if len(cfg.Auth.LANBypass.Networks) != 2 ||
+		cfg.Auth.LANBypass.Networks[0] != want[0] ||
+		cfg.Auth.LANBypass.Networks[1] != want[1] {
+		t.Errorf("networks 应被归一化为 %v，实际 %v", want, cfg.Auth.LANBypass.Networks)
 	}
 }
 
@@ -133,19 +132,19 @@ func TestInvalidAuthConfigIsFatal(t *testing.T) {
 		writeConfig(t, dir, `
 auth:
   enabled: true
-  webauthn:
-    domains:
-      - 192.168.1.10
+  lan_bypass:
+    networks:
+      - 哦豁
 `)
 		err := Load(dir)
 		if err == nil {
-			t.Fatal("非法 domains 应返回错误")
+			t.Fatal("非法 networks 应返回错误")
 		}
 		if !errors.Is(err, ErrAuthConfigInvalid) {
 			t.Errorf("鉴权开启时的配置错误应可用 errors.Is 匹配 ErrAuthConfigInvalid，实际 %v", err)
 		}
 		// 错误信息仍要指出具体哪里错了
-		if !strings.Contains(err.Error(), "domains[0]") {
+		if !strings.Contains(err.Error(), "networks[0]") {
 			t.Errorf("错误信息应指出是第几项，实际 %q", err)
 		}
 	})
@@ -155,13 +154,13 @@ auth:
 		writeConfig(t, dir, `
 auth:
   enabled: false
-  webauthn:
-    domains:
-      - 192.168.1.10
+  lan_bypass:
+    networks:
+      - 哦豁
 `)
 		err := Load(dir)
 		if err == nil {
-			t.Fatal("非法 domains 应返回错误")
+			t.Fatal("非法 networks 应返回错误")
 		}
 		// 没开鉴权，回落默认值继续跑是安全的，不该让服务起不来
 		if errors.Is(err, ErrAuthConfigInvalid) {
@@ -204,49 +203,6 @@ func TestEnvOverridesFile(t *testing.T) {
 	}
 }
 
-func TestNormalizeWebAuthnDomain(t *testing.T) {
-	ok := []struct{ in, want string }{
-		{"localhost", "localhost"},
-		{"LocalHost", "localhost"},
-		{"ark.example.com", "ark.example.com"},
-		{"ark.example.com.", "ark.example.com"},
-		{"  example.com  ", "example.com"},
-		{"my-panel.example.co.uk", "my-panel.example.co.uk"},
-	}
-	for _, c := range ok {
-		got, err := NormalizeWebAuthnDomain(c.in)
-		if err != nil {
-			t.Errorf("NormalizeWebAuthnDomain(%q) 不应报错: %v", c.in, err)
-			continue
-		}
-		if got != c.want {
-			t.Errorf("NormalizeWebAuthnDomain(%q) = %q，期望 %q", c.in, got, c.want)
-		}
-	}
-
-	// 错误信息必须指出具体是哪种写法错了，否则用户只会看到"按钮不出现"
-	bad := []struct{ in, wantMsg string }{
-		{"", "不得为空"},
-		{"192.168.1.10", "IP 地址"},
-		{"::1", "IP 地址"},
-		{"[::1]", "IP 地址"},
-		{"https://ark.example.com", "协议前缀"},
-		{"ark.example.com:19193", "端口"},
-		{"ark.example.com/panel", "路径"},
-		{"-bad.example.com", "不是合法的域名"},
-	}
-	for _, c := range bad {
-		_, err := NormalizeWebAuthnDomain(c.in)
-		if err == nil {
-			t.Errorf("NormalizeWebAuthnDomain(%q) 应报错", c.in)
-			continue
-		}
-		if !strings.Contains(err.Error(), c.wantMsg) {
-			t.Errorf("NormalizeWebAuthnDomain(%q) 的错误信息 %q 应包含 %q", c.in, err, c.wantMsg)
-		}
-	}
-}
-
 func TestValidateRejectsBadValues(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -261,9 +217,6 @@ func TestValidateRejectsBadValues(t *testing.T) {
 		{"ttl 为零", func(c *Config) { c.Auth.Session.TTL = 0 }, "ttl"},
 		{"网段非法", func(c *Config) { c.Auth.LANBypass.Networks = []string{"哦豁"} }, "networks"},
 		{"skew 过大", func(c *Config) { c.Auth.TOTP.Skew = 99 }, "skew"},
-		{"uv 非法", func(c *Config) { c.Auth.WebAuthn.UserVerification = "maybe" }, "user_verification"},
-		{"克隆检测非法", func(c *Config) { c.Auth.WebAuthn.CloneDetection = "explode" }, "clone_detection"},
-		{"domains 含 IP", func(c *Config) { c.Auth.WebAuthn.Domains = []string{"10.0.0.1"} }, "domains[0]"},
 		{"密码过短", func(c *Config) { c.Auth.Password.MinLength = 3 }, "min_length"},
 		{"bcrypt 成本越界", func(c *Config) { c.Auth.Password.BcryptCost = 99 }, "bcrypt_cost"},
 		{"失败次数为零", func(c *Config) { c.Auth.RateLimit.MaxFailures = 0 }, "max_failures"},
@@ -330,17 +283,6 @@ func TestAutoDetectLocalSubnetsAppendsWhenEnabled(t *testing.T) {
 	}
 	if len(cfg.Auth.LANBypass.Networks) < len(DefaultPrivateNetworks) {
 		t.Errorf("开启探测后网段数不应少于默认集，实际 %d 项", len(cfg.Auth.LANBypass.Networks))
-	}
-}
-
-func TestValidateDeduplicatesDomains(t *testing.T) {
-	cfg := defaultConfig()
-	cfg.Auth.WebAuthn.Domains = []string{"example.com", "EXAMPLE.com.", "other.com"}
-	if err := cfg.Validate(); err != nil {
-		t.Fatalf("Validate: %v", err)
-	}
-	if len(cfg.Auth.WebAuthn.Domains) != 2 {
-		t.Errorf("重复域名应被去重，实际 %v", cfg.Auth.WebAuthn.Domains)
 	}
 }
 

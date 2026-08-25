@@ -46,8 +46,7 @@ func (h *Handler) createUser(c *gin.Context) {
 	if req.Role == "" {
 		req.Role = auth.RoleOperator
 	}
-	// 密码必填：WebAuthn 只是补充，每个账户都必须能用密码登录，
-	// 否则用户换个访问入口（IP、未配置的域名）就把自己锁在门外了
+	// 密码必填：它是唯一的登录手段，没有密码的账户等于没法登录
 	if req.Password == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "必须设置密码"})
 		return
@@ -159,21 +158,6 @@ func (h *Handler) resetTOTP(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "已解绑两步验证"})
-}
-
-// resetWebAuthn 清空某用户的全部 Passkey。
-// 因为密码始终可用，这个操作没有把人锁在门外的风险。
-func (h *Handler) resetWebAuthn(c *gin.Context) {
-	m := auth.GetManager()
-	if m == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "鉴权模块未就绪"})
-		return
-	}
-	if err := m.DeleteAllCredentials(c.Request.Context(), c.Param("username"), ActorName(c)); err != nil {
-		c.JSON(userErrStatus(err), gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "message": "已清空该用户的全部 Passkey"})
 }
 
 func (h *Handler) unlockUser(c *gin.Context) {

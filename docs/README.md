@@ -164,7 +164,7 @@ asa-server/
 | `gopkg.in/natefinch/lumberjack.v2` | 日志轮转 |
 | `github.com/jinzhu/copier` | 结构体拷贝 |
 | `github.com/klauspost/compress` | zstd 压缩（备份） |
-| `github.com/microsoft/wmi` | WMI 查询 |
+| `github.com/yusufpapurcu/wmi` | WMI 查询（与 gopsutil 共用同一份依赖） |
 
 ## 文档索引
 

@@ -39,9 +39,7 @@
           </t-select>
         </t-form-item>
       </t-form>
-      <!-- 每个账户都必须有密码：WebAuthn 只是补充，
-           用户换个访问入口（IP、未配置的域名）就用不了 Passkey 了 -->
-      <t-alert theme="info" message="密码是必填项。Passkey 只是补充登录方式，无法替代密码。"/>
+      <t-alert theme="info" message="密码是必填项，它是唯一的登录方式。"/>
     </t-dialog>
 
     <!-- 重置密码 -->
@@ -114,6 +112,8 @@ const eventLabels = {
   user_unlock: '解除锁定',
   totp_bind: '绑定两步验证',
   totp_reset: '解绑两步验证',
+  // Passkey 功能已移除，但历史审计记录里仍有这两种 action，
+  // 保留标签是为了让旧记录仍能显示成中文而不是裸的 action 名。
   cred_add: '添加 Passkey',
   cred_delete: '删除 Passkey',
 }

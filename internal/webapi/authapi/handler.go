@@ -41,7 +41,6 @@ func (h *Handler) RegisterRouter(r *gin.Engine) {
 
 		a.GET("/audit", RequireAdmin(), h.audit)
 
-		h.registerWebAuthnRoutes(a)
 	}
 
 	u := r.Group("/api/users", RequireAdmin())
@@ -52,7 +51,6 @@ func (h *Handler) RegisterRouter(r *gin.Engine) {
 		u.DELETE("/:username", h.deleteUser)
 		u.POST("/:username/password", h.resetPassword)
 		u.POST("/:username/totp/reset", h.resetTOTP)
-		u.POST("/:username/webauthn/reset", h.resetWebAuthn)
 		u.POST("/:username/unlock", h.unlockUser)
 	}
 }
@@ -68,10 +66,6 @@ type stateResponse struct {
 	User              *userView `json:"user,omitempty"`
 	TOTPEnabledGlobal bool      `json:"totp_enabled_global"`
 	TOTPRequired      bool      `json:"totp_required"`
-	// 密码登录恒可用，所以没有对应字段。WebAuthn 是补充，不可用时静默退回密码。
-	WebAuthnAvailable bool   `json:"webauthn_available"`
-	WebAuthnReason    string `json:"webauthn_reason,omitempty"`
-	WebAuthnRPID      string `json:"webauthn_rp_id,omitempty"`
 }
 
 type userView struct {
@@ -129,11 +123,6 @@ func (h *Handler) state(c *gin.Context) {
 		c.JSON(http.StatusOK, resp)
 		return
 	}
-
-	av := webAuthnAvailability(c)
-	resp.WebAuthnAvailable = av.Available
-	resp.WebAuthnReason = av.Reason
-	resp.WebAuthnRPID = av.RPID
 
 	if Bypassed(c) {
 		resp.Bypassed = true
