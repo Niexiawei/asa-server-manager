@@ -8,6 +8,30 @@
 
 ---
 
+## 0. 修订记录：已合入的上游改动
+
+本方案初稿之后，仓库里落地了两项与它有交集的改造，以及一个新的选型决定。三者都已就地合入正文，
+此处只列**改变了结论**的部分，细节看各自章节。
+
+| 上游改动 | 状态 | 对本方案的净影响 | 落在哪 |
+|---|---|---|---|
+| **镜像去管理员化（真 NTFS junction）**<br>`MIRROR_JUNCTION_AND_WEBAUTHN_REMOVAL_PLAN.md` 第一部分 | 已实施 | **净正**，但工作量搬了家 | §2.1（新增编译阻断行）、§2.3、**§5.6 已重写**、§5.9、§6 风险 13、§8 P0、§10.10、§11 A |
+| **移除 WebAuthn**<br>同文档第二部分 | 已实施 | **无影响** —— 删掉的 `go-webauthn` / `go-tpm` / `fxamacker/cbor` 全是纯 Go，两平台一视同仁；`auth` 本就在 §2.3 的跨平台清单里 | 无需改动 |
+| **ArkApi 插件数据隔离**<br>`ARKAPI_PLUGIN_DATA_PLAN.md` | 已实施 | **基本无影响**，新增 `internal/plugindata` 已核对为跨平台；但它在 Linux 上应当整体静默，有四条要显式确认 | §2.2、§2.3、**§5.12 新增**、§6 风险 11/16、§8 P6、§9.1 |
+| **frp 改为库内调用**（本次新增决定） | 待实施 | **减少** Linux 工作量：frp 从「分平台内嵌二进制」直接退出工作清单 | **§5.10 已重写**、§5.9、§6 风险 14/15/16、§8 F 轨道、§9.1、§11 A |
+
+三个最值得记住的结论：
+
+1. **去管理员化把 `mirror` 从「基本不用改」变成了「Linux 上编译不过」** —— 因为 `createJunction`
+   进了 `junction_windows.go`。代价很小（补 8 行 `os.Symlink`），但它是 P0 的硬阻断，不能漏。
+   同一次改造顺手把 `isJunctionOrSymlink` 换成了 `os.Readlink`，**那一处从此不需要拆平台**。
+2. **`plugindata` 不需要为 Linux 做任何事，但要确认它真的安静** —— 它默认静默是结构性的
+   （以镜像里实际存在的插件目录为准），不是碰巧。
+3. **frp 是 Go 写的，没理由当二进制内嵌。** 改成库内调用之后，§5.10 从一条 Linux 兼容工作项
+   变成一条与 Linux 无关的架构改进，可以先做、单独做。
+
+---
+
 ## 1. 目标与非目标
 
 ### 目标
@@ -46,6 +70,7 @@
 | `pkg/processjob/job.go` | Job Object + `syscall.CREATE_NEW_PROCESS_GROUP` | 进程树管理 |
 | `internal/certmgr/store.go` | `windows.Cert*` 系统证书存储、`windows.Token` | 本地 CA 写入 Root 存储 |
 | ~~`internal/mirror/mirror.go:97`~~ | ~~`windows.OpenProcessToken`~~ | ✅ 已移除（`IsElevated()` 随去管理员化删除）|
+| **`internal/mirror/junction_windows.go`** | `//go:build windows` + `DeviceIoControl` / `FSCTL_SET_REPARSE_POINT` | 🆕 【去管理员化引入】`createJunction` 已移入这个 windows-only 文件，而 `mirror.go` 无构建约束且有 6 处调用（`mirror.go:233,300,351,376,691,887,900`）—— **`internal/mirror` 现在在 Linux 上直接编译不过**，需补 `junction_linux.go`，见 §5.6 |
 | `internal/gui/gui.go` | `windows.SID` / `syscall.SysProcAttr{HideWindow}` / Fyne | 整包 |
 | `internal/process/process.go:87` | `syscall.SysProcAttr{HideWindow: true}` | Linux 的 `SysProcAttr` 无此字段 |
 | `pkg/tail/tail.go:276` | `syscall.Win32FileAttributeData` | 文件身份（防日志轮转误读） |
@@ -68,18 +93,32 @@
 | `internal/appconfig/localnet.go:59` | 虚拟网卡名过滤含 `tap-windows` | 需补 `docker0`/`veth`/`br-`/`virbr` |
 | `internal/gui/gui.go:539` | `rundll32 url.dll,FileProtocolHandler` 开浏览器 | — |
 | `internal/certmgr/store.go:236` | `icacls` 收紧私钥 ACL | Linux 用 `os.Chmod(0600)` |
-| ~~`main.go:281`~~ | ~~`winproc.RunAsAdmin` 提权~~ | ✅ 已移除（`certmgr` 装根证书仍在用 `RunAsAdmin`，那处保留）|
+| ~~`main.go:281`~~ | ~~`winproc.RunAsAdmin` 提权~~ | ✅ 已移除（`certmgr/cli.go:67` 装根证书仍在用 `RunAsAdmin`，那处保留）|
+| `internal/plugindata/override.go:85` | 路径包含判定用 `strings.ToLower` 折叠大小写 | 🆕 【ArkApi 插件数据引入】在大小写敏感的文件系统上是**过度匹配**（`/a/DB` 与 `/a/db` 被判为同一路径）。ArkApi 在 Linux 上不支持，当前无实际影响；若将来支持则是真 bug，见 §5.12 |
 
 ### 2.3 天然跨平台（无需改动）
 
-`internal/webapi`（含全部子包）、`internal/auth`、`internal/appconfig`、`internal/state`(BadgerDB)、
+`internal/webapi`（含全部子包，含新增的 `pluginapi`）、`internal/auth`、`internal/appconfig`、`internal/state`(BadgerDB)、
 `internal/rconx`、`internal/realtime`、`internal/countdown`、`internal/batchmanage`、`internal/schedule`、
 `internal/updatemanage`、`internal/backup`(tar+zstd 纯 Go)、`internal/parseserver`、`internal/logger`、
-`pkg/fsutil`、`pkg/netutil`、`pkg/console`、`pkg/iox`、`pkg/serverinfo`(gopsutil)、`app/`、`icon/`。
+`internal/plugindata`、`pkg/fsutil`、`pkg/netutil`、`pkg/console`、`pkg/iox`、`pkg/serverinfo`(gopsutil)、`app/`、`icon/`。
 
-`internal/mirror` 的**核心算法**也跨平台：`createJunction` / `createFileSymlink` 底层就是 `os.Symlink`
-（`mirror.go:473,495`），Linux 上是原生 symlink，甚至比 Windows 更省事（不需要管理员权限）。
-`IsElevated()` 已随「镜像去管理员化」一并删除，本节无需再处理。
+**`internal/plugindata`（ArkApi 插件数据隔离，新增）已核对为跨平台**：无任何 `golang.org/x/sys/windows`
+或 `syscall` 引用；相对路径一律以 forward slash 为规范形式、落盘前过 `filepath.FromSlash`
+（`plugindata.go:194-223`、`classify.go:140-199`），并特意用 `slashBase` 而非 `filepath.Base`
+（`plugindata.go:323` 的注释说明了原因）；在线快照用的 `modernc.org/sqlite` 是**纯 Go** 驱动，
+在 linux/amd64 上不引入 cgo —— 这一点对 §5.9「Linux 侧 `CGO_ENABLED=0`」的结论很关键，
+因为 `plugindata` 现在位于 `mirror` 与 `instance` 的依赖链上，是热路径而非可选组件。
+唯一的例外是 `override.go:85` 的大小写折叠，见 §2.2 与 §5.12。
+
+`internal/mirror` 的**核心算法**仍然跨平台，但边界已经变了：
+
+- `isJunctionOrSymlink`（`mirror.go:413`）已改用 `os.Readlink` 判定 —— **本来就是为跨平台选的方案**
+  （见 `MIRROR_JUNCTION_AND_WEBAUTHN_REMOVAL_PLAN.md` §1.3 方案 A），Linux 上对 symlink 同样正确，
+  这一处不需要任何改动，也不需要拆平台文件。
+- `createFileSymlink` 已被删除，第 ③ 类的 11 个根目录文件统一走 `fsutil.CopyFile` —— 跨平台无差异。
+- `createJunction` 反过来成了**新的编译阻断点**（见 §2.1 新增行），Linux 侧要补实现，见 §5.6。
+- `IsElevated()` 已随「镜像去管理员化」一并删除，本节无需再处理。
 
 `internal/instance/common.go` 的 `GetAsaVersion`（`common.go:487`）是纯字节扫描 PE 文件找 UTF-16 `ArkVersion`
 标记，**Linux 上原样可用**，不需要任何改动。
@@ -111,6 +150,9 @@ pkg/
 ├── proctree/                 # 【改名】原 pkg/processjob
 │   ├── proctree_windows.go   #   Job Object（原样）
 │   └── proctree_linux.go     #   setsid 进程组 + kill(-pgid)
+├── download/                 # 【新】全局下载器 + GitHub 代理，两平台共用，见 §5.13
+│   ├── download.go           #   Fetch(ctx, Options) —— 重试/断点续传/校验/进度上报
+│   └── proxy.go              #   Configure(Config) —— GitHub 前缀重写 + 标准 HTTP(S)_PROXY
 └── tail/
     ├── filekey_windows.go    # 【拆】Win32FileAttributeData.CreationTime
     └── filekey_linux.go      # 【拆】syscall.Stat_t.Ino（inode，比 ctime 更准）
@@ -193,6 +235,8 @@ const (
   解析最新 release，未认证限流 60 次/小时/IP，在容器、CI、CGNAT、共享出口下频繁失败，
   且 umu 1.4.0 在 `PROTONPATH` 解析为空时直接 `FileNotFoundError` 崩掉。
   改为从 release **下载 URL**（不限流）拉固定版本，`PROTONPATH` 指向具体目录。
+  这次下载走 §5.13 的 `pkg/download`，国内网络访问 `github.com` 慢/抖动时可配 `github_proxy` 走加速，
+  与「限流」是两个独立问题，不要混为一谈——代理解决的是**下载慢**，固定版本号解决的是**限流**。
 - 常规启动一律带 `UMU_RUNTIME_UPDATE=0`；只有首次 `wineboot --init` 预热那一次不带（它必须能拉运行时）。
 - 版本可通过 `config.yaml` 覆盖（见 §7），但默认值就是上面这两个。
 
@@ -380,17 +424,64 @@ func QueryProcess(name, cmdlineSubstr string) ([]Process, error)
 > 这三项直接决定「能不能起来」，不是优化项。建议实现为 `fixups.Apply()` 并在
 > `UpdateArkServer` 成功后、以及每次 `StartServer` 前（幂等、开销可忽略）各调一次。
 
-### 5.6 `internal/mirror` —— 基本不用改
+### 5.6 `internal/mirror` —— 补一个 `junction_linux.go`
 
-`createJunction` / `createFileSymlink` 已经是 `os.Symlink`，Linux 原生支持且**不需要特权**
-（Windows 上需要管理员或开发者模式，这正是 `IsElevated()` 存在的原因）。
+> 本节已按「镜像去管理员化」（`MIRROR_JUNCTION_AND_WEBAUTHN_REMOVAL_PLAN.md` 第一部分，**已实施**）重写。
+> 那次改造对 Linux 兼容**净收益为正**，但把工作量从「基本不用改」挪成了「必须补一个文件」。
 
-改动仅两处：
+改造前后对 Linux 的影响：
 
-- ~~`IsElevated()` 拆平台~~ —— 已在「镜像去管理员化」中整体删除，无需再拆。
-- `createJunction` 现已是 Windows 专属实现（`internal/mirror/junction_windows.go`，`//go:build windows`），
-  Linux 侧只需补一个 `junction_linux.go` 用 `os.Symlink` 实现同名函数即可。
-- `main.go` 的 `ensureAdminElevation()`（`main.go:272`）整个走 Windows 分支，Linux 上 no-op。
+| 项 | 改造前 | 改造后 | 对 Linux 的影响 |
+|---|---|---|---|
+| `createJunction` | `mirror.go` 里的 `os.Symlink`，无构建约束 | `junction_windows.go` 的 `DeviceIoControl` + `FSCTL_SET_REPARSE_POINT`，`//go:build windows` | ⚠️ **变差**：`internal/mirror` 现在在 Linux 上编译不过，必须补 `junction_linux.go` |
+| `isJunctionOrSymlink` | 只查 `os.ModeSymlink` | `os.Readlink` | ✅ **变好**：本来就是冲跨平台选的（该文档 §1.3 方案 A），Linux 上直接正确，省掉一处将来必踩的坑 |
+| `createFileSymlink` | `os.Symlink`，失败回退 `CopyFile` | **已删除**，统一 `fsutil.CopyFile` | ➖ 中性，见下方「11 个文件」的取舍 |
+| `IsElevated()` / 提权重启 | 存在 | 已删除 | ✅ **变好**：§10.10 里那条「两平台都免特权建链接」的论述现在成立 |
+
+**需要新增的文件**（P0 阶段）：
+
+```go
+//go:build linux
+
+package mirror
+
+// createJunction 在 Linux 上就是普通符号链接。
+//
+// 语义必须与 junction_windows.go 对齐：linkPath 已存在时**报错而不是覆盖**。
+// os.Symlink 天然如此（返回 EEXIST），无需额外判断 —— 但不要"贴心地"加一层
+// os.RemoveAll 再建：调用方（migrateExceptionJunctions / reconcileEntry）
+// 全部依赖"先删再建"的显式顺序，静默覆盖会掩盖同步逻辑里的真实错误。
+func createJunction(linkPath, targetPath string) error {
+	absTarget, err := filepath.Abs(targetPath)
+	if err != nil {
+		return fmt.Errorf("failed to get absolute path for %s: %w", targetPath, err)
+	}
+	return os.Symlink(absTarget, linkPath)
+}
+```
+
+三条实现约束，都不是可选的：
+
+1. **必须用绝对路径做 target。** Windows 侧的 junction 存的是 NT 绝对路径（`\??\D:\...`），
+   Linux 侧若存相对路径，语义就随 CWD 漂移了，两平台对不齐。
+2. **`os.Lstat` 对 symlink 返回 `IsDir()==false`，`filepath.Walk` 因此不会递归进去** ——
+   这与 Windows 上 junction 的行为一致（`MIRROR_JUNCTION_AND_WEBAUTHN_REMOVAL_PLAN.md` §1.3
+   把这层结构性保护称作「为什么不会删到源」）。**Linux 侧继承同一层保护，不需要额外防护。**
+3. **`isJunctionOrSymlink` 不拆平台。** `os.Readlink` 在 Linux 上对 symlink 成功、对普通目录返回
+   `EINVAL`，判据与 Windows 侧完全同构。多写一个 `_linux.go` 只会增加两边漂移的机会。
+
+**那 11 个根目录文件（110 MB）在 Linux 上要不要改回 symlink？**
+技术上可以 —— Linux 的 symlink 免特权，`createFileSymlink` 在 Linux 上永远不会失败。
+**但不要这么做。** 理由：`reconcileEntry` 里那段「source=Symlink 但 mirror=File」的特例分支
+已经随改造整段删掉了，Linux 单独恢复 symlink 等于把那段特例再加回来，而且只在一个平台上存在；
+省下的是每实例 110 MB（相对每实例约 1 GB 的镜像不到 12%），换来的是两个平台的同步语义分叉。
+**统一走复制，两平台行为完全一致**，这与 §3.1 原则 2「call site 尽量零改动」的取向一致。
+
+其余不变：
+
+- `main.go` 的 `ensureAdminElevation()` / `buildElevatedArgs()` / `--no-admin` **已随去管理员化整体删除**，
+  Linux 侧不再需要为它准备 no-op 分支（§5.9 的相应描述已同步更新）。
+- 镜像的语义在 Linux 上原样成立且**更重要**，见本节末尾。
 
 镜像的语义在 Linux 上原样成立且**更重要**：`Win64` 目录必须真实复制（Wine/DXVK/UE 的着色器与启动缓存
 会写进该目录，多实例共享会互相踩），`Saved/Config/WindowsServer`、`Saved/Logs`、`Saved/<SaveDir>`
@@ -452,9 +543,10 @@ svcConfig.UserName = "asa"     // 不要用 root
 > 但那属于 §10 的 W 轨道；本节只做 Linux 兼容所必需的**构建约束隔离**，两者可以先后进行，互不阻塞。
 
 - `internal/gui` 整包加 `//go:build windows`（W8 之后整包删除）。
-- `main.go` 拆出 `main_windows.go` / `main_linux.go`，各自提供 `actionGUI` 与 `ensureAdminElevation`：
-  Linux 版 `actionGUI` 返回 `errors.New("GUI 仅在 Windows 上可用，请使用 asa-server api")`，
-  `ensureAdminElevation` 为 no-op。
+- `main.go` 拆出 `main_windows.go` / `main_linux.go`，各自提供 `actionGUI`：
+  Linux 版返回 `errors.New("GUI 仅在 Windows 上可用，请使用 asa-server api")`。
+  ~~以及 `ensureAdminElevation` 的 no-op~~ —— 该函数连同 `buildElevatedArgs` / `quoteArg` / `--no-admin`
+  已随「镜像去管理员化」整体删除，Linux 侧不需要为它准备任何东西。
 - 删掉 `main.go:38-42` 的 `runtime.GOOS != "windows"` 硬拦截。
 - 无参数启动的默认行为：Windows 仍是 GUI，Linux 改为等价于 `api`。
 
@@ -462,7 +554,20 @@ svcConfig.UserName = "asa"     // 不要用 root
 `CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build` 可产出静态二进制，交叉编译无痛。
 若 `os/user` 触发 cgo，加 `-tags osusergo,netgo`。
 
-### 5.10 `frpmanage` / `syncthingmanage` —— 内嵌二进制分平台
+> 🆕 这个结论在「ArkApi 插件数据隔离」落地后**仍然成立，但边际变窄了**：`modernc.org/sqlite`
+> 过去只被 `internal/auth` 用（`auth.enabled` 默认 false 时甚至不打开库），现在
+> `internal/plugindata/snapshot.go` 也在用，而 `plugindata` 位于 `mirror` → `instance` 的必经链上。
+> modernc 仍是纯 Go、linux/amd64 支持完整，所以 `CGO_ENABLED=0` 不受影响 ——
+> 但从此**任何用 cgo 的 SQLite 驱动都不能再被引入**，否则整个 Linux 静态编译目标一起作废。
+> 如果 §5.10 采纳「frp 改内部调用」（引入 quic-go / kcp-go / wireguard-go 等一大票依赖），
+> 同样要按这条标准逐个核对 —— 已核对结论：全部纯 Go，见 §5.10。
+
+### 5.10 `frpmanage` —— 改为**库内调用**，彻底绕开分平台二进制
+
+> **✅ 定案：frp 改为进程内库调用（`github.com/fatedier/frp/client`），删除 `//go:embed frpc.exe`
+> 与整套子进程管理。** Syncthing 走另一条路（§5.10.5），两者不要一起处理。
+
+#### 5.10.1 被否掉的原方案：内嵌二进制分平台
 
 ```
 internal/frpmanage/
@@ -471,13 +576,111 @@ internal/frpmanage/
 └── bin/{frpc.exe, frpc}
 ```
 
-暴露 `embeddedBinary() ([]byte, string)`（内容 + 落盘文件名），manager 里的 MD5 比对与提取逻辑不变，
-只是落盘后 Linux 要 `os.Chmod(0755)`。Syncthing 同理。
+代价是仓库体积翻倍（frpc ~15 MB × 2 平台），而且每加一个目标架构（linux/arm64 很可能要）
+就再翻一次。对 frp **这条路没有必要走**，因为 frp 本身就是 Go 写的。
 
-代价：仓库体积翻倍（frpc ~15 MB、syncthing ~30 MB × 2 平台）。
+#### 5.10.2 入口在哪：`client.NewService`，不是 `pkg/sdk/client`
 
-替代方案：Linux 下改为「首次使用时从 GitHub Release 下载」，与 umu/GE-Proton 的处理一致，仓库不增重。
-**推荐后者** —— Linux 用户已经要下 450 MB 的 GE-Proton，多两个小下载无感，而仓库能省 45 MB。
+⚠️ **先澄清一个容易走错的岔路**：`github.com/fatedier/frp/pkg/sdk/client` 名字很像入口，
+但它是 **frpc 管理端 HTTP API 的客户端**（`GetProxyStatus` / `GetAllProxyStatus` / `Reload` 等，
+打的是 frpc 自己的 `webServer.port`）。**它不能把 frpc 跑在进程内**，只是换一种方式跟一个
+已经在跑的 frpc 说话。本项目当前也没在用管理端口，所以它对本方案没有用处。
+
+真正的进程内入口是**顶层 `client` 包**（`github.com/fatedier/frp/client`，不在 `internal/` 下，可导入）：
+
+```go
+// 与 cmd/frpc/sub/root.go 的 runClient → runClientWithAggregator → startServiceWithAggregator
+// 完全同构，照抄即可。已核对 frp v0.71.0。
+result, err := config.LoadClientConfigResult(cfgPath, false)   // pkg/config
+
+configSource := source.NewConfigSource()                        // pkg/config/source
+_ = configSource.ReplaceAll(result.Proxies, result.Visitors)
+aggregator := source.NewAggregator(configSource)
+
+proxyCfgs, visitorCfgs, _ := aggregator.Load()
+proxyCfgs, visitorCfgs = config.FilterClientConfigurers(result.Common, proxyCfgs, visitorCfgs)
+proxyCfgs = config.CompleteProxyConfigurers(proxyCfgs)
+visitorCfgs = config.CompleteVisitorConfigurers(visitorCfgs)
+
+if warn, err := validation.ValidateAllClientConfig(
+    result.Common, proxyCfgs, visitorCfgs, nil); err != nil {   // pkg/config/v1/validation
+    return err
+} else if warn != nil {
+    logger.GetLogger().Warnf("[frpc] %v", warn)
+}
+
+svr, err := client.NewService(client.ServiceOptions{
+    Common:                 result.Common,
+    ConfigSourceAggregator: aggregator,     // ⚠️ 必填，为空直接报错
+    ConfigFilePath:         cfgPath,
+})
+go func() { m.runErr = svr.Run(ctx) }()     // Run 是阻塞的
+```
+
+配置文件格式、路径、以及现有 `frpc.toml` 的读写与前端编辑**全部不变** ——
+`LoadClientConfigResult` 就是 frpc 命令行读的那一份，`api.go` 的 293 行一行不用动。
+
+#### 5.10.3 收益
+
+| 项 | 现状（子进程） | 库内调用 |
+|---|---|---|
+| 跨平台 | 每平台一个 `//go:embed` 二进制 | **一份代码，`GOOS` 随便切** |
+| 仓库体积 | +15 MB/平台 | **0** |
+| 提取逻辑 | MD5 比对、写盘、Linux 还要 `chmod 0755` | **整段删除**（`manager.go:41-98`） |
+| 启动成败判定 | `time.After(500ms)` 猜（`manager.go:165`） | `NewService` 的返回值 + `Run` 的返回值，**确定性的** |
+| 运行状态 | `cmd.ProcessState` 轮询 | `svr.StatusExporter()` 直接给每条 proxy 的状态 |
+| 改配置 | 杀进程重启 | `svr.UpdateAllConfigurer(...)` 热更新（可选，非必须） |
+| 孤儿进程 | 管理器被强杀会留下 frpc | **不可能** —— 没有独立进程 |
+| 升级 frp | 换 exe + 重新编译（`//go:embed` 必然要重编） | 改 `go.mod` + 重新编译 |
+
+最后一行值得单独说：**升级成本是持平的，不是变差**。因为今天的 `//go:embed frpc.exe`
+本来就要求重新编译才能换版本，所以「子进程 = 能单独替换二进制」这个直觉在本项目里**不成立**。
+
+#### 5.10.4 代价与必须处理的坑
+
+| # | 项 | 说明与处置 |
+|---|---|---|
+| 1 | **崩溃隔离没了** | 今天 frpc panic 只死一个子进程，管理器照常。库内调用时 frp 任意 goroutine 的 panic 会**带走整个 asa-server**（进而失去对所有 ARK 实例的管理，游戏进程本身不受影响但没人管了）。`recover()` 在调用点拦不住别的 goroutine。**这是本方案唯一的实质性退步**，接受它的前提是 frp 作为成熟项目 panic 概率低；不接受就别做 |
+| 2 | **import 副作用改全局状态** | `client/service.go` 的 `init()` 会 `os.Setenv("QUIC_GO_DISABLE_RECEIVE_BUFFER_WARNING")`、`os.Setenv("QUIC_GO_DISABLE_ECN")`，并设 `crypto.DefaultSalt = "frp"`。都无害，但要知道它们发生在**宿主进程**里，且在 `main()` 之前 |
+| 3 | **日志走 frp 的包级全局 logger** | `pkg/util/log` 有个包级 `Logger` 变量。**不要调 `log.InitLogger`** —— 它会按 frpc.toml 的 `log.to` 抢 stdout 或自己开轮转文件。正确做法是自己 `log.New(log.WithOutput(w))` 赋给 `log.Logger`，`w` 直接复用现有的 `frpmanage.LogWriter`（`manager.go:275`，已经在做 ANSI 清洗 + 按行转发 zap）。**这段适配是白拿的** |
+| 4 | **依赖体积与 CVE 面** | 新增直接依赖：quic-go、kcp-go、fatedier/yamux、fatedier/golib、wireguard-go + songgao/water + vishvananda/netlink（vnet 功能，`NewService` 无条件引用）、go-socks5、go-oidc、prometheus/client_golang、gorilla/mux + websocket、pelletier/go-toml、samber/lo、tidwall/gjson、以及 `pkg/config/load.go` 拖进来的 `k8s.io/apimachinery` + `client-go`。预估二进制 **+15~25 MB**，`go.sum` 显著变长。**已核对：全部纯 Go，`CGO_ENABLED=0` 不受影响**（见 §5.9） |
+| 5 | **frp 未承诺 `client` 包的 API 稳定性** | 它是导出包但不是文档化的公共 API。近期就有破坏性变更：`ServiceOptions.ConfigSourceAggregator` 变成了**必填**（为 nil 时 `NewService` 直接报 `config source aggregator is required`）。**必须在 go.mod 里钉死具体版本**（本地参考版本 v0.71.0），升级当作一次小改造而不是 `go get -u` |
+| 6 | **Stop 语义从「杀进程」变成「关对象」** | 今天 `Stop()` 取消 exec context，OS 保证进程没了。库内调用要走 `svr.Close()` 或 `svr.GracefulClose(d)`，**goroutine 是否真的收干净要自己验**。泄漏会随每次 `Restart()` 累积。**验收里必须有一条「连续 Restart 50 次，`runtime.NumGoroutine()` 不单调增长」** |
+| 7 | **`loginFailExit = true`** | 默认配置里有这一项（`manager.go:305`）。子进程模式下它让 frpc 直接退出；库内调用时 `svr.Run(ctx)` 只是**返回一个 error**。manager 要把这个返回值映射到 `running=false` + `startErr` —— 顺带**替掉了 `asyncStart` 里那段 500ms 的猜测逻辑**，是净改善 |
+| 8 | **许可证** | frp 是 **Apache-2.0**。链接进二进制需要随分发附上 Apache-2.0 全文与 NOTICE 归属。仓库目前**连 LICENSE 文件都没有**，这项要一并补上（内嵌 exe 其实也早该做，只是链接让它无从回避） |
+| 9 | Go 版本 | frp `go.mod` 声明 `go 1.25.0`，本仓库 `go 1.27` —— 兼容，无需处理 |
+
+#### 5.10.5 Syncthing：**不要照搬**，改为按需下载
+
+同样的思路对 Syncthing **不成立**，三条理由：
+
+1. Syncthing 的 `lib/` 虽然可导入，但上游明确不把它当作稳定的公共 API，
+   且它假定自己**拥有**配置目录、数据库与整个生命周期（含自更新、GUI、设备 ID 密钥管理），
+   嵌进宿主进程要拆的东西远比 frp 多。
+2. 体积量级不同：Syncthing 二进制约 30 MB，其依赖树嵌进来的膨胀比 frp 更夸张。
+3. Syncthing 是**用户会独立感知**的东西（有自己的 Web UI、可能想换版本），
+   保持独立进程反而更符合预期。
+
+所以 Syncthing 走原方案里的**替代路径**：删掉 `//go:embed syncthing.exe`，
+改成「首次使用时按 `GOOS`/`GOARCH` 从 GitHub Release 下载 + 校验 + `chmod 0755`」，
+统一走 §5.13 的 `pkg/download`（与 umu / GE-Proton 共用同一套重试/校验/进度上报/GitHub 代理代码，
+不再各写一份）。仓库因此**净减 45 MB**（frpc 15 MB 走库内调用、syncthing 30 MB 走下载）。
+
+`pkg/processjob`（Job Object，Syncthing 用它管进程树）仍然需要 §3.2 里的 `proctree` 平台拆分 ——
+frp 转成库内调用**不能**免掉这一项。
+
+#### 5.10.6 落地顺序
+
+这项与 Linux 兼容**解耦**，可以先在 Windows 上单独做完再合流，风险更可控：
+
+| 步 | 内容 | 判据 |
+|---|---|---|
+| F0 | `go get github.com/fatedier/frp@v0.71.0`，写一个最小 demo 跑通 `NewService` + `Run` | Windows 上能连上 frps 并转发一条 tcp proxy |
+| F1 | 把 frp 的包级 `log.Logger` 接到 `frpmanage.LogWriter` | 日志进 `asaServer.log`，无 ANSI 残留，不抢 stdout |
+| F2 | 重写 `manager.go` 的 Start/Stop/Restart/IsRunning/CheckStatus，删掉提取与 500ms 猜测 | `api.go` **零改动**、前端零改动 |
+| F3 | goroutine 泄漏验收（坑 #6） | 连续 Restart 50 次后 goroutine 数稳定 |
+| F4 | 删 `frpc.exe`、删 `//go:embed`，补 LICENSE / NOTICE | `git ls-files` 里没有 frpc.exe |
+| F5 | `GOOS=linux CGO_ENABLED=0 go build` 核对 `internal/frpmanage` 通过 | —— 到这一步 frp 就**彻底退出 Linux 兼容的工作清单** |
 
 ### 5.11 `pkg/tail` —— 文件身份
 
@@ -492,6 +695,112 @@ func fileKey(fi os.FileInfo) string {
 ```
 
 inode+dev 比 Windows 的 CreationTime 更可靠（轮转必然换 inode）。其余 fsnotify 逻辑跨平台不变。
+
+### 5.12 `internal/plugindata` —— 编译得过，但在 Linux 上应当**整体静默**
+
+> 🆕 本节因 `ARKAPI_PLUGIN_DATA_PLAN.md`（**已实施**）新增。
+
+`plugindata` 代码本身没有平台耦合（核对结论见 §2.3），`GOOS=linux` 下编译与单测都会通过。
+问题不在编译，在**它不该在 Linux 上做任何事**：§1 的非目标已经把 ArkApi / `AsaApiLoader.exe`
+列为 Linux 不支持（Wine 下的进程注入与 DLL hook 不可靠）。
+
+好消息是**默认就是静默的**，且是结构性的而非碰巧：
+
+- `listMirrorPlugins`（`plugindata.go:57`）以**镜像里实际存在的插件目录**为准，
+  `os.ReadDir` 失败即返回空 —— Linux 上 `ShooterGame/Binaries/Win64/ArkApi/Plugins` 根本不存在，
+  `Inject` / `Reclaim` / `Rescue` 全部退化成空循环。
+- `IsProtectedRelPath`（`plugindata.go:295`）第一行就是前缀判断，不匹配立即 `false`，
+  对 `mirror` 的同步热路径零开销。
+- `StartSnapshots` 遍历的是同一份插件列表，空列表 = 不起 goroutine。
+
+所以 **P0 不需要为 `plugindata` 做任何事**。但有四条要在 P4/P6 显式确认，别默认它一定安静：
+
+| # | 项 | 处置 |
+|---|---|---|
+| 1 | **`pluginsRelPath` 硬编码大小写** | 常量是 `ShooterGame/Binaries/Win64/ArkApi/Plugins`。这与 §6 风险 8（大小写敏感文件系统）是同一条：Linux 上只要 SteamCMD 落盘的大小写与常量不符，前缀匹配就静默失效。**当前是「本来就不该匹配」，所以无害** —— 但如果哪天 Linux 支持了 ArkApi，这是第一个要改的地方 |
+| 2 | **`override.go:85` 的 `strings.ToLower`** | 路径包含判定折叠了大小写，在大小写敏感文件系统上会把 `/a/DB` 与 `/a/db` 判为同一路径，导致 `DbPathOverride` 被误判成「指向实例目录内」而继续搬运。同样只在支持 ArkApi 后才成为真 bug。修法：Linux 分支不折叠大小写，或统一走 `filepath.EvalSymlinks` 后按平台决定比较方式 |
+| 3 | **`EnableAsaPlugin` 与前端插件面板** | §6 风险 11 原本只说要忽略 `EnableAsaPlugin` 开关。现在还多了 `webapi/pluginapi` 的一组端点与 `PluginDataPanel.vue` 面板。Linux 上应当：后端端点返回明确的「本平台不支持 ArkApi」而不是空数据（空数据会让用户以为是自己配错了），前端据此隐藏整个面板 |
+| 4 | **`PluginSnapshotInterval`** | 已进 `InstanceConfig` 与 `instance_config.ini`（`0` = 默认 5 分钟、负数 = 关闭）。Linux 上该字段读写正常但永不生效，**保持存在不要删** —— 实例配置在两平台间迁移时字段消失会更难解释 |
+
+**分层影响**：`mirror` 与 `instance` 现在都直接 import `plugindata`（`ARKAPI_PLUGIN_DATA_PLAN.md` §10.1
+把原设想的回调钩子改成了编译期依赖）。这条边不成环、也不引入平台耦合，§3.2 的包规划不用调整。
+
+### 5.13 `pkg/download` —— 全局下载器 + GitHub 代理
+
+> 🆕 本节因「Linux 侧要下的东西越来越多」新增：umu zipapp（§4.3）、GE-Proton（§4.3）、
+> Syncthing（§5.10.5，两平台都要）都要从网络拉大文件，其中 **umu / GE-Proton / Syncthing 三个都挂在
+> GitHub Release 上**。国内网络访问 `github.com` / `objects.githubusercontent.com` 慢、抖动、偶发超时是
+> 常态（这与 §6 风险 3「GitHub API 限流」是两个不同问题：限流是 `api.github.com` 拒绝请求，
+> 本节说的是资源本身下载慢，即使请求成功也要下半天）。如果每处各写一份下载代码，代理配置、
+> 重试策略、进度上报会散在三个不同的包里，改一处漏两处。**收敛成一个包，一份配置。**
+
+**动机**：不新增功能，是把 §4.3 / §5.5 / §5.10.5 里原本就要写的下载逻辑**收敛成一处**，
+同时补上一个原方案没有的能力——GitHub 资源的代理加速。
+
+**接口**（`pkg/download`，符合 `pkg/` 准入：不认识 `BaseDir`/实例等领域概念，目标路径由调用方传入；
+零领域依赖；`Configure` 只是一次性写全局 `http.Client`，与 `logger` 的初始化同性质，不是运行时状态机）：
+
+```go
+package download
+
+// Options 描述一次下载。
+type Options struct {
+    URL      string    // 源地址
+    Dest     string     // 落盘路径，调用方负责保证父目录存在
+    Checksum string     // 可选，"sha256:<hex>"；非空时下载完立即校验，失败删除产物并报错
+    Resume   bool        // 断点续传（Range 头），大文件（GE-Proton ~450MB / Syncthing ~30MB）默认开
+    Progress func(done, total int64) // 可选，调用方接到既有 SSE TaskBroadcaster
+}
+
+// Fetch 执行一次下载，内置重试（默认 3 次，指数退避）。
+func Fetch(ctx context.Context, opt Options) error
+
+// Configure 设置全局代理与超时，程序启动时按 appconfig 调一次（Windows/Linux 都要调，
+// 因为 Syncthing 下载在两平台都发生）。
+func Configure(cfg Config)
+
+type Config struct {
+    GithubProxy string        // 形如 "https://ghproxy.example.com/"，见下方重写规则；空 = 不代理
+    HTTPProxy   string        // 标准 HTTP(S)_PROXY 语义，作用于全部下载（含非 GitHub 的），走 net/http 的 Transport.Proxy
+    Timeout     time.Duration // 单次请求超时，默认 30s（不含大文件传输本身，配合 Resume 分段）
+    Retries     int           // 默认 3
+}
+```
+
+**GitHub 代理的实现方式，以及为什么不能直接塞进 `http.Transport.Proxy`**：
+
+市面上常见的「GitHub 加速」服务绝大多数是**前缀重写型反代**，形如
+`https://<proxy-host>/https://github.com/<owner>/<repo>/releases/download/<tag>/<asset>`，
+不是标准的 HTTP/HTTPS CONNECT 代理协议。两者不能混用同一套配置：
+
+- `GithubProxy` 命中的域名是白名单式的**精确匹配**：`github.com`、`raw.githubusercontent.com`、
+  `objects.githubusercontent.com`（Release 资产的实际重定向落点，**必须一并覆盖**，
+  否则只代理了第一跳的 302，真正的大文件请求仍然直连）。命中后把原始 URL 整体拼到
+  `GithubProxy` 后面发出去；不命中（Steam CDN、其他任意 URL）原样直连，不受影响。
+- `HTTPProxy` 是正交的兜底项：给完全没有 GitHub 专用代理、只有一个通用出口代理（公司/校园网关）
+  的用户用，通过标准 `Transport.Proxy` 生效，对 `GithubProxy` 命中的请求**同样叠加**（代理服务本身
+  也可能需要经通用代理才能访问）。两者互不排斥。
+- 用户自建的加速服务口味不一，`GithubProxy` 只做「整串 URL 拼接在前面」这一种最通用的重写规则，
+  不猜测具体服务商的路径格式差异；用户如果用的是需要特殊拼接规则的服务，自行在配置里把
+  `GithubProxy` 值写成能覆盖到该规则的形式，或直接留空改用 `HTTPProxy`。
+
+**校验不是可选项**：代理链路引入了一个新的失败面——中间节点返回篡改或截断的内容却仍是 200。
+`Checksum` 对三个下载对象都应该填（GE-Proton / umu 官方发布页有 `.sha256sum`，Syncthing Release
+资产同样带校验文件），下载器**发现校验失败不做「将就用」，删除产物并报错**，交给上层重试或提示用户换代理。
+
+**调用方**（三处，均改为调这一个包，删除各自原本打算写的下载代码）：
+
+| 调用方 | 下载对象 | 备注 |
+|---|---|---|
+| `internal/runner/umu_linux.go`（§4.3） | umu zipapp、GE-Proton | 两者都在 GitHub Release 上，走 `GithubProxy` |
+| `internal/syncthingmanage`（§5.10.5） | Syncthing 二进制 | Windows/Linux 都从这条路径下载，`GithubProxy` 两平台都生效 |
+| `internal/installer`（§5.5） | SteamCMD | **不经过 `GithubProxy`**（Valve CDN，域名不在白名单里，`HTTPProxy` 仍可覆盖到） |
+
+**不做的事**：不做通用的「镜像源列表 + 自动测速切换」，那是发行版包管理器的复杂度，本项目只有
+三四个固定下载对象，一个可配置代理前缀 + 一个通用代理兜底已经够用；过度设计只会增加没人验证过的分支。
+
+`Config` 对应的配置项在 §7 统一列出（`download:` 段，**顶层**而非 `linux:` 段下——
+因为 Syncthing 下载在 Windows 上同样发生）。
 
 ---
 
@@ -509,16 +818,30 @@ inode+dev 比 Windows 的 CreationTime 更可靠（轮转必然换 inode）。�
 | 8 | **大小写敏感文件系统** | Wine 内部有大小写不敏感回退，但 Go 侧构造的路径必须与磁盘完全一致 | 以 SteamCMD 下载的大小写为准；镜像同步逻辑本就按实际条目名走，风险低。加一条集成断言 `ShooterGame/Binaries/Win64` 存在 |
 | 9 | **`kill(-pgid)` 误杀** | 进程组记错会杀到自己 | `Setsid: true` 保证进程组独立；kill 前断言 `pgid > 1 && pgid != os.Getpid()` |
 | 10 | **gopsutil 在容器内看不到 Wine 的 socket** | 端口存活判定失效 | pressure-vessel 默认共享宿主 PID/net namespace，预期可见；P1 实测确认，失败则回退到 cmdline 扫描（`AltSaveDirectoryName` 匹配） |
-| 11 | **ArkApi 不可用** | 开了 `EnableAsaPlugin` 的实例在 Linux 上行为未定义 | Linux 下强制忽略该开关并在 API 响应与日志中告警；前端在 Linux 上禁用该选项 |
+| 11 | **ArkApi 不可用** | 开了 `EnableAsaPlugin` 的实例在 Linux 上行为未定义；🆕 另有 `webapi/pluginapi` 的一组端点与 `PluginDataPanel.vue` 面板会返回空数据，看起来像"配错了" | Linux 下强制忽略该开关并在 API 响应与日志中告警；`pluginapi` 明确回执"本平台不支持 ArkApi"而非空数组；前端据此隐藏该选项与整个插件面板。详见 §5.12 |
 | 12 | **首次安装耗时长**（GE-Proton 450 MB + SLR + prefix + ARK 本体约 25 GB） | 用户以为卡死 | 全流程走既有 SSE `TaskBroadcaster` 推进度，与现有 update 流一致 |
+| 13 | 🆕 **`internal/mirror` 在 Linux 上编译不过** | `createJunction` 随去管理员化移进了 `junction_windows.go`，`mirror.go` 有 6 处调用 | P0 补 `junction_linux.go`（约 8 行 `os.Symlink`），语义必须与 Windows 侧对齐：绝对路径 target、已存在时报错不覆盖。见 §5.6 |
+| 14 | 🆕 **frp 库内调用后失去崩溃隔离** | frp 任意 goroutine 的 panic 会带走整个 asa-server，所有 ARK 实例失去管理（游戏进程本身仍在跑但无人接管） | 这是 §5.10 方案唯一的实质退步，无法用 `recover()` 消除。接受它的前提是 frp 足够成熟；若不接受则回退到「分平台内嵌二进制」的原方案 |
+| 15 | 🆕 **frp 库内调用的 goroutine 泄漏** | `svr.Close()` 不像杀进程那样有 OS 兜底，泄漏会随每次 `Restart()` 累积 | F3 步骤的硬性验收：连续 Restart 50 次后 `runtime.NumGoroutine()` 不单调增长。见 §5.10.6 |
+| 16 | 🆕 **纯 Go 依赖约束收紧** | `plugindata` 把 `modernc.org/sqlite` 拉进了 `mirror`→`instance` 热路径；frp 库内调用又会拉进 quic-go/kcp-go/wireguard-go 等一大票 | 已核对全部纯 Go，`CGO_ENABLED=0` 目前成立。但从此**每引入一个依赖都要过一次 cgo 核对** —— 破一次，Linux 静态编译目标整体作废。见 §5.9 |
+| 17 | 🆕 **GitHub 代理返回篡改/截断内容却仍是 200** | umu / GE-Proton / Syncthing 三者都可能被换成半个文件或错误内容，且下载器如果不做校验会「看起来成功」，直到运行时才炸（GE-Proton 挂死那种没有任何日志的失败，排查成本极高） | `pkg/download` 的 `Checksum` 对三个对象都必填，校验失败直接删产物报错，不做「将就用」；见 §5.13 |
 
 ---
 
 ## 7. 配置项新增
 
-`{BaseDir}/config.yaml` 增加 `linux` 段（Windows 下整段被忽略）：
+`{BaseDir}/config.yaml` 增加两段：`download`（**顶层，两平台都读**，见 §5.13）与
+`linux`（Windows 下整段被忽略）。
 
 ```yaml
+# 全局下载器（pkg/download，§5.13）——umu / GE-Proton / Syncthing 三个下载对象共用一份配置
+download:
+  github_proxy: ""          # 形如 "https://ghproxy.example.com/"；命中 github.com /
+                             # raw.githubusercontent.com / objects.githubusercontent.com 时整串 URL 拼接在后面代理；空 = 直连
+  http_proxy: ""             # 标准 HTTP(S)_PROXY 语义，兜底作用于全部下载（含非 GitHub 的，如 Steam CDN）；空 = 不使用
+  timeout: 30s               # 单次请求超时
+  retries: 3
+
 linux:
   # 运行时来源：umu（默认，自动下载）| custom（用户自备 PROTONPATH）
   runtime: umu
@@ -532,9 +855,11 @@ linux:
 ```
 
 沿用 `appconfig` 现有的 **flag > 环境变量 `ASA_*` > 文件 > 默认值** 优先级，无需新机制。
+环境变量形如 `ASA_DOWNLOAD_GITHUB_PROXY`，与其余配置项命名规则一致。
 
-⚠️ `applyAppConfig()` 必须把这些值也推给 `runner` 的包级变量 —— **服务模式下 `app.Run()` 不执行**，
-这是 `CLAUDE.md` 已经记录过的 Windows 坑，Linux systemd 模式同样成立。
+⚠️ `applyAppConfig()` 必须把这些值也推给 `runner` 的包级变量、以及 `download.Configure()` ——
+**服务模式下 `app.Run()` 不执行**，这是 `CLAUDE.md` 已经记录过的 Windows 坑，Linux systemd 模式
+同样成立；`download` 段两平台都要推，遗漏它只会在「Syncthing 首次下载」时才暴露，容易被忽略。
 
 ---
 
@@ -542,16 +867,18 @@ linux:
 
 | 阶段 | 内容 | 产出 / 验收 | 估算 |
 |---|---|---|---|
-| **P0 构建打通** | 加构建约束；`gui` 整包 windows-only；`main.go` 拆平台文件；`certmgr`/`mirror`/`tail`/`processjob` 拆平台文件（Linux 侧先写**返回「未实现」的存根**）；`frp`/`syncthing` 内嵌分平台 | `CGO_ENABLED=0 GOOS=linux go build` 通过；`GOOS=windows go build` 与 `go vet` 无回归 | 1–2 天 |
+| **P0 构建打通** | 加构建约束；`gui` 整包 windows-only；`main.go` 拆平台文件；`certmgr`/`tail`/`processjob` 拆平台文件（Linux 侧先写**返回「未实现」的存根**）；**`mirror` 补 `junction_linux.go`（这个不写存根，直接写真实现，8 行）**；`pkg/download`（§5.13，Fetch + Configure + GitHub 代理重写，两平台通用）；`syncthing` 内嵌改按需下载并接到 `pkg/download` | `CGO_ENABLED=0 GOOS=linux go build` 通过；`GOOS=windows go build` 与 `go vet` 无回归；`pkg/download` 单测覆盖「命中代理域名重写」「不命中直连」「校验失败删除产物」三种路径 | 1–2 天 |
+| **F 轨道（frp 库内调用，可并行、可先行）** | 见 **§5.10.6**，步骤 F0–F5。**与 Linux 兼容解耦**，建议先在 Windows 上独立做完 | frp 退出 Linux 兼容工作清单；仓库不再有 `frpc.exe` | 2–3 天 |
 | **W 轨道（Windows，可并行）** | Wails 取代 Fyne + 安装程序 + 首次运行引导 —— 见 **§10**，步骤 W0–W9 | Fyne 依赖清空；双击安装 → 引导 → 服务注册运行 | 另计，见 §10.8 |
 | **P1 进程原语** | `pkg/winproc` → `pkg/procx`；Linux `/proc` 实现（`QueryProcess`/`IsProcessExited`/`ProcessImageName` 等价物）；端口→PID 两平台统一切 gopsutil；`proctree` Linux 实现；`taskkill` → `procx.Terminate*` 全量替换 | Linux 上能查到任意进程；Windows 端口→PID 与旧 `netstat` 行为一致（对拍测试） | 2–3 天 |
-| **P2 umu 运行时** | `internal/runner` 接口 + 两平台实现；umu zipapp / GE-Proton 下载与校验；prefix 预热与版本标记；`Preflight` 依赖自检；`GET /api/system/preflight` | 空机器上冷启动能自动装好运行时并通过自检 | 3–4 天 |
+| **P2 umu 运行时** | `internal/runner` 接口 + 两平台实现；umu zipapp / GE-Proton 下载与校验（走 P0 已就绪的 `pkg/download`，含 `github_proxy` 场景）；prefix 预热与版本标记；`Preflight` 依赖自检；`GET /api/system/preflight` | 空机器上冷启动能自动装好运行时并通过自检；配置 `github_proxy` 后请求确实打到代理前缀（抓包或 mock server 断言） | 3–4 天 |
 | **P3 安装与更新** | `installer` 分平台（steamcmd.sh、下载 URL）；ASA-on-Wine 三项修复；首次配置生成改轮询等待 | Linux 上 `update` 走完，`server-files` 完整，`Saved/Config/WindowsServer` 生成 | 2–3 天 |
 | **P4 实例生命周期** | `StartServer` 走 `runner`；`GamePath` 转换；双 PID 语义；停止/强停/重启全链路；镜像 `IsElevated` 处理 | **单实例**启动→玩家可连入→RCON 可用→优雅停止；**双实例**并发启动互不干扰 | 3–5 天 |
 | **P5 服务化与证书** | `winservice` → `svcmgr` + systemd（`HOME`/`LimitNOFILE`/非 root）；`certmgr` Linux 信任实现 | `service install/start/stop/remove` 全通；HTTPS 可用 | 2 天 |
-| **P6 收尾** | 定时任务/批量/倒计时/备份/存档解析在 Linux 上回归；构建脚本与 CI 加 linux target；文档（部署指南、依赖清单、故障排查） | 测试矩阵（§9）全绿 | 2–3 天 |
+| **P6 收尾** | 定时任务/批量/倒计时/备份/存档解析在 Linux 上回归；**ArkApi 在 Linux 上的静默与回执（§5.12 表格四条）**；构建脚本与 CI 加 linux target；文档（部署指南、依赖清单、故障排查） | 测试矩阵（§9）全绿 | 2–3 天 |
 
-**合计约 15–22 人日**，不含 Wine 侧疑难问题的排查缓冲（建议再留 30%）。
+**合计约 15–22 人日**（P0–P6，不含并行的 F / W 轨道），不含 Wine 侧疑难问题的排查缓冲（建议再留 30%）。
+F 轨道另计 2–3 天，但它**减少** P0 的工作量（省掉 frp 分平台内嵌），净增很小。
 
 **顺序上的一个取舍**：P1 的「端口→PID 切 gopsutil」会动 Windows 现有代码路径。
 如果希望 Windows 零风险，可以降级为「Linux 用 gopsutil、Windows 保留 netstat」，代价是多维护一份实现。
@@ -584,6 +911,10 @@ linux:
 | systemd / Windows 服务 | ✅ | ✅ | ✅ | — | — |
 | HTTPS + HTTP/2 + WebSocket | ✅ | ✅ | — | — | — |
 | 存档解析（parseserver） | ✅ | ✅ | — | — | — |
+| 🆕 FRP 库内调用：连接 + 转发 | ✅ | ✅ | — | — | — |
+| 🆕 FRP 连续 Restart 50 次无 goroutine 泄漏 | ✅ | ✅ | — | — | — |
+| 🆕 ArkApi 相关端点/面板在 Linux 上明确回执不支持 | n/a | ✅ | — | — | — |
+| 🆕 `plugindata` 在无 ArkApi 目录时零开销静默 | ✅ | ✅ | — | — | — |
 
 ### 9.2 硬性验收判据
 
@@ -595,6 +926,14 @@ linux:
 4. 配了 `ClusterID` 的两个实例，簇目录落在 `{BaseDir}/clusters/<ClusterId>/`（**不是** `clusters/clusters/`），
    且角色可在两实例间传输。
 5. Windows 侧全部现有行为无回归 —— 特别是端口→PID 与停止流程这两处被改动的公共路径。
+6. 🆕 Linux 上 `junction_linux.go` 建出的 symlink 与 Windows 上的 junction **行为对齐**：
+   `filepath.Walk` 不递归进去、`isJunctionOrSymlink` 认得出、`CleanupInstanceMirror` 只删链接不删目标。
+   回归重点仍是 `MIRROR_JUNCTION_AND_WEBAUTHN_REMOVAL_PLAN.md` §1.5 第 3 条：
+   **多实例并发同步 + 更新后增量同步跑完，`server-files/` 下没有文件被误删**（改造前先做全量快照比对）。
+7. 🆕 frp 库内调用：连续 `Restart()` 50 次后 `runtime.NumGoroutine()` 稳定，
+   且 `frpc.exe` 不再出现在仓库与运行目录里。
+8. 🆕 Linux 上 `plugindata` 全程零动作：`{BaseDir}/instances/*/plugins/` 不被创建，
+   无快照 goroutine，`pluginapi` 端点回执明确的「本平台不支持 ArkApi」。
 
 ---
 
@@ -916,29 +1255,30 @@ Linux 上的完整入口就是 CLI：
 
 **与 §10.7.5.1「拒绝提权即退出」的关系**（容易看成矛盾，其实不是）：
 那条约束的是**引导程序**——引导要么完整做完，要么干净退出，不留半套。
-而 headless 的非管理员出口是**另一条路径**：`main.go:194` 目前已有的
-`asa-server api --no-admin`（Linux 上则根本不存在提权这回事）。两者并行，互不覆盖。
+而 headless 的非管理员路径现在**根本不需要出口**：提权逻辑整体没了，`asa-server api`
+在普通账户下直接就能跑（Linux 上则从来不存在提权这回事）。两者并行，互不覆盖。
 
-> ✅ **已修**：`ensureAdminElevation()` 原先在提权失败时打印「将以非管理员模式继续运行」
-> 却紧接着 `os.Exit(1)`，文案与行为相反。已改为 `return`，行为向文案看齐 ——
-> 提权失败不再是致命错误，Web 界面、配置编辑、备份这些不需要管理员的功能照常可用。
-> 这也正是 D8 所要求的：拿不到管理员权限，也不该挡住 `asa-server api` 起服。
-
-> ⚠️ **但这条警告文案的后半句仍然不准确，且是另一个问题**：
-> 「镜像启动将使用文件复制模式」只对**文件**成立 —— `mirror.createFileSymlink`（`mirror.go:495`）
-> 失败时会回退到 `fsutil.CopyFile`；而**目录**走的 `createJunction`（`mirror.go:473`）失败后
-> 直接返回错误，经 `processDirectory` → `filepath.Walk` 一路上抛，整个镜像创建失败并被回滚。
-> 也就是说非管理员且未开 Windows 开发者模式时，**实例根本起不来，而不是「用复制模式起来」**。
+> ✅ **已完成，本节的历史问题已全部消解。**
 >
-> 根因是命名与实现不一致：`createJunction` 实际调用的是 `os.Symlink`，
-> 在 Windows 上创建的是**目录符号链接**（需要 `SeCreateSymbolicLinkPrivilege`，即管理员或开发者模式），
-> 而不是真正的 **NTFS junction**（`FSCTL_SET_REPARSE_POINT` / `mklink /J`，**普通用户即可创建**）。
-> 若改用真 junction，整套提权逻辑在 Windows 上都不再必要。
-> 这是个独立的改进项，与 Linux 兼容无关（Linux 上 symlink 本就免特权），**本方案不含此项**。
-> 已单独立项：见 [`MIRROR_JUNCTION_AND_WEBAUTHN_REMOVAL_PLAN.md`](./MIRROR_JUNCTION_AND_WEBAUTHN_REMOVAL_PLAN.md) 第一部分
-> —— 其中实测确认了真 junction 免管理员，也发现了一个必须同步处理的连带风险
-> （Go 1.23 起 junction 不再报告为 `ModeSymlink`，`isJunctionOrSymlink` 会漏判）。
-> 该项完成后能消掉 `mirror.IsElevated()`、`main.go` 的提权重启，以及安装器/引导对管理员的一半依赖。
+> 原文这里记录了两个问题：(1) `ensureAdminElevation()` 打印「将以非管理员模式继续运行」
+> 却紧接着 `os.Exit(1)`，文案与行为相反；(2) 警告文案里「镜像启动将使用文件复制模式」
+> 只对文件成立，目录走的 `createJunction` 失败会直接让整个镜像创建回滚 ——
+> 也就是非管理员且未开开发者模式时**实例根本起不来**。
+>
+> 根因是命名与实现不一致：`createJunction` 当时调的是 `os.Symlink`，在 Windows 上创建的是
+> **目录符号链接**（需要 `SeCreateSymbolicLinkPrivilege`），而不是真正的 **NTFS junction**
+> （`FSCTL_SET_REPARSE_POINT`，**普通用户即可创建**）。
+>
+> `MIRROR_JUNCTION_AND_WEBAUTHN_REMOVAL_PLAN.md` 第一部分**已实施**：换成真 junction 之后，
+> `ensureAdminElevation()` / `buildElevatedArgs()` / `quoteArg()` / `--no-admin` / `mirror.IsElevated()`
+> 全部删除，两条警告文案连同它们描述的问题一起不存在了。
+>
+> **对本方案的下游影响**：
+> - §5.6 已重写 —— 收益兑现（两平台都免特权建链接），代价是 `mirror` 在 Linux 上多出一个编译阻断点。
+> - §10.7.5.1「引导拒绝提权即退出」的**理由收窄**：引导仍需管理员，但只剩「注册服务」
+>   与「装本地 CA 到 `LocalMachine\Root`」两项，**镜像不再是理由**。该节的提示文案要相应删掉
+>   与镜像/权限相关的措辞。
+> - 安装器（§10.6）对管理员的依赖同步减半。
 
 ---
 
@@ -953,15 +1293,19 @@ Linux 上的完整入口就是 CLI：
 | 结束进程树 | `taskkill /T [/F] /PID` | `kill(-pgid, SIGTERM/SIGKILL)` |
 | 端口→PID | `netstat -ano` | gopsutil `net.Connections("all")`（两平台统一） |
 | 按名 + cmdline 查进程 | WMI `Win32_Process` | 扫 `/proc/*/cmdline` |
-| 目录链接 | NTFS junction（`os.Symlink`，需管理员） | symlink（`os.Symlink`，无需特权） |
+| 目录链接 | **真 NTFS junction**（`DeviceIoControl` + `FSCTL_SET_REPARSE_POINT`，`junction_windows.go`，**免特权**） | symlink（`os.Symlink`，免特权）—— 待补 `junction_linux.go` |
+| 链接识别 | `os.Readlink`（两平台共用，**不拆平台**；不能用 `ModeSymlink`，Go 1.23+ 起 junction 报 `ModeIrregular`） | 同左 |
 | 文件身份 | `Win32FileAttributeData.CreationTime` | `Stat_t.Ino` + `Dev` |
 | 进程树托管 | Job Object `KILL_ON_JOB_CLOSE` | setsid 进程组（可选 `Pdeathsig`） |
 | CA 信任 | `windows.Cert*` → Root 存储 | `/usr/local/share/ca-certificates` + `update-ca-certificates`<br>或 `/etc/pki/ca-trust/source/anchors` + `update-ca-trust` |
 | 私钥权限 | `icacls` | `os.Chmod(0600)` |
-| 提权 | `ShellExecute runas` | 不需要（symlink 免特权）；仅证书信任需 root |
+| 提权 | 镜像已不需要；仅 `cert install --machine` 走 `winproc.RunAsAdmin`（`certmgr/cli.go:67`） | 不需要；仅证书信任需 root |
 | 服务 | SCM（kardianos） | systemd（kardianos） |
 | SteamCMD | `steamcmd.exe`（zip） | `steamcmd.sh`（tar.gz，需 32 位 glibc） |
 | 打开浏览器 | `rundll32 url.dll,FileProtocolHandler` | `xdg-open`（GUI 排除后基本用不到） |
+| FRP 客户端 | 库内调用 `frp/client.NewService`（**两平台同一份代码**，见 §5.10） | 同左 |
+| Syncthing / umu / GE-Proton 下载 | `pkg/download`（**两平台同一份代码**，含 GitHub 代理，见 §5.13） | 同左，落盘后 `chmod 0755` |
+| ArkApi 插件数据 | `plugindata` 全功能 | **整体静默**（ArkApi 不支持，§5.12） |
 | 路径传给 UE | 原样 | `Z:\` 前缀 + 反斜杠 |
 
 ### B. 参考资料

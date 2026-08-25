@@ -390,3 +390,27 @@ func isJunctionOrSymlink(path string) bool {
   「Linux 上 symlink 免特权、比 Windows 更省事」的论述可以简化为「两平台都免特权」。
 - 第一部分完成后，§10.7.5.1「引导拒绝提权即退出」的理由随之收窄——
   引导仍需管理员（注册服务、装 CA），但**镜像不再需要**，提示文案要相应修改。
+
+### ⚠️ 第一部分给 Linux 兼容留下的一个新阻断点
+
+`createJunction` 移进 `internal/mirror/junction_windows.go`（`//go:build windows`）之后，
+**无构建约束的 `mirror.go` 里有 6 处调用它**（`mirror.go:233,300,351,376,691,887,900`），
+于是 `internal/mirror` 现在在 `GOOS=linux` 下**根本编译不过**。
+
+这不是缺陷，是把工作从「运行时不对」前移成了「编译期报错」—— 后者好得多。
+补救就是 8 行：`junction_linux.go` 里用 `os.Symlink` 实现同名函数，
+语义与 Windows 侧对齐（**绝对路径 target**、**已存在时报错不覆盖**）。
+`LINUX_COMPATIBILITY_PLAN.md` §5.6 已按此重写，列进 P0。
+
+同一次改造里有两项对 Linux **纯粹是白赚的**，值得记下来免得将来重复讨论：
+
+- `isJunctionOrSymlink` 改用 `os.Readlink`（§1.3 方案 A）——
+  它在 Linux 上对 symlink 同样正确，**这一处不需要拆平台文件**。
+  当初选它是为了避开 `Mode` 语义在 Go 版本间的漂移，跨平台正确性是顺带拿到的。
+- `createFileSymlink` 删除、11 个根目录文件统一走 `CopyFile` ——
+  Linux 上其实可以恢复 symlink（免特权、永不失败、省 110 MB/实例），
+  但**不要这么做**：`reconcileEntry` 里那段「source=Symlink 但 mirror=File」的特例分支
+  已经整段删了，为一个平台把它加回来，等于让两平台的同步语义分叉。理由见 `LINUX_COMPATIBILITY_PLAN.md` §5.6。
+
+**第二部分（移除 WebAuthn）对 Linux 兼容零影响** —— 删掉的 `go-webauthn` / `go-tpm` /
+`fxamacker/cbor` / `x448/float16` 全是纯 Go，`internal/auth` 本来就在跨平台清单里。

@@ -10,7 +10,8 @@
 > `internal/instance` 上各接了几处钩子。实施中与本文不一致的地方记在 §10。
 > 关联文档：[`MIRROR_JUNCTION_AND_WEBAUTHN_REMOVAL_PLAN.md`](./MIRROR_JUNCTION_AND_WEBAUTHN_REMOVAL_PLAN.md)
 > （第一部分已去掉管理员提权，本方案必须在无特权前提下成立）、
-> [`V2_MIRROR_STARTUP_ARCHITECTURE.md`](./V2_MIRROR_STARTUP_ARCHITECTURE.md)。
+> [`V2_MIRROR_STARTUP_ARCHITECTURE.md`](./V2_MIRROR_STARTUP_ARCHITECTURE.md)、
+> [`LINUX_COMPATIBILITY_PLAN.md`](./LINUX_COMPATIBILITY_PLAN.md) §5.12（本方案在 Linux 上应整体静默，见 §11）。
 
 ---
 
@@ -392,3 +393,28 @@ func rescuePluginFiles(instanceName string) {
 在线快照用**真库**验证：WAL 模式下写 50 行不 checkpoint、连接不关，
 `VACUUM INTO` 出来的快照能读到全部 50 行，且不带 `-wal`。
 
+---
+
+## 11. Linux 兼容：编译得过，但应当整体静默
+
+`internal/plugindata` 已核对为**跨平台**：无 `golang.org/x/sys/windows` 与 `syscall` 引用；
+相对路径一律以 forward slash 为规范形式、落盘前过 `filepath.FromSlash`；
+`slashBase` 而非 `filepath.Base`（`plugindata.go:323` 有注释说明）；
+`modernc.org/sqlite` 是纯 Go 驱动，不破坏 Linux 侧 `CGO_ENABLED=0` 的静态编译目标。
+
+但 `LINUX_COMPATIBILITY_PLAN.md` §1 已把 ArkApi / `AsaApiLoader.exe` 列为 **Linux 不支持**
+（Wine 下的进程注入与 DLL hook 不可靠）。所以本方案在 Linux 上的正确形态是**什么都不做**。
+
+**默认就是静默的，而且是结构性的**：`listMirrorPlugins`（`plugindata.go:57`）以镜像里
+实际存在的插件目录为准，`os.ReadDir` 失败即返回空 —— Linux 上
+`ShooterGame/Binaries/Win64/ArkApi/Plugins` 根本不存在，`Inject` / `Reclaim` / `Rescue`
+全部退化成空循环，`StartSnapshots` 不起 goroutine，`IsProtectedRelPath` 第一行前缀判断就返回 false。
+
+四条要在 Linux 落地时显式确认（已登记进 `LINUX_COMPATIBILITY_PLAN.md` §5.12）：
+
+| # | 项 | 说明 |
+|---|---|---|
+| 1 | `pluginsRelPath` 硬编码大小写 | 常量是 `ShooterGame/Binaries/Win64/ArkApi/Plugins`。大小写敏感文件系统上一旦与 SteamCMD 落盘的大小写不符，前缀匹配静默失效。当前「本来就不该匹配」所以无害，但支持 ArkApi 后这是第一个要改的地方 |
+| 2 | `override.go:85` 的 `strings.ToLower` | 路径包含判定折叠了大小写，Linux 上会把 `/a/DB` 与 `/a/db` 判为同一路径，导致 `DbPathOverride` 被误判成「指向实例目录内」而继续搬运。同样只在支持 ArkApi 后成为真 bug |
+| 3 | `webapi/pluginapi` 与 `PluginDataPanel.vue` | Linux 上应回执明确的「本平台不支持 ArkApi」而**不是空数据** —— 空数据会让用户以为是自己配错了。前端据此隐藏整个面板 |
+| 4 | `PluginSnapshotInterval` | Linux 上读写正常但永不生效。**保持存在不要删** —— 实例配置在两平台间迁移时字段消失更难解释 |
