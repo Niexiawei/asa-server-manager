@@ -12,7 +12,6 @@ import (
 	"asa-server/internal/logger"
 	"asa-server/pkg/fsutil"
 
-	"golang.org/x/sys/windows"
 	"znkr.io/diff"
 )
 
@@ -83,35 +82,8 @@ type mirrorEntry struct {
 	EntryType int    // EntryTypeDirectory / EntryTypeSymlink / EntryTypeFile
 }
 
-var (
-	elevated    bool
-	elevatedErr error
-	once        sync.Once
-
-	// mirrorSyncMu 序列化所有实例的镜像同步操作，避免并发 Walk ServerFilesDir 时相互干扰
-	mirrorSyncMu sync.Mutex
-)
-
-func IsElevated() bool {
-	once.Do(func() {
-		var token windows.Token
-		err := windows.OpenProcessToken(
-			windows.CurrentProcess(),
-			windows.TOKEN_QUERY,
-			&token,
-		)
-		if err != nil {
-			elevated = false
-			elevatedErr = err
-			return
-		}
-		defer token.Close()
-
-		elevated = token.IsElevated()
-	})
-
-	return elevated
-}
+// mirrorSyncMu 序列化所有实例的镜像同步操作，避免并发 Walk ServerFilesDir 时相互干扰
+var mirrorSyncMu sync.Mutex
 
 // InstanceMirrorDir 返回实例镜像目录路径
 func InstanceMirrorDir(instanceName string) string {
@@ -422,87 +394,24 @@ func processFile(srcPath, mirrorPath, relPath string, info os.FileInfo) error {
 		return fsutil.CopyFile(srcPath, mirrorPath)
 	}
 
-	// 其他文件：创建文件符号链接
-	return createFileSymlink(mirrorPath, srcPath)
+	// 其余文件一律复制。
+	// Windows 上文件符号链接同样需要 SeCreateSymbolicLinkPrivilege，去掉提权后必然失败、
+	// 最终还是回退到复制；留着那条分支只会让行为随权限漂移，也不好测。
+	return fsutil.CopyFile(srcPath, mirrorPath)
 }
 
-// isJunctionOrSymlink 检查路径是否是 junction 或符号链接
+// createJunction 的实现在 junction_windows.go。
+
+// isJunctionOrSymlink 判断路径是否是链接（NTFS junction 或符号链接）。
+//
+// 不能只查 os.ModeSymlink：Go 1.23 起 Windows 的 mount point（junction）被报告为
+// ModeIrregular 而非 ModeSymlink。漏判的后果是 collectMirrorEntries 把 junction
+// 归成 EntryTypeFile，与源侧意图的 EntryTypeSymlink 对不上，于是每轮同步都把所有
+// junction 删掉重建，reconcileEntry 还会对着目录调 CopyFile 报错并触发整体重建。
+// Readlink 对两种链接都成功、对普通文件和目录都失败，且不依赖 Mode 语义在 Go 版本间的稳定性。
 func isJunctionOrSymlink(path string) bool {
-	fi, err := os.Lstat(path)
-	if err != nil {
-		return false
-	}
-	// os.ModeSymlink 检测符号链接和 junction
-	if fi.Mode()&os.ModeSymlink != 0 {
-		return true
-	}
-	// 额外检查 Windows reparse point（junction 在某些 Go 版本中不被 Lstat 检测为 ModeSymlink）
-	if isWindowsReparsePoint(path) {
-		return true
-	}
-	return false
-}
-
-// isWindowsReparsePoint 检查 Windows 路径是否是 reparse point（包括 junction）
-func isWindowsReparsePoint(path string) bool {
-	fi, err := os.Lstat(path)
-	if err != nil {
-		return false
-	}
-	// 在 Windows 上，junction 会被 os.Lstat 返回的 FileInfo.Mode() 包含 ModeSymlink
-	// 但为了安全起见，也检查文件属性
-	if fi.Mode()&os.ModeSymlink != 0 {
-		return true
-	}
-	return false
-}
-
-// createJunction 创建目录 junction
-// Go 1.21+ 的 os.Symlink 在 Windows 上对目录目标自动创建 junction（无需管理员权限）
-func createJunction(linkPath, targetPath string) error {
-	absTarget, err := filepath.Abs(targetPath)
-	if err != nil {
-		return fmt.Errorf("failed to get absolute path for %s: %w", targetPath, err)
-	}
-
-	parentDir := filepath.Dir(linkPath)
-	if err := os.MkdirAll(parentDir, 0755); err != nil {
-		return fmt.Errorf("failed to create parent directory %s: %w", parentDir, err)
-	}
-
-	if err := os.Symlink(absTarget, linkPath); err != nil {
-		return fmt.Errorf("failed to create junction %s -> %s: %w", linkPath, absTarget, err)
-	}
-
-	logger.GetLogger().Debugf("Created junction: %s -> %s", linkPath, absTarget)
-	return nil
-}
-
-// createFileSymlink 创建文件符号链接
-// 失败时一律回退到复制（跳过文件会导致游戏缺文件无法启动）
-// 管理员检测仅影响日志级别
-func createFileSymlink(linkPath, targetPath string) error {
-	absTarget, err := filepath.Abs(targetPath)
-	if err != nil {
-		return fmt.Errorf("failed to get absolute path for %s: %w", targetPath, err)
-	}
-
-	parentDir := filepath.Dir(linkPath)
-	if err := os.MkdirAll(parentDir, 0755); err != nil {
-		return fmt.Errorf("failed to create parent directory %s: %w", parentDir, err)
-	}
-
-	if err := os.Symlink(absTarget, linkPath); err != nil {
-		if IsElevated() {
-			logger.GetLogger().Warnf("Symlink failed even with admin, fallback copy: %s: %v", linkPath, err)
-		} else {
-			logger.GetLogger().Debugf("No admin, fallback copy: %s", linkPath)
-		}
-		return fsutil.CopyFile(targetPath, linkPath)
-	}
-
-	logger.GetLogger().Debugf("Created file symlink: %s -> %s", linkPath, absTarget)
-	return nil
+	_, err := os.Readlink(path)
+	return err == nil
 }
 
 // CleanupInstanceMirror 安全删除实例镜像目录
@@ -848,13 +757,10 @@ func collectSourceEntries(srcDir string, exceptionTargets map[string]string) ([]
 			return nil
 		}
 
-		// 按实际创建行为区分：Win64 目录内文件被复制（EntryTypeFile），其他文件被符号链接（EntryTypeSymlink）
-		// 与 processFile / syncEntry 的实际行为保持一致，避免增量同步产生虚假的类型不匹配
-		entryType := EntryTypeSymlink
-		if isUnderWin64(relPath) {
-			entryType = EntryTypeFile
-		}
-		entries = append(entries, mirrorEntry{RelPath: relPath, EntryType: entryType})
+		// 文件一律复制，所以源侧意图类型恒为 EntryTypeFile。
+		// 升级前建的镜像里可能还是文件符号链接，镜像侧会收集成 EntryTypeSymlink，
+		// reconcileEntry 会因类型不匹配删掉链接重新复制——这是期望行为。
+		entries = append(entries, mirrorEntry{RelPath: relPath, EntryType: EntryTypeFile})
 		return nil
 	})
 
@@ -975,12 +881,8 @@ func syncEntry(srcDir, mirrorDir string, entry mirrorEntry, exceptionTargets map
 		return createJunction(mirrorPath, srcPath)
 	}
 
-	// 文件：Win64 目录内完整复制，其余符号链接
-	if isUnderWin64(entry.RelPath) {
-		return fsutil.CopyFile(srcPath, mirrorPath)
-	}
-
-	return createFileSymlink(mirrorPath, srcPath)
+	// 文件一律复制（见 processFile 的说明）
+	return fsutil.CopyFile(srcPath, mirrorPath)
 }
 
 // removeMirrorEntry 安全移除镜像条目
@@ -1026,23 +928,6 @@ func reconcileEntry(srcDir, mirrorDir string, srcEntry, mirrorEntryItem mirrorEn
 
 	// 检查类型是否匹配
 	if srcEntry.EntryType != mirrorEntryItem.EntryType {
-		// 特殊情形：source=Symlink（非 exe 文件的意图类型）但 mirror=File
-		// 这是 createFileSymlink 无权限时 fallback 到 copyFile 的合法结果，内容正确即可
-		if srcEntry.EntryType == EntryTypeSymlink && mirrorEntryItem.EntryType == EntryTypeFile {
-			srcMD5, err := fsutil.FileMD5(srcPath)
-			if err != nil {
-				return fmt.Errorf("failed to compute source MD5 for %s: %w", srcPath, err)
-			}
-			dstMD5, err := fsutil.FileMD5(mirrorPath)
-			if err != nil {
-				return fmt.Errorf("failed to compute mirror MD5 for %s: %w", mirrorPath, err)
-			}
-			if srcMD5 != dstMD5 {
-				logger.GetLogger().Infof("File content changed (fallback copy): %s, recopying", srcEntry.RelPath)
-				return fsutil.CopyFile(srcPath, mirrorPath)
-			}
-			return nil
-		}
 		// 真正的类型变更，删除旧的重建
 		logger.GetLogger().Infof("Entry type changed for %s, recreating", srcEntry.RelPath)
 		_ = removeMirrorEntry(mirrorDir, mirrorEntryItem)
