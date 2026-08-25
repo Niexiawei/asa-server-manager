@@ -3,12 +3,9 @@ package frpmanage
 import (
 	"bufio"
 	"context"
-	"crypto/md5"
-	"embed"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -16,21 +13,26 @@ import (
 	"time"
 
 	"asa-server/internal/logger"
+
+	"github.com/fatedier/frp/client"
+	"github.com/fatedier/frp/pkg/config"
+	"github.com/fatedier/frp/pkg/config/source"
+	"github.com/fatedier/frp/pkg/config/v1/validation"
+	frplog "github.com/fatedier/frp/pkg/util/log"
+	golibLog "github.com/fatedier/golib/log"
 )
 
-//go:embed frpc.exe
-var frpcAssets embed.FS
-
-// FrpcManager manages the frpc process lifecycle
+// FrpcManager manages the frpc client lifecycle in-process, via
+// github.com/fatedier/frp/client — no more separate frpc.exe (see
+// docs/LINUX_COMPATIBILITY_PLAN.md §5.10). This removes the last reason this
+// package needed platform-specific binaries.
 type FrpcManager struct {
-	runDir            string
-	frpcPath          string
-	cmd               *exec.Cmd
-	mu                sync.Mutex
-	running           bool
-	startErr          error // Last start error
-	execDoneCtx       context.Context
-	execDoneCtxCancel func()
+	runDir string
+
+	mu       sync.Mutex
+	svr      *client.Service
+	running  bool
+	startErr error // Last start error
 }
 
 const (
@@ -38,63 +40,30 @@ const (
 )
 
 var globalManager *FrpcManager
-var frpConfigDir string // FRP 配置文件和可执行文件目录
+var frpConfigDir string // FRP 配置文件目录
 
-// Initialize initializes the frpc manager and extracts frpc.exe, returns config directory path
+// Initialize sets up the frp config directory. There is no binary to
+// extract anymore — frpc now runs in-process.
 func Initialize(basedir string) (string, error) {
-	// Use BaseDir instead of temp directory
 	dir := filepath.Join(basedir, "frp")
-
-	// Create frp directory if it doesn't exist
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return "", fmt.Errorf("failed to create frp directory: %v", err)
 	}
 
-	frpcPath := filepath.Join(dir, "frpc.exe")
-	// Extract frpc.exe from embedded files
-	data, err := frpcAssets.ReadFile("frpc.exe")
-	if err != nil {
-		return "", fmt.Errorf("failed to read embedded frpc.exe: %v", err)
-	}
-
-	// Calculate MD5 of embedded file
-	embeddedMD5 := md5.Sum(data)
-
-	// Check if file already exists and compare MD5
-	if fileInfo, err := os.Stat(frpcPath); err == nil && fileInfo.Mode().IsRegular() {
-		existingData, err := os.ReadFile(frpcPath)
-		if err == nil {
-			existingMD5 := md5.Sum(existingData)
-			if existingMD5 == embeddedMD5 {
-				// MD5 matches, skip writing
-				logger.GetLogger().Infof("frpc.exe MD5 matches, skipping write")
-				frpConfigDir = dir
-				globalManager = &FrpcManager{
-					runDir:   dir,
-					frpcPath: frpcPath,
-					running:  false,
-				}
-				return dir, nil
-			}
-		}
-	}
-
-	// Write to file
-	if err := os.WriteFile(frpcPath, data, 0755); err != nil {
-		return "", fmt.Errorf("failed to write frpc.exe to frp directory: %v", err)
-	}
+	// frp 有一个包级全局 logger（pkg/util/log.Logger）。绝不能调 frplog.InitLogger——
+	// 它会按 frpc.toml 的 log.to 抢 stdout 或自己开一份轮转文件。正确做法是自己
+	// New 一个写进 asaServer.log 的 Logger 塞进去。放在这里而不是包级 init()：
+	// logger.GetLogger() 在 main() 调 InitLoggerWithBaseDir 之前返回 nil，
+	// 包级 init() 跑在 main() 之前，这里调用时已经过了那个时间点。
+	frplog.Logger = golibLog.New(golibLog.WithOutput(&LogWriter{tag: "[frpc]", logFunc: logger.GetLogger().Infof}))
 
 	frpConfigDir = dir
-	globalManager = &FrpcManager{
-		runDir:   dir,
-		frpcPath: frpcPath,
-		running:  false,
-	}
+	globalManager = &FrpcManager{runDir: dir}
 
 	return dir, nil
 }
 
-// Start starts the frpc process asynchronously
+// Start starts the frpc client asynchronously.
 func (m *FrpcManager) Start() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -103,89 +72,108 @@ func (m *FrpcManager) Start() error {
 		return fmt.Errorf("frpc is already running")
 	}
 
-	// Check if config file exists, create default if not
-	configPath := filepath.Join(m.runDir, "frpc.toml")
+	configPath := filepath.Join(m.runDir, frpcConfigFileName)
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		if err := createDefaultFRPConfig(configPath); err != nil {
 			return fmt.Errorf("failed to create default frpc config: %v", err)
 		}
 	}
 
-	// Clear previous error
-	m.startErr = nil
+	svr, err := buildService(configPath)
+	if err != nil {
+		m.startErr = err
+		return fmt.Errorf("failed to build frp service: %w", err)
+	}
 
-	// H12 fix: Optimistically set running=true to prevent TOCTOU window
-	// where a second Start() call could succeed during the 500ms detection period
+	m.svr = svr
+	m.startErr = nil
 	m.running = true
 
-	// Launch process startup in background goroutine
-	go m.asyncStart(configPath)
+	go m.asyncRun(svr)
 
 	return nil
 }
 
-// asyncStart performs the actual process startup in background
-func (m *FrpcManager) asyncStart(configPath string) {
-	m.mu.Lock()
-	ctx, cancel := context.WithCancel(context.Background())
-	// Create new command
-	m.cmd = exec.CommandContext(ctx, m.frpcPath, "-c", configPath)
-	m.execDoneCtx = ctx
-	m.execDoneCtxCancel = cancel
-	// Set up stdout/stderr to redirect to logger
-	m.cmd.Stdout = &LogWriter{tag: "[frpc]", logFunc: logger.GetLogger().Infof}
-	m.cmd.Stderr = &LogWriter{tag: "[frpc]", logFunc: logger.GetLogger().Errorf}
-
-	// Start the process
-	if err := m.cmd.Start(); err != nil {
-		m.startErr = err
-		m.cmd = nil
-		m.running = false // H12 fix: reset running flag on start failure
-		m.mu.Unlock()
-		return
+// buildService loads configPath and constructs a ready-to-run client.Service.
+// Mirrors cmd/frpc/sub/root.go's runClientWithAggregator, verified against
+// frp v0.71.0 (docs/LINUX_COMPATIBILITY_PLAN.md §5.10.2).
+func buildService(configPath string) (*client.Service, error) {
+	result, err := config.LoadClientConfigResult(configPath, false)
+	if err != nil {
+		return nil, fmt.Errorf("load config: %w", err)
 	}
 
-	m.mu.Unlock()
+	configSource := source.NewConfigSource()
+	if err := configSource.ReplaceAll(result.Proxies, result.Visitors); err != nil {
+		return nil, fmt.Errorf("load proxies/visitors: %w", err)
+	}
+	aggregator := source.NewAggregator(configSource)
 
-	// Monitor process in background to detect if it exits immediately
-	done := make(chan error, 1)
-	go func() {
-		done <- m.cmd.Wait()
-	}()
+	proxyCfgs, visitorCfgs, err := aggregator.Load()
+	if err != nil {
+		return nil, fmt.Errorf("aggregate config: %w", err)
+	}
+	proxyCfgs, visitorCfgs = config.FilterClientConfigurers(result.Common, proxyCfgs, visitorCfgs)
+	proxyCfgs = config.CompleteProxyConfigurers(proxyCfgs)
+	visitorCfgs = config.CompleteVisitorConfigurers(visitorCfgs)
 
-	// Check if process is still running after startup
-	select {
-	case err := <-done:
-		// Process exited immediately
-		m.mu.Lock()
-		m.running = false
-		m.cmd = nil
-		m.startErr = fmt.Errorf("frpc process exited immediately: %v", err)
-		logger.GetLogger().Infof("frpc process exited err: %v", err)
-		m.mu.Unlock()
-	case <-time.After(500 * time.Millisecond):
-		// Process is still running (already set to true optimistically in Start)
+	if warn, err := validation.ValidateAllClientConfig(result.Common, proxyCfgs, visitorCfgs, nil); err != nil {
+		return nil, fmt.Errorf("validate config: %w", err)
+	} else if warn != nil {
+		logger.GetLogger().Warnf("[frpc] %v", warn)
+	}
+
+	return client.NewService(client.ServiceOptions{
+		Common:                 result.Common,
+		ConfigSourceAggregator: aggregator, // 必填，为空 NewService 直接报错
+		ConfigFilePath:         configPath,
+	})
+}
+
+// asyncRun runs svr and keeps m.running / m.startErr in sync with it for as
+// long as it stays the manager's current service.
+//
+// svr.Run blocks until stopped. It returns nil on a normal Close/
+// GracefulClose, and a non-nil error only when the initial login to frps
+// fails (loginFailExit=true in the default config) — that error is the
+// deterministic replacement for the old code's 500ms "did the process
+// immediately exit" guess (see docs/LINUX_COMPATIBILITY_PLAN.md §5.10.4 #7).
+func (m *FrpcManager) asyncRun(svr *client.Service) {
+	err := svr.Run(context.Background())
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	// Only touch state if svr is still the current service — a Restart may
+	// already have replaced it with a newer one by the time this returns.
+	if m.svr != svr {
+		return
+	}
+	m.running = false
+	if err != nil {
+		m.startErr = fmt.Errorf("frpc exited: %w", err)
+		logger.GetLogger().Errorf("frpc exited with error: %v", err)
+	} else {
+		logger.GetLogger().Infof("frpc exited")
 	}
 }
 
-// Stop stops the frpc process
+// Stop stops the frpc client.
 func (m *FrpcManager) Stop() error {
 	logger.GetLogger().Infof("frp stoping ...")
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if !m.running || m.cmd == nil {
+	if !m.running || m.svr == nil {
 		return fmt.Errorf("frpc is not running")
 	}
 
-	m.execDoneCtxCancel()
+	m.svr.GracefulClose(2 * time.Second)
 	m.running = false
-	m.cmd = nil
 	logger.GetLogger().Infof("frp stoped")
 	return nil
 }
 
-// Restart restarts the frpc process
+// Restart restarts the frpc client.
 func (m *FrpcManager) Restart() error {
 	if err := m.Stop(); err != nil {
 		// If not running, just start it
@@ -214,32 +202,14 @@ func (m *FrpcManager) GetStartErr() error {
 	return m.startErr
 }
 
-// CheckStatus checks the actual running status of frpc process
-// Updates running flag if process has exited or failed to start
+// CheckStatus checks the actual running status of the frpc client.
 func (m *FrpcManager) CheckStatus() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
-	if !m.running || m.cmd == nil {
-		return false
-	}
-
-	// If ProcessState is nil, process hasn't exited yet
-	if m.cmd.ProcessState == nil {
-		return m.running
-	}
-
-	// Process has exited or failed
-	if m.cmd.ProcessState.Exited() {
-		m.running = false
-		m.cmd = nil
-		return false
-	}
-
 	return m.running
 }
 
-// Cleanup removes the temp directory and files
+// Cleanup removes the frp config directory.
 func (m *FrpcManager) Cleanup() error {
 	// C2 fix: Call Stop() before acquiring lock to avoid deadlock
 	// (Stop() acquires mu internally, so we must not hold it here)
