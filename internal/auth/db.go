@@ -1,5 +1,5 @@
 // Package auth 实现鉴权领域逻辑：用户、密码、会话令牌、两步验证、
-// WebAuthn 凭证、登录限流与审计。
+// 登录限流与审计。
 //
 // 本包不依赖 gin —— HTTP 接入层在 webapi/authapi。
 //

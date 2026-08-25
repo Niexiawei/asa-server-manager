@@ -45,21 +45,6 @@
           </t-form-item>
         </t-form>
 
-        <!-- Passkey 只是补充入口，仅在服务端判定可用时才渲染。
-             不可用（IP 访问、域名不在白名单、非 HTTPS）时这里什么都不显示，
-             用户继续用上面的密码表单，不会看到任何报错。 -->
-        <template v-if="passkeyUsable">
-          <div class="auth-divider"><span>或</span></div>
-          <t-button
-              variant="outline"
-              size="large"
-              block
-              :loading="passkeyLoading"
-              @click="onPasskeyLogin"
-          >
-            🔑 {{ platformAuthenticator ? '使用本机生物识别登录' : '使用 Passkey 登录' }}
-          </t-button>
-        </template>
       </template>
 
       <!-- 第二步：两步验证 -->
@@ -96,7 +81,6 @@
 import {computed, nextTick, onMounted, ref} from 'vue'
 import {useRoute, useRouter} from 'vue-router'
 import {authState, doLogin, doLoginTOTP, recheck} from '@/store/authStore.js'
-import {isWebAuthnSupported, isPlatformAuthenticatorAvailable, passkeyLogin} from '@/utils/webauthn.js'
 
 const router = useRouter()
 const route = useRoute()
@@ -107,21 +91,12 @@ const password = ref('')
 const code = ref('')
 const error = ref('')
 const loading = ref(false)
-const passkeyLoading = ref(false)
 const passwordRef = ref(null)
-const platformAuthenticator = ref(false)
-
-// 可用性判定由后端下发（它知道域名白名单、是否安全上下文）；
-// 浏览器支不支持只有前端知道，所以两边都要看。
-const passkeyUsable = computed(() => authState.webauthnAvailable && isWebAuthnSupported())
 
 onMounted(async () => {
   if (!authState.ready) {
     await recheck().catch(() => {
     })
-  }
-  if (passkeyUsable.value) {
-    platformAuthenticator.value = await isPlatformAuthenticatorAvailable()
   }
 })
 
@@ -168,29 +143,6 @@ async function onSubmitTOTP() {
     error.value = e.message || '验证失败'
   } finally {
     loading.value = false
-  }
-}
-
-async function onPasskeyLogin() {
-  if (passkeyLoading.value) return
-  error.value = ''
-  passkeyLoading.value = true
-  try {
-    await passkeyLogin()
-    await recheck(true)
-    goNext()
-  } catch (e) {
-    // 用户取消系统弹窗不是错误，静默回到密码表单即可。
-    // 这一条也确保它不会被计入登录失败限流（后端同样不计）。
-    if (e.name === 'NotAllowedError' || e.name === 'AbortError') {
-      return
-    }
-    error.value = 'Passkey 验证失败，请使用密码登录'
-    // 把焦点交回密码框，别把用户卡在一个只能重试 Passkey 的界面上
-    await nextTick()
-    passwordRef.value?.focus?.()
-  } finally {
-    passkeyLoading.value = false
   }
 }
 
@@ -250,25 +202,6 @@ function backToPassword() {
     margin: 12px 0 0;
     font-size: 18px;
     font-weight: 500;
-  }
-}
-
-.auth-divider {
-  display: flex;
-  align-items: center;
-  margin: 20px 0 16px;
-  color: var(--td-text-color-placeholder);
-  font-size: 12px;
-
-  &::before, &::after {
-    content: '';
-    flex: 1;
-    height: 1px;
-    background: var(--td-component-stroke);
-  }
-
-  span {
-    padding: 0 12px;
   }
 }
 

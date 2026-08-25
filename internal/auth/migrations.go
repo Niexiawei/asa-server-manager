@@ -1,6 +1,10 @@
 package auth
 
-import "database/sql"
+import (
+	"crypto/rand"
+	"database/sql"
+	"fmt"
+)
 
 // migrations 必须按 Version 升序排列，且只允许在末尾追加。
 //
@@ -9,6 +13,7 @@ import "database/sql"
 var migrations = []Migration{
 	{Version: 1, Name: "initial_schema", Up: m001InitialSchema},
 	{Version: 2, Name: "webauthn_credentials", Up: m002WebAuthn},
+	{Version: 3, Name: "drop_webauthn", Up: m003DropWebAuthn},
 }
 
 func m001InitialSchema(tx *sql.Tx) error {
@@ -140,7 +145,7 @@ func m002WebAuthn(tx *sql.Tx) error {
 	}
 
 	for _, id := range ids {
-		h, err := NewWebAuthnHandle()
+		h, err := newWebAuthnHandle()
 		if err != nil {
 			return err
 		}
@@ -151,6 +156,46 @@ func m002WebAuthn(tx *sql.Tx) error {
 	// 唯一索引要在补完值之后建，否则空 handle 会互相冲突
 	if _, err := tx.Exec(`CREATE UNIQUE INDEX idx_users_handle ON users(webauthn_handle)`); err != nil {
 		return err
+	}
+	return nil
+}
+
+// newWebAuthnHandle 生成一个 32 字节随机 user handle。
+//
+// WebAuthn 功能已移除，这个函数只剩 m002 一个调用方——m002 是已发布的迁移，
+// 从 v1 升上来的库仍要原样跑一遍，所以它依赖的东西必须留着。
+// 原先它在 auth/webauthn.go 里叫 NewWebAuthnHandle，随该文件一起删除，
+// 这里保留一份未导出的实现，避免 m002 的行为随功能移除而改变。
+func newWebAuthnHandle() ([]byte, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return nil, fmt.Errorf("生成 WebAuthn handle 失败: %w", err)
+	}
+	return b, nil
+}
+
+// m003DropWebAuthn 移除 WebAuthn 功能留下的表与索引。
+//
+// ⚠️ idx_users_handle 必须一起删，这不是清洁度问题而是功能问题。m002 建的是：
+//
+//	webauthn_handle BLOB NOT NULL DEFAULT x''
+//	CREATE UNIQUE INDEX idx_users_handle ON users(webauthn_handle)
+//
+// 移除 WebAuthn 后 CreateUser 不再生成 handle，新用户的该列全部落在默认的空字节串上，
+// 留着这个唯一索引会让**第二个用户创建时撞 UNIQUE 约束**。
+//
+// webauthn_handle 列本身保留：SQLite 删列要重建整张表，风险远大于收益，
+// 留一个没人读的 BLOB 列无害（读取侧已从 userColumns 里去掉）。
+// idx_wa_credid / idx_wa_user 建在 webauthn_credentials 上，随表一起消失，无需单独 DROP。
+func m003DropWebAuthn(tx *sql.Tx) error {
+	stmts := []string{
+		`DROP INDEX IF EXISTS idx_users_handle`,
+		`DROP TABLE IF EXISTS webauthn_credentials`,
+	}
+	for _, s := range stmts {
+		if _, err := tx.Exec(s); err != nil {
+			return err
+		}
 	}
 	return nil
 }

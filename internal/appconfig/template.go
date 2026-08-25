@@ -3,7 +3,7 @@ package appconfig
 // defaultConfigTemplate 是首次运行时写出的 config.yaml。
 //
 // 刻意手写而不是用 viper.SafeWriteConfigAs 生成：这份文件的目标读者是人，
-// 注释里的那些警告（尤其 lan_bypass 和 webauthn.domains）比字段本身更重要。
+// 注释里的那些警告（尤其 lan_bypass）比字段本身更重要。
 const defaultConfigTemplate = `# ASA Server Manager 应用配置
 #
 # 优先级：命令行 flag > 环境变量 ASA_* > 本文件 > 内置默认值
@@ -90,42 +90,10 @@ auth:
     issuer: "ASA Server Manager"
     skew: 1            # 允许 ±N 个 30 秒时间窗，应对服务器时钟偏差
 
-  # WebAuthn / FIDO2（Passkey、YubiKey、Windows Hello）
-  #
-  # 它是密码登录的【补充】，永远不是替代 —— 每个账户恒有密码。
-  # 任何条件不满足都会静默退回密码登录，不会把人锁在门外。
-  webauthn:
-    enabled: false
-
-    # ★ 域名闸门：只有当前请求的域名命中这个列表，WebAuthn 才启用。
-    #
-    # 留空 = 不对任何请求生效（等同 enabled: false）。不做任何自动推导，
-    # 本机使用必须显式写 localhost。
-    #
-    # 几条规范层面的硬约束（无法绕过）：
-    #   - IP 地址不是合法的 RP ID。用 https://192.168.x.x:19193 访问时
-    #     WebAuthn 一定不可用，此时自动退回密码登录。
-    #   - 凭证不跨域名。在 localhost 注册的 Passkey 在 ark.example.com 上用不了，
-    #     同一个人可能需要在两处各注册一次。
-    #   - 写父域名（example.com）可让其子域名共享凭证。
-    #
-    # ⚠️ 改动这个列表会使已注册的凭证失效（RP ID 变了就匹配不上）。
-    #    因为密码始终可用，这不会锁住任何人，但用户需要重新注册。
-    domains: []
-      # - localhost
-      # - ark.example.com
-
-    rp_display_name: "ASA Server Manager"
-    extra_origins: []           # 额外允许的 Origin，一般不用填
-    discoverable_login: true    # 登录页提供「使用 Passkey 登录」（无需输用户名）
-    user_verification: required # discouraged | preferred | required
-    satisfies_2fa: true         # 通过生物识别/PIN 的 Passkey 登录视为已完成两步验证
-    clone_detection: warn       # off | warn | disable_credential
-
   password:
     min_length: 8
     bcrypt_cost: 12
-    # 注意：没有「关闭密码登录」的开关。密码是 WebAuthn 不可用时的唯一兜底。
+    # 注意：没有「关闭密码登录」的开关。密码是唯一的登录手段。
 
   # 登录失败限流。计数持久化在数据库里，重启服务不会清零。
   ratelimit:

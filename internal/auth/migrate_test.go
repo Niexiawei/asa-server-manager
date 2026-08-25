@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"os"
@@ -280,5 +281,103 @@ func TestBackupName(t *testing.T) {
 	want := `C:/asa/auth.db.bak-v3-20260728T143000`
 	if got != want {
 		t.Errorf("BackupName = %q，期望 %q", got, want)
+	}
+}
+
+// m003 删掉了 users.webauthn_handle 上的唯一索引。这不是清洁度问题：
+// 该列的默认值是空字节串，移除 WebAuthn 后 CreateUser 不再写入 handle，
+// 于是所有新用户的该列都相同。唯一索引若还在，**第二个用户就建不出来**。
+// 这条用例把这个约束钉死，避免以后有人"顺手"把 m003 改回去。
+func TestM003DropsWebAuthnArtifacts(t *testing.T) {
+	db := migratedDB(t)
+	ctx := context.Background()
+
+	var n int
+	if err := db.QueryRow(
+		`SELECT count(*) FROM sqlite_master WHERE type='index' AND name='idx_users_handle'`,
+	).Scan(&n); err != nil {
+		t.Fatalf("查询索引失败: %v", err)
+	}
+	if n != 0 {
+		t.Error("idx_users_handle 应已被 m003 删除，否则第二个用户会撞 UNIQUE 约束")
+	}
+
+	if err := db.QueryRow(
+		`SELECT count(*) FROM sqlite_master WHERE type='table' AND name='webauthn_credentials'`,
+	).Scan(&n); err != nil {
+		t.Fatalf("查询表失败: %v", err)
+	}
+	if n != 0 {
+		t.Error("webauthn_credentials 表应已被 m003 删除")
+	}
+
+	// 真正要防的回归：连续建两个用户不能报 UNIQUE 冲突
+	if _, err := CreateUser(ctx, db, "alice", "hash-a", RoleAdmin); err != nil {
+		t.Fatalf("创建第一个用户失败: %v", err)
+	}
+	if _, err := CreateUser(ctx, db, "bob", "hash-b", RoleOperator); err != nil {
+		t.Fatalf("创建第二个用户失败（idx_users_handle 很可能还在）: %v", err)
+	}
+}
+
+// 真实升级路径：一个已经跑到 v2、里面有用户和 Passkey 凭证的老库，
+// 升到 v3 之后必须能正常用。上一条用例覆盖的是全新安装（v1->v3 一次跑完），
+// 两者走的代码路径不同——老库里 idx_users_handle 上已经有非空的真实数据。
+func TestM003UpgradesExistingV2Database(t *testing.T) {
+	db, _ := testDB(t)
+	ctx := context.Background()
+
+	// 手工把库构造成 v2 状态：只跑 m001 + m002
+	if err := ensureVersionTable(db); err != nil {
+		t.Fatalf("ensureVersionTable: %v", err)
+	}
+	for _, m := range []Migration{migrations[0], migrations[1]} {
+		if err := applyOne(db, m); err != nil {
+			t.Fatalf("构造 v2 库失败（%s）: %v", m.Name, err)
+		}
+	}
+	if v, err := CurrentVersion(db); err != nil || v != 2 {
+		t.Fatalf("构造后版本应为 2，实际 %d (err=%v)", v, err)
+	}
+
+	// 老库里有两个各自持有 handle 的用户，其中一个还绑了 Passkey
+	for i, name := range []string{"olduser1", "olduser2"} {
+		h, err := newWebAuthnHandle()
+		if err != nil {
+			t.Fatalf("生成 handle: %v", err)
+		}
+		if _, err := db.Exec(
+			`INSERT INTO users(username, username_lower, password_hash, role, webauthn_handle, created_at)
+			 VALUES(?, ?, ?, ?, ?, ?)`,
+			name, name, "hash", RoleOperator, h, time.Now().Unix()); err != nil {
+			t.Fatalf("插入老用户 %d: %v", i, err)
+		}
+	}
+	if _, err := db.Exec(
+		`INSERT INTO webauthn_credentials(user_id, rp_id, credential_id, public_key, created_at)
+		 VALUES(1, 'localhost', x'aabb', x'ccdd', ?)`, time.Now().Unix()); err != nil {
+		t.Fatalf("插入老凭证: %v", err)
+	}
+
+	applied, err := Migrate(db)
+	if err != nil {
+		t.Fatalf("从 v2 升级失败: %v", err)
+	}
+	if len(applied) != 1 || applied[0].Version != 3 {
+		t.Fatalf("应只应用 m003，实际 %+v", applied)
+	}
+
+	// 老用户还在，且能用密码登录所需的数据完好
+	var cnt int
+	if err := db.QueryRow(`SELECT count(*) FROM users`).Scan(&cnt); err != nil || cnt != 2 {
+		t.Errorf("升级不得丢用户，实际 %d 个 (err=%v)", cnt, err)
+	}
+	if u, err := GetUser(ctx, db, "olduser1"); err != nil || u.PasswordHash != "hash" {
+		t.Errorf("老用户应可正常读取，err=%v", err)
+	}
+
+	// 索引已消失，因此还能继续建新用户
+	if _, err := CreateUser(ctx, db, "newuser", "hash-n", RoleOperator); err != nil {
+		t.Fatalf("升级后创建新用户失败: %v", err)
 	}
 }

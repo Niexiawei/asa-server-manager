@@ -56,7 +56,6 @@ type AuthConfig struct {
 	Session   SessionConfig   `mapstructure:"session"`
 	LANBypass LANBypassConfig `mapstructure:"lan_bypass"`
 	TOTP      TOTPConfig      `mapstructure:"totp"`
-	WebAuthn  WebAuthnConfig  `mapstructure:"webauthn"`
 	Password  PasswordConfig  `mapstructure:"password"`
 	RateLimit RateLimitConfig `mapstructure:"ratelimit"`
 	Audit     AuditConfig     `mapstructure:"audit"`
@@ -96,19 +95,6 @@ type TOTPConfig struct {
 	Required bool   `mapstructure:"required"`
 	Issuer   string `mapstructure:"issuer"`
 	Skew     uint   `mapstructure:"skew"`
-}
-
-// WebAuthnConfig 中 Domains 是域名闸门：只有当前请求的域名命中它，
-// WebAuthn 才启用；不命中一律退回密码登录。留空等同于未启用。
-type WebAuthnConfig struct {
-	Enabled           bool     `mapstructure:"enabled"`
-	Domains           []string `mapstructure:"domains"`
-	RPDisplayName     string   `mapstructure:"rp_display_name"`
-	ExtraOrigins      []string `mapstructure:"extra_origins"`
-	DiscoverableLogin bool     `mapstructure:"discoverable_login"`
-	UserVerification  string   `mapstructure:"user_verification"` // discouraged | preferred | required
-	Satisfies2FA      bool     `mapstructure:"satisfies_2fa"`
-	CloneDetection    string   `mapstructure:"clone_detection"` // off | warn | disable_credential
 }
 
 type PasswordConfig struct {
@@ -251,14 +237,6 @@ func defaultConfig() Config {
 				Issuer:  "ASA Server Manager",
 				Skew:    1,
 			},
-			WebAuthn: WebAuthnConfig{
-				Enabled:           false,
-				RPDisplayName:     "ASA Server Manager",
-				DiscoverableLogin: true,
-				UserVerification:  "required",
-				Satisfies2FA:      true,
-				CloneDetection:    "warn",
-			},
 			Password:  PasswordConfig{MinLength: 8, BcryptCost: 12},
 			RateLimit: RateLimitConfig{MaxFailures: 5, Window: 15 * time.Minute, Lockout: 15 * time.Minute},
 			Audit:     AuditConfig{MaxRows: 2000},
@@ -297,15 +275,6 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("auth.totp.required", d.Auth.TOTP.Required)
 	v.SetDefault("auth.totp.issuer", d.Auth.TOTP.Issuer)
 	v.SetDefault("auth.totp.skew", d.Auth.TOTP.Skew)
-
-	v.SetDefault("auth.webauthn.enabled", d.Auth.WebAuthn.Enabled)
-	v.SetDefault("auth.webauthn.domains", []string{})
-	v.SetDefault("auth.webauthn.rp_display_name", d.Auth.WebAuthn.RPDisplayName)
-	v.SetDefault("auth.webauthn.extra_origins", []string{})
-	v.SetDefault("auth.webauthn.discoverable_login", d.Auth.WebAuthn.DiscoverableLogin)
-	v.SetDefault("auth.webauthn.user_verification", d.Auth.WebAuthn.UserVerification)
-	v.SetDefault("auth.webauthn.satisfies_2fa", d.Auth.WebAuthn.Satisfies2FA)
-	v.SetDefault("auth.webauthn.clone_detection", d.Auth.WebAuthn.CloneDetection)
 
 	v.SetDefault("auth.password.min_length", d.Auth.Password.MinLength)
 	v.SetDefault("auth.password.bcrypt_cost", d.Auth.Password.BcryptCost)

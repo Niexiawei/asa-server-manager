@@ -1,6 +1,11 @@
 # 鉴权 + 登录页面 开发方案
 
 > **状态：已实施**（六个阶段全部完成，见文末 §17 实施记录）
+>
+> ⚠️ **2026-08 更新：WebAuthn / Passkey 功能已整体移除**，现行认证方式为
+> **密码 + TOTP 两步验证 + 恢复码**。§7 已替换为移除说明；其余章节（§1/§2/§3/§8/§11~§17）
+> 中关于 WebAuthn 的描述**保留为历史设计记录**，不再反映当前代码，阅读时请以本横幅为准。
+> 移除的动机、改动清单与迁移方案见 `docs/MIRROR_JUNCTION_AND_WEBAUTHN_REMOVAL_PLAN.md` 第二部分。
 > 涉及包：新增 `appconfig/`、`auth/`、`webapi/authapi/`；改动 `webapi/actions.go`、`realtime/`、`main.go`、`actions/`、前端 `app/`
 > 关联文档：`docs/HTTP2_CONNECTION_OPTIMIZATION.md`（TLS / h2 前提）、`docs/PACKAGE_RESTRUCTURE_PLAN.md`（分层约束）
 
@@ -598,7 +603,6 @@ func (s *APIServer) setupRoutes() {
 | `GET /health` | 健康检查，本来就不返回敏感信息 |
 | `POST /api/auth/login` | 登录本身 |
 | `POST /api/auth/login/totp` | 两步验证第二阶段（凭 pre-auth 令牌） |
-| `POST /api/auth/webauthn/login/begin`、`/finish` | Passkey 登录 |
 | `GET /api/auth/state` | 前端问「要不要登录 / 我是谁」，未登录返回 `{authenticated:false}` 而非 401 |
 | `POST /api/auth/logout` | 幂等，未登录也返回 200 |
 | `GET/POST /api/auth/setup*` | 首次引导，仅在「零用户」状态下开放，见 §10 |
@@ -743,428 +747,40 @@ func ValidateTOTP(u *User, code string, skew uint) (bool, error) {
 
 ---
 
-## 7. WebAuthn / FIDO2（密码登录的补充）
-
-### 7.1 定位：密码登录的补充，不可用就退回密码
-
-三条铁律，贯穿整个 WebAuthn 设计：
-
-1. **每个账户恒有密码。** 没有「纯 Passkey 账户」，也没有「关闭密码登录」的开关。
-   Passkey 是登录方式之一，永远不是唯一一种。
-2. **域名闸门。** 只有当前请求的域名命中 `auth.webauthn.domains`，WebAuthn 才启用。
-3. **任何一步不满足 → 静默退回密码登录。** 不报错、不阻塞、不显示 Passkey 入口。
-
-之所以必须这样设计，是因为 WebAuthn 的 RP ID 规则与本项目的访问方式存在**规范级**冲突，
-没有任何绕过手段：
-
-| 规范约束 | 对本项目的影响 |
-|---------|--------------|
-| **IP 地址不是合法 RP ID** | 通过 `https://192.168.2.26:19193` 访问时 WebAuthn 完全不可用 —— 而「局域网用 IP 访问面板」恰恰是本项目最常见的用法之一 |
-| **`localhost` 是规范特例**（合法 RP ID，且视为安全上下文） | 本机访问 `https://localhost:19193` 可用 |
-| **凭证不跨 RP ID** | 在 `localhost` 注册的 Passkey 在 `ark.example.com` 上用不了，反之亦然 |
-| **要求安全上下文**（https 或 localhost） | `--tls=false` 且用域名访问时不可用。项目默认开 TLS 且 `certmgr` 会装本地 CA，正常满足 |
-
-也就是说：**总有一部分访问路径注定用不了 WebAuthn。** 所以它只能是补充。
-一旦允许「纯 Passkey 账户」，用户换个入口访问就把自己锁在门外了 ——
-这条限制不是保守，是这个部署形态下唯一正确的选择。
-
-顺带一提，这条约束把上一版设计里的一整类问题直接消掉了：
-不再需要「删除最后一个凭证会不会自锁」的检查，不再需要「无密码 + 无凭证」的不变量，
-清空 Passkey 永远是安全操作。
-
-依赖：
-
-```bash
-go get github.com/go-webauthn/webauthn     # 用到 webauthn（主流程）与 protocol（选项常量）两个子包
-```
-
-### 7.2 域名闸门
-
-#### 匹配规则
-
-```go
-// auth/webauthn.go
-// MatchDomain 返回请求应使用的 RP ID。不命中返回 ok=false，调用方一律退回密码登录。
-func MatchDomain(host string, domains []string) (rpID string, ok bool) {
-    if h, _, err := net.SplitHostPort(host); err == nil {
-        host = h
-    }
-    host = strings.TrimSuffix(strings.ToLower(host), ".")   // 去掉 FQDN 尾点
-    if host == "" || net.ParseIP(host) != nil {
-        return "", false                                     // IP 不是合法 RP ID
-    }
-
-    // 精确匹配优先（更具体的配置项应该胜出）
-    if slices.Contains(domains, host) {
-        return host, true
-    }
-    // 父域名匹配：配了 example.com 时，ark.example.com 也可用，共享同一套凭证。
-    // 这正是 WebAuthn 允许的「RP ID 必须是 Origin 有效域名的可注册后缀」。
-    // 取最长的那个父域名，行为才可预测。
-    best := ""
-    for _, d := range domains {
-        if strings.HasSuffix(host, "."+d) && len(d) > len(best) {
-            best = d
-        }
-    }
-    if best != "" {
-        return best, true
-    }
-    return "", false
-}
-```
-
-`domains` **留空 = 不对任何请求生效**。不做任何自动推导（不从 `server.tls.domains` 继承）——
-用户显式声明哪些域名参与 WebAuthn，比猜一个默认值安全，也更容易排查。
-启动时若 `enabled: true` 而 `domains` 为空，记一条 WARN：
-
-```
-[鉴权] webauthn.enabled=true 但 webauthn.domains 为空，WebAuthn 不会对任何请求生效。
-       如需本机使用请添加 "localhost"；反代场景请添加对外域名。
-```
-
-#### 配置校验（启动即失败，不要静默忽略）
-
-`domains` 的每一项必须是纯域名。以下情况在 `Config.Validate()` 里**直接报错拒绝启动**：
-
-| 非法输入 | 报错信息 |
-|---------|---------|
-| `192.168.1.10` | `webauthn.domains[0]: IP 地址不能作为 RP ID，请使用域名或 localhost` |
-| `https://ark.example.com` | `webauthn.domains[0]: 不要带协议前缀，应为 ark.example.com` |
-| `ark.example.com:19193` | `webauthn.domains[0]: 不要带端口，端口由 server.port 自动推导` |
-| `ark.example.com/panel` | `webauthn.domains[0]: 不要带路径` |
-
-之所以报错而不是过滤 + 告警：用户配错了却看到「WebAuthn 已启用」，然后发现按钮不出现，
-排查成本远高于启动时直接告诉他哪一行写错了。
-
-#### ⚠️ 改动 `domains` 会让已注册凭证失效
-
-凭证绑定在具体的 RP ID 上。把 `ark.example.com` 改成 `example.com`（或反过来）之后，
-**之前注册的 Passkey 全部失效** —— 它们的 `rp_id` 与新解析出的 RP ID 不再匹配，
-登录时被过滤掉，表现为「Passkey 按钮在，但弹窗里没有可用凭证」。
-
-处理方式：
-
-- 这些行不自动删除。用户重新注册后，旧行仍留在库里但永远匹配不上。
-- Profile 页的凭证列表按 `rp_id` 分组，对当前不生效的分组标注「当前域名下不可用」，并提供删除按钮。
-- 因为密码永远可用，这个变更不会把任何人锁在外面 —— 这正是铁律 1 存在的价值。
-
-### 7.3 可用性判定与退回密码登录
-
-**判定统一在后端做**，前端只消费结果。这样规则只有一处实现，也避免前端自己猜。
-
-```go
-type Availability struct {
-    Available bool   `json:"available"`
-    Reason    string `json:"reason,omitempty"`
-    RPID      string `json:"rp_id,omitempty"`
-}
-
-func AvailabilityFor(c *gin.Context) Availability {
-    cfg := appconfig.Get().Auth.WebAuthn
-    switch {
-    case !cfg.Enabled:
-        return Availability{Reason: "disabled"}
-    case len(cfg.Domains) == 0:
-        return Availability{Reason: "no_domains"}
-    case !isSecureContext(c):          // 非 https 且非 localhost
-        return Availability{Reason: "insecure_context"}
-    }
-    rpID, ok := MatchDomain(c.Request.Host, cfg.Domains)
-    if !ok {
-        // 包含 IP 访问、未列入 domains 的域名两种情况。
-        // 对前端而言处理方式完全一样：退回密码登录。
-        return Availability{Reason: "domain_not_allowed"}
-    }
-    return Availability{Available: true, RPID: rpID}
-}
-```
-
-`reason` 取值与前端表现：
-
-| reason | 含义 | 前端表现 |
-|--------|------|---------|
-| `disabled` | 配置未开启 | 隐藏 Passkey 入口，Profile 页也不显示注册按钮 |
-| `no_domains` | 开了但 `domains` 为空 | 同上 |
-| `insecure_context` | 非安全上下文 | 同上，Profile 页额外提示「请通过 HTTPS 访问以使用 Passkey」 |
-| `domain_not_allowed` | 当前域名/IP 不在 `domains` 内 | 同上，Profile 页提示「当前访问地址不支持 Passkey，请通过已配置的域名访问」 |
-| — （available） | 可用 | 显示 Passkey 入口 |
-
-**「退回密码登录」的准确含义**是：登录页的密码表单**始终是主路径**，Passkey 只是可能出现的额外按钮。
-不存在「先试 Passkey 失败再退回」的运行时切换 —— 判定在页面加载时就完成了，用户不会看到闪烁或报错。
-
-除此之外还有三种运行时失败，同样退回密码，且**都不计入登录失败限流**：
-
-| 情况 | 处理 |
-|------|------|
-| 浏览器不支持 WebAuthn（`!window.PublicKeyCredential`） | 前端特性检测，隐藏入口 |
-| 用户取消系统弹窗（`NotAllowedError`） | 静默回到密码表单，不弹错误提示 |
-| 断言校验失败（凭证不匹配、超时） | 提示「Passkey 验证失败，请使用密码登录」，焦点移到密码框 |
-
-#### 每 RP ID 一个 WebAuthn 实例，缓存复用
-
-`webauthn.Config` 的 `RPID` 是单值，而我们要支持多个，所以按 RP ID 建实例并缓存：
-
-```go
-var waCache sync.Map // rpID -> *webauthn.WebAuthn
-
-func instanceFor(rpID string) (*webauthn.WebAuthn, error) {
-    if v, ok := waCache.Load(rpID); ok {
-        return v.(*webauthn.WebAuthn), nil
-    }
-    cfg := appconfig.Get()
-    w, err := webauthn.New(&webauthn.Config{
-        RPID:          rpID,
-        RPDisplayName: cfg.Auth.WebAuthn.RPDisplayName,
-        RPOrigins:     originsFor(rpID, cfg),   // 端口必须精确匹配，见下
-    })
-    if err != nil {
-        return nil, err
-    }
-    waCache.Store(rpID, w)
-    return w, nil
-}
-```
-
-配置热重载时必须 **清空 `waCache`** —— 否则改了 `domains` 或 `rp_display_name` 后仍在用旧实例。
-
-**Origin 的端口必须精确匹配**。`https://localhost` 和 `https://localhost:19193` 是不同的 Origin。
-父域名匹配时更要注意：RP ID 是 `example.com`，但 Origin 是 `https://ark.example.com`，两者不同，
-所以 `RPOrigins` 必须把实际访问的主机名也列进去：
-
-```go
-func originsFor(rpID string, cfg *appconfig.Config) []string {
-    hosts := []string{rpID}
-    // 父域名匹配场景：把配置里所有以 rpID 为后缀的域名都作为合法 Origin
-    for _, d := range cfg.Auth.WebAuthn.Domains {
-        if d != rpID && strings.HasSuffix(d, "."+rpID) {
-            hosts = append(hosts, d)
-        }
-    }
-    var out []string
-    for _, h := range hosts {
-        out = append(out, "https://"+h)
-        if p := cfg.Server.Port; p != 443 {
-            out = append(out, fmt.Sprintf("https://%s:%d", h, p))
-        }
-        if h == "localhost" && !cfg.Server.TLS.Enabled {
-            out = append(out, fmt.Sprintf("http://localhost:%d", cfg.Server.Port))  // localhost 特例
-        }
-    }
-    return append(out, cfg.Auth.WebAuthn.ExtraOrigins...)
-}
-```
-
-> 父域名 + 子域名的组合是这套设计里最容易出错的地方。如果不确定，
-> **就在 `domains` 里逐个列出实际访问的完整域名**，别用父域名简写。
-
-### 7.4 `webauthn.User` 接口实现
-
-```go
-type webAuthnUser struct {
-    u     *User
-    creds []webauthn.Credential   // 仅当前 RPID 下的凭证
-}
-
-func (w *webAuthnUser) WebAuthnID() []byte                    { return w.u.WebAuthnHandle } // 32B 随机
-func (w *webAuthnUser) WebAuthnName() string                  { return w.u.Username }
-func (w *webAuthnUser) WebAuthnDisplayName() string           { return w.u.Username }
-func (w *webAuthnUser) WebAuthnCredentials() []webauthn.Credential { return w.creds }
-```
-
-> `WebAuthnID` 必须是**稳定且不含 PII 的随机值**（规范要求）。用 username 或自增 id 都是错的：
-> user handle 会被存进认证器并可能在 discoverable 登录时回传，等于把用户名泄露给认证器/同步云。
-> 所以 `users` 表有专门的 `webauthn_handle` 列，用户创建时生成，永不变更。
-
-### 7.5 注册流程
-
-```
-POST /api/auth/webauthn/register/begin    (需已登录)
-   → 返回 CredentialCreation JSON，同时下发 asa_wa_ceremony Cookie（5 分钟）
-POST /api/auth/webauthn/register/finish   (需已登录)
-   → body: { credential: <浏览器返回的 attestation>, name: "YubiKey 5C" }
-   → 落库
-```
-
-```go
-func BeginRegistration(c *gin.Context, u *User) (*protocol.CredentialCreation, error) {
-    av := AvailabilityFor(c)              // 域名闸门，见 §7.3
-    if !av.Available {
-        return nil, fmt.Errorf("%w: %s", ErrWebAuthnUnavailable, av.Reason)
-    }
-    wa, err := instanceFor(av.RPID)
-    if err != nil {
-        return nil, err
-    }
-    wu := newWebAuthnUser(u, credsFor(u.ID, av.RPID))
-
-    opts, session, err := wa.BeginRegistration(wu,
-        // 排除已注册的凭证，避免同一个认证器重复注册
-        webauthn.WithExclusions(wu.credentialDescriptors()),
-        webauthn.WithAuthenticatorSelection(protocol.AuthenticatorSelection{
-            // discoverable_login 需要驻留密钥，否则登录页的「使用 Passkey 登录」弹窗会是空的
-            ResidentKey:      residentKeyRequirement(),   // required（默认）/ preferred
-            UserVerification: userVerification(),
-        }),
-    )
-    if err != nil {
-        return nil, err
-    }
-    storeCeremony(c, av.RPID, u.ID, session)   // 见 §7.8
-    return opts, nil
-}
-```
-
-`FinishRegistration` 之后落库；`idx_wa_credid` 的 UNIQUE 约束天然阻止同一凭证被注册到两个账户，
-命中冲突时返回「该认证器已被注册」。
-
-注册接口本身也要挡一道：即便前端因为缓存或旧版本仍然发起注册，后端在域名闸门未命中时
-直接返回 `409 {"code":"webauthn_unavailable","reason":"domain_not_allowed"}`，前端据此刷新可用性状态。
-
-### 7.6 登录流程（两种）
-
-两种流程都只在域名闸门命中时才可能被触发；未命中时登录页压根不渲染 Passkey 入口。
-
-#### (a) Discoverable / 用户名无关（`discoverable_login: true` 时的默认入口）
-
-用户点「使用 Passkey 登录」，不输任何东西：
-
-```go
-opts, session, err := wa.BeginDiscoverableLogin()
-// ... 前端调 navigator.credentials.get(opts) ...
-cred, err := wa.FinishDiscoverableLogin(
-    func(rawID, userHandle []byte) (webauthn.User, error) {
-        u, err := store.GetByWebAuthnHandle(userHandle)
-        if err != nil { return nil, err }
-        if u.Disabled { return nil, ErrUserDisabled }
-        return newWebAuthnUser(u, credsFor(u.ID, rpID)), nil
-    },
-    session, c.Request)
-```
-
-要求凭证注册时是 `ResidentKey: required`。否则认证器里没有驻留密钥，浏览器弹窗会是空的。
-
-#### (b) 用户名优先
-
-用户先填用户名 → `BeginLogin(wu)` 带 allowCredentials 列表。用于认证器不支持驻留密钥的情况。
-
-**一个隐私细节**：用户名不存在时**不要**直接返回 404 —— 那是用户名枚举漏洞。
-返回一个用随机数据构造的假 challenge，让失败发生在 finish 阶段，与真实失败无法区分。
-
-### 7.7 与 TOTP 的关系：UV 通过的 Passkey 就是两因素
-
-一个经过 **user verification**（PIN / 指纹 / 面容）的 Passkey，本身已经是
-「持有认证器」+「知道 PIN 或生物特征」两个因素。**登录成功后不应该再要 TOTP。**
-
-```go
-// satisfies_2fa: true（默认）时的判定
-if cred.Flags.UserVerified && cfg.Auth.WebAuthn.Satisfies2FA {
-    amr = []string{"webauthn", "uv"}
-    // 直接签发完整会话令牌，跳过 TOTP 阶段
-} else {
-    amr = []string{"webauthn"}
-    // UV 没通过（user_verification: discouraged 的场景）→ 若用户开了 TOTP，仍进第二阶段
-}
-```
-
-`cred.Flags.UserVerified` 必须**从本次断言结果里读**，不能读注册时存的 `flags_uv` ——
-同一个认证器这次有没有做 UV 是逐次变化的。
-
-### 7.8 仪式（ceremony）状态存哪
-
-`BeginRegistration` / `BeginLogin` 返回的 `*webauthn.SessionData` 必须在 begin 与 finish 之间保存。
-
-**用内存 map + TTL，不用 Cookie**：SessionData 含 challenge 和 allowCredentials 列表，
-凭证多时可能超过 4KB 的 Cookie 上限。
-
-```go
-type ceremony struct {
-    data    *webauthn.SessionData
-    rpID    string
-    userID  int64      // 登录仪式为 0
-    expires time.Time
-}
-var ceremonies sync.Map   // ceremonyID -> *ceremony，5 分钟 TTL，ticker 清理
-```
-
-ceremonyID 是 32 字节随机值，放在 `asa_wa_ceremony` 这个 HttpOnly + 短时 Cookie 里。
-**finish 时必须校验 `rpID` 与当前请求一致**，防止跨 RPID 混用仪式。
-
-服务重启会丢失进行中的仪式 —— 用户重试一次即可，可接受。
-
-### 7.9 sign_count 与克隆检测
-
-go-webauthn 在断言结果里会给出更新后的 `Authenticator.SignCount`，并在计数没有前进时设置
-`CloneWarning`。处理要点：
-
-- **很多认证器恒定返回 0**（尤其 iCloud / Google 同步的 passkey，按设计就不维护计数器）。
-  `stored == 0 && new == 0` 要视为「不支持该特性」直接跳过，否则会误报到无法登录。
-- 真正触发 `CloneWarning` 时按 `auth.webauthn.clone_detection` 配置处理：
-  `off` 忽略 / `warn`（默认）记审计 + 日志 WARN 但放行 / `disable_credential` 禁用该凭证并要求重新注册。
-- 每次成功登录都要写回 `sign_count` 和 `last_used_at`。这是 `webauthn_credentials` 表**每次登录都写**的原因，
-  也是 §3.3 里「凭证是关系型数据、不适合 JSON」的具体体现。
-
-### 7.10 凭证管理（没有自锁风险）
-
-用户可在 Profile 页管理自己的凭证（改名、删除），管理员可在用户管理页重置某用户的全部凭证。
-
-**因为每个账户恒有密码（§7.1 铁律 1），删除凭证永远是安全操作** —— 不需要「删除最后一个凭证」
-的拦截，不需要「无密码 + 无凭证」的不变量检查，管理员也可以放心地一键清空某用户的全部 Passkey。
-这是把 WebAuthn 限定为补充带来的直接简化。
-
-唯一要注意的是**用户体验层面**的提示，不是安全拦截：
-
-- 删除最后一个凭证时提示「删除后将只能使用密码登录，确认？」
-- Profile 页的凭证列表按 `rp_id` 分组；当前域名下不生效的分组标注「当前域名下不可用」
-  并说明原因（配置变更 / 换了访问入口），同样提供删除按钮
-
-删除凭证要写审计（`event=cred_delete`，记录 `rp_id` 与凭证名）。
-
-### 7.11 前端要点
-
-```js
-// 关键：challenge / user.id / allowCredentials[].id 是 base64url 字符串，
-// 必须转成 ArrayBuffer 才能传给 navigator.credentials；返回值反向再转回 base64url。
-// go-webauthn 的 protocol 包在 Go 侧已按 base64url 编解码，前端只需做 buffer 转换。
-const opts = await authApi.webauthnLoginBegin();
-const assertion = await navigator.credentials.get({
-    publicKey: decodeOptions(opts.publicKey)
-});
-await authApi.webauthnLoginFinish(encodeAssertion(assertion));
-```
-
-**登录页的结构必须是「密码为主、Passkey 为辅」**，而不是两个并列的 Tab：
-
-```
-┌─────────────────────────────┐
-│  用户名  [___________]      │   ← 始终存在，始终是默认焦点
-│  密码    [___________]      │
-│         [   登录   ]        │
-│  ─────────  或  ─────────   │   ← 仅在 webauthn_available 时渲染
-│    [ 🔑 使用 Passkey 登录 ]  │
-└─────────────────────────────┘
-```
-
-这样「退回密码登录」不需要任何运行时切换逻辑 —— 密码表单本来就在那儿。
-
-- 可用性判定**统一由后端给**：`/api/auth/state` 的 `webauthn_available` + `webauthn_reason`（§7.3），
-  前端只负责渲染与否，不自己推导域名规则。
-- 前端仍需做一次特性检测（`!window.PublicKeyCredential`）—— 后端不知道浏览器支不支持。
-- 用 `PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()` 决定是否把按钮文案
-  换成「用本机生物识别登录」。
-- 用户取消弹窗（`NotAllowedError`）不是错误：静默回到密码表单，不弹提示，**不计入失败限流**。
-- 其它断言失败：提示「Passkey 验证失败，请使用密码登录」并把焦点移到密码框，
-  **不要**把用户卡在一个只有重试按钮的页面上。
+## 7. WebAuthn / FIDO2 —— 已移除
+
+> 本章原有约 415 行的 WebAuthn / FIDO2 设计（域名闸门、RP ID 归一化、注册与认证仪式、
+> 克隆检测、discoverable 登录等）。该功能已于 **2026-08** 整体移除，本章正文一并删除，
+> 以免后来者照着一份不存在的实现去排查问题。
+
+**移除原因**：相对于本项目的实际使用场景，WebAuthn 引入的复杂度不成比例 ——
+域名闸门、RP ID 与凭证绑定、跨入口不可用时的静默回退，这些机制的维护成本
+高于它带来的收益。**密码 + TOTP 两步验证 + 恢复码**已足够。
+
+**移除后的事实**：
+
+- 认证方式只剩密码，第二因子是 TOTP（§6 仍然有效），救援手段是恢复码。
+- `auth.webauthn.*` 配置段已删除。老的 `config.yaml` 里若仍留着这一段，
+  viper 会当作未知键忽略，**不影响启动**。
+- 数据库：`webauthn_credentials` 表与 `idx_users_handle` 索引由迁移 **m003** 删除；
+  `users.webauthn_handle` 列保留但不再读写（SQLite 删列需重建表，不值当）。
+- `audit_log` 中历史的 `cred_add` / `cred_delete` 记录保留，前端仍能正常显示。
+- 令牌的 `amr` 字段不再出现 `webauthn` / `uv`；历史令牌里带这两个值也能正常解析（`amr` 不参与校验）。
+
+**详见**：`docs/MIRROR_JUNCTION_AND_WEBAUTHN_REMOVAL_PLAN.md` 第二部分（含完整改动清单与验收标准）。
 
 ---
 
 ## 8. 接口设计
 
+> 注：原有的 `/api/auth/webauthn/*` 与 `/api/users/:username/webauthn/reset`
+> 已随 WebAuthn 功能一并移除（见 §7），下表不再列出。
+
 ### 8.1 鉴权接口
 
 | Method | Path | 鉴权 | 说明 |
 |--------|------|------|------|
-| GET | `/api/auth/state` | 豁免 | `{auth_enabled, authenticated, bypassed, setup_required, user:{...}, totp_required_global, webauthn_available, webauthn_reason, webauthn_rp_id}` —— 密码登录恒可用，故无对应字段 |
+| GET | `/api/auth/state` | 豁免 | `{auth_enabled, authenticated, bypassed, setup_required, user:{...}, totp_required_global}` —— 密码登录恒可用，故无对应字段 |
 | POST | `/api/auth/login` | 豁免 | `{username,password}` → 会话 Cookie 或 `{totp_required:true}` |
 | POST | `/api/auth/login/totp` | pre-auth | `{code}`（TOTP 或恢复码）→ 会话 Cookie |
 | POST | `/api/auth/logout` | 豁免 | 清 Cookie + jti 加入 denylist |
@@ -1172,10 +788,6 @@ await authApi.webauthnLoginFinish(encodeAssertion(assertion));
 | POST | `/api/auth/password` | 需登录 | `{old_password,new_password}`，成功后 `version++` 并重签当前设备令牌 |
 | POST | `/api/auth/totp/setup` \| `/confirm` \| `/disable` | 需登录 | 见 §6.2 |
 | POST | `/api/auth/totp/recovery/regenerate` | 需登录 | 重新生成恢复码 |
-| POST | `/api/auth/webauthn/register/begin` \| `/finish` | 需登录 | 注册 Passkey |
-| POST | `/api/auth/webauthn/login/begin` \| `/finish` | 豁免 | Passkey 登录 |
-| GET | `/api/auth/webauthn/credentials` | 需登录 | 自己的凭证列表（按 rp_id 分组） |
-| PUT/DELETE | `/api/auth/webauthn/credentials/:id` | 需登录 | 改名 / 删除（§7.10 的自锁检查） |
 | POST | `/api/auth/reload` | 豁免+loopback | 重载内存副本，供 CLI 调用，见 §10.2 |
 
 ### 8.2 用户管理接口（仅 admin）
@@ -1188,7 +800,6 @@ await authApi.webauthnLoginFinish(encodeAssertion(assertion));
 | DELETE | `/api/users/:username` | 禁止删除最后一个 admin；禁止删除自己 |
 | POST | `/api/users/:username/password` | 管理员重置密码，强制 `version++` |
 | POST | `/api/users/:username/totp/reset` | 管理员解绑 TOTP（丢手机的救援路径） |
-| POST | `/api/users/:username/webauthn/reset` | 管理员清空该用户全部 Passkey |
 | POST | `/api/users/:username/unlock` | 清除该用户的登录失败锁定 |
 | GET | `/api/auth/audit` | 审计日志分页查询，`?user=&event=&since=&limit=` |
 

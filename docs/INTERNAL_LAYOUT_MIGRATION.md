@@ -73,7 +73,7 @@ asa-server/
 │   ├── schedule/               # 定时任务
 │   ├── updatemanage/           # 更新管理
 │   ├── appconfig/              # 应用配置（viper + config.yaml）
-│   ├── auth/                   # 鉴权：用户/会话/TOTP/WebAuthn/限流/审计
+│   ├── auth/                   # 鉴权：用户/会话/TOTP/限流/审计
 │   ├── webapi/                 # HTTP API
 │   │   └── apiresp/ authapi/ backupapi/ configapi/ iconapi/
 │   │       instanceapi/ logapi/ saveapi/ scheduleapi/ serverapi/

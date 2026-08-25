@@ -31,15 +31,13 @@ const (
 // 数据全在 API。给静态资源加鉴权没有任何安全收益，只会让未登录时连登录页
 // 都打不开。
 var exemptPaths = map[string]bool{
-	"/health":                         true,
-	"/api/auth/state":                 true,
-	"/api/auth/login":                 true,
-	"/api/auth/login/totp":            true,
-	"/api/auth/logout":                true,
-	"/api/auth/setup":                 true,
-	"/api/auth/reload":                true,
-	"/api/auth/webauthn/login/begin":  true,
-	"/api/auth/webauthn/login/finish": true,
+	"/health":              true,
+	"/api/auth/state":      true,
+	"/api/auth/login":      true,
+	"/api/auth/login/totp": true,
+	"/api/auth/logout":     true,
+	"/api/auth/setup":      true,
+	"/api/auth/reload":     true,
 }
 
 // Middleware 是鉴权闸门，必须挂在所有业务路由之前。

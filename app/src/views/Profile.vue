@@ -45,31 +45,6 @@
       </template>
     </t-card>
 
-    <t-card title="Passkey" :bordered="false" class="profile-card">
-      <!-- WebAuthn 不可用时解释原因，而不是给一个点了会报错的按钮 -->
-      <t-alert v-if="!passkeyUsable" theme="info" :message="unavailableText"/>
-      <template v-else>
-        <p class="hint">
-          Passkey 是密码登录的<strong>补充</strong>，密码始终可用。
-          凭证绑定在当前域名（{{ authState.webauthnRpId }}）上，换用别的地址访问时需要另行注册。
-        </p>
-        <t-space direction="vertical" style="width:100%">
-          <t-list v-if="passkeys.length" :split="true">
-            <t-list-item v-for="k in passkeys" :key="k.id">
-              <div>
-                <div>{{ k.name || '未命名凭证' }}</div>
-                <div class="sub">{{ k.rp_id }} · 添加于 {{ fmt(k.created_at) }}</div>
-              </div>
-              <template #action>
-                <t-button size="small" variant="text" theme="danger" @click="removePasskey(k)">删除</t-button>
-              </template>
-            </t-list-item>
-          </t-list>
-          <t-button theme="primary" :loading="passkeyLoading" @click="addPasskey">添加 Passkey</t-button>
-        </t-space>
-      </template>
-    </t-card>
-
     <t-card title="会话" :bordered="false" class="profile-card">
       <t-button theme="danger" variant="outline" @click="onLogoutAll">登出所有设备</t-button>
     </t-card>
@@ -122,8 +97,7 @@
 import {computed, onMounted, reactive, ref} from 'vue'
 import {MessagePlugin, DialogPlugin} from 'tdesign-vue-next'
 import * as authApi from '@/apis/authApi.js'
-import {authState, recheck, webauthnReasonText} from '@/store/authStore.js'
-import * as wa from '@/utils/webauthn.js'
+import {authState, recheck} from '@/store/authStore.js'
 
 const pwd = reactive({old: '', new1: '', new2: ''})
 const pwdLoading = ref(false)
@@ -137,15 +111,6 @@ const totpCode = ref('')
 const totpSetupData = reactive({secret: '', qr: ''})
 const recoveryCodes = ref([])
 const disableForm = reactive({password: '', code: ''})
-
-const passkeys = ref([])
-const passkeyLoading = ref(false)
-
-const passkeyUsable = computed(() => authState.webauthnAvailable && wa.isWebAuthnSupported())
-const unavailableText = computed(() => {
-  if (!wa.isWebAuthnSupported()) return '当前浏览器不支持 WebAuthn。'
-  return webauthnReasonText() || 'Passkey 功能未启用。'
-})
 
 function fmt(s) {
   if (!s) return '-'
@@ -236,68 +201,6 @@ function copyCodes() {
       .catch(() => MessagePlugin.error('复制失败，请手动选择文本'))
 }
 
-async function loadPasskeys() {
-  if (!passkeyUsable.value) return
-  try {
-    const res = await wa.listPasskeys()
-    passkeys.value = res.credentials || []
-  } catch {
-    // 功能未启用时接口可能不存在，静默忽略
-  }
-}
-
-async function addPasskey() {
-  passkeyLoading.value = true
-  try {
-    const name = window.prompt('给这个 Passkey 起个名字（如 "YubiKey" 或 "本机"）', '')
-    if (name === null) return
-    await wa.registerPasskey(name)
-    MessagePlugin.success('Passkey 已添加')
-    await loadPasskeys()
-  } catch (e) {
-    if (e.name === 'NotAllowedError' || e.name === 'AbortError') return
-    MessagePlugin.error(e.message || '添加失败')
-  } finally {
-    passkeyLoading.value = false
-  }
-}
-
-function removePasskey(k) {
-  const d = DialogPlugin.confirm({
-    header: '删除 Passkey',
-    // 密码始终可用，所以删凭证永远是安全操作，不需要"最后一个凭证"之类的拦截
-    body: `确认删除「${k.name || '未命名凭证'}」？删除后仍可用密码登录。`,
-    onConfirm: async () => {
-      try {
-        await wa.deletePasskey(k.id)
-        MessagePlugin.success('已删除')
-        await loadPasskeys()
-      } catch (e) {
-        MessagePlugin.error(e.message)
-      }
-      d.hide()
-    },
-  })
-}
-
-function onLogoutAll() {
-  const d = DialogPlugin.confirm({
-    header: '登出所有设备',
-    body: '所有设备（包括当前这台）都会被登出，需要重新登录。',
-    onConfirm: async () => {
-      try {
-        await authApi.logoutAll()
-        window.location.hash = '#/login'
-        window.location.reload()
-      } catch (e) {
-        MessagePlugin.error(e.message)
-      }
-      d.hide()
-    },
-  })
-}
-
-onMounted(loadPasskeys)
 </script>
 
 <style scoped lang="less">

@@ -4,14 +4,9 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"regexp"
 	"slices"
 	"strings"
 )
-
-// domainPattern 是一个宽松但足够的域名字面量校验：小写字母/数字/连字符组成的
-// label，用点分隔。"localhost" 也能通过。
-var domainPattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$`)
 
 // Validate 校验配置并就地做归一化（小写、补默认值）。
 //
@@ -62,9 +57,6 @@ func (a *AuthConfig) validate() error {
 	}
 	if a.TOTP.Skew > 10 {
 		return fmt.Errorf("auth.totp.skew: %d 过大（每个窗口 30 秒，建议 1）", a.TOTP.Skew)
-	}
-	if err := a.WebAuthn.validate(); err != nil {
-		return err
 	}
 	if a.Password.MinLength < 6 {
 		return fmt.Errorf("auth.password.min_length: 不得小于 6，当前为 %d", a.Password.MinLength)
@@ -133,70 +125,6 @@ func (l *LANBypassConfig) validate() error {
 		l.Networks[i] = n
 	}
 	return nil
-}
-
-func (w *WebAuthnConfig) validate() error {
-	w.UserVerification = strings.ToLower(strings.TrimSpace(w.UserVerification))
-	if !slices.Contains([]string{"discouraged", "preferred", "required"}, w.UserVerification) {
-		return fmt.Errorf("auth.webauthn.user_verification: 只能是 discouraged / preferred / required，当前为 %q", w.UserVerification)
-	}
-	w.CloneDetection = strings.ToLower(strings.TrimSpace(w.CloneDetection))
-	if !slices.Contains([]string{"off", "warn", "disable_credential"}, w.CloneDetection) {
-		return fmt.Errorf("auth.webauthn.clone_detection: 只能是 off / warn / disable_credential，当前为 %q", w.CloneDetection)
-	}
-
-	seen := make(map[string]struct{}, len(w.Domains))
-	out := w.Domains[:0]
-	for i, d := range w.Domains {
-		norm, err := NormalizeWebAuthnDomain(d)
-		if err != nil {
-			return fmt.Errorf("auth.webauthn.domains[%d]: %w", i, err)
-		}
-		if _, dup := seen[norm]; dup {
-			continue
-		}
-		seen[norm] = struct{}{}
-		out = append(out, norm)
-	}
-	w.Domains = out
-
-	for i, o := range w.ExtraOrigins {
-		o = strings.TrimSpace(strings.TrimSuffix(o, "/"))
-		if !strings.HasPrefix(o, "http://") && !strings.HasPrefix(o, "https://") {
-			return fmt.Errorf("auth.webauthn.extra_origins[%d]: %q 必须是完整 Origin，形如 https://ark.example.com", i, o)
-		}
-		w.ExtraOrigins[i] = o
-	}
-	return nil
-}
-
-// NormalizeWebAuthnDomain 把一项 webauthn.domains 配置归一化成合法的 RP ID。
-//
-// 错误信息刻意写得具体（指出是协议、端口还是路径写错了），因为这类配置
-// 一旦写错，表现只是"Passkey 按钮不出现"，用户很难自己想到是配置问题。
-func NormalizeWebAuthnDomain(d string) (string, error) {
-	d = strings.ToLower(strings.TrimSpace(d))
-	d = strings.TrimSuffix(d, ".") // FQDN 尾点
-	if d == "" {
-		return "", fmt.Errorf("不得为空")
-	}
-	if strings.Contains(d, "://") {
-		return "", fmt.Errorf("不要带协议前缀，应为 %s", d[strings.Index(d, "://")+3:])
-	}
-	// IPv6 字面量含冒号，必须在端口判断之前先认出来
-	if ip := net.ParseIP(strings.Trim(d, "[]")); ip != nil {
-		return "", fmt.Errorf("IP 地址不能作为 RP ID，请使用域名或 localhost")
-	}
-	if strings.Contains(d, "/") {
-		return "", fmt.Errorf("不要带路径，应为 %s", d[:strings.Index(d, "/")])
-	}
-	if strings.Contains(d, ":") {
-		return "", fmt.Errorf("不要带端口，端口由 server.port 自动推导，应为 %s", d[:strings.Index(d, ":")])
-	}
-	if !domainPattern.MatchString(d) {
-		return "", fmt.Errorf("%q 不是合法的域名", d)
-	}
-	return d, nil
 }
 
 // SameSiteMode 把配置里的字符串转成 http.SameSite
