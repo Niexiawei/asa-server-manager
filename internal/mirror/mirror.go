@@ -10,6 +10,7 @@ import (
 
 	cfgpkg "asa-server/internal/config"
 	"asa-server/internal/logger"
+	"asa-server/internal/plugindata"
 	"asa-server/pkg/fsutil"
 
 	"znkr.io/diff"
@@ -423,6 +424,11 @@ func CleanupInstanceMirror(instanceName string) error {
 		return nil // 不存在，无需清理
 	}
 
+	// 销毁镜像之前先抢救插件数据。放在这里而不是散在 7 个调用点上，
+	// 是因为漏掉任何一个都会静默丢数据；Rescue 本身按 mtime 判定且 best-effort，
+	// 对着半成品镜像跑也只是无事发生。
+	plugindata.Rescue(instanceName, mirrorDir)
+
 	logger.GetLogger().Infof("Cleaning up instance mirror: %s", mirrorDir)
 
 	// 深度优先遍历，按深度降序清理
@@ -635,6 +641,12 @@ func syncMirrorEntries(mirrorDir string, exceptionTargets map[string]string) err
 			if isUnderExceptionTarget(edit.Y.RelPath, exceptionTargets) {
 				continue
 			}
+			// 插件的配置与运行期数据在源目录里根本不存在（典型是 ArkDB.db-wal），
+			// 按「多余条目」删掉就等于把上一轮的崩溃现场清掉，而这发生在 Rescue 之前。
+			if plugindata.IsProtectedRelPath(mirrorDir, edit.Y.RelPath) {
+				logger.GetLogger().Debugf("Keeping ArkApi plugin data entry: %s", edit.Y.RelPath)
+				continue
+			}
 			if isPruned(edit.Y.RelPath) {
 				continue // 祖先目录已被整棵删除
 			}
@@ -651,6 +663,13 @@ func syncMirrorEntries(mirrorDir string, exceptionTargets map[string]string) err
 			// ArkApi Cache 内文件内容不一致是 hook 运行期缓存造成的，属正常现象，不回写覆盖
 			if arkApiCache && isUnderArkApiCache(edit.X.RelPath) {
 				logger.GetLogger().Debugf("Skipping reconcile for ArkApi runtime cache entry: %s", edit.X.RelPath)
+				continue
+			}
+			// 同理不回写：把源版本的主库拷进来，会与镜像里保留的旧 -wal 拼成
+			// 互不匹配的组合，SQLite 打开时拿旧 WAL 去重放，比不同步更糟。
+			// 这也是「每次重启插件权限被重置」这个原始 bug 的修复点。
+			if plugindata.IsProtectedRelPath(mirrorDir, edit.X.RelPath) {
+				logger.GetLogger().Debugf("Skipping reconcile for ArkApi plugin data entry: %s", edit.X.RelPath)
 				continue
 			}
 			if err := reconcileEntry(srcDir, mirrorDir, edit.X, edit.Y, exceptionTargets); err != nil {

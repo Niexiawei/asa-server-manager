@@ -21,6 +21,7 @@ import (
 	"asa-server/internal/webapi/iconapi"
 	"asa-server/internal/webapi/instanceapi"
 	"asa-server/internal/webapi/logapi"
+	"asa-server/internal/webapi/pluginapi"
 	"asa-server/internal/webapi/saveapi"
 	"asa-server/internal/webapi/scheduleapi"
 	"asa-server/internal/webapi/serverapi"
@@ -320,6 +321,7 @@ func (s *APIServer) setupRoutes() {
 	logapi.NewHandler(s.serverCtx).RegisterRouter(s.engine)
 	iconapi.NewHandler().RegisterRouter(s.engine)
 	scheduleapi.NewHandler().RegisterRouter(s.engine)
+	pluginapi.NewHandler().RegisterRouter(s.engine)
 
 	// WebSocket endpoints。
 	// AuthGate 是纵深防御：中间件已经拦过一道，但 handler 内部还会周期性复查，

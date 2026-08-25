@@ -45,6 +45,9 @@ type InstanceConfig struct {
 	BindDomain              string
 	MessageOfTheDay         string
 	MessageOfTheDayDuration int
+	// PluginSnapshotInterval 是 ArkApi 插件 SQLite 数据库在线快照的周期（分钟）。
+	// 0 表示用默认值（5 分钟），负数表示关闭。详见 internal/plugindata。
+	PluginSnapshotInterval int
 }
 
 type UpdateInstanceConfigRequest struct {
@@ -63,6 +66,7 @@ type UpdateInstanceConfigRequest struct {
 	BindDomain              string `json:"BindDomain,omitempty"`
 	MessageOfTheDay         string `json:"MessageOfTheDay,omitempty"`
 	MessageOfTheDayDuration *int   `json:"MessageOfTheDayDuration,omitempty"`
+	PluginSnapshotInterval  *int   `json:"PluginSnapshotInterval,omitempty"`
 }
 
 // EnsureDirectories Initialize directories based on executable location
@@ -168,6 +172,10 @@ func LoadInstanceConfig(instanceName string) (*InstanceConfig, error) {
 			if val, err := strconv.Atoi(value); err == nil {
 				config.MessageOfTheDayDuration = val
 			}
+		case "PluginSnapshotInterval":
+			if val, err := strconv.Atoi(value); err == nil {
+				config.PluginSnapshotInterval = val
+			}
 		}
 	}
 
@@ -206,6 +214,7 @@ ClusterID=%s
 EnableAsaPlugin=%v
 BindDomain=%s
 MessageOfTheDayDuration=%d
+PluginSnapshotInterval=%d
 MessageOfTheDay=%s
 `,
 		config.ServerName,
@@ -222,6 +231,7 @@ MessageOfTheDay=%s
 		config.EnableAsaPlugin,
 		config.BindDomain,
 		config.MessageOfTheDayDuration,
+		config.PluginSnapshotInterval,
 		config.MessageOfTheDay,
 	)
 
@@ -275,6 +285,9 @@ func UpdateInstanceConfig(instanceName string, req UpdateInstanceConfigRequest) 
 	}
 	if req.MessageOfTheDayDuration != nil {
 		currentConfig.MessageOfTheDayDuration = *req.MessageOfTheDayDuration
+	}
+	if req.PluginSnapshotInterval != nil {
+		currentConfig.PluginSnapshotInterval = *req.PluginSnapshotInterval
 	}
 
 	// Save updated config

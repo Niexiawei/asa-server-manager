@@ -373,3 +373,24 @@ export function confirmPendingRestore() {
 export function ignorePendingRestore() {
     return apiClient.delete('/api/schedule/pending-restore')
 }
+
+// ==================== ArkApi 插件数据隔离 ====================
+// 插件的配置与运行期数据（典型是 Permissions 的权限库）按实例隔离存放在
+// instances/{name}/plugins/ 下，启动前注入镜像、停止后回收。
+// 详见 docs/ARKAPI_PLUGIN_DATA_PLAN.md。
+
+// 列出某实例的插件隔离状态（是否已隔离、数据文件、快照、是否被 DbPathOverride 接管）
+export function listInstancePlugins(name) {
+    return apiClient.get(`/api/plugins/${name}`)
+}
+
+// 读取插件配置。响应里的 seeded=false 表示实例侧还没有独立配置，
+// 当前展示的是源服务端自带的默认值，保存后才成为本实例的配置。
+export function getPluginConfig(name, plugin) {
+    return apiClient.get(`/api/plugins/${name}/${plugin}/config`)
+}
+
+// 保存插件配置（写入实例目录，下次启动该实例时注入镜像生效）
+export function updatePluginConfig(name, plugin, content) {
+    return apiClient.put(`/api/plugins/${name}/${plugin}/config`, {content})
+}
