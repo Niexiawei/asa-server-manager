@@ -203,7 +203,7 @@ func TestNormalizePoints(t *testing.T) {
 		{
 			name:  "默认点位由 Total 推导",
 			total: 600 * time.Second,
-			want:  []int{600, 300, 180, 60, 30, 10},
+			want:  []int{600, 300, 240, 180, 120, 60, 30, 10, 5, 4, 3, 2, 1},
 		},
 		{
 			name:  "Total=30 的默认点位",

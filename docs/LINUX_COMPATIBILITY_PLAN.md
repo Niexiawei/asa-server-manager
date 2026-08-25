@@ -45,7 +45,7 @@
 | `pkg/winproc/wmi.go` | `github.com/yusufpapurcu/wmi` | `QueryProcess(name, commandLine)` 靠 WQL |
 | `pkg/processjob/job.go` | Job Object + `syscall.CREATE_NEW_PROCESS_GROUP` | 进程树管理 |
 | `internal/certmgr/store.go` | `windows.Cert*` 系统证书存储、`windows.Token` | 本地 CA 写入 Root 存储 |
-| `internal/mirror/mirror.go:97` | `windows.OpenProcessToken` | `IsElevated()` |
+| ~~`internal/mirror/mirror.go:97`~~ | ~~`windows.OpenProcessToken`~~ | ✅ 已移除（`IsElevated()` 随去管理员化删除）|
 | `internal/gui/gui.go` | `windows.SID` / `syscall.SysProcAttr{HideWindow}` / Fyne | 整包 |
 | `internal/process/process.go:87` | `syscall.SysProcAttr{HideWindow: true}` | Linux 的 `SysProcAttr` 无此字段 |
 | `pkg/tail/tail.go:276` | `syscall.Win32FileAttributeData` | 文件身份（防日志轮转误读） |
@@ -68,7 +68,7 @@
 | `internal/appconfig/localnet.go:59` | 虚拟网卡名过滤含 `tap-windows` | 需补 `docker0`/`veth`/`br-`/`virbr` |
 | `internal/gui/gui.go:539` | `rundll32 url.dll,FileProtocolHandler` 开浏览器 | — |
 | `internal/certmgr/store.go:236` | `icacls` 收紧私钥 ACL | Linux 用 `os.Chmod(0600)` |
-| `main.go:281` | `winproc.RunAsAdmin` 提权 | Linux 上建 symlink 不需要特权，整个提权流程应跳过 |
+| ~~`main.go:281`~~ | ~~`winproc.RunAsAdmin` 提权~~ | ✅ 已移除（`certmgr` 装根证书仍在用 `RunAsAdmin`，那处保留）|
 
 ### 2.3 天然跨平台（无需改动）
 
@@ -79,7 +79,7 @@
 
 `internal/mirror` 的**核心算法**也跨平台：`createJunction` / `createFileSymlink` 底层就是 `os.Symlink`
 （`mirror.go:473,495`），Linux 上是原生 symlink，甚至比 Windows 更省事（不需要管理员权限）。
-只有 `IsElevated()` 需要替换。
+`IsElevated()` 已随「镜像去管理员化」一并删除，本节无需再处理。
 
 `internal/instance/common.go` 的 `GetAsaVersion`（`common.go:487`）是纯字节扫描 PE 文件找 UTF-16 `ArkVersion`
 标记，**Linux 上原样可用**，不需要任何改动。
@@ -387,7 +387,9 @@ func QueryProcess(name, cmdlineSubstr string) ([]Process, error)
 
 改动仅两处：
 
-- `IsElevated()` 拆平台：Linux 实现对 symlink 而言恒真；或干脆改名为 `CanSymlink()` 更贴合它唯一的用途。
+- ~~`IsElevated()` 拆平台~~ —— 已在「镜像去管理员化」中整体删除，无需再拆。
+- `createJunction` 现已是 Windows 专属实现（`internal/mirror/junction_windows.go`，`//go:build windows`），
+  Linux 侧只需补一个 `junction_linux.go` 用 `os.Symlink` 实现同名函数即可。
 - `main.go` 的 `ensureAdminElevation()`（`main.go:272`）整个走 Windows 分支，Linux 上 no-op。
 
 镜像的语义在 Linux 上原样成立且**更重要**：`Win64` 目录必须真实复制（Wine/DXVK/UE 的着色器与启动缓存

@@ -7,7 +7,6 @@ import (
 	cfgpkg "asa-server/internal/config"
 	"asa-server/internal/gui"
 	"asa-server/internal/logger"
-	"asa-server/internal/mirror"
 	"asa-server/internal/webapi"
 	"asa-server/internal/winservice"
 	"asa-server/pkg/download"
@@ -19,7 +18,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"slices"
 	"strconv"
 	"strings"
 
@@ -125,14 +123,8 @@ func main() {
 				Action: actions.ActionUpdate,
 			},
 			{
-				Name:  "api",
-				Usage: "Start HTTP API server",
-				Flags: []cli.Flag{
-					&cli.BoolFlag{
-						Name:  "no-admin",
-						Usage: "Skip administrator elevation, run as current user (more disk usage)",
-					},
-				},
+				Name:   "api",
+				Usage:  "Start HTTP API server",
 				Action: webapi.ActionAPI,
 			},
 
@@ -189,11 +181,6 @@ func main() {
 		logger.SetLogMode(logger.ServicesMode)
 		winservice.RunService()
 		return
-	}
-
-	// 如果是 api 子命令且未指定 --no-admin，静默提权
-	if isApiCommand(os.Args) && !hasArgFlag("--no-admin") {
-		ensureAdminElevation()
 	}
 
 	// If no arguments provided, start GUI mode
@@ -263,65 +250,4 @@ func actionGUI(ctx context.Context, cmd *cli.Command) error {
 	guiApp := gui.NewGUIApp()
 	guiApp.Run()
 	return nil
-}
-
-// isApiCommand 检查 os.Args 是否包含 api 子命令
-func isApiCommand(args []string) bool {
-	for _, arg := range args[1:] { // 跳过程序名
-		// 跳过标志（以 - 开头）
-		if strings.HasPrefix(arg, "-") {
-			continue
-		}
-		// 第一个非标志参数即为子命令
-		return arg == "api"
-	}
-	return false
-}
-
-// ensureAdminElevation 静默检测管理员权限并提权
-func ensureAdminElevation() {
-	if mirror.IsElevated() {
-		return // 已是管理员，无需提权
-	}
-
-	// 构建参数并提权重启
-	argStr := buildElevatedArgs()
-
-	// 提权失败不是致命错误：Web 界面、配置编辑、备份等都不需要管理员，
-	// 直接返回让调用方继续跑，用户至少能进到界面里看到发生了什么。
-	if err := winproc.RunAsAdmin(argStr); err != nil {
-		logger.GetStdout().Warnf("管理员提权失败: %v", err)
-		logger.GetStdout().Warnf("[警告] 将以非管理员模式继续运行，镜像启动将使用文件复制模式，占用更多磁盘空间")
-		return
-	}
-
-	// 提权成功，退出当前低权限进程
-	os.Exit(0)
-}
-
-// quoteArg 对包含空格或特殊字符的参数加引号
-func quoteArg(arg string) string {
-	if strings.ContainsAny(arg, " \t\"") {
-		return `"` + strings.ReplaceAll(arg, `"`, `\"`) + `"`
-	}
-	return arg
-}
-
-// hasArgFlag 扫描 os.Args[1:] 检查是否包含指定标志
-// 用于在 app.Run() 之前检测 CLI 标志（因此时 CLI 尚未解析）
-func hasArgFlag(flag string) bool {
-	return slices.Contains(os.Args[1:], flag)
-}
-
-// buildElevatedArgs 构建提权重启的参数串
-// 格式: "api [其他原始参数]"（跳过 api 本身避免重复）
-func buildElevatedArgs() string {
-	var otherArgs []string
-	for _, arg := range os.Args[1:] {
-		if arg == "api" {
-			continue // 跳过子命令，后面手动加回
-		}
-		otherArgs = append(otherArgs, quoteArg(arg))
-	}
-	return "api " + strings.Join(otherArgs, " ")
 }
