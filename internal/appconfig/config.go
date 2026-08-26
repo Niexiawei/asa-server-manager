@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -232,7 +233,7 @@ func writeDefaultConfig(path string) error {
 	if _, err := os.Stat(path); err == nil {
 		return nil // 已存在就不覆盖
 	}
-	return os.WriteFile(path, []byte(defaultConfigTemplate), 0o644)
+	return os.WriteFile(path, []byte(renderDefaultConfigTemplate()), 0o644)
 }
 
 // DefaultPrivateNetworks 是 lan_bypass 未配置 networks 时使用的内网网段集合
@@ -250,8 +251,10 @@ var DefaultPrivateNetworks = []string{
 func defaultConfig() Config {
 	return Config{
 		Server: ServerConfig{
-			Port:           19193,
-			TLS:            TLSConfig{Enabled: true, TrustLocalCA: true},
+			Port: 19193,
+			// Linux 上系统信任库不影响浏览器（Firefox/Chrome 用各自的 NSS db），
+			// 默认装了也还是红锁，只会制造困惑——所以默认关闭，见 docs/LINUX_COMPATIBILITY_PLAN.md §5.7。
+			TLS:            TLSConfig{Enabled: true, TrustLocalCA: runtime.GOOS != "linux"},
 			TrustedProxies: []string{"127.0.0.1", "::1"},
 		},
 		Auth: AuthConfig{

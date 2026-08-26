@@ -1,9 +1,34 @@
 package appconfig
 
-// defaultConfigTemplate 是首次运行时写出的 config.yaml。
+import (
+	"fmt"
+	"runtime"
+)
+
+// trustLocalCATemplateBlock 按平台渲染 trust_local_ca 那两行（注释 + 值）。
 //
-// 刻意手写而不是用 viper.SafeWriteConfigAs 生成：这份文件的目标读者是人，
-// 注释里的那些警告（尤其 lan_bypass）比字段本身更重要。
+// Windows 上写进系统受信任根存储能让浏览器直接免警告；Linux 上系统信任库
+// 不影响 Firefox/Chrome（它们用各自的 NSS db），默认装了也还是红锁，只会制造
+// 困惑，所以默认关闭并把提示改成"按需手动安装"，见 docs/LINUX_COMPATIBILITY_PLAN.md §5.7。
+func trustLocalCATemplateBlock() string {
+	if runtime.GOOS == "linux" {
+		return "    # Linux 上系统信任库不影响浏览器（Firefox/Chrome 用各自的 NSS db），装了也还是红锁。\n" +
+			"    # 默认关闭；需要时执行 `asa-server cert install`（需 root）并按提示手动导入浏览器。\n" +
+			"    trust_local_ca: false"
+	}
+	return "    # 把自签的本地 CA 写入 Windows 受信任根存储，浏览器打开 https://localhost:19193 无警告\n" +
+		"    trust_local_ca: true"
+}
+
+// renderDefaultConfigTemplate 渲染首次运行时写出的 config.yaml。
+//
+// 刻意手写模板而不是用 viper.SafeWriteConfigAs 生成：这份文件的目标读者是人，
+// 注释里的那些警告（尤其 lan_bypass）比字段本身更重要。trust_local_ca 那一段
+// 按平台不同（见上），其余内容两平台通用。
+func renderDefaultConfigTemplate() string {
+	return fmt.Sprintf(defaultConfigTemplate, trustLocalCATemplateBlock())
+}
+
 const defaultConfigTemplate = `# ASA Server Manager 应用配置
 #
 # 优先级：命令行 flag > 环境变量 ASA_* > 本文件 > 内置默认值
@@ -19,8 +44,7 @@ server:
     # 关掉 TLS 就等于退回 HTTP/1.1 的「每源 6 条连接」限制，常驻 SSE 会把 REST 请求饿死。
     # 浏览器只在 TLS 上通过 ALPN 协商 HTTP/2，没有主流浏览器支持明文 h2c。
     enabled: true
-    # 把自签的本地 CA 写入 Windows 受信任根存储，浏览器打开 https://localhost:19193 无警告
-    trust_local_ca: true
+%s
     # 有自备证书时填这两项（推荐有域名的场景），此时不再生成本地 CA
     cert_file: ""
     key_file: ""

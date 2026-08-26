@@ -63,8 +63,10 @@ var (
 	// 详见 docs/HTTP2_CONNECTION_OPTIMIZATION.md
 	EnableTLS = true
 
-	// TrustLocalCA 决定是否把自签的本地 CA 写入 Windows 受信任根存储，
-	// 写入后浏览器打开 https://localhost:19193 不再有证书警告
+	// TrustLocalCA 决定是否把自签的本地 CA 写入系统信任存储（Windows 受信任根存储 /
+	// Linux ca-certificates|ca-trust），写入后浏览器打开 https://localhost:19193
+	// 在 Windows 上不再有证书警告；Linux 上系统信任库不影响浏览器的 NSS 证书库，
+	// 默认关闭，见 docs/LINUX_COMPATIBILITY_PLAN.md §5.7
 	TrustLocalCA = true
 
 	// TLSCertFile / TLSKeyFile 为用户自备证书（有域名时推荐）。两者都给出时
