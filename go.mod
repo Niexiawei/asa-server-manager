@@ -4,7 +4,7 @@ go 1.27
 
 require (
 	fyne.io/fyne/v2 v2.8.0
-	github.com/Niexiawei/go-arkparser v0.0.0
+	github.com/Niexiawei/go-arkparser v0.0.0-20260826010656-2d788db8c9b6
 	github.com/aymanbagabas/go-pty v0.2.3
 	github.com/dgraph-io/badger/v4 v4.9.6
 	github.com/fatedier/frp v0.71.0
@@ -154,5 +154,3 @@ require (
 	sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd // indirect
 	sigs.k8s.io/yaml v1.3.0 // indirect
 )
-
-replace github.com/Niexiawei/go-arkparser => D:\golang\arkparser\go-arkparser
