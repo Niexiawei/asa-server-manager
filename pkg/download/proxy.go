@@ -68,6 +68,15 @@ func Configure(cfg Config) {
 	httpClient.Store(buildClient(&cfg))
 }
 
+// Client returns the currently configured HTTP client (proxy/timeout
+// applied per Configure). For callers that need to make a request this
+// package's own Fetch doesn't cover — e.g. a small GitHub Releases API
+// metadata lookup — but still want the same corporate-proxy/timeout
+// behavior as every other download in the program.
+func Client() *http.Client {
+	return httpClient.Load()
+}
+
 func buildClient(cfg *Config) *http.Client {
 	transport := &http.Transport{
 		DialContext:           (&net.Dialer{Timeout: cfg.Timeout}).DialContext,

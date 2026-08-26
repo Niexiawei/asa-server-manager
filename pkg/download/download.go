@@ -8,9 +8,11 @@ package download
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/sha512"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"net/http"
 	"os"
@@ -27,7 +29,7 @@ var ErrChecksumMismatch = errors.New("download: checksum mismatch")
 type Options struct {
 	URL      string
 	Dest     string // final path; a same-directory .part file is used while downloading
-	Checksum string // optional, "sha256:<hex>"; empty skips verification
+	Checksum string // optional, "sha256:<hex>" or "sha512:<hex>"; empty skips verification
 	Resume   bool   // continue a previous .part file via a Range request instead of restarting
 	Progress func(done, total int64)
 }
@@ -161,7 +163,16 @@ func verifyChecksum(path, checksum string) error {
 	if !ok {
 		return fmt.Errorf("download: invalid checksum %q, want \"algo:hex\"", checksum)
 	}
-	if algo != "sha256" {
+
+	var h hash.Hash
+	switch algo {
+	case "sha256":
+		h = sha256.New()
+	case "sha512":
+		// GE-Proton's release page only publishes a .sha512sum companion
+		// file (no sha256) — see docs/LINUX_COMPATIBILITY_PLAN.md §5.13/§4.3.
+		h = sha512.New()
+	default:
 		return fmt.Errorf("download: unsupported checksum algorithm %q", algo)
 	}
 
@@ -171,7 +182,6 @@ func verifyChecksum(path, checksum string) error {
 	}
 	defer f.Close()
 
-	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
 		return err
 	}
