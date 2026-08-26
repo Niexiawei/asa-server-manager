@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+# ubuntu-latest here is real Linux, not a cross-compile stand-in — this is the
+# first place in this project's history any of the internal/pkg Linux code
+# (procx/proctree/plugindata/certmgr's store_linux.go/instance/runner, etc.)
+# actually executes on Linux at all, as opposed to only cross-compiling with
+# GOOS=linux CGO_ENABLED=0. It still can't cover anything that needs a real
+# ARK/Wine/systemd environment (see docs/LINUX_COMPATIBILITY_PLAN.md §9)
+# — this is unit-test-level coverage only.
+jobs:
+  build:
+    name: build (${{ matrix.goos }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            goos: windows
+            cgo_enabled: "1"
+          - os: ubuntu-latest
+            goos: linux
+            cgo_enabled: "0"
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: app/package-lock.json
+
+      # app/dist is gitignored (app/.gitignore) but //go:embed dist in
+      # app/appembed.go requires the directory to exist with content, or
+      # `go build` fails outright ("pattern dist: no matching files found") —
+      # this has to run before any Go build step on a fresh checkout.
+      - name: Build embedded frontend
+        working-directory: app
+        run: |
+          npm ci
+          npm run build
+
+      - name: go build
+        env:
+          GOOS: ${{ matrix.goos }}
+          CGO_ENABLED: ${{ matrix.cgo_enabled }}
+        run: go build ./...
+
+      - name: go vet
+        env:
+          GOOS: ${{ matrix.goos }}
+          CGO_ENABLED: ${{ matrix.cgo_enabled }}
+        run: go vet ./...
+
+      # Informational, not gating: a handful of existing tests are hardcoded
+      # to the original author's local dev machine (paths like
+      # E:\asa_server_data, specific instance names) and fail on any other
+      # machine, CI included — this is pre-existing, tracked in CLAUDE.md,
+      # not something this workflow should block merges on. pkg/tail's test
+      # is excluded outright: it's an interactive manual debug tool (an
+      # unconditional infinite loop, not a real test with an exit condition)
+      # and would hang the job forever, not just fail it. internal/frpmanage
+      # is excluded to match the exclusion already established in
+      # docs/LINUX_COMPATIBILITY_PLAN.md's own verification commands.
+      - name: go test (informational — see CLAUDE.md known test caveats)
+        continue-on-error: true
+        env:
+          GOOS: ${{ matrix.goos }}
+          CGO_ENABLED: ${{ matrix.cgo_enabled }}
+        run: go test $(go list ./... | grep -v internal/frpmanage | grep -v pkg/tail)
