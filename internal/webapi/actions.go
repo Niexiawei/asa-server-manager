@@ -11,6 +11,7 @@ import (
 	"asa-server/internal/logger"
 	"asa-server/internal/parseserver"
 	"asa-server/internal/realtime"
+	"asa-server/internal/runner"
 	"asa-server/internal/schedule"
 	statepkg "asa-server/internal/state"
 	"asa-server/internal/syncthingmanage"
@@ -25,6 +26,7 @@ import (
 	"asa-server/internal/webapi/saveapi"
 	"asa-server/internal/webapi/scheduleapi"
 	"asa-server/internal/webapi/serverapi"
+	"asa-server/internal/webapi/systemapi"
 	"context"
 	"errors"
 	"fmt"
@@ -322,6 +324,7 @@ func (s *APIServer) setupRoutes() {
 	iconapi.NewHandler().RegisterRouter(s.engine)
 	scheduleapi.NewHandler().RegisterRouter(s.engine)
 	pluginapi.NewHandler().RegisterRouter(s.engine)
+	systemapi.NewHandler().RegisterRouter(s.engine)
 
 	// WebSocket endpoints。
 	// AuthGate 是纵深防御：中间件已经拦过一道，但 handler 内部还会周期性复查，
@@ -383,6 +386,26 @@ func InitializationBasicComponents() {
 	if err := schedule.Initialize(); err != nil {
 		log.Fatal(err)
 	}
+	// Host dependency self-check for the Linux Wine/Proton runtime (empty,
+	// no-op on Windows). Logged at startup rather than blocking it —
+	// docs/LINUX_COMPATIBILITY_PLAN.md §4.2 originally called for refusing
+	// to start on a failed check, but that's too strong here: this program
+	// also manages things that have nothing to do with Wine/Proton, and
+	// instance startup doesn't route through runner yet (that lands in P4).
+	// GET /api/system/preflight exposes the same result for the frontend.
+	for _, p := range runner.Preflight() {
+		logger.GetLogger().Warnf("Linux runtime preflight: %s — %s (fix: %s)", p.Name, p.Detail, p.Fix)
+	}
+	// Warm the Linux Wine/Proton runtime (no-op on Windows). Backgrounded and
+	// best-effort like syncthingmanage.Initialize above: GE-Proton alone is a
+	// ~450MB download, so this must not block server startup, and a fresh
+	// machine with no instances yet doesn't need it until someone starts one.
+	// GET /api/system/preflight and this log line are how a failure surfaces.
+	go func() {
+		if err := runner.EnsureRuntime(context.Background(), nil); err != nil {
+			logger.GetLogger().Warnf("Linux runtime (umu/GE-Proton) not ready: %v", err)
+		}
+	}()
 }
 
 // initializeAuth 在鉴权开启时打开 auth.db、执行迁移、加载内存副本。
