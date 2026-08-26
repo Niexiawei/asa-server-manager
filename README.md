@@ -377,6 +377,13 @@ Chinese overview, or jump straight to a topic below.
 | [HTTP2_CONNECTION_OPTIMIZATION.md](docs/HTTP2_CONNECTION_OPTIMIZATION.md) | HTTP/2 plan to lift the browser's 6-connection-per-origin cap on SSE |
 | [instance-manager-daemon.md](docs/instance-manager-daemon.md) | Instance manager daemon design |
 
+### Linux Compatibility
+
+| Document | What it covers |
+|----------|----------------|
+| [LINUX_COMPATIBILITY_PLAN.md](docs/LINUX_COMPATIBILITY_PLAN.md) | Linux compatibility design: coupling points, abstraction layers, phased implementation record (P0–P5 done) |
+| [LINUX_DEPLOYMENT.md](docs/LINUX_DEPLOYMENT.md) | Linux deployment guide: dependencies, install steps, systemd service, troubleshooting |
+
 ### Features
 
 | Document | What it covers |

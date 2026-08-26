@@ -179,6 +179,13 @@ asa-server/
 | [HTTP2_CONNECTION_OPTIMIZATION.md](HTTP2_CONNECTION_OPTIMIZATION.md) | **HTTPS + HTTP/2**（已实施）——本地 CA、受信任存储、反向代理兼容 |
 | [instance-manager-daemon.md](instance-manager-daemon.md) | 实例管理守护进程设计 |
 
+### Linux 兼容
+
+| 文档 | 说明 |
+|------|------|
+| [LINUX_COMPATIBILITY_PLAN.md](LINUX_COMPATIBILITY_PLAN.md) | Linux 兼容改造方案：耦合点清单、抽象层设计、分阶段实施记录（P0–P5 已实施） |
+| [LINUX_DEPLOYMENT.md](LINUX_DEPLOYMENT.md) | Linux 部署指南：依赖清单、安装步骤、systemd 服务化、故障排查 |
+
 ### 功能设计
 
 | 文档 | 说明 |
