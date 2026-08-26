@@ -39,3 +39,21 @@ func QueryProcess(name, commandLine string) ([]Win32Process, error) {
 	}
 	return result, nil
 }
+
+// processCmdline returns the command line of the process with the given
+// pid via a direct ProcessId lookup (no name filter).
+//
+// Selects every Win32Process field, not just CommandLine: the wmi library
+// maps the query's selected columns onto the destination struct by name,
+// and errors if a struct field has no matching column in the result set.
+func processCmdline(pid uint32) (string, error) {
+	query := fmt.Sprintf(`SELECT Name, ProcessId, CommandLine FROM Win32_Process WHERE ProcessId=%d`, pid)
+	var result []Win32Process
+	if err := wmi.Query(query, &result); err != nil {
+		return "", err
+	}
+	if len(result) == 0 {
+		return "", fmt.Errorf("process %d not found", pid)
+	}
+	return result[0].CommandLine, nil
+}

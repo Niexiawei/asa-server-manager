@@ -22,6 +22,14 @@ type Win32Process struct {
 	CommandLine string
 }
 
+// ProcessCmdline returns the full command line of the process with the
+// given pid, in the same flattened (NUL/argument-separators-as-spaces)
+// shape QueryProcess's CommandLine field uses. Windows: WMI lookup by
+// ProcessId. Linux: /proc/<pid>/cmdline.
+func ProcessCmdline(pid uint32) (string, error) {
+	return processCmdline(pid)
+}
+
 // WaitProcessExit blocks until the process with the given pid has exited or ctx is done.
 // It polls process liveness every interval. Returns true once the process has exited,
 // false if ctx was cancelled first.

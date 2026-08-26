@@ -89,6 +89,12 @@ func QueryProcess(name, cmdlineSubstr string) ([]Win32Process, error) {
 	return results, nil
 }
 
+// processCmdline returns the command line of the process with the given
+// pid, in the same flattened shape QueryProcess's CommandLine field uses.
+func processCmdline(pid uint32) (string, error) {
+	return readCmdline(int(pid))
+}
+
 // readCmdline returns /proc/<pid>/cmdline with its NUL argument separators
 // turned into spaces, matching the flat string shape WMI's CommandLine gives.
 func readCmdline(pid int) (string, error) {
