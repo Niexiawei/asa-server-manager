@@ -25,9 +25,11 @@ type storeLocation struct {
 	flag uint32
 }
 
+// name 已经带上 \Root 后缀：跨平台调用方（cli.go 的状态展示）把它当一段
+// 完整的、自解释的位置描述直接打印，不会另外拼接平台特定的后缀。
 var storeLocations = []storeLocation{
-	{"LocalMachine", windows.CERT_SYSTEM_STORE_LOCAL_MACHINE},
-	{"CurrentUser", windows.CERT_SYSTEM_STORE_CURRENT_USER},
+	{"LocalMachine\\Root", windows.CERT_SYSTEM_STORE_LOCAL_MACHINE},
+	{"CurrentUser\\Root", windows.CERT_SYSTEM_STORE_CURRENT_USER},
 }
 
 // TrustCA 把本地 CA 写入系统受信任根存储。已存在同指纹的证书时直接返回，
@@ -40,7 +42,7 @@ func TrustCA() error {
 	fingerprint := Fingerprint(der)
 
 	if loc, ok := findTrusted(fingerprint); ok {
-		logger.GetLogger().Debugf("本地 CA 已在 %s\\Root 中（指纹 %s）", loc, fingerprint)
+		logger.GetLogger().Debugf("本地 CA 已在 %s 中（指纹 %s）", loc, fingerprint)
 		return nil
 	}
 
@@ -51,7 +53,7 @@ func TrustCA() error {
 			continue
 		}
 		logger.GetLogger().Infof(
-			"已将本地 CA 写入 %s\\Root（指纹 %s）。如需移除，执行 `asa-server cert uninstall`",
+			"已将本地 CA 写入 %s（指纹 %s）。如需移除，执行 `asa-server cert uninstall`",
 			loc.name, fingerprint)
 		return nil
 	}
@@ -128,7 +130,7 @@ func untrustFingerprint(fingerprint string) error {
 			errs = append(errs, fmt.Errorf("%s: %w", loc.name, err))
 		} else {
 			removed = true
-			logger.GetLogger().Infof("已从 %s\\Root 移除本地 CA（指纹 %s）", loc.name, fingerprint)
+			logger.GetLogger().Infof("已从 %s 移除本地 CA（指纹 %s）", loc.name, fingerprint)
 		}
 		_ = windows.CertCloseStore(store, 0)
 	}

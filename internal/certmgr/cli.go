@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"runtime"
 	"time"
 
 	"github.com/urfave/cli/v3"
@@ -28,7 +29,7 @@ func ActionCertStatus(ctx context.Context, cmd *cli.Command) error {
 		caCert.NotBefore.Format("2006-01-02"), caCert.NotAfter.Format("2006-01-02"))
 
 	if loc, ok := findTrusted(fingerprint); ok {
-		fmt.Printf("  受信任: 是（%s\\Root）\n", loc)
+		fmt.Printf("  受信任: 是（%s）\n", loc)
 	} else {
 		fmt.Println("  受信任: 否 —— 浏览器会提示证书警告，执行 `asa-server cert install` 安装")
 	}
@@ -62,7 +63,13 @@ func ActionCertInstall(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
-	if cmd.Bool("machine") && !IsElevated() {
+	if runtime.GOOS != "windows" {
+		// Linux 只有一个系统级信任存储，没有 LocalMachine/CurrentUser 之分，
+		// --machine 在这里没有意义；也没有 ShellExecute 式的自动提权，只能提示用 sudo。
+		if !IsElevated() {
+			return fmt.Errorf("安装到系统信任存储需要 root 权限，请用 sudo 重新运行该命令")
+		}
+	} else if cmd.Bool("machine") && !IsElevated() {
 		fmt.Println("安装到 LocalMachine 需要管理员权限，正在请求提权...")
 		if err := procx.RunAsAdmin("cert install --machine"); err != nil {
 			return fmt.Errorf("提权失败: %w", err)
