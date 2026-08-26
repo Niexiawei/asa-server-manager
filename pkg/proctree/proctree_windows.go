@@ -1,6 +1,6 @@
 //go:build windows
 
-package processjob
+package proctree
 
 import (
 	"context"
@@ -51,7 +51,7 @@ func createJob() (windows.Handle, error) {
 // Closing the returned ProcessJob will terminate the entire process tree.
 func Start(ctx context.Context, cmd *exec.Cmd) (*ProcessJob, error) {
 	if cmd == nil {
-		return nil, errors.New("processjob: cmd is nil")
+		return nil, errors.New("proctree: cmd is nil")
 	}
 
 	job, err := createJob()

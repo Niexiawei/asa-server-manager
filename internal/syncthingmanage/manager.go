@@ -1,8 +1,8 @@
 package syncthingmanage
 
 import (
-	"asa-server/pkg/processjob"
-	"asa-server/pkg/winproc"
+	"asa-server/pkg/proctree"
+	"asa-server/pkg/procx"
 	"bufio"
 	"context"
 	"fmt"
@@ -28,7 +28,7 @@ type SyncthingManager struct {
 	startErr      error // Last start error
 	Ctx           context.Context
 	cancel        func()
-	job           *processjob.ProcessJob
+	job           *proctree.ProcessJob
 	cmdPid        int
 }
 
@@ -104,7 +104,7 @@ func (m *SyncthingManager) asyncStart() {
 	cmd.Stdout = &LogWriter{tag: "[syncthing]", logFunc: logger.GetLogger().Infof}
 	cmd.Stderr = &LogWriter{tag: "[syncthing]", logFunc: logger.GetLogger().Errorf}
 
-	job, err := processjob.Start(ctx, cmd)
+	job, err := proctree.Start(ctx, cmd)
 	if err != nil {
 		m.startErr = err
 		m.cmd = nil
@@ -130,7 +130,7 @@ func (m *SyncthingManager) asyncStart() {
 	}()
 
 	go func() {
-		if exited := winproc.WaitProcessExit(ctx, m.cmdPid, 2*time.Second); exited {
+		if exited := procx.WaitProcessExit(ctx, m.cmdPid, 2*time.Second); exited {
 			cancel()
 			job.Close()
 		}
