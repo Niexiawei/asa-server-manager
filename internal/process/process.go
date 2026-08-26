@@ -42,6 +42,42 @@ func GetInstancePID(instanceName string) (int, error) {
 	return pid, nil
 }
 
+// SaveLauncherPID persists the launcher process's PID for an instance.
+//
+// On Windows this is the same value as SaveInstancePID's game PID (exec
+// launches the game exe directly, no wrapper). On Linux it is umu-run's
+// PID — which, because runner.Run sets Setsid, is also the process-group id
+// for the whole umu-run/bwrap/wine/game tree. See
+// docs/LINUX_COMPATIBILITY_PLAN.md §5.3. Kept as a distinct file (not
+// reused from the "pid" file) so a best-effort kill always has a value to
+// fall back to even when resolving the real game PID fails.
+func SaveLauncherPID(instanceName string, pid int) error {
+	instanceDir := filepath.Join(cfgpkg.InstancesDir, instanceName)
+	if err := os.MkdirAll(instanceDir, 0755); err != nil {
+		return fmt.Errorf("failed to create instance directory: %w", err)
+	}
+
+	pidFile := filepath.Join(instanceDir, "launcher_pid")
+	return os.WriteFile(pidFile, []byte(strconv.Itoa(pid)), 0644)
+}
+
+// GetLauncherPID retrieves the saved launcher PID of an instance.
+func GetLauncherPID(instanceName string) (int, error) {
+	pidFile := filepath.Join(cfgpkg.InstancesDir, instanceName, "launcher_pid")
+
+	data, err := os.ReadFile(pidFile)
+	if err != nil {
+		return 0, err
+	}
+
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse PID: %w", err)
+	}
+
+	return pid, nil
+}
+
 // SaveAsaServerApiPID persists the AsaApiLoader (asaServerApi) PID of an instance
 // to its directory. This is the loader process launched when EnableAsaPlugin is on;
 // it is distinct from the game process PID stored by SaveInstancePID.
@@ -98,16 +134,17 @@ var expectedExecutables = map[string]bool{
 
 // isExpectedProcess 核对 pid 当前对应的可执行文件是否是本项目会启动的那几个。
 //
-// PID 文件一旦写入就不会再被清理（进程正常停止或崩溃都不会删它），而 Windows
+// PID 文件一旦写入就不会再被清理（进程正常停止或崩溃都不会删它），而系统
 // 会把退出进程的 PID 号码回收复用给完全无关的新进程。只看"这个 PID 存在"会把
-// 崩溃后凑巧复用了旧 PID 的无关进程误判成"实例还活着"。查不到镜像名（进程已
-// 退出、或权限不足）一律当作"不是"——宁可漏判存活，也不能误判存活。
+// 崩溃后凑巧复用了旧 PID 的无关进程误判成"实例还活着"。查不到判据一律当作
+// "不是"——宁可漏判存活，也不能误判存活。
+//
+// 判据本身按平台拆分（isExpectedProcessPlatform，process_windows.go /
+// process_linux.go）：Windows 查镜像名；Linux 上 Wine 宿主进程的
+// /proc/<pid>/exe 指向 wine-preloader/wine64 而非游戏 exe，镜像名判定会
+// 全部落空，必须改查 cmdline。见 docs/LINUX_COMPATIBILITY_PLAN.md §5.3 第 4 条。
 func isExpectedProcess(pid uint32) bool {
-	imagePath, err := procx.ProcessImageName(pid)
-	if err != nil {
-		return false
-	}
-	return expectedExecutables[strings.ToLower(filepath.Base(imagePath))]
+	return isExpectedProcessPlatform(pid)
 }
 
 // IsServerRunningByPID checks if a server instance is running by verifying the
