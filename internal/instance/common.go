@@ -109,7 +109,15 @@ func killGameServer(pid int) {
 		_ = procx.KillTree(pid)
 	}
 }
-func WaitArkApiRunServer(ctx context.Context, port int) (uint32, error) {
+// waitForGamePID polls for the real ArkAscendedServer.exe process and
+// returns its PID, matching on AltSaveDirectoryName rather than Port: a
+// numeric port substring can collide with -QueryPort=/-RCONPort=, while
+// SaveDir is unique per instance in this project by construction (see
+// docs/LINUX_COMPATIBILITY_PLAN.md §5.3). This is required whenever
+// Handle.LauncherPID from runner.Run isn't the game process's own PID —
+// AsaApiLoader.exe wraps and spawns it as a child on either platform, and
+// Linux's umu-run wraps every launch regardless of AsaApiLoader.
+func waitForGamePID(ctx context.Context, saveDir string) (uint32, error) {
 	var (
 		processErr = make(chan error, 1)
 		processPid = make(chan uint32, 1)
@@ -125,7 +133,7 @@ func WaitArkApiRunServer(ctx context.Context, port int) (uint32, error) {
 			if ctx.Err() != nil {
 				return
 			}
-			process, err := procx.QueryProcess("ArkAscendedServer.exe", fmt.Sprintf("Port=%d", port))
+			process, err := procx.QueryProcess("ArkAscendedServer.exe", fmt.Sprintf("AltSaveDirectoryName=%s", saveDir))
 			if err != nil {
 				select {
 				case processErr <- err:
@@ -156,7 +164,7 @@ func WaitArkApiRunServer(ctx context.Context, port int) (uint32, error) {
 	case <-ctx.Done():
 		return 0, ctx.Err()
 	case <-time.After(30 * time.Second):
-		return 0, fmt.Errorf("ARK API loading server error: ArkAscendedServer.exe did not appear within 30 seconds")
+		return 0, fmt.Errorf("ArkAscendedServer.exe did not appear within 30 seconds")
 	}
 }
 
@@ -462,15 +470,15 @@ func waitServerStartup(pid int, gameLogPath string, callback waitServerStartupFu
 	<-startup
 }
 
-// findServerPIDByPort 通过 WMI 查询 ArkAscendedServer.exe 进程命令行中的端口来查找 PID
-// 不依赖端口是否被监听，适用于启动中等过渡状态
-func findServerPIDByPort(port int) (int, error) {
-	processes, err := procx.QueryProcess("ArkAscendedServer.exe", fmt.Sprintf("Port=%d", port))
+// findServerPIDBySaveDir 通过进程命令行中的 AltSaveDirectoryName 查找 ArkAscendedServer.exe 的 PID。
+// 不依赖端口是否被监听，适用于启动中等过渡状态（Windows 走 WMI，Linux 走 /proc 扫描，见 pkg/procx）。
+func findServerPIDBySaveDir(saveDir string) (int, error) {
+	processes, err := procx.QueryProcess("ArkAscendedServer.exe", fmt.Sprintf("AltSaveDirectoryName=%s", saveDir))
 	if err != nil {
-		return 0, fmt.Errorf("WMI query failed: %w", err)
+		return 0, fmt.Errorf("process query failed: %w", err)
 	}
 	if len(processes) == 0 {
-		return 0, fmt.Errorf("no ArkAscendedServer process found with Port=%d", port)
+		return 0, fmt.Errorf("no ArkAscendedServer process found with AltSaveDirectoryName=%s", saveDir)
 	}
 	return int(processes[0].ProcessId), nil
 }

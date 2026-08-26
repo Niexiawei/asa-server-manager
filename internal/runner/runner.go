@@ -65,6 +65,21 @@ func GamePath(hostPath string) string {
 	return gamePath(hostPath)
 }
 
+// LauncherIsDirect reports whether Handle.LauncherPID from Run is the PID of
+// the exe that was actually passed in (true), or an OS-level wrapper's PID
+// (false — Linux's umu-run). True on Windows, false on Linux.
+//
+// This is independent of app-level wrapping: an exe that is itself a
+// supervisor spawning a child process (ARK's AsaApiLoader.exe, on either
+// platform) still needs its own child resolved separately even when
+// LauncherIsDirect is true — that's a fact about the specific exe, which
+// this package has no way to know, not about the platform's process model.
+// Callers combine both: "do I need to resolve the real game PID instead of
+// trusting Handle.LauncherPID?" is `isWrapperExe || !runner.LauncherIsDirect()`.
+func LauncherIsDirect() bool {
+	return launcherIsDirect()
+}
+
 // EnsureRuntime makes sure the launch runtime is ready to use. No-op on
 // Windows. On Linux it downloads/verifies umu + the pinned GE-Proton build
 // and warms the Wine prefix if they aren't already in place. progress

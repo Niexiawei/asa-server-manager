@@ -62,6 +62,10 @@ func runPTY(ctx context.Context, exePath string, args []string, opt Options) (*H
 // expects.
 func gamePath(hostPath string) string { return hostPath }
 
+// launcherIsDirect: exec.Command launches exePath itself, no OS-level
+// wrapper — Handle.LauncherPID is always exePath's own PID.
+func launcherIsDirect() bool { return true }
+
 // ensureRuntime is a no-op on Windows: there is no Wine/Proton runtime to
 // download or warm.
 func ensureRuntime(ctx context.Context, progress io.Writer) error { return nil }

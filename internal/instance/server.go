@@ -8,6 +8,7 @@ import (
 	"asa-server/internal/plugindata"
 	procpkg "asa-server/internal/process"
 	"asa-server/internal/rconx"
+	"asa-server/internal/runner"
 	statepkg "asa-server/internal/state"
 	"asa-server/pkg/console"
 	"asa-server/pkg/fsutil"
@@ -17,13 +18,10 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
-
-	"github.com/aymanbagabas/go-pty"
 )
 
 // ErrOperationNotAllowed is returned when an operation is not allowed in the current instance state
@@ -329,7 +327,7 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 	}
 
 	if config.ClusterID != "" {
-		clusterDir := filepath.Join(cfgpkg.BaseDir, "clusters", config.ClusterID)
+		clusterDir := runner.GamePath(filepath.Join(cfgpkg.BaseDir, "clusters", config.ClusterID))
 		if strings.Contains(config.CustomStartParameters, "-ClusterDirOverride") {
 			args = append(args,
 				fmt.Sprintf("-ClusterId=%s", config.ClusterID),
@@ -372,23 +370,49 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 		logger.GetLogger().Infof("Created log file: %s", gameLogPath)
 	}
 
-	if arkAsaApiRunning {
-		pp, err := pty.New()
-		if err != nil {
-			startErr = fmt.Errorf("failed to create pty: %w", err)
-			return startErr
-		}
-		pp.Resize(1920, 1080)
-		c := pp.Command(arkExe, args...)
-		c.Dir = exeWorkDir
-		if err := c.Start(); err != nil {
-			_ = pp.Close()
-			startErr = fmt.Errorf("failed to start server: %w", err)
-			return startErr
-		}
-		// PTY 跟随 AsaApiLoader 进程生命周期，不在函数返回时关闭
-		go func() { _ = c.Wait(); _ = pp.Close() }()
+	// Launch arkExe (ArkAscendedServer.exe, or AsaApiLoader.exe wrapping it
+	// with the same arguments — runner treats both identically, see
+	// internal/runner's package doc). Windows: direct exec/pty, unchanged
+	// from before. Linux: wrapped in umu-run — see
+	// docs/LINUX_COMPATIBILITY_PLAN.md §5.1.
+	//
+	// context.Background(), not the local ctx: this launch must outlive
+	// startServerInternal's own return. defer cancel() above fires as soon
+	// as this function returns (which happens once startup is confirmed,
+	// not when the server stops) — passing ctx here would have
+	// exec.CommandContext kill the just-started server the moment this
+	// function's own bookkeeping finishes.
+	handle, err := runner.Run(context.Background(), arkExe, args, runner.Options{
+		Dir: exeWorkDir,
+		PTY: arkAsaApiRunning,
+	})
+	if err != nil {
+		startErr = fmt.Errorf("failed to start server: %w", err)
+		return startErr
+	}
 
+	// launcher_pid: on Windows this equals the game PID saved below; on
+	// Linux it's umu-run's PID (== the process-group id for the whole
+	// launch, since runner.Run sets Setsid there). Saved unconditionally so
+	// a best-effort kill always has a value to fall back to even if the
+	// game-PID resolution below fails.
+	if err := procpkg.SaveLauncherPID(instanceName, handle.LauncherPID); err != nil {
+		logger.GetLogger().Warnf("Failed to save launcher PID for instance %s: %v", instanceName, err)
+	}
+
+	// The launched process must keep running independently of this
+	// function; reap it once it exits so Linux doesn't accumulate a zombie
+	// waiting to be waited on (Windows doesn't need this, but calling Wait
+	// unconditionally is harmless there too — previously only the PTY/AsaApi
+	// branch did this).
+	go func() {
+		_ = handle.Wait()
+		if handle.PTY != nil {
+			_ = handle.PTY.Close()
+		}
+	}()
+
+	if arkAsaApiRunning {
 		// 将 PTY 输出清洗后落盘，每次启动清空
 		// 打开失败只告警，不影响开服
 		if apiLogPath, logErr := GetAsaApiLogFilePath(instanceName); logErr != nil {
@@ -400,29 +424,32 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 			// AsaApiLoader 用光标定位排版，必须走 CleanScreenOutput 而非 CleanConsoleOutput
 			go func() {
 				defer apiLogFile.Close()
-				_ = console.CleanScreenOutput(pp, apiLogFile)
+				_ = console.CleanScreenOutput(handle.PTY, apiLogFile)
 			}()
 		}
 
-		// 保存 AsaApiLoader（asaServerApi）进程 PID，供停止时先于游戏进程结束
-		if err := procpkg.SaveAsaServerApiPID(instanceName, c.Process.Pid); err != nil {
+		// 保存 AsaApiLoader（asaServerApi）进程 PID，供停止时先于游戏进程结束。
+		// Linux 上这与 launcher_pid 是同一个值（进程组 leader），杀哪个都一样。
+		if err := procpkg.SaveAsaServerApiPID(instanceName, handle.LauncherPID); err != nil {
 			logger.GetLogger().Warnf("Failed to save AsaApiLoader PID for instance %s: %v", instanceName, err)
 		}
-		_pid, err := WaitArkApiRunServer(ctx, config.Port)
+	}
+
+	// Resolve the real ArkAscendedServer.exe PID. Windows launching it
+	// directly (no AsaApiLoader) already has the right answer in
+	// handle.LauncherPID; every other case needs a poll — AsaApiLoader.exe
+	// spawns it as a child (either platform), and Linux's umu-run wraps
+	// every launch regardless of AsaApiLoader. See waitForGamePID's doc
+	// comment and docs/LINUX_COMPATIBILITY_PLAN.md §5.3.
+	if arkAsaApiRunning || !runner.LauncherIsDirect() {
+		gamePID, err := waitForGamePID(ctx, config.SaveDir)
 		if err != nil {
 			startErr = fmt.Errorf("failed to start server: %w", err)
 			return startErr
 		}
-		pid = int(_pid)
+		pid = int(gamePID)
 	} else {
-		cmd := exec.Command(arkExe, args...)
-		cmd.Dir = exeWorkDir
-		if err := cmd.Start(); err != nil {
-			startErr = fmt.Errorf("failed to start server: %w", err)
-			return startErr
-		}
-		// Save the PID to the instance directory
-		pid = cmd.Process.Pid
+		pid = handle.LauncherPID
 	}
 
 	if err := procpkg.SaveInstancePID(instanceName, pid); err != nil {
@@ -595,7 +622,14 @@ func stopServerInternal(instanceName string) error {
 		logger.GetLogger().Infof("Server for instance %s has exited.", instanceName)
 	case <-time.After(5 * time.Minute):
 		logger.GetLogger().Warnf("Process %d did not exit within 5min, force killing", pid)
-		_ = procx.Kill(pid)
+		// Tree kill, not single-PID: this is the last-resort path
+		// (docs/LINUX_COMPATIBILITY_PLAN.md §5.4's "强杀进程树" row). On
+		// Linux, pid is a member of the umu-run/bwrap/wine process group —
+		// a single-PID kill here would leave that whole tree orphaned,
+		// holding the Wine prefix busy for the next start. On Windows this
+		// is a harmless no-op difference from plain Kill (the game process
+		// has no meaningful children).
+		_ = procx.KillTree(pid)
 		waitCancel() // 取消 waitServerStopped goroutine 的 context
 	}
 
@@ -624,10 +658,10 @@ func ForceStopServer(instanceName string) error {
 	if apiPid, pidErr := procpkg.GetAsaServerApiPID(instanceName); pidErr == nil && apiPid > 0 {
 		killGameServer(apiPid)
 	}
-	// 2. 通过 WMI 查找游戏进程（best effort，端口未监听时也能找到）
+	// 2. 扫描进程命令行查找游戏进程（best effort，端口未监听时也能找到）
 	cfg, err := cfgpkg.LoadInstanceConfig(instanceName)
 	if err == nil {
-		if pid, pidErr := findServerPIDByPort(cfg.Port); pidErr == nil && pid > 0 {
+		if pid, pidErr := findServerPIDBySaveDir(cfg.SaveDir); pidErr == nil && pid > 0 {
 			killGameServer(pid)
 		}
 	}
@@ -635,9 +669,15 @@ func ForceStopServer(instanceName string) error {
 	if pid2, pidErr := procpkg.GetInstancePID(instanceName); pidErr == nil && pid2 > 0 {
 		killGameServer(pid2)
 	}
-	// 4. 重置状态为 stopped
+	// 4. 尝试杀死已保存的启动器 PID（best effort，兜底）——Linux 上这是整棵
+	//    umu-run/bwrap/wine/游戏进程树的 pgid leader，前三步因故都拿不到有效
+	//    PID 时仍能保证杀干净；Windows 上与游戏 PID 同值，杀两遍无害。
+	if launcherPid, pidErr := procpkg.GetLauncherPID(instanceName); pidErr == nil && launcherPid > 0 {
+		killGameServer(launcherPid)
+	}
+	// 5. 重置状态为 stopped
 	_ = statepkg.WriteInstanceState(instanceName, statepkg.StatusStopped, "")
-	// 5. 清理镜像目录
+	// 6. 清理镜像目录
 	if err := mirror.CleanupInstanceMirror(instanceName); err != nil {
 		logger.GetLogger().Warnf("Failed to cleanup instance mirror for %s: %v", instanceName, err)
 	}

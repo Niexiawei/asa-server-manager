@@ -119,3 +119,8 @@ func gamePath(hostPath string) string {
 	}
 	return "Z:" + strings.ReplaceAll(abs, "/", `\`)
 }
+
+// launcherIsDirect: umu-run is an OS-level wrapper — Handle.LauncherPID is
+// umu-run's own PID, not the Windows exe's, which is Wine's problem to
+// eventually launch as some descendant process.
+func launcherIsDirect() bool { return false }
