@@ -414,6 +414,10 @@ func QueryProcess(name, cmdlineSubstr string) ([]Process, error)
 
 ### 5.5 `internal/installer` —— SteamCMD 与 ARK 安装
 
+> ✅ 本节已实施（P3）。落地时有两处偏离本节原稿的具体安排，都记在下面对应的段落里：
+> fixups 落在 `internal/installer/fixups*.go` 而不是原稿建议的 `internal/runner/fixups_linux.go`；
+> 首次配置生成的轮询等待改成了「超时也报错」而不是原 Windows 代码那种「等完固定时间就无条件宣布成功」。
+
 | 环节 | Windows | Linux |
 |---|---|---|
 | 下载 | `steamcmd.zip` → 解压 | `steamcmd_linux.tar.gz` → 解包，`chmod +x steamcmd.sh` |
@@ -422,10 +426,15 @@ func QueryProcess(name, cmdlineSubstr string) ([]Process, error)
 | 安装 ARK | `+force_install_dir ... +login anonymous +app_update 2430930 validate +quit` | **完全相同** |
 | 首次配置生成 | 直接跑 `ArkAscendedServer.exe TheIsland_WP?listen ...` 固定等 60s | 经 `runner.Run()` 跑同一条命令，**轮询等待 `Saved/Config/WindowsServer/` 出现**（最长 180s）而非固定 sleep —— Wine 冷启动比 Windows 慢得多 |
 
-把 `SteamCmdURL` 从 `config` 包的常量拆成平台常量（`config/steamcmd_windows.go` / `_linux.go`），
-或直接移进 `installer`（更合理，`config` 不该知道下载地址）。
+✅ 已按第二个选项落地：`SteamCmdURL` 从 `config` 包删除，改为 `installer/steamcmd_windows.go` /
+`steamcmd_linux.go` 里各自的 `steamCmdURL`/`steamCmdBinaryName`/`extractSteamCmdArchive`
+（Windows 走原有 zip 逻辑，Linux 走 `pkg/archive.ExtractTar` 解 `tar.gz` + `chmod +x`）。
 
-**Linux 独有：安装/更新后必须执行三项 ASA-on-Wine 修复**（`runner/fixups_linux.go`，幂等）：
+**Linux 独有：安装/更新后必须执行三项 ASA-on-Wine 修复**（✅ 已实施，落在 `internal/installer/fixups*.go`，
+不在原稿建议的 `internal/runner/fixups_linux.go`——这三项认的是 `cfgpkg.ServerFilesDir`/`SteamCmdDir`
+这类 installer 领域概念，`installer` 本来就已经知道这些路径，放这里比让 `runner` 反过来认识
+installer 的目录布局更顺。前两项的路径逻辑（不含 `os.Symlink`）拆进了无构建约束的
+`fixups.go`，配了真实单测，幂等）：
 
 1. **禁用 Sentry crashpad 插件**：`server-files/ShooterGame/Plugins/sentry` → 重命名为 `sentry.disabled`。
    ASA 自带的 sentry-native crashpad 后端会从 Wine 的 TEB 读 `StackLimit`/`StackBase`，
@@ -440,8 +449,10 @@ func QueryProcess(name, cmdlineSubstr string) ([]Process, error)
    与 WINEPREFIX 无关）。缺失时服务器在 `FSteamServerInstanceHandler` 里崩溃。
    用 `-f` 语义覆盖，避免旧 BaseDir 留下的失效软链。
 
-> 这三项直接决定「能不能起来」，不是优化项。建议实现为 `fixups.Apply()` 并在
-> `UpdateArkServer` 成功后、以及每次 `StartServer` 前（幂等、开销可忽略）各调一次。
+> 这三项直接决定「能不能起来」，不是优化项。✅ 已实现为 `installer.ApplyLinuxFixups()`（Windows 上是空实现），
+> 目前接了两处：`DownloadAndUpdateArkServer` 成功后、`VerifyServerInstallation` 首次拉起验证前。
+> **第三处——`instance.StartServer` 每次真实启动前——还没接**，那是 P4「`StartServer` 走 `runner`」
+> 的范围，本次不越界去碰 `instance/server.go`。
 
 ### 5.6 `internal/mirror` —— 补一个 `junction_linux.go`
 
@@ -891,7 +902,7 @@ linux:
 | **W 轨道（Windows，可并行）** | Wails 取代 Fyne + 安装程序 + 首次运行引导 —— 见 **§10**，步骤 W0–W9 | Fyne 依赖清空；双击安装 → 引导 → 服务注册运行 | 另计，见 §10.8 |
 | **P1 进程原语** ✅ 已完成 | `pkg/winproc` → `pkg/procx`（`GetPIDByPort` 删除，改走下面的统一实现）；`procx_linux.go` 真实现（`/proc` 扫描：`IsProcessExited`/`ProcessImageName`/`QueryProcess`，`RunAsAdmin` 返回「本平台不适用」）；新增 `pkg/procx/port.go`（`PIDByPort`，gopsutil `net.Connections("all")`，TCP/UDP 一次覆盖，无构建约束两平台共用），`internal/process.IsServerRunning` 随之从「Windows netstat 文本解析 / Linux 存根」两个平台文件收敛成一份跨平台实现；`pkg/processjob` → `pkg/proctree`，Linux 实现（`Setsid` + `Close()` 时 `kill(-pgid, SIGKILL)`，含 `pgid>1` 断言）；新增 `procx.Terminate`/`Kill`/`TerminateTree`/`KillTree`，替换掉 `server.go`/`common.go`/`installer.go` 里全部 9 处 `exec.Command("taskkill", ...)`（Windows 侧行为不变，仍是同一套 taskkill 参数，只是挪进了函数） | `CGO_ENABLED=0 GOOS=linux go build ./...`、`go build`(windows，原生 cgo)、两平台 `go vet` 均通过；`grep -rn taskkill --include=*.go` 命中数归零（除注释与 procx 内部实现自身）；新增 `pkg/procx/port_test.go` 用真实 TCP/UDP 监听自证 `PIDByPort`（不依赖解析 netstat 输出），Windows 上跑通。**未验证**：`procx_linux.go` 的 `/proc` 扫描与 `proctree_linux.go` 的 `setsid`/`kill(-pgid)` 只做到跨平台编译通过，未在真实 Linux 上跑过——本机 WSL 的 go1.27.0 安装本身已损坏（`internal/abi/map.go`/`map_swiss.go` 均缺 `//go:build` 约束、重复声明，`go build` 连标准库都过不了，与本次改动无关），修好前无法做运行时验证；这两个函数目前也没有真实调用方（游戏进程要到 P2 `runner` + P4 才会在 Linux 上真正跑起来），风险可控但记在这里，P2/P4 验收时要补跑。落在 `master`，未开分支 | 2–3 天 |
 | **P2 umu 运行时** ✅ 已完成 | `internal/runner` 接口（`Run`/`GamePath`/`EnsureRuntime`/`Preflight`/`Configure`）+ 两平台实现，`Run` 对 `ArkAscendedServer.exe` 与 `AsaApiLoader.exe` 一视同仁（见 §0/§1 的 ArkApi 决定）；`umu_linux.go` 下载 umu-launcher zipapp + GE-Proton（走 `pkg/download`，含 `github_proxy`）、prefix 预热（照抄 `ark_instance_manager.sh` 的 wineboot --init + steamrt 就绪检测 + wineserver drain 轮询）与 `.created-by-proton` 版本标记/迁移；`preflight_linux.go` 五项依赖自检（32 位 glibc / python3≥3.10 / libzstd.so.1 / tar / AppArmor userns，读 `/proc/sys` 而非 shell 出去跑 `sysctl`）；`internal/webapi/systemapi` 的 `GET /api/system/preflight`；`config.yaml` 新增 `linux:` 段（`appconfig`）；`EnsureRuntime` 在 `InitializationBasicComponents` 里后台异步跑，不阻塞服务启动。**执行细节对拍**：GE-Proton/umu 的下载 URL 与 tar 内部布局已用真实 GitHub Releases API 核对（非猜测），warm-up 与 fixups 的具体命令逐行对照本仓库 `scripts/ark_instance_manager.sh` 的验证过的实现，而非重新推导 | `CGO_ENABLED=0 GOOS=linux go build ./...`、`go build`（windows 原生 cgo）、两平台 `go vet` 均通过；`extractTar`（strip-prefix + zip-slip 拒绝，含嵌套 `..` 变体）与 Windows 侧 `Run`/`GamePath` 有真实执行的单测（非仅编译检查）。**已知偏差与限制**：①GE-Proton 校验走官方 `.sha512sum`（新增 `pkg/download` 对 `sha512:` 算法的支持），umu 校验走 GitHub Releases API 的 `digest` 字段（一次性的固定 tag 元数据请求，不是"解析 latest"，但确实触达 `api.github.com`，与 §4.3"从不碰 API"的原则有个可接受的例外，失败时降级为不校验而非拦截，已在代码注释说明）；②`umu_version` 从文档原稿的占位符 `1.4.0` 更新为已核实存在的 `1.4.4`；③`PROTON_VERB=run` 从设计阶段的示意代码中去掉——参考脚本的实际调用从不设它；④尚未在真实 Linux 主机上跑过 `EnsureRuntime`/`Preflight`（本机 WSL 的 go1.27.0 安装已损坏，见 P1 行），下载、解压、prefix 预热的端到端行为仍待 P3/P4 阶段用真机验证 | 3–4 天 |
-| **P3 安装与更新** | `installer` 分平台（steamcmd.sh、下载 URL）；ASA-on-Wine 三项修复；首次配置生成改轮询等待 | Linux 上 `update` 走完，`server-files` 完整，`Saved/Config/WindowsServer` 生成 | 2–3 天 |
+| **P3 安装与更新** ✅ 已完成 | `SteamCmdURL` 出 `config` 包，拆进 `installer/steamcmd_{windows,linux}.go`（各自的 URL/二进制名/解压函数，Linux 走新增的 `pkg/archive.ExtractTar` 解 `tar.gz`）；`installer/fixups*.go` 三项 ASA-on-Wine 修复（Sentry 禁用/`steam_appid.txt`/Steam SDK 软链），接在 `DownloadAndUpdateArkServer` 成功后与 `VerifyServerInstallation` 验证前；`VerifyServerInstallation` 改走 `runner.Run()` 启动 `ArkAscendedServer.exe`（Windows 直接 exec，Linux 经 umu-run），固定 60s sleep 换成轮询等待 `Saved/Config/WindowsServer/`（180s 上限，超时/取消都会如实报错，不再像原 Windows 代码那样等完固定时间就无条件宣布成功）；杀验证进程从 `procx.Kill` 换成 `procx.KillTree`（Linux 上 `LauncherPID` 是 umu-run/进程组 leader，必须整树杀，见 §5.3/§5.4）。**顺带**把 `pkg/archive`（zip-slip 防护的 tar 解压）从 `internal/runner` 提出来独立成包，因为 installer 现在也要用它——避免同一段安全相关代码存在两份 | `CGO_ENABLED=0 GOOS=linux go build ./...`、`go build`（windows 原生 cgo）、两平台 `go vet` 均通过；新增 13 个真实单测（`disableSentryPluginAt`/`writeSteamAppIDAt` 的重命名/内容纠错/幂等路径，`waitForConfigDir` 的立即返回/轮询命中/超时/取消四种路径，含真实计时断言），`internal/installer` 既有测试全部保持通过；Linux 上 `update` 走完，`server-files` 完整，`Saved/Config/WindowsServer` 生成。**已知限制**：与 P2 一致——三项 fixups 里唯一没法跨平台单测的是 `symlinkSteamSDK`（`os.Symlink` 在非提权 Windows 上可能因权限失败，该函数本来就只在 `//go:build linux` 下编译，此处无跨平台测试覆盖，逻辑走查为主）；真实 Linux 主机上的端到端验证仍待 P4/P6 | 2–3 天 |
 | **P4 实例生命周期** | `StartServer` 走 `runner`；`GamePath` 转换；双 PID 语义；停止/强停/重启全链路；镜像 `IsElevated` 处理 | **单实例**启动→玩家可连入→RCON 可用→优雅停止；**双实例**并发启动互不干扰 | 3–5 天 |
 | **P5 服务化与证书** | `winservice` → `svcmgr` + systemd（`HOME`/`LimitNOFILE`/非 root）；`certmgr` Linux 信任实现 | `service install/start/stop/remove` 全通；HTTPS 可用 | 2 天 |
 | **P6 收尾** | 定时任务/批量/倒计时/备份/存档解析在 Linux 上回归；**ArkApi 在 Linux 上的落地确认（§5.12 表格四条：大小写常量核对、`override.go` 大小写折叠修复、`pluginapi`/面板可用性、`PluginSnapshotInterval` 语义）**；构建脚本与 CI 加 linux target；文档（部署指南、依赖清单、故障排查） | 测试矩阵（§9）全绿 | 2–3 天 |
