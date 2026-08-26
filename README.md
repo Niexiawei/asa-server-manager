@@ -206,8 +206,8 @@ asa-server/
 ├── main.go              # Entry point: CLI, GUI, Windows service detection
 │
 │  ── Domain packages (bottom-up, no cycles) ──
-├── pkg/                 # Leaf utilities: fsutil, winproc, netutil, tail, console, iox,
-│                        #   processjob (Windows Job Objects), serverinfo (gopsutil metrics)
+├── pkg/                 # Leaf utilities: fsutil, procx (process primitives), netutil, tail,
+│                        #   console, iox, proctree (process tree mgmt), serverinfo (gopsutil metrics)
 ├── config/              # Directory layout, InstanceConfig, INI read/write, config sync
 ├── certmgr/             # Local CA + leaf certificate, Windows trusted root store (HTTPS/h2)
 ├── process/             # PID store + IsServerRunning (breaks the state <-> instance cycle)

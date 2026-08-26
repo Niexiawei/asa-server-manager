@@ -204,8 +204,8 @@ asa-server/
 ├── main.go              # 入口：CLI 命令、GUI、Windows 服务检测
 │
 │  ── 领域包（自底向上，无环）──
-├── pkg/                 # 叶子工具：fsutil、winproc、netutil、tail、console、iox、
-│                        #   processjob（Windows Job Object）、serverinfo（gopsutil 指标）
+├── pkg/                 # 叶子工具：fsutil、procx（跨平台进程原语）、netutil、tail、console、iox、
+│                        #   proctree（进程树管理）、serverinfo（gopsutil 指标）
 ├── config/              # 目录布局、InstanceConfig、INI 读写、配置同步
 ├── process/             # PID 文件存储 + IsServerRunning（解 state ↔ instance 环的关键层）
 ├── certmgr/             # 本地 CA + 叶子证书、Windows 受信任根存储（HTTPS/h2）
