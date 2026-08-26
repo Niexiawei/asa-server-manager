@@ -4,7 +4,7 @@
 > 通过 [umu-launcher](https://github.com/Open-Wine-Components/umu-launcher) + GE-Proton 提供 Wine 运行时。
 > 参考实现：`scripts/ark_instance_manager.sh`（社区脚本，已在 Linux 上跑通完整 ASA 多实例流程，本方案大量沿用它踩过的坑）。
 >
-> 状态：**设计方案，P0 已实施，P1 起尚未实施**。文档给出耦合点清单、抽象层设计、分阶段实施计划与验收标准。
+> 状态：**设计方案，P0/P1 已实施，P2 起尚未实施**。文档给出耦合点清单、抽象层设计、分阶段实施计划与验收标准。
 
 ---
 
@@ -18,9 +18,10 @@
 | **镜像去管理员化（真 NTFS junction）**<br>`MIRROR_JUNCTION_AND_WEBAUTHN_REMOVAL_PLAN.md` 第一部分 | 已实施 | **净正**，但工作量搬了家 | §2.1（新增编译阻断行）、§2.3、**§5.6 已重写**、§5.9、§6 风险 13、§8 P0、§10.10、§11 A |
 | **移除 WebAuthn**<br>同文档第二部分 | 已实施 | **无影响** —— 删掉的 `go-webauthn` / `go-tpm` / `fxamacker/cbor` 全是纯 Go，两平台一视同仁；`auth` 本就在 §2.3 的跨平台清单里 | 无需改动 |
 | **ArkApi 插件数据隔离**<br>`ARKAPI_PLUGIN_DATA_PLAN.md` | 已实施 | **基本无影响**，新增 `internal/plugindata` 已核对为跨平台；但它在 Linux 上应当整体静默，有四条要显式确认 | §2.2、§2.3、**§5.12 新增**、§6 风险 11/16、§8 P6、§9.1 |
-| **frp 改为库内调用**（本次新增决定） | 待实施 | **减少** Linux 工作量：frp 从「分平台内嵌二进制」直接退出工作清单 | **§5.10 已重写**、§5.9、§6 风险 14/15/16、§8 F 轨道、§9.1、§11 A |
+| **frp 改为库内调用**（本次新增决定） | 已实施 | **减少** Linux 工作量：frp 从「分平台内嵌二进制」直接退出工作清单 | **§5.10 已重写**、§5.9、§6 风险 14/15/16、§8 F 轨道、§9.1、§11 A |
+| **ArkApi 在 Linux 上不再是非目标**（P2 阶段新增决定） | 待实施 | **推翻**原「Linux 上标记为不支持，强制忽略开关」的结论：`EnableAsaPlugin` 在 Linux 上与 Windows 走同一个开关、同一条 `runner` 启动路径（umu-run 拉起 `AsaApiLoader.exe`，与拉起 `ArkAscendedServer.exe` 无特殊区分）。**不是**「确认能在 Wine 下稳定工作」——只是不再由程序单方面替用户关掉，社区已有在 Proton 下跑 ArkApi 的先例，让用户自己试、失败了看日志，比强制拦截更符合这个项目「能不能跑起来用户自己判断」的一贯取向 | §1 非目标表、§5.12、§6 风险 11、§8 P6、§9.1/9.2、§11 A |
 
-三个最值得记住的结论：
+四个最值得记住的结论：
 
 1. **去管理员化把 `mirror` 从「基本不用改」变成了「Linux 上编译不过」** —— 因为 `createJunction`
    进了 `junction_windows.go`。代价很小（补 8 行 `os.Symlink`），但它是 P0 的硬阻断，不能漏。
@@ -29,6 +30,11 @@
    （以镜像里实际存在的插件目录为准），不是碰巧。
 3. **frp 是 Go 写的，没理由当二进制内嵌。** 改成库内调用之后，§5.10 从一条 Linux 兼容工作项
    变成一条与 Linux 无关的架构改进，可以先做、单独做。
+4. **ArkApi 是否支持这件事，交给用户判断，程序不替用户关。** `runner` 的 `Run()`/`Options`
+   对 `ArkAscendedServer.exe` 与 `AsaApiLoader.exe` 一视同仁——两者都只是「一个要通过 umu-run
+   拉起的 Windows exe」，不存在只服务前者的特殊接口。`plugindata` 结构性静默（§5.12）依旧成立，
+   但不再是因为「Linux 不支持 ArkApi」，而是因为镜像里确实没有插件目录时它天然什么都不用做；
+   一旦用户真的把 ArkApi 跑起来了，`plugindata` 照常工作。
 
 ---
 
@@ -41,13 +47,16 @@
 3. Windows 侧行为**零回归**——所有平台特化通过构建约束隔离，Windows 编译产物的代码路径不变。
 4. Linux 侧运行时（umu-launcher zipapp、GE-Proton、Wine prefix）由程序自己下载与管理，落在 `{BaseDir}` 内，
    不依赖发行版打包，与现有 SteamCMD 的自管理方式一致。
+5. 🆕 `EnableAsaPlugin`（ArkApi）在 Linux 上是与 Windows 相同的用户开关，走同一条 `runner` 启动路径
+   （umu-run 拉起 `AsaApiLoader.exe`，与拉起 `ArkAscendedServer.exe` 无特殊区分）。**这不是「保证能用」**——
+   Wine/Proton 下的进程注入/DLL hook 手法是否稳定完全看社区经验（`ark_instance_manager.sh` 一类脚本有
+   在 Proton 下跑起来的先例），程序不替用户判断、不强制拦截，出问题时如实报错，不静默降级。
 
 ### 非目标（本期明确不做）
 
 | 项 | 原因 |
 |---|---|
 | Fyne 桌面 GUI 跑在 Linux | ARK 服务器场景基本是无头机器；Fyne 需要 X11/Wayland + OpenGL + cgo，成本高收益低。Linux 构建直接排除 GUI。 |
-| ArkApi / `AsaApiLoader.exe` 插件支持 | 该加载器依赖 Windows 进程注入与 DLL hook，Wine 下不可靠。Linux 上标记为**不支持**，配置开关被强制忽略并回执告警。 |
 | 原生 Linux ARK 服务端 | 不存在。ASA 官方只发 Windows 专用服务器（AppID 2430930）。 |
 | macOS | 同上，且无 Proton 生态支撑。 |
 | 把 Windows 侧也切到新抽象的「大一统重写」 | 除少数几处（见 §5.2 端口→PID）外，Windows 实现原样保留，降低回归面。 |
@@ -89,12 +98,12 @@
 | `internal/config/config.go:27` | `SteamCmdURL = ".../steamcmd.zip"` | Linux 要 `steamcmd_linux.tar.gz` |
 | `internal/instance/server.go:~322` | `-ClusterDirOverride=<Linux 绝对路径>` | UE 当成相对路径解析，产生 `/home/x/home/x/...`，且不同 CWD 得到不同簇目录，**跨服传角色直接坏掉** |
 | `internal/process/process.go:119` | `expectedExecutables` 按进程镜像名匹配 | Linux 上镜像名是 `wine-preloader` / proton 的 `wine64`，判定全部落空，需改成扫 cmdline |
-| `internal/instance/common.go:129,469` | `winproc.QueryProcess("ArkAscendedServer.exe", "Port=...")` | WMI 不存在 |
+| ~~`internal/instance/common.go:129,469`~~ | ~~`winproc.QueryProcess("ArkAscendedServer.exe", "Port=...")`~~ | ✅ P1 已解决：包改名 `procx`，Linux 侧改为扫 `/proc/*/cmdline`，签名不变（见 §5.3、§8 P1） |
 | `internal/appconfig/localnet.go:59` | 虚拟网卡名过滤含 `tap-windows` | 需补 `docker0`/`veth`/`br-`/`virbr` |
 | `internal/gui/gui.go:539` | `rundll32 url.dll,FileProtocolHandler` 开浏览器 | — |
 | `internal/certmgr/store.go:236` | `icacls` 收紧私钥 ACL | Linux 用 `os.Chmod(0600)` |
 | ~~`main.go:281`~~ | ~~`winproc.RunAsAdmin` 提权~~ | ✅ 已移除（`certmgr/cli.go:67` 装根证书仍在用 `RunAsAdmin`，那处保留）|
-| `internal/plugindata/override.go:85` | 路径包含判定用 `strings.ToLower` 折叠大小写 | 🆕 【ArkApi 插件数据引入】在大小写敏感的文件系统上是**过度匹配**（`/a/DB` 与 `/a/db` 被判为同一路径）。ArkApi 在 Linux 上不支持，当前无实际影响；若将来支持则是真 bug，见 §5.12 |
+| `internal/plugindata/override.go:85` | 路径包含判定用 `strings.ToLower` 折叠大小写 | 🆕 【ArkApi 插件数据引入】在大小写敏感的文件系统上是**过度匹配**（`/a/DB` 与 `/a/db` 被判为同一路径）。ArkApi 在 Linux 上不再是非目标（见 §1），这是需要在 P4 修的真 bug，见 §5.12 |
 
 ### 2.3 天然跨平台（无需改动）
 
@@ -204,7 +213,14 @@ internal/
 
 ### 4.2 宿主机依赖自检
 
-启动时（Linux 分支）执行一次自检，缺项直接给出发行版对应的安装命令并拒绝启动 —— 沿用脚本 `check_dependencies()`：
+启动时（Linux 分支）执行一次自检 —— 沿用脚本 `check_dependencies()`/`check_userns_restriction()` 的检查项，
+重实现为函数性检查（探测实际产物是否存在/内核开关的实际值），而不是按发行版查包管理器：
+
+> 🆕 **已实施，但比本节原稿弱一档**：原稿设想「缺项直接拒绝启动」。落地时改为**启动即打日志告警，
+> 不阻断启动**——这个程序管理的不只是 Wine/Proton 相关的功能，且实例启动到 P4 之前都还不经过
+> `runner`，此时就因为一个 Wine 依赖缺失而让整个 API 服务起不来面太大了。`GET /api/system/preflight`
+> 把同一份检查结果暴露给前端，供其在合适的地方（引导页、设置页）展示。等 P4 把实例启动接上 `runner`，
+> 到那时候「缺项时具体某个实例起不来」自然会在日志里体现，届时可以重新评估要不要收紧。
 
 | 依赖 | 用途 | 缺失症状 |
 |---|---|---|
@@ -223,7 +239,7 @@ internal/
 
 ```go
 const (
-    umuVersion     = "1.4.0"
+    umuVersion     = "1.4.4"       // 已实施：internal/runner.defaultUmuVersion，2026-08 时点的最新稳定版
     geProtonPinned = "GE-Proton10-34"
 )
 ```
@@ -283,7 +299,7 @@ func Preflight() []Problem
 **Windows 实现**（`runner_windows.go`）：几乎是现有代码的搬家 —— `exec.Command(exePath, args...)`
 或 `pty.New()` + `pp.Command(...)`；`GamePath` 是 identity，`EnsureRuntime` / `Preflight` 返回 nil。
 
-**Linux 实现**（`runner_linux.go`）关键点：
+**Linux 实现**（`runner_linux.go`，✅ 已实施）关键点：
 
 ```go
 cmd := exec.CommandContext(ctx, umuRunBin, append([]string{exePath}, args...)...)
@@ -292,7 +308,6 @@ cmd.Env = append(os.Environ(),
     "WINEPREFIX="+prefixDir,
     "GAMEID="+gameID,            // umu-default
     "PROTONPATH="+geProtonPath,  // 具体目录，不是别名
-    "PROTON_VERB=run",
     "UMU_RUNTIME_UPDATE=0",
 )
 // 关键：独立会话 + 进程组，脱离控制终端。
@@ -301,6 +316,10 @@ cmd.Env = append(os.Environ(),
 cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 cmd.Stdin = nil
 ```
+
+> 🆕 **`PROTON_VERB=run` 已从实现里去掉**：`scripts/ark_instance_manager.sh`（本方案要求照抄的验证过的参考实现）
+> 的实际游戏启动调用（第 648-658 行）从未设置这个变量——umu-run 不设它时的默认行为已经是「运行游戏」，
+> 加上反而是本文档原始设计阶段的多余猜测。以脚本的已验证行为为准，不是以这里的示意代码为准。
 
 `GamePath`：
 
@@ -696,31 +715,31 @@ func fileKey(fi os.FileInfo) string {
 
 inode+dev 比 Windows 的 CreationTime 更可靠（轮转必然换 inode）。其余 fsnotify 逻辑跨平台不变。
 
-### 5.12 `internal/plugindata` —— 编译得过，但在 Linux 上应当**整体静默**
+### 5.12 `internal/plugindata` —— 编译得过；ArkApi 未安装时结构性静默，装了就正常工作
 
-> 🆕 本节因 `ARKAPI_PLUGIN_DATA_PLAN.md`（**已实施**）新增。
+> 🆕 本节因 `ARKAPI_PLUGIN_DATA_PLAN.md`（**已实施**）新增；下表处置结论已按「ArkApi 在 Linux 上
+> 不再是非目标」（见 §0 修订记录、§1）更新——之前的版本假设 Linux 上 ArkApi 永远不存在，
+> 现在的前提是「用户可能真的把它跑起来」。
 
 `plugindata` 代码本身没有平台耦合（核对结论见 §2.3），`GOOS=linux` 下编译与单测都会通过。
-问题不在编译，在**它不该在 Linux 上做任何事**：§1 的非目标已经把 ArkApi / `AsaApiLoader.exe`
-列为 Linux 不支持（Wine 下的进程注入与 DLL hook 不可靠）。
-
-好消息是**默认就是静默的**，且是结构性的而非碰巧：
+它是否在 Linux 上做事，完全取决于**镜像里是否真的有插件目录**，不取决于平台：
 
 - `listMirrorPlugins`（`plugindata.go:57`）以**镜像里实际存在的插件目录**为准，
-  `os.ReadDir` 失败即返回空 —— Linux 上 `ShooterGame/Binaries/Win64/ArkApi/Plugins` 根本不存在，
-  `Inject` / `Reclaim` / `Rescue` 全部退化成空循环。
+  `os.ReadDir` 失败即返回空 —— 用户没启用 `EnableAsaPlugin`（因而没有 `ArkApi/Plugins` 目录）时，
+  `Inject` / `Reclaim` / `Rescue` 自然退化成空循环；用户启用了、且 `AsaApiLoader.exe` 通过
+  `runner`/umu-run 真的把插件目录建了起来，`plugindata` 就照常工作，两平台同一套逻辑。
 - `IsProtectedRelPath`（`plugindata.go:295`）第一行就是前缀判断，不匹配立即 `false`，
   对 `mirror` 的同步热路径零开销。
 - `StartSnapshots` 遍历的是同一份插件列表，空列表 = 不起 goroutine。
 
-所以 **P0 不需要为 `plugindata` 做任何事**。但有四条要在 P4/P6 显式确认，别默认它一定安静：
+所以 **P0 不需要为 `plugindata` 做任何事**。但有四条要在 P4/P6 显式确认：
 
 | # | 项 | 处置 |
 |---|---|---|
-| 1 | **`pluginsRelPath` 硬编码大小写** | 常量是 `ShooterGame/Binaries/Win64/ArkApi/Plugins`。这与 §6 风险 8（大小写敏感文件系统）是同一条：Linux 上只要 SteamCMD 落盘的大小写与常量不符，前缀匹配就静默失效。**当前是「本来就不该匹配」，所以无害** —— 但如果哪天 Linux 支持了 ArkApi，这是第一个要改的地方 |
-| 2 | **`override.go:85` 的 `strings.ToLower`** | 路径包含判定折叠了大小写，在大小写敏感文件系统上会把 `/a/DB` 与 `/a/db` 判为同一路径，导致 `DbPathOverride` 被误判成「指向实例目录内」而继续搬运。同样只在支持 ArkApi 后才成为真 bug。修法：Linux 分支不折叠大小写，或统一走 `filepath.EvalSymlinks` 后按平台决定比较方式 |
-| 3 | **`EnableAsaPlugin` 与前端插件面板** | §6 风险 11 原本只说要忽略 `EnableAsaPlugin` 开关。现在还多了 `webapi/pluginapi` 的一组端点与 `PluginDataPanel.vue` 面板。Linux 上应当：后端端点返回明确的「本平台不支持 ArkApi」而不是空数据（空数据会让用户以为是自己配错了），前端据此隐藏整个面板 |
-| 4 | **`PluginSnapshotInterval`** | 已进 `InstanceConfig` 与 `instance_config.ini`（`0` = 默认 5 分钟、负数 = 关闭）。Linux 上该字段读写正常但永不生效，**保持存在不要删** —— 实例配置在两平台间迁移时字段消失会更难解释 |
+| 1 | **`pluginsRelPath` 硬编码大小写** | 常量是 `ShooterGame/Binaries/Win64/ArkApi/Plugins`。这与 §6 风险 8（大小写敏感文件系统）是同一条：Linux 上只要 SteamCMD 落盘的大小写与常量不符，前缀匹配就静默失效，`plugindata` 会以为没有插件目录而什么都不做。**现在是真的要核对**——ArkApi 在 Linux 上是可用路径，落盘大小写需要在 P3 装完 ArkApi 后实测确认与常量一致 |
+| 2 | **`override.go:85` 的 `strings.ToLower`** | 路径包含判定折叠了大小写，在大小写敏感文件系统上会把 `/a/DB` 与 `/a/db` 判为同一路径，导致 `DbPathOverride` 被误判成「指向实例目录内」而继续搬运。**现在是真的要修**：Linux 分支不折叠大小写，或统一走 `filepath.EvalSymlinks` 后按平台决定比较方式，P4 落地 ArkApi 启动路径时一并处理 |
+| 3 | **`EnableAsaPlugin` 与前端插件面板** | 不再强制忽略：Linux 上 `EnableAsaPlugin` 与 Windows 走同一个开关、同一条 `runner` 启动路径。`webapi/pluginapi` 的端点与 `PluginDataPanel.vue` 面板在 Linux 上**照常可用**，不再需要「本平台不支持」的特殊回执；面板上可以加一条不显眼的提示（Wine/Proton 下稳定性未经验证），但不隐藏功能 |
+| 4 | **`PluginSnapshotInterval`** | 已进 `InstanceConfig` 与 `instance_config.ini`（`0` = 默认 5 分钟、负数 = 关闭）。两平台语义一致，无需特殊处理 |
 
 **分层影响**：`mirror` 与 `instance` 现在都直接 import `plugindata`（`ARKAPI_PLUGIN_DATA_PLAN.md` §10.1
 把原设想的回调钩子改成了编译期依赖）。这条边不成环、也不引入平台耦合，§3.2 的包规划不用调整。
@@ -818,7 +837,7 @@ type Config struct {
 | 8 | **大小写敏感文件系统** | Wine 内部有大小写不敏感回退，但 Go 侧构造的路径必须与磁盘完全一致 | 以 SteamCMD 下载的大小写为准；镜像同步逻辑本就按实际条目名走，风险低。加一条集成断言 `ShooterGame/Binaries/Win64` 存在 |
 | 9 | **`kill(-pgid)` 误杀** | 进程组记错会杀到自己 | `Setsid: true` 保证进程组独立；kill 前断言 `pgid > 1 && pgid != os.Getpid()` |
 | 10 | **gopsutil 在容器内看不到 Wine 的 socket** | 端口存活判定失效 | pressure-vessel 默认共享宿主 PID/net namespace，预期可见；P1 实测确认，失败则回退到 cmdline 扫描（`AltSaveDirectoryName` 匹配） |
-| 11 | **ArkApi 不可用** | 开了 `EnableAsaPlugin` 的实例在 Linux 上行为未定义；🆕 另有 `webapi/pluginapi` 的一组端点与 `PluginDataPanel.vue` 面板会返回空数据，看起来像"配错了" | Linux 下强制忽略该开关并在 API 响应与日志中告警；`pluginapi` 明确回执"本平台不支持 ArkApi"而非空数组；前端据此隐藏该选项与整个插件面板。详见 §5.12 |
+| 11 | **ArkApi 在 Wine/Proton 下稳定性未知** | `EnableAsaPlugin` 在 Linux 上与 Windows 走同一开关、同一条 `runner` 路径，但 `AsaApiLoader.exe` 依赖的进程注入/DLL hook 在 Wine 下是否可靠没有官方保证 | 不强制拦截、不静默降级；启动失败或行为异常时如实记录日志，让用户自己判断要不要继续用。`webapi/pluginapi` 与 `PluginDataPanel.vue` 在 Linux 上正常可用，不特殊处理。详见 §5.12、§1 目标 5 |
 | 12 | **首次安装耗时长**（GE-Proton 450 MB + SLR + prefix + ARK 本体约 25 GB） | 用户以为卡死 | 全流程走既有 SSE `TaskBroadcaster` 推进度，与现有 update 流一致 |
 | 13 | 🆕 **`internal/mirror` 在 Linux 上编译不过** | `createJunction` 随去管理员化移进了 `junction_windows.go`，`mirror.go` 有 6 处调用 | P0 补 `junction_linux.go`（约 8 行 `os.Symlink`），语义必须与 Windows 侧对齐：绝对路径 target、已存在时报错不覆盖。见 §5.6 |
 | 14 | 🆕 **frp 库内调用后失去崩溃隔离** | frp 任意 goroutine 的 panic 会带走整个 asa-server，所有 ARK 实例失去管理（游戏进程本身仍在跑但无人接管） | 这是 §5.10 方案唯一的实质退步，无法用 `recover()` 消除。接受它的前提是 frp 足够成熟；若不接受则回退到「分平台内嵌二进制」的原方案 |
@@ -845,7 +864,7 @@ download:
 linux:
   # 运行时来源：umu（默认，自动下载）| custom（用户自备 PROTONPATH）
   runtime: umu
-  umu_version: "1.4.0"
+  umu_version: "1.4.4"
   proton_version: "GE-Proton10-34"
   # prefix 模式：shared（默认，全实例共用一个）| per-instance（每实例独立，更隔离更占盘）
   prefix_mode: shared
@@ -871,11 +890,11 @@ linux:
 | **F 轨道（frp 库内调用，可并行、可先行）** ✅ 已完成 | 见 **§5.10.6**，步骤 F0–F5。**与 Linux 兼容解耦**，在 Windows 上独立做完 | frp 退出 Linux 兼容工作清单；仓库不再有 `frpc.exe`（且原本就没被 git 追踪——`.gitignore` 的 `*.exe` 命中它，`go:embed` 全程依赖本地手放的文件）；`manager.go` 改走 `client.NewService` + `Run`/`GracefulClose`；50 次连续 Start/Stop 的 goroutine 泄漏回归测试；`CGO_ENABLED=0 GOOS=linux` 全量编译通过（含新拉进来的 quic-go/kcp-go/wireguard-go/k8s.io-apimachinery 依赖链）；新增 `THIRD_PARTY_NOTICES.md`（frp 是 Apache-2.0）。落在 `feat/frp-library-call` 分支 | 2–3 天 |
 | **W 轨道（Windows，可并行）** | Wails 取代 Fyne + 安装程序 + 首次运行引导 —— 见 **§10**，步骤 W0–W9 | Fyne 依赖清空；双击安装 → 引导 → 服务注册运行 | 另计，见 §10.8 |
 | **P1 进程原语** ✅ 已完成 | `pkg/winproc` → `pkg/procx`（`GetPIDByPort` 删除，改走下面的统一实现）；`procx_linux.go` 真实现（`/proc` 扫描：`IsProcessExited`/`ProcessImageName`/`QueryProcess`，`RunAsAdmin` 返回「本平台不适用」）；新增 `pkg/procx/port.go`（`PIDByPort`，gopsutil `net.Connections("all")`，TCP/UDP 一次覆盖，无构建约束两平台共用），`internal/process.IsServerRunning` 随之从「Windows netstat 文本解析 / Linux 存根」两个平台文件收敛成一份跨平台实现；`pkg/processjob` → `pkg/proctree`，Linux 实现（`Setsid` + `Close()` 时 `kill(-pgid, SIGKILL)`，含 `pgid>1` 断言）；新增 `procx.Terminate`/`Kill`/`TerminateTree`/`KillTree`，替换掉 `server.go`/`common.go`/`installer.go` 里全部 9 处 `exec.Command("taskkill", ...)`（Windows 侧行为不变，仍是同一套 taskkill 参数，只是挪进了函数） | `CGO_ENABLED=0 GOOS=linux go build ./...`、`go build`(windows，原生 cgo)、两平台 `go vet` 均通过；`grep -rn taskkill --include=*.go` 命中数归零（除注释与 procx 内部实现自身）；新增 `pkg/procx/port_test.go` 用真实 TCP/UDP 监听自证 `PIDByPort`（不依赖解析 netstat 输出），Windows 上跑通。**未验证**：`procx_linux.go` 的 `/proc` 扫描与 `proctree_linux.go` 的 `setsid`/`kill(-pgid)` 只做到跨平台编译通过，未在真实 Linux 上跑过——本机 WSL 的 go1.27.0 安装本身已损坏（`internal/abi/map.go`/`map_swiss.go` 均缺 `//go:build` 约束、重复声明，`go build` 连标准库都过不了，与本次改动无关），修好前无法做运行时验证；这两个函数目前也没有真实调用方（游戏进程要到 P2 `runner` + P4 才会在 Linux 上真正跑起来），风险可控但记在这里，P2/P4 验收时要补跑。落在 `master`，未开分支 | 2–3 天 |
-| **P2 umu 运行时** | `internal/runner` 接口 + 两平台实现；umu zipapp / GE-Proton 下载与校验（走 P0 已就绪的 `pkg/download`，含 `github_proxy` 场景）；prefix 预热与版本标记；`Preflight` 依赖自检；`GET /api/system/preflight` | 空机器上冷启动能自动装好运行时并通过自检；配置 `github_proxy` 后请求确实打到代理前缀（抓包或 mock server 断言） | 3–4 天 |
+| **P2 umu 运行时** ✅ 已完成 | `internal/runner` 接口（`Run`/`GamePath`/`EnsureRuntime`/`Preflight`/`Configure`）+ 两平台实现，`Run` 对 `ArkAscendedServer.exe` 与 `AsaApiLoader.exe` 一视同仁（见 §0/§1 的 ArkApi 决定）；`umu_linux.go` 下载 umu-launcher zipapp + GE-Proton（走 `pkg/download`，含 `github_proxy`）、prefix 预热（照抄 `ark_instance_manager.sh` 的 wineboot --init + steamrt 就绪检测 + wineserver drain 轮询）与 `.created-by-proton` 版本标记/迁移；`preflight_linux.go` 五项依赖自检（32 位 glibc / python3≥3.10 / libzstd.so.1 / tar / AppArmor userns，读 `/proc/sys` 而非 shell 出去跑 `sysctl`）；`internal/webapi/systemapi` 的 `GET /api/system/preflight`；`config.yaml` 新增 `linux:` 段（`appconfig`）；`EnsureRuntime` 在 `InitializationBasicComponents` 里后台异步跑，不阻塞服务启动。**执行细节对拍**：GE-Proton/umu 的下载 URL 与 tar 内部布局已用真实 GitHub Releases API 核对（非猜测），warm-up 与 fixups 的具体命令逐行对照本仓库 `scripts/ark_instance_manager.sh` 的验证过的实现，而非重新推导 | `CGO_ENABLED=0 GOOS=linux go build ./...`、`go build`（windows 原生 cgo）、两平台 `go vet` 均通过；`extractTar`（strip-prefix + zip-slip 拒绝，含嵌套 `..` 变体）与 Windows 侧 `Run`/`GamePath` 有真实执行的单测（非仅编译检查）。**已知偏差与限制**：①GE-Proton 校验走官方 `.sha512sum`（新增 `pkg/download` 对 `sha512:` 算法的支持），umu 校验走 GitHub Releases API 的 `digest` 字段（一次性的固定 tag 元数据请求，不是"解析 latest"，但确实触达 `api.github.com`，与 §4.3"从不碰 API"的原则有个可接受的例外，失败时降级为不校验而非拦截，已在代码注释说明）；②`umu_version` 从文档原稿的占位符 `1.4.0` 更新为已核实存在的 `1.4.4`；③`PROTON_VERB=run` 从设计阶段的示意代码中去掉——参考脚本的实际调用从不设它；④尚未在真实 Linux 主机上跑过 `EnsureRuntime`/`Preflight`（本机 WSL 的 go1.27.0 安装已损坏，见 P1 行），下载、解压、prefix 预热的端到端行为仍待 P3/P4 阶段用真机验证 | 3–4 天 |
 | **P3 安装与更新** | `installer` 分平台（steamcmd.sh、下载 URL）；ASA-on-Wine 三项修复；首次配置生成改轮询等待 | Linux 上 `update` 走完，`server-files` 完整，`Saved/Config/WindowsServer` 生成 | 2–3 天 |
 | **P4 实例生命周期** | `StartServer` 走 `runner`；`GamePath` 转换；双 PID 语义；停止/强停/重启全链路；镜像 `IsElevated` 处理 | **单实例**启动→玩家可连入→RCON 可用→优雅停止；**双实例**并发启动互不干扰 | 3–5 天 |
 | **P5 服务化与证书** | `winservice` → `svcmgr` + systemd（`HOME`/`LimitNOFILE`/非 root）；`certmgr` Linux 信任实现 | `service install/start/stop/remove` 全通；HTTPS 可用 | 2 天 |
-| **P6 收尾** | 定时任务/批量/倒计时/备份/存档解析在 Linux 上回归；**ArkApi 在 Linux 上的静默与回执（§5.12 表格四条）**；构建脚本与 CI 加 linux target；文档（部署指南、依赖清单、故障排查） | 测试矩阵（§9）全绿 | 2–3 天 |
+| **P6 收尾** | 定时任务/批量/倒计时/备份/存档解析在 Linux 上回归；**ArkApi 在 Linux 上的落地确认（§5.12 表格四条：大小写常量核对、`override.go` 大小写折叠修复、`pluginapi`/面板可用性、`PluginSnapshotInterval` 语义）**；构建脚本与 CI 加 linux target；文档（部署指南、依赖清单、故障排查） | 测试矩阵（§9）全绿 | 2–3 天 |
 
 **合计约 15–22 人日**（P0–P6，不含并行的 F / W 轨道），不含 Wine 侧疑难问题的排查缓冲（建议再留 30%）。
 F 轨道另计 2–3 天，但它**减少** P0 的工作量（省掉 frp 分平台内嵌），净增很小。
@@ -913,7 +932,7 @@ F 轨道另计 2–3 天，但它**减少** P0 的工作量（省掉 frp 分平�
 | 存档解析（parseserver） | ✅ | ✅ | — | — | — |
 | 🆕 FRP 库内调用：连接 + 转发 | ✅ | ✅ | — | — | — |
 | 🆕 FRP 连续 Restart 50 次无 goroutine 泄漏 | ✅ | ✅ | — | — | — |
-| 🆕 ArkApi 相关端点/面板在 Linux 上明确回执不支持 | n/a | ✅ | — | — | — |
+| 🆕 `EnableAsaPlugin` 开关 + `pluginapi`/面板在 Linux 上与 Windows 行为一致 | ✅ | ✅ | — | — | — |
 | 🆕 `plugindata` 在无 ArkApi 目录时零开销静默 | ✅ | ✅ | — | — | — |
 
 ### 9.2 硬性验收判据
@@ -932,8 +951,9 @@ F 轨道另计 2–3 天，但它**减少** P0 的工作量（省掉 frp 分平�
    **多实例并发同步 + 更新后增量同步跑完，`server-files/` 下没有文件被误删**（改造前先做全量快照比对）。
 7. 🆕 frp 库内调用：连续 `Restart()` 50 次后 `runtime.NumGoroutine()` 稳定，
    且 `frpc.exe` 不再出现在仓库与运行目录里。
-8. 🆕 Linux 上 `plugindata` 全程零动作：`{BaseDir}/instances/*/plugins/` 不被创建，
-   无快照 goroutine，`pluginapi` 端点回执明确的「本平台不支持 ArkApi」。
+8. 🆕 `EnableAsaPlugin=false`（或未装 ArkApi）时 Linux 上 `plugindata` 全程零动作：
+   `{BaseDir}/instances/*/plugins/` 不被创建，无快照 goroutine；`EnableAsaPlugin=true` 且
+   `AsaApiLoader.exe` 成功通过 `runner` 启动时，`plugindata`/`pluginapi`/面板与 Windows 行为一致。
 
 ---
 
@@ -1288,24 +1308,24 @@ Linux 上的完整入口就是 CLI：
 
 | 能力 | Windows | Linux |
 |---|---|---|
-| 执行 ARK exe | `exec.Command(exe, args...)` | `umu-run <exe> <args...>`（env: `WINEPREFIX`/`GAMEID`/`PROTONPATH`/`PROTON_VERB=run`/`UMU_RUNTIME_UPDATE=0`） |
+| 执行 ARK exe | `exec.Command(exe, args...)` | `umu-run <exe> <args...>`（env: `WINEPREFIX`/`GAMEID`/`PROTONPATH`/`UMU_RUNTIME_UPDATE=0`，不设 `PROTON_VERB`，见 §5.1） |
 | 脱离终端 | `SysProcAttr{HideWindow:true}` | `SysProcAttr{Setsid:true}` + `Stdin=nil` |
 | 结束进程树 | `taskkill /T [/F] /PID` | `kill(-pgid, SIGTERM/SIGKILL)` |
 | 端口→PID | `netstat -ano` | gopsutil `net.Connections("all")`（两平台统一） |
 | 按名 + cmdline 查进程 | WMI `Win32_Process` | 扫 `/proc/*/cmdline` |
-| 目录链接 | **真 NTFS junction**（`DeviceIoControl` + `FSCTL_SET_REPARSE_POINT`，`junction_windows.go`，**免特权**） | symlink（`os.Symlink`，免特权）—— 待补 `junction_linux.go` |
+| 目录链接 | **真 NTFS junction**（`DeviceIoControl` + `FSCTL_SET_REPARSE_POINT`，`junction_windows.go`，**免特权**） | symlink（`os.Symlink`，免特权，`junction_linux.go`，已实施） |
 | 链接识别 | `os.Readlink`（两平台共用，**不拆平台**；不能用 `ModeSymlink`，Go 1.23+ 起 junction 报 `ModeIrregular`） | 同左 |
 | 文件身份 | `Win32FileAttributeData.CreationTime` | `Stat_t.Ino` + `Dev` |
 | 进程树托管 | Job Object `KILL_ON_JOB_CLOSE` | setsid 进程组（可选 `Pdeathsig`） |
 | CA 信任 | `windows.Cert*` → Root 存储 | `/usr/local/share/ca-certificates` + `update-ca-certificates`<br>或 `/etc/pki/ca-trust/source/anchors` + `update-ca-trust` |
 | 私钥权限 | `icacls` | `os.Chmod(0600)` |
-| 提权 | 镜像已不需要；仅 `cert install --machine` 走 `winproc.RunAsAdmin`（`certmgr/cli.go:67`） | 不需要；仅证书信任需 root |
+| 提权 | 镜像已不需要；仅 `cert install --machine` 走 `procx.RunAsAdmin`（`certmgr/cli.go:67`） | 不需要；仅证书信任需 root（`procx.RunAsAdmin` 返回「本平台不适用」） |
 | 服务 | SCM（kardianos） | systemd（kardianos） |
 | SteamCMD | `steamcmd.exe`（zip） | `steamcmd.sh`（tar.gz，需 32 位 glibc） |
 | 打开浏览器 | `rundll32 url.dll,FileProtocolHandler` | `xdg-open`（GUI 排除后基本用不到） |
 | FRP 客户端 | 库内调用 `frp/client.NewService`（**两平台同一份代码**，见 §5.10） | 同左 |
 | Syncthing / umu / GE-Proton 下载 | `pkg/download`（**两平台同一份代码**，含 GitHub 代理，见 §5.13） | 同左，落盘后 `chmod 0755` |
-| ArkApi 插件数据 | `plugindata` 全功能 | **整体静默**（ArkApi 不支持，§5.12） |
+| ArkApi 插件数据 | `plugindata` 全功能 | 同左（`EnableAsaPlugin` 未启用/未装时结构性静默，启用且装好后全功能，见 §5.12） |
 | 路径传给 UE | 原样 | `Z:\` 前缀 + 反斜杠 |
 
 ### B. 参考资料
