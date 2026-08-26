@@ -31,6 +31,6 @@ func warnIfPluginsPathCaseMismatch(mirrorDir string) {
 	}
 	logger.GetLogger().Warnf(
 		"检测到 ArkApi 插件目录大小写与预期不符：磁盘上是 %q，程序按 %q 匹配，"+
-			"插件配置/数据隔离不会生效。见 docs/LINUX_COMPATIBILITY_PLAN.md §5.12 表格第 1 条",
+			"插件配置/数据隔离不会生效",
 		filepath.Join(win64Dir, actualName), filepath.Join(win64Dir, "ArkApi"))
 }
