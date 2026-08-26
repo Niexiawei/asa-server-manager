@@ -3,6 +3,7 @@
 package main
 
 import (
+	"asa-server/internal/webapi"
 	"context"
 	"errors"
 
@@ -10,9 +11,14 @@ import (
 )
 
 // actionGUI has no Linux equivalent — the desktop GUI is Fyne-based and
-// stays Windows-only (docs/LINUX_COMPATIBILITY_PLAN.md §5.9). Unreachable
-// today since main() still refuses to run on non-Windows at startup, but
-// needed so the "gui" CLI command and the no-args path type-check here too.
+// stays Windows-only (docs/LINUX_COMPATIBILITY_PLAN.md §5.9).
 func actionGUI(ctx context.Context, cmd *cli.Command) error {
 	return errors.New("GUI 仅在 Windows 上可用，请使用 asa-server api")
+}
+
+// runDefaultAction is what a no-argument invocation does on Linux: there's
+// no GUI to fall back to, so it's equivalent to `asa-server api`
+// (docs/LINUX_COMPATIBILITY_PLAN.md §5.9).
+func runDefaultAction(ctx context.Context) error {
+	return webapi.ActionAPI(ctx, nil)
 }

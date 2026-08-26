@@ -7,8 +7,8 @@ import (
 	cfgpkg "asa-server/internal/config"
 	"asa-server/internal/logger"
 	"asa-server/internal/runner"
+	"asa-server/internal/svcmgr"
 	"asa-server/internal/webapi"
-	"asa-server/internal/winservice"
 	"asa-server/pkg/download"
 	"context"
 	"errors"
@@ -16,7 +16,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 
@@ -24,8 +23,10 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-// isWindowsService checks if running as a Windows service
-func isWindowsService() (bool, error) {
+// isRunningAsService checks if running as an OS-managed service (Windows SCM
+// or systemd/sysvinit on Linux — kardianos's Interactive() already abstracts
+// the platform difference).
+func isRunningAsService() (bool, error) {
 	isInteractive := service.Interactive()
 	// If running as a service, Interactive() returns false
 	// If not running as a service (interactive mode), Interactive() returns true
@@ -33,15 +34,8 @@ func isWindowsService() (bool, error) {
 }
 
 func main() {
-	// 检查操作系统，仅允许 Windows
-	if runtime.GOOS != "windows" {
-		fmt.Printf("Error: This tool only supports Windows systems.\n")
-		fmt.Printf("   Current system: %s\n", runtime.GOOS)
-		os.Exit(1)
-	}
-
-	// Check if running as Windows service and run service
-	isService, err := isWindowsService()
+	// Check if running as an OS service and run service
+	isService, err := isRunningAsService()
 
 	if err != nil {
 		log.Fatal(err)
@@ -80,7 +74,7 @@ func main() {
 			},
 			&cli.BoolFlag{
 				Name:        "tls-trust",
-				Usage:       "Install the local CA into the Windows trusted root store (no browser warning)",
+				Usage:       "Install the local CA into the system trust store (Windows Root store / Linux ca-certificates|ca-trust)",
 				Value:       appCfg.Server.TLS.TrustLocalCA,
 				Destination: &webapi.TrustLocalCA,
 			},
@@ -129,27 +123,27 @@ func main() {
 
 			{
 				Name:  "service",
-				Usage: "Manage Windows service",
+				Usage: "Manage the OS service (Windows service / systemd on Linux)",
 				Commands: []*cli.Command{
 					{
 						Name:   "install",
-						Usage:  "Install as Windows service",
-						Action: winservice.ActionServiceInstall,
+						Usage:  "Install as an OS service",
+						Action: svcmgr.ActionServiceInstall,
 					},
 					{
 						Name:   "remove",
-						Usage:  "Remove Windows service",
-						Action: winservice.ActionServiceRemove,
+						Usage:  "Remove the OS service",
+						Action: svcmgr.ActionServiceRemove,
 					},
 					{
 						Name:   "start",
-						Usage:  "Start Windows service",
-						Action: winservice.ActionServiceStart,
+						Usage:  "Start the OS service",
+						Action: svcmgr.ActionServiceStart,
 					},
 					{
 						Name:   "stop",
-						Usage:  "Stop Windows service",
-						Action: winservice.ActionServiceStop,
+						Usage:  "Stop the OS service",
+						Action: svcmgr.ActionServiceStop,
 					},
 				},
 			},
@@ -175,16 +169,19 @@ func main() {
 		},
 	}
 
-	// Check if running as Windows service and run service
+	// Check if running as an OS service and run service
 	if isService {
 		logger.SetLogMode(logger.ServicesMode)
-		winservice.RunService()
+		svcmgr.RunService()
 		return
 	}
 
-	// If no arguments provided, start GUI mode
+	// No arguments: Windows defaults to GUI, Linux (no GUI, see
+	// docs/LINUX_COMPATIBILITY_PLAN.md §5.9) defaults to the API server.
 	if len(os.Args) == 1 {
-		actionGUI(context.Background(), nil)
+		if err := runDefaultAction(context.Background()); err != nil {
+			log.Fatal(err)
+		}
 		return
 	}
 

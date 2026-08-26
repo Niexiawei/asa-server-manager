@@ -15,3 +15,9 @@ func actionGUI(ctx context.Context, cmd *cli.Command) error {
 	guiApp.Run()
 	return nil
 }
+
+// runDefaultAction is what a no-argument invocation does on Windows: launch
+// the GUI, exactly as before the Linux no-args path was added.
+func runDefaultAction(ctx context.Context) error {
+	return actionGUI(ctx, nil)
+}

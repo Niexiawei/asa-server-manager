@@ -6,8 +6,8 @@ import (
 	cfgpkg "asa-server/internal/config"
 	"asa-server/internal/logger"
 	procpkg "asa-server/internal/process"
+	"asa-server/internal/svcmgr"
 	"asa-server/internal/webapi"
-	"asa-server/internal/winservice"
 	"asa-server/pkg/serverinfo"
 	"context"
 	_ "embed"
@@ -238,9 +238,9 @@ func (g *GUIApp) startInstanceMonitoring() {
 // getServiceStatus checks the current status of the service
 func (g *GUIApp) getServiceStatus() (ServiceStatus, error) {
 	s, err := service.New(nil, &service.Config{
-		Name:        winservice.ServiceName,
-		DisplayName: winservice.ServiceDisplayName,
-		Description: winservice.ServiceDescription,
+		Name:        svcmgr.ServiceName,
+		DisplayName: svcmgr.ServiceDisplayName,
+		Description: svcmgr.ServiceDescription,
 	})
 	if err != nil {
 		return StatusUnknown, err
@@ -398,7 +398,7 @@ func (g *GUIApp) installService() {
 
 	// Confirm installation
 	g.showConfirm("确认安装", "确定要安装 ASA Server 服务吗？", func() {
-		if err := winservice.InstallService(); err != nil {
+		if err := svcmgr.InstallService(); err != nil {
 			g.showError(fmt.Errorf("安装服务失败: %v", err))
 			return
 		}
@@ -424,7 +424,7 @@ func (g *GUIApp) uninstallService() {
 
 	// Confirm uninstallation
 	g.showConfirm("确认卸载", "确定要卸载 ASA Server 服务吗？\n卸载前会先停止服务。", func() {
-		if err := winservice.RemoveService(); err != nil {
+		if err := svcmgr.RemoveService(); err != nil {
 			g.showError(fmt.Errorf("卸载服务失败: %v", err))
 			return
 		}
@@ -436,7 +436,7 @@ func (g *GUIApp) uninstallService() {
 
 // startService starts the Windows service
 func (g *GUIApp) startService() {
-	if err := winservice.StartService(); err != nil {
+	if err := svcmgr.StartService(); err != nil {
 		g.showError(fmt.Errorf("启动服务失败: %v", err))
 		return
 	}
@@ -447,7 +447,7 @@ func (g *GUIApp) startService() {
 
 // stopService stops the Windows service
 func (g *GUIApp) stopService() {
-	if err := winservice.StopService(); err != nil {
+	if err := svcmgr.StopService(); err != nil {
 		g.showError(fmt.Errorf("停止服务失败: %v", err))
 		return
 	}
