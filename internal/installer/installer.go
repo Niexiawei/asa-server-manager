@@ -4,6 +4,7 @@ import (
 	cfgpkg "asa-server/internal/config"
 	"asa-server/internal/logger"
 	procpkg "asa-server/internal/process"
+	"asa-server/internal/runner"
 	"asa-server/pkg/console"
 	"asa-server/pkg/download"
 	"asa-server/pkg/netutil"
@@ -12,7 +13,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -248,9 +248,18 @@ func DownloadAndUpdateArkServer(ctx context.Context, outputCallback ...io.Writer
 	}
 	defer endServerFilesUpdate()
 
-	steamCmdExe := filepath.Join(cfgpkg.SteamCmdDir, "steamcmd.exe")
+	// No-op on Windows. On Linux this guarantees umu/GE-Proton are in place
+	// before VerifyServerInstallation tries to launch the server through
+	// runner.Run further down — normally already done by the background
+	// warm-up at API server startup, but not guaranteed (fresh install,
+	// startup warm-up still in flight, auto_download disabled, ...).
+	if err := runner.EnsureRuntime(ctx, outputWriter); err != nil {
+		return fmt.Errorf("Linux runtime (umu/GE-Proton) not ready: %w", err)
+	}
 
-	// Check if steamcmd.exe exists
+	steamCmdExe := filepath.Join(cfgpkg.SteamCmdDir, steamCmdBinaryName)
+
+	// Check if SteamCMD's binary exists
 	if _, err := os.Stat(steamCmdExe); err != nil {
 		return fmt.Errorf("SteamCMD not found. Please run 'update' command first")
 	}
@@ -318,6 +327,14 @@ func DownloadAndUpdateArkServer(ctx context.Context, outputCallback ...io.Writer
 		return ctx.Err()
 	}
 
+	// Re-apply the ASA-on-Wine fixups every time: `validate` just re-downloaded
+	// the Sentry plugin this fixed a moment ago (see disableSentryPlugin's own
+	// comment for why that specifically needs to happen after every update,
+	// not just once at install time). No-op on Windows.
+	if err := ApplyLinuxFixups(); err != nil {
+		logger.GetLogger().Warnf("Failed to apply Linux compatibility fixups: %v", err)
+	}
+
 	logMsg = "ARK server installation/update completed successfully."
 	logger.GetLogger().Info(logMsg)
 	if outputWriter != nil {
@@ -358,11 +375,17 @@ func VerifyServerInstallation(ctx context.Context, force bool) error {
 		return fmt.Errorf("ArkAscendedServer.exe not found. Please run 'update' command first")
 	}
 
+	// Apply Linux compatibility fixups (Sentry plugin, steam_appid.txt, Steam
+	// SDK symlinks) before the very first launch too — a no-op on Windows.
+	// Best-effort: a failure here shouldn't block verification outright, the
+	// launch below will just fail with a clearer symptom if it mattered.
+	if err := ApplyLinuxFixups(); err != nil {
+		logger.GetLogger().Warnf("Failed to apply Linux compatibility fixups: %v", err)
+	}
+
 	if !force {
 		logger.GetLogger().Info("First installation detected. Running server to generate configuration files...")
 	}
-
-	logger.GetLogger().Info("This may take 60 seconds...")
 
 	// Get the logs directory path
 	logsDir := filepath.Join(cfgpkg.ServerFilesDir, "ShooterGame/Saved/Logs")
@@ -376,9 +399,13 @@ func VerifyServerInstallation(ctx context.Context, force bool) error {
 	}
 	logger.GetLogger().Infof("Running server verification on port %d...", port)
 
-	// Start the server to generate config files
-	cmd := exec.Command(
-		arkExe,
+	// Start the server to generate config files. On Windows this is a plain
+	// exec of arkExe; on Linux runner.Run wraps it in umu-run (Wine/Proton) —
+	// see docs/LINUX_COMPATIBILITY_PLAN.md §5.1/§5.5. Either way,
+	// handle.LauncherPID is what procx.KillTree needs below: the actual game
+	// PID on Windows, umu-run's PID (== the whole launch's process group
+	// leader) on Linux.
+	handle, err := runner.Run(ctx, arkExe, []string{
 		"TheIsland_WP?listen",
 		fmt.Sprintf("-Port=%d", port),
 		"-NoBattlEye",
@@ -387,17 +414,11 @@ func VerifyServerInstallation(ctx context.Context, force bool) error {
 		"-log",
 		"-nosteamclient",
 		"-game",
-	)
-
-	// Do NOT redirect stdout/stderr to avoid process issues
-	// Instead, we'll monitor the log file for output
-
-	// Start the process in the background
-	if err := cmd.Start(); err != nil {
+	}, runner.Options{})
+	if err != nil {
 		return fmt.Errorf("failed to start server for verification: %w", err)
 	}
-	pid := cmd.Process.Pid
-	logger.GetLogger().Infof("Server process started (PID: %d). Monitoring log file...", pid)
+	logger.GetLogger().Infof("Server process started (launcher PID: %d). Monitoring log file...", handle.LauncherPID)
 
 	logFilePath, err := findLatestLogFile(logsDir)
 	if err != nil {
@@ -407,22 +428,55 @@ func VerifyServerInstallation(ctx context.Context, force bool) error {
 		logger.GetLogger().Infof("Monitoring log file: %s", filepath.Base(logFilePath))
 	}
 
-	// Wait for server to generate config files (with context cancellation)
-	select {
-	case <-time.After(60 * time.Second):
-	case <-ctx.Done():
+	// Wait for the config directory to appear rather than a fixed sleep:
+	// Wine cold starts are considerably slower than native Windows, and a
+	// fixed 60s used to be both too short under Wine and needlessly long on
+	// Windows once the directory has actually appeared. Capped at 180s per
+	// docs/LINUX_COMPATIBILITY_PLAN.md §5.5.
+	waitErr := waitForConfigDir(ctx, configDir, 180*time.Second)
+
+	if ctx.Err() != nil {
 		logger.GetLogger().Info("Stopping server for verification (cancelled)...")
-		_ = procx.Kill(pid)
+		_ = procx.KillTree(handle.LauncherPID)
 		return ctx.Err()
 	}
-	// Kill the server process
 
 	logger.GetLogger().Info("Stopping server for verification...")
-	_ = procx.Kill(pid)
+	_ = procx.KillTree(handle.LauncherPID)
 
 	// Wait a moment for process to clean up
 	time.Sleep(2 * time.Second)
 
+	if waitErr != nil {
+		return fmt.Errorf("server verification failed: %w", waitErr)
+	}
+
 	logger.GetLogger().Info("Server verification completed. Configuration files generated.")
 	return nil
+}
+
+// waitForConfigDir polls for configDir to appear, up to timeout or ctx
+// cancellation, whichever comes first.
+func waitForConfigDir(ctx context.Context, configDir string, timeout time.Duration) error {
+	if _, err := os.Stat(configDir); err == nil {
+		return nil
+	}
+
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-deadline.C:
+			return fmt.Errorf("timed out after %s waiting for %s to appear", timeout, configDir)
+		case <-ticker.C:
+			if _, err := os.Stat(configDir); err == nil {
+				return nil
+			}
+		}
+	}
 }
