@@ -58,7 +58,8 @@ func MirrorPluginsDir(mirrorDir string) string {
 func listMirrorPlugins(mirrorDir string) []string {
 	entries, err := os.ReadDir(MirrorPluginsDir(mirrorDir))
 	if err != nil {
-		return nil // ArkApi 未安装，或镜像还没建起来
+		warnIfPluginsPathCaseMismatch(mirrorDir) // 见 docs/LINUX_COMPATIBILITY_PLAN.md §5.12 表格第 1 条
+		return nil                               // ArkApi 未安装，或镜像还没建起来
 	}
 	var out []string
 	for _, e := range entries {
