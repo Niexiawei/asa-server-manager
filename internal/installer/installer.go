@@ -1,7 +1,6 @@
 package installer
 
 import (
-	"archive/zip"
 	cfgpkg "asa-server/internal/config"
 	"asa-server/internal/logger"
 	procpkg "asa-server/internal/process"
@@ -104,7 +103,7 @@ func DownloadAndExtractSteamCmd(ctx context.Context, outputCallback ...io.Writer
 	}
 
 	// Check if SteamCMD is already installed and initialized
-	steamCmdExe := filepath.Join(cfgpkg.SteamCmdDir, "steamcmd.exe")
+	steamCmdExe := filepath.Join(cfgpkg.SteamCmdDir, steamCmdBinaryName)
 	if _, err := os.Stat(steamCmdExe); err == nil {
 		logMsg := "SteamCMD already installed."
 		logger.GetLogger().Info(logMsg)
@@ -124,13 +123,13 @@ func DownloadAndExtractSteamCmd(ctx context.Context, outputCallback ...io.Writer
 		outputWriter.Write([]byte(logMsg + "\n"))
 	}
 
-	// Download the SteamCMD zip file
-	zipPath := filepath.Join(cfgpkg.SteamCmdDir, "steamcmd.zip")
-	if err := download.Fetch(ctx, download.Options{URL: cfgpkg.SteamCmdURL, Dest: zipPath, Resume: true}); err != nil {
+	// Download the SteamCMD archive
+	archivePath := filepath.Join(cfgpkg.SteamCmdDir, "steamcmd_download."+steamCmdArchiveExt)
+	if err := download.Fetch(ctx, download.Options{URL: steamCmdURL, Dest: archivePath, Resume: true}); err != nil {
 		return fmt.Errorf("failed to download SteamCMD: %w", err)
 	}
-	if fi, err := os.Stat(zipPath); err == nil {
-		logger.GetLogger().Infof("Downloaded: %s (%d bytes)", zipPath, fi.Size())
+	if fi, err := os.Stat(archivePath); err == nil {
+		logger.GetLogger().Infof("Downloaded: %s (%d bytes)", archivePath, fi.Size())
 	}
 
 	logMsg = "Extracting SteamCMD..."
@@ -139,14 +138,14 @@ func DownloadAndExtractSteamCmd(ctx context.Context, outputCallback ...io.Writer
 		outputWriter.Write([]byte(logMsg + "\n"))
 	}
 
-	// Extract the zip file
-	if err := extractZip(zipPath, cfgpkg.SteamCmdDir); err != nil {
+	// Extract the archive (steamcmd.zip on Windows, steamcmd_linux.tar.gz on Linux)
+	if err := extractSteamCmdArchive(archivePath, cfgpkg.SteamCmdDir); err != nil {
 		return fmt.Errorf("failed to extract SteamCMD: %w", err)
 	}
 
-	// Remove the zip file after extraction
-	if err := os.Remove(zipPath); err != nil {
-		warnMsg := fmt.Sprintf("Warning: failed to remove zip file: %v", err)
+	// Remove the archive after extraction
+	if err := os.Remove(archivePath); err != nil {
+		warnMsg := fmt.Sprintf("Warning: failed to remove downloaded archive: %v", err)
 		logger.GetLogger().Warnf(warnMsg)
 		if outputWriter != nil {
 			outputWriter.Write([]byte(warnMsg + "\n"))
@@ -172,67 +171,11 @@ func DownloadAndExtractSteamCmd(ctx context.Context, outputCallback ...io.Writer
 	return nil
 }
 
-// extractZip extracts a zip file to the given directory
-func extractZip(zipPath string, destDir string) error {
-	// Open the zip file
-	reader, err := zip.OpenReader(zipPath)
-	if err != nil {
-		return err
-	}
-	defer reader.Close()
-
-	// Extract each file in the zip
-	for _, file := range reader.File {
-		// Construct the full path to the extracted file
-		fpath := filepath.Join(destDir, file.Name)
-
-		// Zip Slip protection: ensure the path is within destDir
-		if !strings.HasPrefix(filepath.Clean(fpath), filepath.Clean(destDir)+string(os.PathSeparator)) {
-			return fmt.Errorf("illegal file path in zip: %s", file.Name)
-		}
-
-		// Create directories if needed
-		if file.FileInfo().IsDir() {
-			os.MkdirAll(fpath, os.ModePerm)
-			continue
-		}
-
-		// Create parent directories
-		if err = os.MkdirAll(filepath.Dir(fpath), os.ModePerm); err != nil {
-			return err
-		}
-
-		// Open the file in the zip
-		infile, err := file.Open()
-		if err != nil {
-			return err
-		}
-
-		// Create the output file
-		outfile, err := os.OpenFile(fpath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, file.Mode())
-		if err != nil {
-			infile.Close()
-			return err
-		}
-
-		// Copy contents
-		_, err = io.Copy(outfile, infile)
-		infile.Close()
-		outfile.Close()
-
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
 // initializeSteamCmd runs SteamCMD to initialize it
 // outputWriter is an optional io.Writer for streaming console output
 // This hides the cmd window and redirects output via the callback
 func initializeSteamCmd(ctx context.Context, outputWriter ...io.Writer) error {
-	steamCmdExe := filepath.Join(cfgpkg.SteamCmdDir, "steamcmd.exe")
+	steamCmdExe := filepath.Join(cfgpkg.SteamCmdDir, steamCmdBinaryName)
 
 	// Redirect stdout and stderr based on callback
 	var writer io.Writer

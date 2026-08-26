@@ -24,10 +24,6 @@ var (
 	ConfigFile     string
 )
 
-const (
-	SteamCmdURL = "https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip"
-)
-
 // InstanceConfig represents an instance configuration
 type InstanceConfig struct {
 	ServerName              string
