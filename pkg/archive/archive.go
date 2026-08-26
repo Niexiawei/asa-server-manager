@@ -1,4 +1,11 @@
-package runner
+// Package archive provides tar extraction with zip-slip protection. It has
+// no domain knowledge and no platform-specific code (satisfies the pkg/
+// admission criteria — see docs/INTERNAL_LAYOUT_MIGRATION.md §9), so both
+// internal/runner (umu-launcher/GE-Proton on Linux) and internal/installer
+// (SteamCMD's Linux tar.gz) can share the one zip-slip-safe implementation
+// instead of each carrying their own copy of security-relevant extraction
+// code.
+package archive
 
 import (
 	"archive/tar"
@@ -9,7 +16,7 @@ import (
 	"strings"
 )
 
-// extractTar extracts a tar stream (caller has already unwrapped any gzip
+// ExtractTar extracts a tar stream (caller has already unwrapped any gzip
 // layer) into destDir. When stripPrefix is non-empty, that leading path
 // component is removed from every entry's name and entries outside it are
 // skipped (the `tar --strip-components=1` equivalent for a single known
@@ -18,10 +25,9 @@ import (
 // (zip-slip) must not be able to write outside it.
 //
 // No build constraint: this is pure archive/tar + stdlib I/O with nothing
-// platform-specific in it, only used today by umu_linux.go's umu-launcher
-// and GE-Proton installation — kept unconstrained so it can be unit tested
-// on any host, not just Linux.
-func extractTar(r io.Reader, destDir, stripPrefix string) error {
+// platform-specific in it — kept unconstrained so it can be unit tested on
+// any host, not just Linux.
+func ExtractTar(r io.Reader, destDir, stripPrefix string) error {
 	if err := os.MkdirAll(destDir, 0755); err != nil {
 		return err
 	}

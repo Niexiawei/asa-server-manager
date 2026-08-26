@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"asa-server/internal/logger"
+	"asa-server/pkg/archive"
 	"asa-server/pkg/download"
 	"asa-server/pkg/procx"
 )
@@ -139,7 +140,7 @@ func ensureUmu(ctx context.Context, cfg Config, logf func(string, ...any)) error
 		return err
 	}
 	defer f.Close()
-	if err := extractTar(f, umuDir(cfg), "umu/"); err != nil {
+	if err := archive.ExtractTar(f, umuDir(cfg), "umu/"); err != nil {
 		return fmt.Errorf("failed to extract umu-launcher archive: %w", err)
 	}
 
@@ -197,7 +198,7 @@ func ensureGEProton(ctx context.Context, cfg Config, logf func(string, ...any)) 
 
 	// No strip-prefix: the archive's own top-level entry is "GE-Proton10-34/",
 	// which is exactly the directory name we want under protonBaseDir.
-	if err := extractTar(gz, protonBaseDir(cfg), ""); err != nil {
+	if err := archive.ExtractTar(gz, protonBaseDir(cfg), ""); err != nil {
 		return fmt.Errorf("failed to extract %s: %w", assetName, err)
 	}
 

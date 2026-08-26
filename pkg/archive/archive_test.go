@@ -1,4 +1,4 @@
-package runner
+package archive
 
 import (
 	"archive/tar"
@@ -56,7 +56,7 @@ func TestExtractTar_PlainFiles(t *testing.T) {
 		{name: "sub/b.txt", typeflag: tar.TypeReg, body: "world"},
 	})
 
-	if err := extractTar(src, dest, ""); err != nil {
+	if err := ExtractTar(src, dest, ""); err != nil {
 		t.Fatalf("extractTar: %v", err)
 	}
 
@@ -81,7 +81,7 @@ func TestExtractTar_StripPrefix(t *testing.T) {
 		{name: "other/should-be-skipped.txt", typeflag: tar.TypeReg, body: "nope"},
 	})
 
-	if err := extractTar(src, dest, "umu/"); err != nil {
+	if err := ExtractTar(src, dest, "umu/"); err != nil {
 		t.Fatalf("extractTar: %v", err)
 	}
 
@@ -105,7 +105,7 @@ func TestExtractTar_RejectsZipSlip(t *testing.T) {
 		{name: "../evil.txt", typeflag: tar.TypeReg, body: "pwned"},
 	})
 
-	err := extractTar(src, dest, "")
+	err := ExtractTar(src, dest, "")
 	if err == nil {
 		t.Fatal("expected extractTar to reject a path-traversal entry, got nil error")
 	}
@@ -123,7 +123,7 @@ func TestExtractTar_RejectsZipSlipNestedTraversal(t *testing.T) {
 		{name: "GE-Proton10-34/../../evil.txt", typeflag: tar.TypeReg, body: "pwned"},
 	})
 
-	if err := extractTar(src, dest, ""); err == nil {
+	if err := ExtractTar(src, dest, ""); err == nil {
 		t.Fatal("expected extractTar to reject a nested path-traversal entry, got nil error")
 	}
 }
