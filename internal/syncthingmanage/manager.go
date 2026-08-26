@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"asa-server/internal/logger"
+	"asa-server/pkg/logger"
 )
 
 // SyncthingManager manages the syncthing process lifecycle
@@ -63,7 +63,7 @@ func Initialize(basedir string) (string, error) {
 
 	binPath, err := ensureSyncthingBinary(context.Background(), dir)
 	if err != nil {
-		logger.GetLogger().Errorf(
+		logger.Errorf(
 			"syncthing binary unavailable, start/restart will fail until this is resolved (check network access / download.github_proxy): %v", err)
 		return dir, nil
 	}
@@ -101,8 +101,8 @@ func (m *SyncthingManager) asyncStart() {
 		"--no-browser", "--no-restart",
 		"--no-upgrade")
 	// Set up stdout/stderr to redirect to logger
-	cmd.Stdout = &LogWriter{tag: "[syncthing]", logFunc: logger.GetLogger().Infof}
-	cmd.Stderr = &LogWriter{tag: "[syncthing]", logFunc: logger.GetLogger().Errorf}
+	cmd.Stdout = &LogWriter{tag: "[syncthing]", logFunc: logger.Infof}
+	cmd.Stderr = &LogWriter{tag: "[syncthing]", logFunc: logger.Errorf}
 
 	job, err := proctree.Start(ctx, cmd)
 	if err != nil {
@@ -149,7 +149,7 @@ func (m *SyncthingManager) asyncStart() {
 			m.running = false
 			m.cmd = nil
 			m.startErr = fmt.Errorf("syncthing process exited immediately: %v", err)
-			logger.GetLogger().Infof("syncthing process exited err: %v", err)
+			logger.Infof("syncthing process exited err: %v", err)
 			m.mu.Unlock()
 			return
 		case <-time.After(1000 * time.Millisecond):
@@ -162,7 +162,7 @@ func (m *SyncthingManager) asyncStart() {
 
 // Stop stops the syncthing process
 func (m *SyncthingManager) Stop() error {
-	logger.GetLogger().Infof("syncthing stoping ...")
+	logger.Infof("syncthing stoping ...")
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -174,7 +174,7 @@ func (m *SyncthingManager) Stop() error {
 	m.job.Close()
 	m.running = false
 	m.cmd = nil
-	logger.GetLogger().Infof("syncthing stoped")
+	logger.Infof("syncthing stoped")
 	return nil
 }
 
@@ -225,7 +225,7 @@ func (m *SyncthingManager) Cleanup() error {
 	// C3 fix: Call Stop() before acquiring lock to avoid deadlock
 	if err := m.Stop(); err != nil {
 		// M11 fix: Log warning but continue cleanup even if Stop fails
-		logger.GetLogger().Warnf("syncthing Cleanup: Stop failed (continuing cleanup): %v", err)
+		logger.Warnf("syncthing Cleanup: Stop failed (continuing cleanup): %v", err)
 	}
 
 	m.mu.Lock()
@@ -237,7 +237,7 @@ func (m *SyncthingManager) Cleanup() error {
 		}
 	}
 
-	logger.GetLogger().Infof("syncthing manager cleanup ...")
+	logger.Infof("syncthing manager cleanup ...")
 
 	return nil
 }

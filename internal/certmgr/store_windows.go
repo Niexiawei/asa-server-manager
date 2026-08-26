@@ -3,7 +3,7 @@
 package certmgr
 
 import (
-	"asa-server/internal/logger"
+	"asa-server/pkg/logger"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -42,7 +42,7 @@ func TrustCA() error {
 	fingerprint := Fingerprint(der)
 
 	if loc, ok := findTrusted(fingerprint); ok {
-		logger.GetLogger().Debugf("本地 CA 已在 %s 中（指纹 %s）", loc, fingerprint)
+		logger.Debugf("本地 CA 已在 %s 中（指纹 %s）", loc, fingerprint)
 		return nil
 	}
 
@@ -52,7 +52,7 @@ func TrustCA() error {
 			errs = append(errs, fmt.Errorf("%s: %w", loc.name, err))
 			continue
 		}
-		logger.GetLogger().Infof(
+		logger.Infof(
 			"已将本地 CA 写入 %s（指纹 %s）。如需移除，执行 `asa-server cert uninstall`",
 			loc.name, fingerprint)
 		return nil
@@ -130,13 +130,13 @@ func untrustFingerprint(fingerprint string) error {
 			errs = append(errs, fmt.Errorf("%s: %w", loc.name, err))
 		} else {
 			removed = true
-			logger.GetLogger().Infof("已从 %s 移除本地 CA（指纹 %s）", loc.name, fingerprint)
+			logger.Infof("已从 %s 移除本地 CA（指纹 %s）", loc.name, fingerprint)
 		}
 		_ = windows.CertCloseStore(store, 0)
 	}
 
 	if !removed && len(errs) == 0 {
-		logger.GetLogger().Debugf("受信任存储中未找到指纹 %s，无需移除", fingerprint)
+		logger.Debugf("受信任存储中未找到指纹 %s，无需移除", fingerprint)
 	}
 	return errors.Join(errs...)
 }
@@ -232,7 +232,7 @@ func hardenKeyFile(path string) {
 	cmd := exec.Command("icacls", args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	if out, err := cmd.CombinedOutput(); err != nil {
-		logger.GetLogger().Warnf("收紧私钥文件权限失败 %s: %v (%s)", path, err, strings.TrimSpace(string(out)))
+		logger.Warnf("收紧私钥文件权限失败 %s: %v (%s)", path, err, strings.TrimSpace(string(out)))
 	}
 }
 

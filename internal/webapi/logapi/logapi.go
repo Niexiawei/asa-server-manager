@@ -2,15 +2,16 @@ package logapi
 
 import (
 	instancepkg "asa-server/internal/instance"
-	"asa-server/internal/logger"
 	"asa-server/internal/webapi/apiresp"
+	"asa-server/pkg/logger"
 	"asa-server/pkg/tail"
 	"context"
 	"fmt"
-	"github.com/gin-gonic/gin"
 	"io"
 	"net/http"
 	"os"
+
+	"github.com/gin-gonic/gin"
 )
 
 type Handler struct {

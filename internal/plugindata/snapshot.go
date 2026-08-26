@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"asa-server/internal/logger"
+	"asa-server/pkg/logger"
 
 	// 纯 Go 的 SQLite 驱动，鉴权库已经在用，这里复用不增加依赖。
 	_ "modernc.org/sqlite"
@@ -76,7 +76,7 @@ func StartSnapshots(instanceName, mirrorDir string, interval time.Duration) {
 		}
 	}()
 
-	logger.GetLogger().Infof("已为实例 %s 开启插件数据库在线快照，周期 %v", instanceName, interval)
+	logger.Infof("已为实例 %s 开启插件数据库在线快照，周期 %v", instanceName, interval)
 }
 
 // StopSnapshots 停掉某个实例的快照 goroutine。
@@ -104,7 +104,7 @@ func snapshotOnce(instanceName, mirrorDir string) {
 		instPlugin := filepath.Join(InstancePluginsDir(instanceName), plugin)
 
 		if external, path := hasExternalDBPath(instPlugin, mirrorPlugin); external {
-			logger.GetLogger().Debugf("插件 %s 的数据库路径由用户接管（%s），跳过快照", plugin, path)
+			logger.Debugf("插件 %s 的数据库路径由用户接管（%s），跳过快照", plugin, path)
 			continue
 		}
 
@@ -115,7 +115,7 @@ func snapshotOnce(instanceName, mirrorDir string) {
 			src := filepath.Join(mirrorPlugin, filepath.FromSlash(g.Base))
 			if fi, err := os.Stat(src); err != nil || fi.Size() > maxSnapshotDBBytes {
 				if err == nil {
-					logger.GetLogger().Warnf(
+					logger.Warnf(
 						"插件 %s 的数据库 %s 有 %d 字节，超过快照上限，本轮跳过",
 						plugin, g.Base, fi.Size())
 				}
@@ -123,7 +123,7 @@ func snapshotOnce(instanceName, mirrorDir string) {
 			}
 			dstDir := filepath.Join(instPlugin, snapshotsDirName)
 			if err := snapshotDB(src, filepath.Join(dstDir, slashBase(g.Base))); err != nil {
-				logger.GetLogger().Warnf("为插件 %s 的 %s 生成快照失败: %v", plugin, g.Base, err)
+				logger.Warnf("为插件 %s 的 %s 生成快照失败: %v", plugin, g.Base, err)
 			}
 		}
 	}
@@ -166,7 +166,7 @@ func snapshotDB(src, dst string) error {
 	prev := dst + ".1"
 	_ = os.Remove(prev)
 	if err := os.Rename(dst, prev); err != nil && !os.IsNotExist(err) {
-		logger.GetLogger().Debugf("轮转旧快照 %s 失败: %v", dst, err)
+		logger.Debugf("轮转旧快照 %s 失败: %v", dst, err)
 	}
 	if err := os.Rename(tmp, dst); err != nil {
 		_ = os.Remove(tmp)

@@ -8,7 +8,6 @@ import (
 	"asa-server/internal/certmgr"
 	cfgpkg "asa-server/internal/config"
 	"asa-server/internal/frpmanage"
-	"asa-server/internal/logger"
 	"asa-server/internal/parseserver"
 	"asa-server/internal/realtime"
 	"asa-server/internal/runner"
@@ -27,6 +26,7 @@ import (
 	"asa-server/internal/webapi/scheduleapi"
 	"asa-server/internal/webapi/serverapi"
 	"asa-server/internal/webapi/systemapi"
+	"asa-server/pkg/logger"
 	"context"
 	"errors"
 	"fmt"
@@ -91,13 +91,13 @@ func NewAPIServer() *APIServer {
 	engine := gin.Default()
 	setupCORS(engine)
 	if err := engine.SetTrustedProxies(parseTrustedProxies(TrustedProxies)); err != nil {
-		logger.GetLogger().Warnf("设置可信代理失败，将忽略 X-Forwarded-For: %v", err)
+		logger.Warnf("设置可信代理失败，将忽略 X-Forwarded-For: %v", err)
 		_ = engine.SetTrustedProxies(nil)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	saveDataManager, err := parseserver.NewSaveDataManager()
 	if err != nil {
-		logger.GetLogger().Warnf("Failed to init save data manager: %v", err)
+		logger.Warnf("Failed to init save data manager: %v", err)
 	}
 
 	server := &APIServer{
@@ -121,14 +121,14 @@ func (s *APIServer) Start() error {
 	frpcMgr := frpmanage.GetGlobalManager()
 	if frpcMgr != nil {
 		if err := frpcMgr.Start(); err != nil {
-			logger.GetLogger().Errorf("Failed to start frpc: %v", err)
+			logger.Errorf("Failed to start frpc: %v", err)
 		}
 	}
 	//start syncthing manage
 	syncthingMgr := syncthingmanage.GetGlobalManager()
 	if syncthingMgr != nil {
 		if err := syncthingMgr.Start(); err != nil {
-			logger.GetLogger().Errorf("Failed to start syncthing: %v", err)
+			logger.Errorf("Failed to start syncthing: %v", err)
 		}
 	}
 
@@ -168,7 +168,7 @@ func (s *APIServer) Start() error {
 		if err != nil {
 			// 证书出问题不该让整个管理面板起不来：退回明文 HTTP/1.1，
 			// 功能全在，只是失去 HTTP/2 的多路复用
-			logger.GetLogger().Errorf("TLS 初始化失败，退回明文 HTTP: %v", err)
+			logger.Errorf("TLS 初始化失败，退回明文 HTTP: %v", err)
 		} else {
 			srv.TLSConfig = tlsConfig
 			scheme = "https"
@@ -186,12 +186,12 @@ func (s *APIServer) Start() error {
 			err = srv.ListenAndServe()
 		}
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			logger.GetLogger().Errorf("Failed to listen and serve: %v", err)
+			logger.Errorf("Failed to listen and serve: %v", err)
 			log.Fatalf("listen: %s\n", err)
 		}
 	}()
 
-	logger.GetStdout().Infof("Starting API server on %s://localhost:%d", scheme, s.port)
+	logger.WithConsole().Infof("Starting API server on %s://localhost:%d", scheme, s.port)
 	log.Printf("Starting API server on %s://localhost:%d \n", scheme, s.port)
 	<-s.serverCtx.Done()
 	log.Println("Shutdown Server ...")
@@ -211,13 +211,13 @@ func (s *APIServer) Stop() error {
 	frpcMgr := frpmanage.GetGlobalManager()
 	if frpcMgr != nil {
 		if err := frpcMgr.Stop(); err != nil {
-			logger.GetLogger().Warnf("Error stopping frpc: %v", err)
+			logger.Warnf("Error stopping frpc: %v", err)
 		}
 	}
 	syncthingMgr := syncthingmanage.GetGlobalManager()
 	if syncthingMgr != nil {
 		if err := syncthingMgr.Stop(); err != nil {
-			logger.GetLogger().Warnf("Error stopping syncthing: %v", err)
+			logger.Warnf("Error stopping syncthing: %v", err)
 		}
 	}
 
@@ -247,11 +247,11 @@ func (s *APIServer) Stop() error {
 
 	log.Println("saveDataManager stopped")
 	if err := statepkg.CloseStateManager(); err != nil {
-		logger.GetLogger().Warnf("Error closing state manager: %v", err)
+		logger.Warnf("Error closing state manager: %v", err)
 	}
 	if m := auth.GetManager(); m != nil {
 		if err := m.Close(); err != nil {
-			logger.GetLogger().Warnf("关闭鉴权数据库出错: %v", err)
+			logger.Warnf("关闭鉴权数据库出错: %v", err)
 		}
 	}
 
@@ -274,7 +274,7 @@ func startAuthHousekeeping(ctx context.Context) {
 				return
 			case <-ticker.C:
 				if err := m.Housekeeping(ctx); err != nil {
-					logger.GetLogger().Warnf("鉴权数据清理失败: %v", err)
+					logger.Warnf("鉴权数据清理失败: %v", err)
 				}
 			}
 		}
@@ -396,7 +396,7 @@ func InitializationBasicComponents() {
 	// instance startup doesn't route through runner yet (that lands in P4).
 	// GET /api/system/preflight exposes the same result for the frontend.
 	for _, p := range runner.Preflight() {
-		logger.GetLogger().Warnf("Linux runtime preflight: %s — %s (fix: %s)", p.Name, p.Detail, p.Fix)
+		logger.Warnf("Linux runtime preflight: %s — %s (fix: %s)", p.Name, p.Detail, p.Fix)
 	}
 	// Warm the Linux Wine/Proton runtime (no-op on Windows). Backgrounded and
 	// best-effort like syncthingmanage.Initialize above: GE-Proton alone is a
@@ -405,7 +405,7 @@ func InitializationBasicComponents() {
 	// GET /api/system/preflight and this log line are how a failure surfaces.
 	go func() {
 		if err := runner.EnsureRuntime(context.Background(), nil); err != nil {
-			logger.GetLogger().Warnf("Linux runtime (umu/GE-Proton) not ready: %v", err)
+			logger.Warnf("Linux runtime (umu/GE-Proton) not ready: %v", err)
 		}
 	}()
 }
@@ -423,7 +423,7 @@ func initializeAuth() {
 	}
 	m, err := auth.Initialize(cfgpkg.BaseDir)
 	if err != nil {
-		logger.GetStdout().Errorf("鉴权初始化失败: %v", err)
+		logger.WithConsole().Errorf("鉴权初始化失败: %v", err)
 		log.Fatalf("鉴权已启用但初始化失败，服务不会以无鉴权状态启动。\n"+
 			"可执行 asa-server db migrate --dry-run 诊断，或 asa-server db verify 检查数据库。\n%v", err)
 	}
@@ -435,17 +435,16 @@ func initializeAuth() {
 		msg := fmt.Sprintf("[鉴权] 已启用鉴权但尚未创建任何账号。\n"+
 			"       请在本机浏览器打开 %s://localhost:%d/#/setup 创建管理员账号，\n"+
 			"       或执行 asa-server user add <用户名> --role admin", scheme, ApiServerPort)
-		logger.GetLogger().Warn(msg)
+		logger.Warn(msg)
 	}
 	if appconfig.Get().Auth.LANBypass.Enabled {
-		logger.GetStdout().Warn("[安全] lan_bypass 已开启：来自内网网段且不带 X-Forwarded-For 的请求将跳过鉴权。" +
+		logger.WithConsole().Warn("[安全] lan_bypass 已开启：来自内网网段且不带 X-Forwarded-For 的请求将跳过鉴权。" +
 			"若反代未设置 XFF（如 frpc 的 tcp 类型代理），公网访问将完全绕过鉴权。")
 	}
 }
 
 // ActionAPI starts the HTTP API server
 func ActionAPI(ctx context.Context, cmd *cli.Command) error {
-	logger.SetLogMode(logger.HttpApiMode)
 	apiServer := NewAPIServer()
 
 	go func() {

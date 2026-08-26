@@ -4,11 +4,11 @@ import (
 	cfgpkg "asa-server/internal/config"
 	"asa-server/internal/countdown"
 	instancepkg "asa-server/internal/instance"
-	"asa-server/internal/logger"
 	procpkg "asa-server/internal/process"
 	statepkg "asa-server/internal/state"
 	"asa-server/internal/updatemanage"
 	"asa-server/internal/webapi/apiresp"
+	"asa-server/pkg/logger"
 	"asa-server/pkg/procx"
 	"asa-server/pkg/serverinfo"
 	"context"
@@ -103,7 +103,7 @@ func ensureStoppable(c *gin.Context, name string) bool {
 
 	if reason == instancepkg.ReasonProcessGone {
 		if err := statepkg.WriteInstanceState(name, statepkg.StatusStopped, ""); err != nil {
-			logger.GetLogger().Errorf("Failed to reconcile state for instance '%s': %v", name, err)
+			logger.Errorf("Failed to reconcile state for instance '%s': %v", name, err)
 		}
 	}
 
@@ -472,7 +472,7 @@ func (h *Handler) runStartServerTask(name string) {
 		instancepkg.WithWaitServerCompleted(),
 		instancepkg.WithStatePreset(),
 	); err != nil {
-		logger.GetLogger().Errorf("failed to start server '%s': %v", name, err)
+		logger.Errorf("failed to start server '%s': %v", name, err)
 	}
 }
 
@@ -484,7 +484,7 @@ func (h *Handler) runStopServerTask(name string, cfg *countdown.Config) {
 	if err := countdown.Stop(h.serverCtx, name, cfg,
 		instancepkg.WithStatePreset(),
 	); err != nil {
-		logger.GetLogger().Errorf("failed to stop server '%s': %v", name, err)
+		logger.Errorf("failed to stop server '%s': %v", name, err)
 	}
 }
 
@@ -493,6 +493,6 @@ func (h *Handler) runRestartServerTask(name string, cfg *countdown.Config) {
 		instancepkg.WithStatePreset(),
 		instancepkg.WithRestartStartupCompletion(func(string) {}), // 写 StatusRestarted 状态供 dispatcher 推送
 	); err != nil {
-		logger.GetLogger().Errorf("failed to restart server '%s': %v", name, err)
+		logger.Errorf("failed to restart server '%s': %v", name, err)
 	}
 }

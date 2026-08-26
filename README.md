@@ -207,7 +207,8 @@ asa-server/
 │
 │  ── Domain packages (bottom-up, no cycles) ──
 ├── pkg/                 # Leaf utilities: fsutil, procx (process primitives), netutil, tail,
-│                        #   console, iox, proctree (process tree mgmt), serverinfo (gopsutil metrics)
+│                        #   console, iox, proctree (process tree mgmt), serverinfo (gopsutil metrics),
+│                        #   logger (Zap + lumberjack, see docs/LOGGER_REDESIGN_PLAN.md)
 ├── config/              # Directory layout, InstanceConfig, INI read/write, config sync
 ├── certmgr/             # Local CA + leaf certificate, Windows trusted root store (HTTPS/h2)
 ├── process/             # PID store + IsServerRunning (breaks the state <-> instance cycle)
@@ -235,7 +236,6 @@ asa-server/
 ├── frpmanage/           # FRP reverse proxy management (embedded frpc.exe)
 ├── syncthingmanage/     # Syncthing file sync management (embedded syncthing.exe)
 ├── parseserver/         # ARK save file parsing
-├── logger/              # Zap + lumberjack structured logging with rotation
 └── docs/                # Documentation (see index below)
 ```
 
@@ -376,6 +376,7 @@ Chinese overview, or jump straight to a topic below.
 | [V2_MIRROR_STARTUP_ARCHITECTURE.md](docs/V2_MIRROR_STARTUP_ARCHITECTURE.md) | NTFS junction mirrors for parallel instance startup |
 | [HTTP2_CONNECTION_OPTIMIZATION.md](docs/HTTP2_CONNECTION_OPTIMIZATION.md) | HTTP/2 plan to lift the browser's 6-connection-per-origin cap on SSE |
 | [instance-manager-daemon.md](docs/instance-manager-daemon.md) | Instance manager daemon design |
+| [LOGGER_REDESIGN_PLAN.md](docs/LOGGER_REDESIGN_PLAN.md) | `logger` package redesign (implemented, now `pkg/logger`): console/file multi-sink, chainable `WithConsole()`, full call-site migration |
 
 ### Linux Compatibility
 

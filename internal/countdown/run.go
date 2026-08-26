@@ -2,11 +2,11 @@ package countdown
 
 import (
 	instancepkg "asa-server/internal/instance"
-	"asa-server/internal/logger"
 	procpkg "asa-server/internal/process"
 	"asa-server/internal/rconx"
 	"asa-server/internal/realtime"
 	statepkg "asa-server/internal/state"
+	"asa-server/pkg/logger"
 	"context"
 	"errors"
 	"fmt"
@@ -69,7 +69,7 @@ func Wait(ctx context.Context, instances []string, action Action, cfg *Config) (
 	norm := cfg.normalized()
 	deadline := time.Now().Add(norm.Total)
 
-	logger.GetLogger().Infof(
+	logger.Infof(
 		"Countdown started for %d instance(s): %s until %s, %d notify point(s)",
 		len(instances), norm.Total, deadline.Format(time.TimeOnly), len(norm.Points),
 	)
@@ -195,7 +195,7 @@ func waitOne(ctx context.Context, instanceName string, action Action, cfg *Confi
 	norm := cfg.normalized()
 	deadline := time.Now().Add(norm.Total)
 
-	logger.GetLogger().Infof(
+	logger.Infof(
 		"Countdown started for instance %s: %s until %s, %d notify point(s)",
 		instanceName, norm.Total, deadline.Format(time.TimeOnly), len(norm.Points),
 	)
@@ -218,21 +218,21 @@ func runOne(ctx context.Context, instanceName string, action Action, cfg *Config
 	// 前端却会挂出一条永远不会兑现的倒计时，到点了动作还是失败。
 	// 放在 register 之前——不登记，前端就不会看到那条假倒计时。
 	if !isAlive(instanceName) {
-		logger.GetLogger().Warnf(
+		logger.Warnf(
 			"Skipping countdown for instance %s: %v", instanceName, ErrNotRunning,
 		)
 		return ErrNotRunning
 	}
 
 	if err := register(instanceName, action, deadline, cancel); err != nil {
-		logger.GetLogger().Warnf(
+		logger.Warnf(
 			"Skipping countdown for instance %s: %v", instanceName, err,
 		)
 		return err
 	}
 
 	if err := loop(ctx, instanceName, action, cfg, deadline); err != nil {
-		logger.GetLogger().Infof("Countdown for instance %s cancelled", instanceName)
+		logger.Infof("Countdown for instance %s cancelled", instanceName)
 		markPhase(instanceName, action, realtime.CountdownPhaseCancelled,
 			fmt.Sprintf("实例 %s 的%s已取消", instanceName, action.Label()))
 		release(instanceName)
@@ -269,7 +269,7 @@ func loop(
 		msg := renderMessage(cfg.Template, instanceName, action, remaining)
 		command := fmt.Sprintf("%s %s", cfg.Command, msg)
 		if _, err := rconx.Execute(ctx, instanceName, command); err != nil {
-			logger.GetLogger().Warnf(
+			logger.Warnf(
 				"Failed to announce countdown to instance %s (countdown continues): %v",
 				instanceName, err,
 			)

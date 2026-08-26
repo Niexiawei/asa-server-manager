@@ -2,11 +2,11 @@ package instance
 
 import (
 	cfgpkg "asa-server/internal/config"
-	"asa-server/internal/logger"
 	"asa-server/internal/mirror"
 	procpkg "asa-server/internal/process"
 	"asa-server/internal/rconx"
 	statepkg "asa-server/internal/state"
+	"asa-server/pkg/logger"
 	"asa-server/pkg/procx"
 	"asa-server/pkg/tail"
 	"bufio"
@@ -58,13 +58,13 @@ func IsStoppable(instanceName string) (bool, string) {
 // 下一次调度）都会继续被这条记录误导，包括「重新启动它」都会被 CAS 拒绝
 // （Start 只接受 stopped/failed 系状态，不接受 started）。
 func reconcileCrashedState(instanceName string) (bool, string) {
-	logger.GetLogger().Warnf(
+	logger.Warnf(
 		"Instance '%s' state says started but its process is gone; reconciling to stopped",
 		instanceName,
 	)
 	if err := statepkg.WriteInstanceState(instanceName, statepkg.StatusStopped,
 		"auto-recovered: process exited unexpectedly"); err != nil {
-		logger.GetLogger().Errorf("Failed to reconcile crashed state for instance '%s': %v", instanceName, err)
+		logger.Errorf("Failed to reconcile crashed state for instance '%s': %v", instanceName, err)
 	}
 	return false, ReasonProcessGone
 }
@@ -89,12 +89,12 @@ func reconcileMissingState(instanceName string) (bool, string) {
 		status = statepkg.StatusStarted
 	}
 
-	logger.GetLogger().Warnf(
+	logger.Warnf(
 		"Instance '%s' has no state record; reconciling to %s based on the live process",
 		instanceName, status,
 	)
 	if err := statepkg.WriteInstanceState(instanceName, status, ""); err != nil {
-		logger.GetLogger().Errorf("Failed to reconcile state for instance '%s': %v", instanceName, err)
+		logger.Errorf("Failed to reconcile state for instance '%s': %v", instanceName, err)
 	}
 
 	if !alive {
@@ -105,10 +105,11 @@ func reconcileMissingState(instanceName string) (bool, string) {
 
 func killGameServer(pid int) {
 	if err := procx.TerminateTree(pid); err != nil {
-		logger.GetLogger().Warnf("failed to kill process PID %d: %s", pid, err.Error())
+		logger.Warnf("failed to kill process PID %d: %s", pid, err.Error())
 		_ = procx.KillTree(pid)
 	}
 }
+
 // waitForGamePID polls for the real ArkAscendedServer.exe process and
 // returns its PID, matching on AltSaveDirectoryName rather than Port: a
 // numeric port substring can collide with -QueryPort=/-RCONPort=, while
@@ -221,7 +222,7 @@ func MonitorAndExtractModInfo(pctx context.Context, logPath string, instanceName
 			// Create output directory if it doesn't exist
 			outputDir := filepath.Dir(modInfoPath)
 			if err := os.MkdirAll(outputDir, 0755); err != nil {
-				logger.GetLogger().Warnf("Failed to create output directory for mod info: %v", err)
+				logger.Warnf("Failed to create output directory for mod info: %v", err)
 				cancel()
 				return
 			}
@@ -229,7 +230,7 @@ func MonitorAndExtractModInfo(pctx context.Context, logPath string, instanceName
 			// Write to JSON file
 			jsonFile, err := os.Create(modInfoPath)
 			if err != nil {
-				logger.GetLogger().Warnf("Failed to create mod info JSON file: %v", err)
+				logger.Warnf("Failed to create mod info JSON file: %v", err)
 				cancel()
 				return
 			}
@@ -238,11 +239,11 @@ func MonitorAndExtractModInfo(pctx context.Context, logPath string, instanceName
 			encoder := json.NewEncoder(jsonFile)
 			encoder.SetIndent("", "  ")
 			if err := encoder.Encode(modList); err != nil {
-				logger.GetLogger().Warnf("Failed to encode mod info JSON: %v", err)
+				logger.Warnf("Failed to encode mod info JSON: %v", err)
 				cancel()
 				return
 			}
-			logger.GetLogger().Infof("Successfully extracted and saved %d mod(s) from instance %s to %s", len(modList), instanceName, modInfoPath)
+			logger.Infof("Successfully extracted and saved %d mod(s) from instance %s to %s", len(modList), instanceName, modInfoPath)
 			cancel()
 			return // Stop monitoring after saving
 		}
@@ -254,11 +255,11 @@ func MonitorAndExtractModInfo(pctx context.Context, logPath string, instanceName
 			modID := matches[2]
 			if _, exists := mods[modID]; !exists { // Avoid duplicates
 				mods[modID] = modName
-				logger.GetLogger().Debugf("Found mod in instance %s: %s (%s)", instanceName, modName, modID)
+				logger.Debugf("Found mod in instance %s: %s (%s)", instanceName, modName, modID)
 			}
 		}
 	}); err != nil {
-		logger.GetLogger().Warnf("Failed to tail log for mod extraction (%s): %v", logPath, err)
+		logger.Warnf("Failed to tail log for mod extraction (%s): %v", logPath, err)
 		return
 	}
 
@@ -294,9 +295,9 @@ func SaveWorldSafely(instanceName string) error {
 
 	// Check if response contains "World Saved" to confirm server is saving
 	if strings.Contains(response, "World Saved") {
-		logger.GetLogger().Infof("Server instance %s is saving world...", instanceName)
+		logger.Infof("Server instance %s is saving world...", instanceName)
 	} else {
-		logger.GetLogger().Errorf("server instance %s is saving world error: %v", instanceName, err)
+		logger.Errorf("server instance %s is saving world error: %v", instanceName, err)
 		return fmt.Errorf("server instance %s is saving world error: %w", instanceName, err)
 	}
 
@@ -340,16 +341,16 @@ func SaveWorldSafely(instanceName string) error {
 				fileModTime := fileInfo.ModTime()
 				if fileModTime.After(startTime) || fileModTime.Equal(startTime) {
 					diffMilli := fileModTime.UnixMilli() - startTime.UnixMilli()
-					logger.GetLogger().Infof("World saved successfully for instance %s. Save file: %s. saved Milliseconds %d",
+					logger.Infof("World saved successfully for instance %s. Save file: %s. saved Milliseconds %d",
 						instanceName, saveFilePath, diffMilli)
 					return nil
 				}
 			} else {
-				logger.GetLogger().Warnf("Save file not found or error checking: %v", err)
+				logger.Warnf("Save file not found or error checking: %v", err)
 			}
-			logger.GetLogger().Infof("The world archive has not been uploaded yet: %s", instanceName)
+			logger.Infof("The world archive has not been uploaded yet: %s", instanceName)
 		case <-ctx.Done():
-			logger.GetLogger().Errorf("timeout waiting for world save to complete for instance %s. Save file: %s", instanceName, saveFilePath)
+			logger.Errorf("timeout waiting for world save to complete for instance %s. Save file: %s", instanceName, saveFilePath)
 			return fmt.Errorf("timeout waiting for world save to complete for instance %s. Save file: %s", instanceName, saveFilePath)
 		}
 	}
@@ -414,7 +415,7 @@ func waitServerStopped(ctx context.Context, pid int, gameLogPath string,
 		}
 		mu.Unlock()
 	}); err != nil {
-		logger.GetLogger().Warnf("Failed to tail log for shutdown monitoring (%s): %v", gameLogPath, err)
+		logger.Warnf("Failed to tail log for shutdown monitoring (%s): %v", gameLogPath, err)
 	}
 
 	<-stopped
@@ -465,7 +466,7 @@ func waitServerStartup(pid int, gameLogPath string, callback waitServerStartupFu
 			successfullyCallback()
 		}
 	}); err != nil {
-		logger.GetLogger().Warnf("Failed to tail log for startup monitoring (%s): %v", gameLogPath, err)
+		logger.Warnf("Failed to tail log for startup monitoring (%s): %v", gameLogPath, err)
 	}
 	<-startup
 }

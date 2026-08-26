@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"asa-server/internal/logger"
+	"asa-server/pkg/logger"
 
 	"github.com/fatedier/frp/client"
 	"github.com/fatedier/frp/pkg/config"
@@ -52,10 +52,8 @@ func Initialize(basedir string) (string, error) {
 
 	// frp 有一个包级全局 logger（pkg/util/log.Logger）。绝不能调 frplog.InitLogger——
 	// 它会按 frpc.toml 的 log.to 抢 stdout 或自己开一份轮转文件。正确做法是自己
-	// New 一个写进 asaServer.log 的 Logger 塞进去。放在这里而不是包级 init()：
-	// logger.GetLogger() 在 main() 调 InitLoggerWithBaseDir 之前返回 nil，
-	// 包级 init() 跑在 main() 之前，这里调用时已经过了那个时间点。
-	frplog.Logger = golibLog.New(golibLog.WithOutput(&LogWriter{tag: "[frpc]", logFunc: logger.GetLogger().Infof}))
+	// New 一个写进 asaServer.log 的 Logger 塞进去。
+	frplog.Logger = golibLog.New(golibLog.WithOutput(&LogWriter{tag: "[frpc]", logFunc: logger.Infof}))
 
 	frpConfigDir = dir
 	globalManager = &FrpcManager{runDir: dir}
@@ -120,7 +118,7 @@ func buildService(configPath string) (*client.Service, error) {
 	if warn, err := validation.ValidateAllClientConfig(result.Common, proxyCfgs, visitorCfgs, nil); err != nil {
 		return nil, fmt.Errorf("validate config: %w", err)
 	} else if warn != nil {
-		logger.GetLogger().Warnf("[frpc] %v", warn)
+		logger.Warnf("[frpc] %v", warn)
 	}
 
 	return client.NewService(client.ServiceOptions{
@@ -151,15 +149,15 @@ func (m *FrpcManager) asyncRun(svr *client.Service) {
 	m.running = false
 	if err != nil {
 		m.startErr = fmt.Errorf("frpc exited: %w", err)
-		logger.GetLogger().Errorf("frpc exited with error: %v", err)
+		logger.Errorf("frpc exited with error: %v", err)
 	} else {
-		logger.GetLogger().Infof("frpc exited")
+		logger.Infof("frpc exited")
 	}
 }
 
 // Stop stops the frpc client.
 func (m *FrpcManager) Stop() error {
-	logger.GetLogger().Infof("frp stoping ...")
+	logger.Infof("frp stoping ...")
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -169,7 +167,7 @@ func (m *FrpcManager) Stop() error {
 
 	m.svr.GracefulClose(2 * time.Second)
 	m.running = false
-	logger.GetLogger().Infof("frp stoped")
+	logger.Infof("frp stoped")
 	return nil
 }
 
@@ -215,7 +213,7 @@ func (m *FrpcManager) Cleanup() error {
 	// (Stop() acquires mu internally, so we must not hold it here)
 	if err := m.Stop(); err != nil {
 		// M11 fix: Log warning but continue cleanup even if Stop fails
-		logger.GetLogger().Warnf("frpc Cleanup: Stop failed (continuing cleanup): %v", err)
+		logger.Warnf("frpc Cleanup: Stop failed (continuing cleanup): %v", err)
 	}
 
 	m.mu.Lock()
@@ -227,7 +225,7 @@ func (m *FrpcManager) Cleanup() error {
 		}
 	}
 
-	logger.GetLogger().Infof(" frpc manager cleanup ...")
+	logger.Infof(" frpc manager cleanup ...")
 
 	return nil
 }

@@ -2,7 +2,7 @@ package schedule
 
 import (
 	cfgpkg "asa-server/internal/config"
-	"asa-server/internal/logger"
+	"asa-server/pkg/logger"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -130,7 +130,7 @@ func (s *logStore) load() {
 	data, err := os.ReadFile(s.path)
 	if err != nil {
 		if !os.IsNotExist(err) {
-			logger.GetLogger().Warnf("Failed to read %s, starting with empty run logs: %v", s.path, err)
+			logger.Warnf("Failed to read %s, starting with empty run logs: %v", s.path, err)
 		}
 		s.records = nil
 		return
@@ -143,7 +143,7 @@ func (s *logStore) load() {
 
 	var records []*RunRecord
 	if err := json.Unmarshal(data, &records); err != nil {
-		logger.GetLogger().Warnf("Failed to parse %s, starting with empty run logs: %v", s.path, err)
+		logger.Warnf("Failed to parse %s, starting with empty run logs: %v", s.path, err)
 		s.records = nil
 		return
 	}

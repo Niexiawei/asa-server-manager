@@ -9,7 +9,7 @@ package certmgr
 
 import (
 	cfgpkg "asa-server/internal/config"
-	"asa-server/internal/logger"
+	"asa-server/pkg/logger"
 	"crypto/tls"
 	"fmt"
 	"os"
@@ -57,7 +57,7 @@ func EnsureTLSConfig(opts Options) (*tls.Config, error) {
 		if err != nil {
 			return nil, fmt.Errorf("加载自备证书失败: %w", err)
 		}
-		logger.GetLogger().Infof("使用自备证书: %s", opts.CertFile)
+		logger.Infof("使用自备证书: %s", opts.CertFile)
 		return newTLSConfig(pair), nil
 	}
 
@@ -77,14 +77,14 @@ func EnsureTLSConfig(opts Options) (*tls.Config, error) {
 
 	if opts.Trust {
 		if err := TrustCA(); err != nil {
-			logger.GetLogger().Warnf(
+			logger.Warnf(
 				"本地 CA 未能写入系统受信任存储（浏览器会提示证书警告，可手动执行 `asa-server cert install`）: %v", err)
 		}
 	} else {
 		// trust_local_ca=false 是 Linux 的默认值（系统信任库不影响浏览器的 NSS 证书库，
 		// 装了也还是红锁，见 docs/LINUX_COMPATIBILITY_PLAN.md §5.7），但浏览器警告本身
 		// 不会消失——起码把 CA 路径和后续手段亮出来，别让用户对着红锁不知道去哪找。
-		logger.GetLogger().Infof(
+		logger.Infof(
 			"未将本地 CA 写入系统信任存储（trust_local_ca=false）：浏览器打开 HTTPS 会提示证书警告。"+
 				"本地 CA 位于 %s，可执行 `asa-server cert install` 安装到系统信任存储，"+
 				"或手动导入浏览器信任的证书库", caCertPath())

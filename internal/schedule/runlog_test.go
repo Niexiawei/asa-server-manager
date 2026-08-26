@@ -1,20 +1,12 @@
 package schedule
 
 import (
-	"asa-server/internal/logger"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 )
-
-// logStore.load 的容错分支会调 logger.GetLogger()，未初始化时它返回 nil 并 panic。
-// 统一初始化到临时目录，避免把日志写进仓库。
-func TestMain(m *testing.M) {
-	logger.InitLoggerWithBaseDir(os.TempDir())
-	os.Exit(m.Run())
-}
 
 // newTempLogStore 返回一个写到临时目录的 logStore，避免污染 BaseDir。
 func newTempLogStore(t *testing.T) *logStore {

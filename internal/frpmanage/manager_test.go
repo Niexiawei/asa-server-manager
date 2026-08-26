@@ -1,7 +1,7 @@
 package frpmanage
 
 import (
-	"asa-server/internal/logger"
+	"asa-server/pkg/logger"
 	"os"
 	"path/filepath"
 	"runtime"

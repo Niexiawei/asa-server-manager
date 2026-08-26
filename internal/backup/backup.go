@@ -3,8 +3,8 @@ package backup
 import (
 	"archive/tar"
 	cfgpkg "asa-server/internal/config"
-	"asa-server/internal/logger"
 	procpkg "asa-server/internal/process"
+	"asa-server/pkg/logger"
 	"fmt"
 	"io"
 	"os"
@@ -86,9 +86,9 @@ func pruneOldWorldBackups(instanceName string) error {
 	for _, f := range toDelete {
 		path := filepath.Join(backupDir, f.name)
 		if err := os.Remove(path); err != nil {
-			logger.GetLogger().Warnf("Failed to prune old backup '%s': %v", f.name, err)
+			logger.Warnf("Failed to prune old backup '%s': %v", f.name, err)
 		} else {
-			logger.GetLogger().Infof("Pruned old backup: %s", f.name)
+			logger.Infof("Pruned old backup: %s", f.name)
 		}
 	}
 
@@ -121,11 +121,11 @@ func BackupInstanceWorld(instanceName string) error {
 	archiveName := fmt.Sprintf("%s_%s.zstd", instanceName, timestamp)
 	archivePath := filepath.Join(backupDir, archiveName)
 
-	logger.GetLogger().Infof("Creating backup for instance '%s': %s", instanceName, archiveName)
+	logger.Infof("Creating backup for instance '%s': %s", instanceName, archiveName)
 	if err := createWorldArchive(instanceName, archivePath); err != nil {
 		return err
 	}
-	logger.GetLogger().Infof("Backup created: %s", archivePath)
+	logger.Infof("Backup created: %s", archivePath)
 
 	return pruneOldWorldBackups(instanceName)
 }
@@ -139,7 +139,7 @@ func BackupLatestWorldSnapshot(instanceName string) error {
 	}
 
 	latestPath := filepath.Join(backupDir, instanceName+"_latest.zstd")
-	logger.GetLogger().Infof("Creating latest snapshot for instance '%s'", instanceName)
+	logger.Infof("Creating latest snapshot for instance '%s'", instanceName)
 	return createWorldArchive(instanceName, latestPath)
 }
 
@@ -161,7 +161,7 @@ func RestoreInstanceWorld(instanceName string, backupFile string) error {
 
 	running, err := procpkg.IsServerRunning(instanceName)
 	if err == nil && running {
-		logger.GetLogger().Warnf("Server for instance '%s' is running. Stop it before restoring a backup.", instanceName)
+		logger.Warnf("Server for instance '%s' is running. Stop it before restoring a backup.", instanceName)
 		return fmt.Errorf("server is running")
 	}
 
@@ -171,7 +171,7 @@ func RestoreInstanceWorld(instanceName string, backupFile string) error {
 
 	instanceBaseDir := filepath.Join(cfgpkg.InstancesDir, instanceName)
 	if _, err := os.Stat(instanceBaseDir); os.IsNotExist(err) {
-		logger.GetLogger().Infof("Instance '%s' does not exist. Creating new instance...", instanceName)
+		logger.Infof("Instance '%s' does not exist. Creating new instance...", instanceName)
 		if err := os.MkdirAll(filepath.Join(instanceBaseDir, "Config"), 0755); err != nil {
 			return fmt.Errorf("failed to create instance directory: %w", err)
 		}
@@ -179,15 +179,15 @@ func RestoreInstanceWorld(instanceName string, backupFile string) error {
 		if err := cfgpkg.SaveInstanceConfig(instanceName, config); err != nil {
 			return fmt.Errorf("failed to create default instance config: %w", err)
 		}
-		logger.GetLogger().Infof("Instance '%s' created successfully", instanceName)
+		logger.Infof("Instance '%s' created successfully", instanceName)
 	}
 
 	_, configLoadErr := cfgpkg.LoadInstanceConfig(instanceName)
 	if configLoadErr != nil {
-		logger.GetLogger().Warnf("Failed to load instance config: %v (will use default)", configLoadErr)
+		logger.Warnf("Failed to load instance config: %v (will use default)", configLoadErr)
 	}
 
-	logger.GetLogger().Infof("Extracting backup to instance '%s'...", instanceName)
+	logger.Infof("Extracting backup to instance '%s'...", instanceName)
 
 	file, err := os.Open(backupFile)
 	if err != nil {
@@ -245,7 +245,7 @@ func RestoreInstanceWorld(instanceName string, backupFile string) error {
 		restoredCount++
 	}
 
-	logger.GetLogger().Infof("Backup successfully loaded into instance '%s' (%d files restored).", instanceName, restoredCount)
+	logger.Infof("Backup successfully loaded into instance '%s' (%d files restored).", instanceName, restoredCount)
 	return nil
 }
 

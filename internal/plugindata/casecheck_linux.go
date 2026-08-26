@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"asa-server/internal/logger"
+	"asa-server/pkg/logger"
 )
 
 // warnedCaseMismatchDirs 记录已经报过一次的 mirrorDir，避免同一份镜像在
@@ -29,7 +29,7 @@ func warnIfPluginsPathCaseMismatch(mirrorDir string) {
 	if _, already := warnedCaseMismatchDirs.LoadOrStore(mirrorDir, struct{}{}); already {
 		return
 	}
-	logger.GetLogger().Warnf(
+	logger.Warnf(
 		"检测到 ArkApi 插件目录大小写与预期不符：磁盘上是 %q，程序按 %q 匹配，"+
 			"插件配置/数据隔离不会生效",
 		filepath.Join(win64Dir, actualName), filepath.Join(win64Dir, "ArkApi"))

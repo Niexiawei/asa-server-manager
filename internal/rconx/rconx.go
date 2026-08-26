@@ -7,8 +7,8 @@ package rconx
 
 import (
 	cfgpkg "asa-server/internal/config"
-	"asa-server/internal/logger"
 	procpkg "asa-server/internal/process"
+	"asa-server/pkg/logger"
 	"context"
 	"errors"
 	"fmt"
@@ -91,35 +91,35 @@ func Execute(ctx context.Context, instanceName, command string, opts ...Option) 
 	}
 	defer client.Close()
 
-	logger.GetLogger().Infof("Sending RCON command '%s' to %s", command, addr)
+	logger.Infof("Sending RCON command '%s' to %s", command, addr)
 	response, err := client.Execute(command)
 	if err != nil {
 		return "", fmt.Errorf("RCON command execution failed: %w", err)
 	}
 
-	logger.GetLogger().Infof("RCON response: %s", response)
+	logger.Infof("RCON response: %s", response)
 	return response, nil
 }
 
 // dial 按配置的次数尝试建立连接。
 func dial(ctx context.Context, addr, password, instanceName string, o *options) (*rcon.Conn, error) {
-	logger.GetLogger().Infof("Instance: %s Connecting to RCON server at %s...", instanceName, addr)
+	logger.Infof("Instance: %s Connecting to RCON server at %s...", instanceName, addr)
 
 	var lastErr error
 	for attempt := 1; attempt <= o.attempts; attempt++ {
 		client, err := rcon.Dial(addr, password)
 		if err == nil {
-			logger.GetLogger().Info("Connected to RCON server")
+			logger.Info("Connected to RCON server")
 			return client, nil
 		}
 		lastErr = err
 
-		logger.GetLogger().Warnf("Attempt %d failed: %v", attempt, err)
+		logger.Warnf("Attempt %d failed: %v", attempt, err)
 		if attempt >= o.attempts {
 			break
 		}
 
-		logger.GetLogger().Infof("   Retrying in %s...", o.retryInterval)
+		logger.Infof("   Retrying in %s...", o.retryInterval)
 		select {
 		case <-time.After(o.retryInterval):
 		case <-ctx.Done():
@@ -127,7 +127,7 @@ func dial(ctx context.Context, addr, password, instanceName string, o *options) 
 		}
 	}
 
-	logger.GetLogger().Errorf("RCON connection to %s failed after %d attempts: %v",
+	logger.Errorf("RCON connection to %s failed after %d attempts: %v",
 		addr, o.attempts, lastErr)
 	return nil, fmt.Errorf("%w at %s: %w", ErrConnectFailed, addr, lastErr)
 }

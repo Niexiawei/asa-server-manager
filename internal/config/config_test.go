@@ -1,7 +1,7 @@
 package config
 
 import (
-	"asa-server/internal/logger"
+	"asa-server/pkg/logger"
 	"log"
 	"testing"
 )

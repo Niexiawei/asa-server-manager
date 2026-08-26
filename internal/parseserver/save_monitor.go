@@ -2,8 +2,8 @@ package parseserver
 
 import (
 	cfgpkg "asa-server/internal/config"
-	"asa-server/internal/logger"
 	"asa-server/internal/realtime"
+	"asa-server/pkg/logger"
 	"context"
 	"fmt"
 	"path/filepath"
@@ -48,7 +48,7 @@ func (m *SaveDataManager) GetCurrent(instanceName string) (*SaveData, bool) {
 func (m *SaveDataManager) Start(_ context.Context) {
 	instances, err := cfgpkg.GetAvailableInstances()
 	if err != nil {
-		logger.GetLogger().Errorf("获取实例列表失败，无法启动存档监控: %v", err)
+		logger.Errorf("获取实例列表失败，无法启动存档监控: %v", err)
 		return
 	}
 
@@ -67,7 +67,7 @@ func (m *SaveDataManager) Start(_ context.Context) {
 			config.MapName, config.MapName+".ark")
 
 		if err := m.startMonitor(instanceName, arkPath); err != nil {
-			logger.GetLogger().Warnf("启动存档监控失败 %s: %v", instanceName, err)
+			logger.Warnf("启动存档监控失败 %s: %v", instanceName, err)
 		}
 	}
 }
@@ -108,7 +108,7 @@ func (m *SaveDataManager) startMonitor(instanceName, arkPath string) error {
 		return fmt.Errorf("启动监控器: %w", err)
 	}
 
-	logger.GetLogger().Infof("存档监控已启动: %s (%s)", instanceName, arkPath)
+	logger.Infof("存档监控已启动: %s (%s)", instanceName, arkPath)
 
 	// 首次加载不产生事件，主动缓存并推送一次
 	if export := mon.Export(); export != nil {

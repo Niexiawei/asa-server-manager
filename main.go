@@ -5,11 +5,11 @@ import (
 	"asa-server/internal/appconfig"
 	"asa-server/internal/certmgr"
 	cfgpkg "asa-server/internal/config"
-	"asa-server/internal/logger"
 	"asa-server/internal/runner"
 	"asa-server/internal/svcmgr"
 	"asa-server/internal/webapi"
 	"asa-server/pkg/download"
+	"asa-server/pkg/logger"
 	"context"
 	"errors"
 	"fmt"
@@ -171,7 +171,6 @@ func main() {
 
 	// Check if running as an OS service and run service
 	if isService {
-		logger.SetLogMode(logger.ServicesMode)
 		svcmgr.RunService()
 		return
 	}
@@ -205,13 +204,13 @@ func loadAppConfig() *appconfig.Config {
 	// 默认值 auth.enabled 是 false，一个拼写错误就会让服务静默地不带鉴权启动。
 	// 配置错误应该表现为"起不来"，不该表现为"安全防护悄悄消失了"。
 	if errors.Is(err, appconfig.ErrAuthConfigInvalid) {
-		logger.GetLogger().Errorf("%v", err)
+		logger.Errorf("%v", err)
 		log.Fatalf("配置有误且已启用鉴权，服务不会以无鉴权状态启动。\n"+
 			"请修正 %s 后重试。\n%v", filepath.Join(cfgpkg.BaseDir, appconfig.ConfigFileName), err)
 	}
 
 	msg := fmt.Sprintf("加载 %s 失败，将使用默认配置继续启动: %v", appconfig.ConfigFileName, err)
-	logger.GetLogger().Error(msg)
+	logger.Error(msg)
 	return appconfig.Get()
 }
 

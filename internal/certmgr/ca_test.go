@@ -2,7 +2,7 @@ package certmgr
 
 import (
 	cfgpkg "asa-server/internal/config"
-	"asa-server/internal/logger"
+	"asa-server/pkg/logger"
 	"crypto/x509"
 	"net"
 	"os"

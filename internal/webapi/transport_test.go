@@ -3,7 +3,7 @@ package webapi
 import (
 	"asa-server/internal/certmgr"
 	cfgpkg "asa-server/internal/config"
-	"asa-server/internal/logger"
+	"asa-server/pkg/logger"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"

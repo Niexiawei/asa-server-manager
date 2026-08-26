@@ -4,9 +4,9 @@ import (
 	cfgpkg "asa-server/internal/config"
 	"asa-server/internal/countdown"
 	instancepkg "asa-server/internal/instance"
-	"asa-server/internal/logger"
 	"asa-server/internal/realtime"
 	statepkg "asa-server/internal/state"
+	"asa-server/pkg/logger"
 	"context"
 	"errors"
 	"fmt"
@@ -25,11 +25,11 @@ type BatchOperationType string
 type BatchOriginKind string
 
 const (
-	OriginUser              BatchOriginKind = "user"              // 用户在 UI 上发起
-	OriginScheduleRestart   BatchOriginKind = "schedule_restart"   // 定时重启任务
-	OriginScheduleUpdate    BatchOriginKind = "schedule_update"    // 定时更新任务的停服阶段
-	OriginUpdateRestore     BatchOriginKind = "update_restore"     // 更新后自动恢复启动
-	OriginManualRestore     BatchOriginKind = "manual_restore"     // 用户确认的待恢复启动
+	OriginUser              BatchOriginKind = "user"                // 用户在 UI 上发起
+	OriginScheduleRestart   BatchOriginKind = "schedule_restart"    // 定时重启任务
+	OriginScheduleUpdate    BatchOriginKind = "schedule_update"     // 定时更新任务的停服阶段
+	OriginUpdateRestore     BatchOriginKind = "update_restore"      // 更新后自动恢复启动
+	OriginManualRestore     BatchOriginKind = "manual_restore"      // 用户确认的待恢复启动
 	OriginTaskCancelRestore BatchOriginKind = "task_cancel_restore" // 取消定时任务后的状态回滚
 )
 
@@ -654,7 +654,7 @@ func (bm *BatchManager) runBatchOperation(op *BatchOperation) {
 
 	defer func() {
 		if r := recover(); r != nil {
-			logger.GetLogger().Errorf("Batch operation panic: %v", r)
+			logger.Errorf("Batch operation panic: %v", r)
 			op.sendLog("error", fmt.Sprintf("Batch operation panic: %v", r), "")
 		}
 	}()

@@ -3,7 +3,6 @@ package instance
 import (
 	cfgpkg "asa-server/internal/config"
 	"asa-server/internal/installer"
-	"asa-server/internal/logger"
 	"asa-server/internal/mirror"
 	"asa-server/internal/plugindata"
 	procpkg "asa-server/internal/process"
@@ -12,6 +11,7 @@ import (
 	statepkg "asa-server/internal/state"
 	"asa-server/pkg/console"
 	"asa-server/pkg/fsutil"
+	"asa-server/pkg/logger"
 	"asa-server/pkg/netutil"
 	"asa-server/pkg/procx"
 	"context"
@@ -160,7 +160,7 @@ func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
 	var lastErr error
 	for attempt := 0; attempt <= retryCount; attempt++ {
 		if attempt > 0 {
-			logger.GetLogger().Infof("服务器 %s 网络错误，第 %d/%d 次重试，等待 %v...", instanceName, attempt, retryCount, retryInterval)
+			logger.Infof("服务器 %s 网络错误，第 %d/%d 次重试，等待 %v...", instanceName, attempt, retryCount, retryInterval)
 			time.Sleep(retryInterval)
 		}
 		lastErr = startServerInternal(instanceName, options...)
@@ -168,7 +168,7 @@ func StartServer(instanceName string, options ...StartServerOptionsFunc) error {
 			return nil
 		}
 		if isNetworkRetriableStartupError(lastErr) && attempt < retryCount {
-			logger.GetLogger().Warnf("服务器 %s 启动失败（网络错误），将重试 (%d/%d): %v", instanceName, attempt+1, retryCount, lastErr)
+			logger.Warnf("服务器 %s 启动失败（网络错误），将重试 (%d/%d): %v", instanceName, attempt+1, retryCount, lastErr)
 			continue
 		}
 		_ = statepkg.WriteInstanceState(instanceName, statepkg.StatusStopped, "")
@@ -211,14 +211,14 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 	// 更新期间 server-files 正在被增删，此时做镜像同步只会同步出残缺镜像
 	if installer.IsUpdatingServerFiles() {
 		err := fmt.Errorf("server files are being updated, cannot start instance %s", instanceName)
-		logger.GetLogger().Warnf("%v", err)
+		logger.Warnf("%v", err)
 		startErr = err
 		return err
 	}
 
 	// Check for duplicate ports
 	if err := cfgpkg.CheckForDuplicatePorts(); err != nil {
-		logger.GetLogger().Errorf("Port conflicts detected: %v", err)
+		logger.Errorf("Port conflicts detected: %v", err)
 		startErr = err
 		return err
 	}
@@ -229,7 +229,7 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 		return err
 	}
 
-	logger.GetLogger().Infof("Starting server for instance: %s", instanceName)
+	logger.Infof("Starting server for instance: %s", instanceName)
 
 	// 同步实例镜像目录（增量）
 	mirrorDir, err = mirror.SyncInstanceMirror(instanceName, config)
@@ -318,7 +318,7 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 				args = append(args, fmt.Sprintf("-serverip=%s", ipv4Addr))
 			}
 		} else {
-			logger.GetLogger().Warnf("Failed to resolve domain %s to IPv4 address, ignoring BindDomain parameter", config.BindDomain)
+			logger.Warnf("Failed to resolve domain %s to IPv4 address, ignoring BindDomain parameter", config.BindDomain)
 		}
 	}
 
@@ -367,7 +367,7 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 		if err := os.WriteFile(gameLogPath, []byte(""), 0644); err != nil {
 			return fmt.Errorf("failed to create log file %s: %w", gameLogPath, err)
 		}
-		logger.GetLogger().Infof("Created log file: %s", gameLogPath)
+		logger.Infof("Created log file: %s", gameLogPath)
 	}
 
 	// Launch arkExe (ArkAscendedServer.exe, or AsaApiLoader.exe wrapping it
@@ -397,7 +397,7 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 	// a best-effort kill always has a value to fall back to even if the
 	// game-PID resolution below fails.
 	if err := procpkg.SaveLauncherPID(instanceName, handle.LauncherPID); err != nil {
-		logger.GetLogger().Warnf("Failed to save launcher PID for instance %s: %v", instanceName, err)
+		logger.Warnf("Failed to save launcher PID for instance %s: %v", instanceName, err)
 	}
 
 	// The launched process must keep running independently of this
@@ -416,9 +416,9 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 		// 将 PTY 输出清洗后落盘，每次启动清空
 		// 打开失败只告警，不影响开服
 		if apiLogPath, logErr := GetAsaApiLogFilePath(instanceName); logErr != nil {
-			logger.GetLogger().Warnf("Failed to resolve AsaApi log path for instance %s: %v", instanceName, logErr)
+			logger.Warnf("Failed to resolve AsaApi log path for instance %s: %v", instanceName, logErr)
 		} else if apiLogFile, openErr := os.OpenFile(apiLogPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644); openErr != nil {
-			logger.GetLogger().Warnf("Failed to open AsaApi log file %s: %v", apiLogPath, openErr)
+			logger.Warnf("Failed to open AsaApi log file %s: %v", apiLogPath, openErr)
 		} else {
 			// cleaner 独占该句柄，pty 关闭后 CleanScreenOutput 返回并释放
 			// AsaApiLoader 用光标定位排版，必须走 CleanScreenOutput 而非 CleanConsoleOutput
@@ -431,7 +431,7 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 		// 保存 AsaApiLoader（asaServerApi）进程 PID，供停止时先于游戏进程结束。
 		// Linux 上这与 launcher_pid 是同一个值（进程组 leader），杀哪个都一样。
 		if err := procpkg.SaveAsaServerApiPID(instanceName, handle.LauncherPID); err != nil {
-			logger.GetLogger().Warnf("Failed to save AsaApiLoader PID for instance %s: %v", instanceName, err)
+			logger.Warnf("Failed to save AsaApiLoader PID for instance %s: %v", instanceName, err)
 		}
 	}
 
@@ -453,15 +453,15 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 	}
 
 	if err := procpkg.SaveInstancePID(instanceName, pid); err != nil {
-		logger.GetLogger().Warnf("Failed to save PID for instance %s: %v", instanceName, err)
+		logger.Warnf("Failed to save PID for instance %s: %v", instanceName, err)
 	}
 
 	// 进程起来了就开始给插件数据库做在线快照：回收只在正常停止时执行，
 	// 崩溃、断电、管理器被杀这些路径靠快照把最坏损失收窄到一个周期。
 	plugindata.StartSnapshots(instanceName, mirrorDir, pluginSnapshotInterval(config))
 
-	logger.GetLogger().Infof("Server started for instance: %s. It should be fully operational in approximately 60 seconds.", instanceName)
-	logger.GetLogger().Infof("Game log file: %s", gameLogPath)
+	logger.Infof("Server started for instance: %s. It should be fully operational in approximately 60 seconds.", instanceName)
+	logger.Infof("Game log file: %s", gameLogPath)
 
 	// Monitor for mod information in a separate goroutine
 	go MonitorAndExtractModInfo(ctx, gameLogPath, instanceName)
@@ -560,12 +560,12 @@ func stopServerInternal(instanceName string) error {
 
 	running, err := procpkg.IsServerRunning(instanceName)
 	if err != nil || !running {
-		logger.GetLogger().Warnf("Server for instance %s is not running.", instanceName)
+		logger.Warnf("Server for instance %s is not running.", instanceName)
 		stopErr = fmt.Errorf("server for instance %s is not running", instanceName)
 		return stopErr
 	}
 
-	logger.GetLogger().Infof("Stopping server for instance: %s", instanceName)
+	logger.Infof("Stopping server for instance: %s", instanceName)
 
 	// 先停快照：saveworld 与进程退出期间的磁盘 I/O 不该再被 VACUUM INTO 争用
 	plugindata.StopSnapshots(instanceName)
@@ -583,7 +583,7 @@ func stopServerInternal(instanceName string) error {
 		return stopErr
 	}
 
-	logger.GetLogger().Infof("Stopping server for instance: %s pid: %d", instanceName, pid)
+	logger.Infof("Stopping server for instance: %s pid: %d", instanceName, pid)
 
 	gameLogPath, _ = GetGameLogFilePath(instanceName)
 
@@ -595,10 +595,10 @@ func stopServerInternal(instanceName string) error {
 	response, err := rconx.Execute(ctx, instanceName, "DoExit")
 
 	if err == nil && strings.Contains(response, "Exiting") {
-		logger.GetLogger().Infof("Server instance %s reported 'Exiting...'. Awaiting shutdown...", instanceName)
+		logger.Infof("Server instance %s reported 'Exiting...'. Awaiting shutdown...", instanceName)
 	} else {
 		if termErr := procx.Terminate(pid); termErr != nil {
-			logger.GetLogger().Warnf("failed to kill process PID %d: %s", pid, termErr.Error())
+			logger.Warnf("failed to kill process PID %d: %s", pid, termErr.Error())
 			_ = procx.Kill(pid)
 		}
 	}
@@ -610,7 +610,7 @@ func stopServerInternal(instanceName string) error {
 	stopped := make(chan struct{})
 	go waitServerStopped(waitCtx, pid, gameLogPath,
 		func() {
-			logger.GetLogger().Infof("Server %s received closing request", instanceName)
+			logger.Infof("Server %s received closing request", instanceName)
 		},
 		func(complete bool) {
 			close(stopped)
@@ -619,9 +619,9 @@ func stopServerInternal(instanceName string) error {
 	// Wait for complete stop or timeout
 	select {
 	case <-stopped:
-		logger.GetLogger().Infof("Server for instance %s has exited.", instanceName)
+		logger.Infof("Server for instance %s has exited.", instanceName)
 	case <-time.After(5 * time.Minute):
-		logger.GetLogger().Warnf("Process %d did not exit within 5min, force killing", pid)
+		logger.Warnf("Process %d did not exit within 5min, force killing", pid)
 		// Tree kill, not single-PID: this is the last-resort path
 		// (docs/LINUX_COMPATIBILITY_PLAN.md §5.4's "强杀进程树" row). On
 		// Linux, pid is a member of the umu-run/bwrap/wine process group —
@@ -679,7 +679,7 @@ func ForceStopServer(instanceName string) error {
 	_ = statepkg.WriteInstanceState(instanceName, statepkg.StatusStopped, "")
 	// 6. 清理镜像目录
 	if err := mirror.CleanupInstanceMirror(instanceName); err != nil {
-		logger.GetLogger().Warnf("Failed to cleanup instance mirror for %s: %v", instanceName, err)
+		logger.Warnf("Failed to cleanup instance mirror for %s: %v", instanceName, err)
 	}
 	return nil
 }
@@ -817,7 +817,7 @@ func SyncGameConfigToInstance(instanceName string) error {
 		return fmt.Errorf("failed to sync GameUserSettings.ini: %w", err)
 	}
 
-	logger.GetLogger().Infof("Configuration files synced for instance '%s'", instanceName)
+	logger.Infof("Configuration files synced for instance '%s'", instanceName)
 	return nil
 }
 

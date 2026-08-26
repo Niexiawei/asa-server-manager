@@ -2,7 +2,7 @@ package schedule
 
 import (
 	cfgpkg "asa-server/internal/config"
-	"asa-server/internal/logger"
+	"asa-server/pkg/logger"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -59,7 +59,7 @@ func (p *pendingStore) load() {
 	data, err := os.ReadFile(p.path)
 	if err != nil {
 		if !os.IsNotExist(err) {
-			logger.GetLogger().Errorf("Failed to read %s: %v", p.path, err)
+			logger.Errorf("Failed to read %s: %v", p.path, err)
 		}
 		p.pending = nil
 		return
@@ -71,7 +71,7 @@ func (p *pendingStore) load() {
 
 	var pr PendingRestore
 	if err := json.Unmarshal(data, &pr); err != nil {
-		logger.GetLogger().Warnf("Failed to parse %s, treating as no pending restore (file left untouched for inspection): %v", p.path, err)
+		logger.Warnf("Failed to parse %s, treating as no pending restore (file left untouched for inspection): %v", p.path, err)
 		p.pending = nil
 		return
 	}

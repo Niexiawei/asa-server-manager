@@ -3,13 +3,14 @@ package backupapi
 import (
 	"asa-server/internal/backup"
 	cfgpkg "asa-server/internal/config"
-	"asa-server/internal/logger"
 	"asa-server/internal/webapi/apiresp"
+	"asa-server/pkg/logger"
 	"fmt"
-	"github.com/gin-gonic/gin"
 	"net/http"
 	"os"
 	"path/filepath"
+
+	"github.com/gin-gonic/gin"
 )
 
 type Handler struct{}
@@ -108,7 +109,7 @@ func (h *Handler) restoreWorldBackup(c *gin.Context) {
 
 	// Save current state as latest snapshot before restoring (best-effort)
 	if err := backup.BackupLatestWorldSnapshot(name); err != nil {
-		logger.GetLogger().Warnf("Failed to create latest snapshot before restore for '%s': %v", name, err)
+		logger.Warnf("Failed to create latest snapshot before restore for '%s': %v", name, err)
 	}
 
 	if err := backup.RestoreInstanceWorld(name, backupPath); err != nil {

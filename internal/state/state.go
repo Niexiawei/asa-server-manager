@@ -2,8 +2,8 @@ package state
 
 import (
 	cfgpkg "asa-server/internal/config"
-	"asa-server/internal/logger"
 	procpkg "asa-server/internal/process"
+	"asa-server/pkg/logger"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -738,7 +738,7 @@ func (sm *StateManager) recoverCrashedInstances() {
 		}
 		sm.mu.Lock()
 		if latest, err := sm.getLatestStateLocked(name); err == nil && latest != nil && latest.Status == StatusStarted {
-			logger.GetLogger().Warnf(
+			logger.Warnf(
 				"Instance '%s' crashed unexpectedly (state was started, process is gone); marking stopped", name)
 			_ = sm.writeStateLocked(InstanceState{
 				InstanceName:  name,
@@ -796,7 +796,7 @@ func (sm *StateManager) recoverStuckStates() {
 		if err == nil && latest != nil &&
 			latest.Status == c.status &&
 			time.Since(latest.OperationTime) >= stuckThreshold {
-			logger.GetLogger().Warnf(
+			logger.Warnf(
 				"Recovering stuck instance '%s' (state: %s, age: %v)",
 				c.name, c.status, time.Since(latest.OperationTime))
 			_ = sm.writeStateLocked(InstanceState{

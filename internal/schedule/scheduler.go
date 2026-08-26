@@ -3,10 +3,10 @@ package schedule
 import (
 	"asa-server/internal/batchmanage"
 	instancepkg "asa-server/internal/instance"
-	"asa-server/internal/logger"
 	procpkg "asa-server/internal/process"
 	"asa-server/internal/realtime"
 	"asa-server/internal/updatemanage"
+	"asa-server/pkg/logger"
 	"context"
 	"errors"
 	"fmt"
@@ -77,7 +77,7 @@ func Initialize() error {
 	}
 
 	if err := s.store.load(); err != nil {
-		logger.GetLogger().Errorf("Failed to load schedules, starting with an empty list: %v", err)
+		logger.Errorf("Failed to load schedules, starting with an empty list: %v", err)
 	}
 	// 日志与待恢复现场载入都自带容错，坏了只记 WARN/ERROR 并按空状态继续
 	s.logs.load()
@@ -107,7 +107,7 @@ func (s *Scheduler) Start() {
 	s.realignAll()
 
 	go s.loop(ctx)
-	logger.GetLogger().Info("Schedule scheduler started")
+	logger.Info("Schedule scheduler started")
 }
 
 // Stop 停止调度循环。正在执行的任务会跑完，不会被打断——
@@ -123,7 +123,7 @@ func (s *Scheduler) Stop() {
 	}
 	s.cancel()
 	s.running = false
-	logger.GetLogger().Info("Schedule scheduler stopped")
+	logger.Info("Schedule scheduler stopped")
 }
 
 // realignAll 把所有已启用任务的 NextRunAt 校正到未来。
@@ -144,19 +144,19 @@ func (s *Scheduler) realignAll() {
 		missed := t.NextRunAt != nil
 		next, err := t.NextRun(now)
 		if err != nil {
-			logger.GetLogger().Errorf("Task '%s' has an invalid rule, skipping: %v", t.Name, err)
+			logger.Errorf("Task '%s' has an invalid rule, skipping: %v", t.Name, err)
 			continue
 		}
 
 		if missed {
-			logger.GetLogger().Warnf(
+			logger.Warnf(
 				"Task '%s' missed its scheduled run at %s (process was down); skipping to %s",
 				t.Name, t.NextRunAt.Format(time.RFC3339), next.Format(time.RFC3339),
 			)
 		}
 
 		if err := s.store.mutate(t.ID, func(stored *Task) { stored.NextRunAt = &next }); err != nil {
-			logger.GetLogger().Errorf("Failed to persist next run time for task '%s': %v", t.Name, err)
+			logger.Errorf("Failed to persist next run time for task '%s': %v", t.Name, err)
 		}
 	}
 }
@@ -196,11 +196,11 @@ func (s *Scheduler) tick(ctx context.Context) {
 		// 用原定时刻推进会导致刚跑完就立刻又到点
 		next, err := t.NextRun(time.Now())
 		if err != nil {
-			logger.GetLogger().Errorf("Task '%s' has an invalid rule: %v", t.Name, err)
+			logger.Errorf("Task '%s' has an invalid rule: %v", t.Name, err)
 			continue
 		}
 		if err := s.store.mutate(t.ID, func(stored *Task) { stored.NextRunAt = &next }); err != nil {
-			logger.GetLogger().Errorf("Failed to persist next run time for task '%s': %v", t.Name, err)
+			logger.Errorf("Failed to persist next run time for task '%s': %v", t.Name, err)
 		}
 	}
 }
@@ -226,7 +226,7 @@ func (s *Scheduler) execute(ctx context.Context, t *Task, trigger TriggerSource)
 	defer s.unregisterRun(run.RunID)
 
 	startedAt := run.StartedAt
-	logger.GetLogger().Infof("Running scheduled task '%s' (%s, %s)", t.Name, t.Type, trigger)
+	logger.Infof("Running scheduled task '%s' (%s, %s)", t.Name, t.Type, trigger)
 	realtime.BroadcastScheduleRunStarted(run.RunID, t.ID, t.Name, string(t.Type), string(trigger))
 
 	var (
@@ -258,21 +258,21 @@ func (s *Scheduler) execute(ctx context.Context, t *Task, trigger TriggerSource)
 			message = run.CancelReason()
 		}
 		result = "已取消: " + message
-		logger.GetLogger().Warnf("Scheduled task '%s' was cancelled: %s", t.Name, message)
+		logger.Warnf("Scheduled task '%s' was cancelled: %s", t.Name, message)
 	case err != nil:
 		outcome = OutcomeFailed
 		result = "失败: " + err.Error()
 		message = err.Error()
-		logger.GetLogger().Errorf("Scheduled task '%s' failed: %v", t.Name, err)
+		logger.Errorf("Scheduled task '%s' failed: %v", t.Name, err)
 	default:
-		logger.GetLogger().Infof("Scheduled task '%s' completed in %s", t.Name, duration.Round(time.Second))
+		logger.Infof("Scheduled task '%s' completed in %s", t.Name, duration.Round(time.Second))
 	}
 
 	if mErr := s.store.mutate(t.ID, func(stored *Task) {
 		stored.LastRunAt = &startedAt
 		stored.LastResult = result
 	}); mErr != nil {
-		logger.GetLogger().Errorf("Failed to persist run result for task '%s': %v", t.Name, mErr)
+		logger.Errorf("Failed to persist run result for task '%s': %v", t.Name, mErr)
 	}
 
 	record := &RunRecord{
@@ -294,7 +294,7 @@ func (s *Scheduler) execute(ctx context.Context, t *Task, trigger TriggerSource)
 // 日志落盘失败不影响任务本身的成败，只记一条 ERROR。
 func (s *Scheduler) recordAndBroadcast(record *RunRecord) {
 	if aErr := s.logs.append(record); aErr != nil {
-		logger.GetLogger().Errorf("Failed to persist run log for task '%s': %v", record.TaskName, aErr)
+		logger.Errorf("Failed to persist run log for task '%s': %v", record.TaskName, aErr)
 	}
 
 	realtime.BroadcastScheduleRun(record.TaskName, string(record.Outcome), map[string]any{
@@ -420,7 +420,7 @@ func (s *Scheduler) runUpdate(run *taskRun, t *Task) (string, error) {
 	switch {
 	case errors.Is(err, batchmanage.ErrNoInstances):
 		// 一个实例都没有，没什么可停的，直接进入更新
-		logger.GetLogger().Info("No instances to stop before scheduled update")
+		logger.Info("No instances to stop before scheduled update")
 	case errors.Is(err, batchmanage.ErrOperationInProgress):
 		return "", fmt.Errorf("更新前的批量停服未能启动：有批量操作正在进行（可能是待恢复实例的启动），本次更新已跳过")
 	case err != nil:
@@ -446,13 +446,13 @@ func (s *Scheduler) runUpdate(run *taskRun, t *Task) (string, error) {
 	// stop_failed 等状态的实例会被 skipped——进程还活着，更新随后就会被 installer 拒绝。
 	// 这里补一刀强停兜底。
 	if alive := procpkg.ListAliveInstances(); len(alive) > 0 {
-		logger.GetLogger().Warnf(
+		logger.Warnf(
 			"Instances still alive after batch stop (skipped by CAS): %s; force stopping",
 			strings.Join(alive, "、"),
 		)
 		for _, name := range alive {
 			if err := instancepkg.ForceStopServer(name); err != nil {
-				logger.GetLogger().Errorf("Failed to force stop instance '%s': %v", name, err)
+				logger.Errorf("Failed to force stop instance '%s': %v", name, err)
 			}
 		}
 	}
@@ -473,7 +473,7 @@ func (s *Scheduler) runUpdate(run *taskRun, t *Task) (string, error) {
 	// 正常跑完会被下面的 settlePendingAfterRestore 收掉。
 	if stoppedNow := excludeNames(snapshot, procpkg.ListAliveInstances()); len(stoppedNow) > 0 {
 		if err := s.pending.Merge(t.ID, t.Name, "更新过程中管理器退出", stoppedNow); err != nil {
-			logger.GetLogger().Errorf("Failed to persist pending restore state: %v", err)
+			logger.Errorf("Failed to persist pending restore state: %v", err)
 		}
 		s.broadcastPendingState()
 	}
@@ -482,7 +482,7 @@ func (s *Scheduler) runUpdate(run *taskRun, t *Task) (string, error) {
 	mgr := updatemanage.GetGlobalManager()
 	done, started := mgr.Start()
 	if !started {
-		logger.GetLogger().Warn("An update was already running; waiting for it to finish")
+		logger.Warn("An update was already running; waiting for it to finish")
 	}
 
 	select {
@@ -546,7 +546,7 @@ func (s *Scheduler) mergeShutdownPending(t *Task, snapshot []string, reason stri
 		return
 	}
 	if err := s.pending.Merge(t.ID, t.Name, reason, stoppedNow); err != nil {
-		logger.GetLogger().Errorf("Failed to persist pending restore state: %v", err)
+		logger.Errorf("Failed to persist pending restore state: %v", err)
 	}
 	s.broadcastPendingState()
 }
@@ -619,7 +619,7 @@ func restoreInstances(ctx context.Context, names []string, origin batchmanage.Ba
 			len(names), strings.Join(names, "、"))
 	}
 
-	logger.GetLogger().Infof("Restoring %d instance(s): %s", len(names), strings.Join(names, "、"))
+	logger.Infof("Restoring %d instance(s): %s", len(names), strings.Join(names, "、"))
 
 	op, err := batchmanage.GetGlobalManager().StartOperation(
 		batchmanage.BatchStart, names, restoreStartDelaySeconds, nil, origin,
@@ -691,7 +691,7 @@ func (s *Scheduler) settlePendingAfterRestore(taskID, taskName string, out resto
 	handled := out.handled()
 	if len(handled) > 0 {
 		if e := s.pending.Resolve(handled, ""); e != nil {
-			logger.GetLogger().Errorf("Failed to update pending restore state: %v", e)
+			logger.Errorf("Failed to update pending restore state: %v", e)
 		}
 	}
 
@@ -702,7 +702,7 @@ func (s *Scheduler) settlePendingAfterRestore(taskID, taskName string, out resto
 			reason = err.Error()
 		}
 		if e := s.pending.Merge(taskID, taskName, reason, owed); e != nil {
-			logger.GetLogger().Errorf("Failed to persist pending restore state: %v", e)
+			logger.Errorf("Failed to persist pending restore state: %v", e)
 		}
 	}
 

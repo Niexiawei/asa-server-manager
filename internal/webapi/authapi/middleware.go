@@ -11,7 +11,7 @@ import (
 
 	"asa-server/internal/appconfig"
 	"asa-server/internal/auth"
-	"asa-server/internal/logger"
+	"asa-server/pkg/logger"
 
 	"github.com/gin-gonic/gin"
 )
@@ -294,7 +294,7 @@ func recordAuthFailure(c *gin.Context) {
 	// 日志按分钟聚合。一次重连风暴能产生几万条失败，
 	// 一条一条写会把 asaServer.log 刷爆，真正的错误反而被冲掉。
 	if now.Sub(f.lastLogged) >= authFailWindow {
-		logger.GetLogger().Warnf("[鉴权] IP %s 过去 1 分钟鉴权失败 %d 次", ip, f.sinceLogged)
+		logger.Warnf("[鉴权] IP %s 过去 1 分钟鉴权失败 %d 次", ip, f.sinceLogged)
 		f.lastLogged = now
 		f.sinceLogged = 0
 	}

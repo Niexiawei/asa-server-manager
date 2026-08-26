@@ -2,11 +2,11 @@ package installer
 
 import (
 	cfgpkg "asa-server/internal/config"
-	"asa-server/internal/logger"
 	procpkg "asa-server/internal/process"
 	"asa-server/internal/runner"
 	"asa-server/pkg/console"
 	"asa-server/pkg/download"
+	"asa-server/pkg/logger"
 	"asa-server/pkg/netutil"
 	"asa-server/pkg/procx"
 	"context"
@@ -106,7 +106,7 @@ func DownloadAndExtractSteamCmd(ctx context.Context, outputCallback ...io.Writer
 	steamCmdExe := filepath.Join(cfgpkg.SteamCmdDir, steamCmdBinaryName)
 	if _, err := os.Stat(steamCmdExe); err == nil {
 		logMsg := "SteamCMD already installed."
-		logger.GetLogger().Info(logMsg)
+		logger.Info(logMsg)
 		if outputWriter != nil {
 			outputWriter.Write([]byte(logMsg + "\n"))
 		}
@@ -118,7 +118,7 @@ func DownloadAndExtractSteamCmd(ctx context.Context, outputCallback ...io.Writer
 	}
 
 	logMsg := "Downloading SteamCMD..."
-	logger.GetLogger().Info(logMsg)
+	logger.Info(logMsg)
 	if outputWriter != nil {
 		outputWriter.Write([]byte(logMsg + "\n"))
 	}
@@ -129,11 +129,11 @@ func DownloadAndExtractSteamCmd(ctx context.Context, outputCallback ...io.Writer
 		return fmt.Errorf("failed to download SteamCMD: %w", err)
 	}
 	if fi, err := os.Stat(archivePath); err == nil {
-		logger.GetLogger().Infof("Downloaded: %s (%d bytes)", archivePath, fi.Size())
+		logger.Infof("Downloaded: %s (%d bytes)", archivePath, fi.Size())
 	}
 
 	logMsg = "Extracting SteamCMD..."
-	logger.GetLogger().Info(logMsg)
+	logger.Info(logMsg)
 	if outputWriter != nil {
 		outputWriter.Write([]byte(logMsg + "\n"))
 	}
@@ -146,7 +146,7 @@ func DownloadAndExtractSteamCmd(ctx context.Context, outputCallback ...io.Writer
 	// Remove the archive after extraction
 	if err := os.Remove(archivePath); err != nil {
 		warnMsg := fmt.Sprintf("Warning: failed to remove downloaded archive: %v", err)
-		logger.GetLogger().Warnf(warnMsg)
+		logger.Warnf(warnMsg)
 		if outputWriter != nil {
 			outputWriter.Write([]byte(warnMsg + "\n"))
 		}
@@ -154,7 +154,7 @@ func DownloadAndExtractSteamCmd(ctx context.Context, outputCallback ...io.Writer
 
 	// Initialize SteamCMD by running it once
 	logMsg = "Initializing SteamCMD..."
-	logger.GetLogger().Info(logMsg)
+	logger.Info(logMsg)
 	if outputWriter != nil {
 		outputWriter.Write([]byte(logMsg + "\n"))
 	}
@@ -164,7 +164,7 @@ func DownloadAndExtractSteamCmd(ctx context.Context, outputCallback ...io.Writer
 	}
 
 	logMsg = "SteamCMD installed successfully."
-	logger.GetLogger().Info(logMsg)
+	logger.Info(logMsg)
 	if outputWriter != nil {
 		outputWriter.Write([]byte(logMsg + "\n"))
 	}
@@ -194,7 +194,7 @@ func initializeSteamCmd(ctx context.Context, outputWriter ...io.Writer) error {
 	cmd := pp.Command(steamCmdExe, "+quit")
 	// Run SteamCMD
 	logMsg := "Running SteamCMD initialization/updating..."
-	logger.GetLogger().Info(logMsg)
+	logger.Info(logMsg)
 	if writer != nil {
 		writer.Write([]byte(logMsg + "\n"))
 	}
@@ -226,7 +226,7 @@ func initializeSteamCmd(ctx context.Context, outputWriter ...io.Writer) error {
 	}
 
 	logMsg = "SteamCMD initialized/updating successfully."
-	logger.GetLogger().Info(logMsg)
+	logger.Info(logMsg)
 	if writer != nil {
 		writer.Write([]byte(logMsg + "\n"))
 	}
@@ -265,7 +265,7 @@ func DownloadAndUpdateArkServer(ctx context.Context, outputCallback ...io.Writer
 	}
 
 	logMsg := "Installing/updating ARK server..."
-	logger.GetLogger().Info(logMsg)
+	logger.Info(logMsg)
 	if outputWriter != nil {
 		outputWriter.Write([]byte(logMsg + "\n"))
 	}
@@ -296,7 +296,7 @@ func DownloadAndUpdateArkServer(ctx context.Context, outputCallback ...io.Writer
 
 	// Start SteamCMD with context cancellation support
 	logMsg = "Running SteamCMD update..."
-	logger.GetLogger().Info(logMsg)
+	logger.Info(logMsg)
 	if outputWriter != nil {
 		outputWriter.Write([]byte(logMsg + "\n"))
 	}
@@ -332,11 +332,11 @@ func DownloadAndUpdateArkServer(ctx context.Context, outputCallback ...io.Writer
 	// comment for why that specifically needs to happen after every update,
 	// not just once at install time). No-op on Windows.
 	if err := ApplyLinuxFixups(); err != nil {
-		logger.GetLogger().Warnf("Failed to apply Linux compatibility fixups: %v", err)
+		logger.Warnf("Failed to apply Linux compatibility fixups: %v", err)
 	}
 
 	logMsg = "ARK server installation/update completed successfully."
-	logger.GetLogger().Info(logMsg)
+	logger.Info(logMsg)
 	if outputWriter != nil {
 		outputWriter.Write([]byte(logMsg + "\n"))
 	}
@@ -358,13 +358,13 @@ func VerifyServerInstallation(ctx context.Context, force bool) error {
 
 	// Check if configuration directory already exists
 	if _, err := os.Stat(configDir); err == nil && !force {
-		logger.GetLogger().Info("Server configuration directory already exists. Skipping initial verification.")
+		logger.Info("Server configuration directory already exists. Skipping initial verification.")
 		return nil
 	}
 
 	if force {
 		if _, err := os.Stat(configDir); err == nil {
-			logger.GetLogger().Info("Force verification enabled. Re-running server verification...")
+			logger.Info("Force verification enabled. Re-running server verification...")
 		}
 	}
 
@@ -380,11 +380,11 @@ func VerifyServerInstallation(ctx context.Context, force bool) error {
 	// Best-effort: a failure here shouldn't block verification outright, the
 	// launch below will just fail with a clearer symptom if it mattered.
 	if err := ApplyLinuxFixups(); err != nil {
-		logger.GetLogger().Warnf("Failed to apply Linux compatibility fixups: %v", err)
+		logger.Warnf("Failed to apply Linux compatibility fixups: %v", err)
 	}
 
 	if !force {
-		logger.GetLogger().Info("First installation detected. Running server to generate configuration files...")
+		logger.Info("First installation detected. Running server to generate configuration files...")
 	}
 
 	// Get the logs directory path
@@ -394,10 +394,10 @@ func VerifyServerInstallation(ctx context.Context, force bool) error {
 	// 拿不到就退回 7777（原有行为），不因此让整个验证流程失败。
 	port, err := netutil.FreeUDPPort()
 	if err != nil {
-		logger.GetLogger().Warnf("Failed to get a free UDP port, falling back to 7777: %v", err)
+		logger.Warnf("Failed to get a free UDP port, falling back to 7777: %v", err)
 		port = 7777
 	}
-	logger.GetLogger().Infof("Running server verification on port %d...", port)
+	logger.Infof("Running server verification on port %d...", port)
 
 	// Start the server to generate config files. On Windows this is a plain
 	// exec of arkExe; on Linux runner.Run wraps it in umu-run (Wine/Proton) —
@@ -418,14 +418,14 @@ func VerifyServerInstallation(ctx context.Context, force bool) error {
 	if err != nil {
 		return fmt.Errorf("failed to start server for verification: %w", err)
 	}
-	logger.GetLogger().Infof("Server process started (launcher PID: %d). Monitoring log file...", handle.LauncherPID)
+	logger.Infof("Server process started (launcher PID: %d). Monitoring log file...", handle.LauncherPID)
 
 	logFilePath, err := findLatestLogFile(logsDir)
 	if err != nil {
-		logger.GetLogger().Warnf("Warning: could not find log file initially - %v", err)
+		logger.Warnf("Warning: could not find log file initially - %v", err)
 		// Continue anyway, will wait for manual log generation
 	} else {
-		logger.GetLogger().Infof("Monitoring log file: %s", filepath.Base(logFilePath))
+		logger.Infof("Monitoring log file: %s", filepath.Base(logFilePath))
 	}
 
 	// Wait for the config directory to appear rather than a fixed sleep:
@@ -436,12 +436,12 @@ func VerifyServerInstallation(ctx context.Context, force bool) error {
 	waitErr := waitForConfigDir(ctx, configDir, 180*time.Second)
 
 	if ctx.Err() != nil {
-		logger.GetLogger().Info("Stopping server for verification (cancelled)...")
+		logger.Info("Stopping server for verification (cancelled)...")
 		_ = procx.KillTree(handle.LauncherPID)
 		return ctx.Err()
 	}
 
-	logger.GetLogger().Info("Stopping server for verification...")
+	logger.Info("Stopping server for verification...")
 	_ = procx.KillTree(handle.LauncherPID)
 
 	// Wait a moment for process to clean up
@@ -451,7 +451,7 @@ func VerifyServerInstallation(ctx context.Context, force bool) error {
 		return fmt.Errorf("server verification failed: %w", waitErr)
 	}
 
-	logger.GetLogger().Info("Server verification completed. Configuration files generated.")
+	logger.Info("Server verification completed. Configuration files generated.")
 	return nil
 }
 

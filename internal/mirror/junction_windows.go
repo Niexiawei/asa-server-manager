@@ -8,7 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"asa-server/internal/logger"
+	"asa-server/pkg/logger"
 
 	"golang.org/x/sys/windows"
 )
@@ -44,7 +44,7 @@ func createJunction(linkPath, targetPath string) error {
 		return fmt.Errorf("failed to create junction %s -> %s: %w", linkPath, absTarget, err)
 	}
 
-	logger.GetLogger().Debugf("Created junction: %s -> %s", linkPath, absTarget)
+	logger.Debugf("Created junction: %s -> %s", linkPath, absTarget)
 	return nil
 }
 

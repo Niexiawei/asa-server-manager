@@ -27,8 +27,8 @@ import (
 	"strings"
 
 	cfgpkg "asa-server/internal/config"
-	"asa-server/internal/logger"
 	"asa-server/pkg/fsutil"
+	"asa-server/pkg/logger"
 )
 
 const (
@@ -107,7 +107,7 @@ func harvest(instanceName, mirrorDir string, force bool) {
 				continue
 			}
 			if external {
-				logger.GetLogger().Debugf(
+				logger.Debugf(
 					"插件 %s 的数据库路径已由用户接管（%s），跳过回收", plugin, overridePath)
 				continue
 			}
@@ -115,10 +115,10 @@ func harvest(instanceName, mirrorDir string, force bool) {
 				continue
 			}
 			if err := replaceGroup(mirrorPlugin, instPlugin, g); err != nil {
-				logger.GetLogger().Warnf("回收插件 %s 的文件组 %s 失败: %v", plugin, g.Base, err)
+				logger.Warnf("回收插件 %s 的文件组 %s 失败: %v", plugin, g.Base, err)
 				continue
 			}
-			logger.GetLogger().Infof("已回收插件数据: %s/%s -> 实例 %s", plugin, g.Base, instanceName)
+			logger.Infof("已回收插件数据: %s/%s -> 实例 %s", plugin, g.Base, instanceName)
 		}
 	}
 }
@@ -154,7 +154,7 @@ func Inject(instanceName, mirrorDir string) {
 
 		external, overridePath := hasExternalDBPath(instPlugin, mirrorPlugin)
 		if external {
-			logger.GetLogger().Warnf(
+			logger.Warnf(
 				"插件 %s 的数据库路径已由用户设为 %s，管理器不再为其做隔离、回收与快照",
 				plugin, overridePath)
 		}
@@ -164,10 +164,10 @@ func Inject(instanceName, mirrorDir string) {
 				continue
 			}
 			if err := replaceGroup(instPlugin, mirrorPlugin, g); err != nil {
-				logger.GetLogger().Warnf("注入插件 %s 的文件组 %s 失败: %v", plugin, g.Base, err)
+				logger.Warnf("注入插件 %s 的文件组 %s 失败: %v", plugin, g.Base, err)
 				continue
 			}
-			logger.GetLogger().Debugf("已注入插件数据: 实例 %s -> %s/%s", instanceName, plugin, g.Base)
+			logger.Debugf("已注入插件数据: 实例 %s -> %s/%s", instanceName, plugin, g.Base)
 		}
 	}
 }
@@ -180,7 +180,7 @@ func harvestPlugin(mirrorPlugin, instPlugin, plugin string) {
 			continue
 		}
 		if err := replaceGroup(mirrorPlugin, instPlugin, g); err != nil {
-			logger.GetLogger().Warnf("播种插件 %s 的文件组 %s 失败: %v", plugin, g.Base, err)
+			logger.Warnf("播种插件 %s 的文件组 %s 失败: %v", plugin, g.Base, err)
 		}
 	}
 }
@@ -232,11 +232,11 @@ func mergeConfigInto(mirrorPlugin, instPlugin, rel string, force bool) {
 	if err != nil {
 		// 实例侧还没有 → 首次播种，原样落地
 		if err := os.MkdirAll(filepath.Dir(instPath), 0755); err != nil {
-			logger.GetLogger().Warnf("创建实例插件目录 %s 失败: %v", filepath.Dir(instPath), err)
+			logger.Warnf("创建实例插件目录 %s 失败: %v", filepath.Dir(instPath), err)
 			return
 		}
 		if err := os.WriteFile(instPath, mirrorData, 0644); err != nil {
-			logger.GetLogger().Warnf("播种插件配置 %s 失败: %v", instPath, err)
+			logger.Warnf("播种插件配置 %s 失败: %v", instPath, err)
 		}
 		return
 	}
@@ -253,18 +253,18 @@ func mergeConfigInto(mirrorPlugin, instPlugin, rel string, force bool) {
 	if err != nil {
 		// 有一侧不是合法 JSON 对象。宁可什么都不做也不能猜：
 		// 实例侧那份是用户改过的，覆盖掉就找不回来了。
-		logger.GetLogger().Warnf("合并插件配置 %s 失败，保留实例侧原文: %v", instPath, err)
+		logger.Warnf("合并插件配置 %s 失败，保留实例侧原文: %v", instPath, err)
 		return
 	}
 
 	// 合并前把镜像侧原文留一份，出问题能回溯
 	bakPath := filepath.Join(instPlugin, configBackupName)
 	if err := os.WriteFile(bakPath, mirrorData, 0644); err != nil {
-		logger.GetLogger().Debugf("写配置备份 %s 失败: %v", bakPath, err)
+		logger.Debugf("写配置备份 %s 失败: %v", bakPath, err)
 	}
 
 	if err := writeFileAtomic(instPath, merged); err != nil {
-		logger.GetLogger().Warnf("写回合并后的插件配置 %s 失败: %v", instPath, err)
+		logger.Warnf("写回合并后的插件配置 %s 失败: %v", instPath, err)
 	}
 }
 

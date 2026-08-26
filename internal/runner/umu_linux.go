@@ -16,9 +16,9 @@ import (
 	"sync"
 	"time"
 
-	"asa-server/internal/logger"
 	"asa-server/pkg/archive"
 	"asa-server/pkg/download"
+	"asa-server/pkg/logger"
 	"asa-server/pkg/procx"
 )
 
@@ -87,7 +87,7 @@ func ensureRuntime(ctx context.Context, progress io.Writer) error {
 func progressLogger(w io.Writer) func(format string, args ...any) {
 	return func(format string, args ...any) {
 		msg := fmt.Sprintf(format, args...)
-		logger.GetLogger().Info(msg)
+		logger.Info(msg)
 		if w != nil {
 			fmt.Fprintln(w, msg)
 		}

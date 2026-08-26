@@ -8,7 +8,7 @@ import (
 
 	"asa-server/internal/appconfig"
 	"asa-server/internal/auth"
-	"asa-server/internal/logger"
+	"asa-server/pkg/logger"
 
 	"github.com/gin-gonic/gin"
 )
@@ -383,7 +383,7 @@ func (h *Handler) reload(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	logger.GetLogger().Info("[鉴权] 已按本机请求重新加载用户数据")
+	logger.Info("[鉴权] 已按本机请求重新加载用户数据")
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 

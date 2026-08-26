@@ -9,9 +9,9 @@ import (
 	"sync"
 
 	cfgpkg "asa-server/internal/config"
-	"asa-server/internal/logger"
 	"asa-server/internal/plugindata"
 	"asa-server/pkg/fsutil"
+	"asa-server/pkg/logger"
 
 	"znkr.io/diff"
 )
@@ -130,17 +130,17 @@ func SyncInstanceMirror(instanceName string, cfg *cfgpkg.InstanceConfig) (string
 	migrateExceptionJunctions(mirrorDir, exceptionTargets)
 
 	// 镜像已存在，增量同步
-	logger.GetLogger().Infof("Syncing existing mirror for instance '%s'", instanceName)
+	logger.Infof("Syncing existing mirror for instance '%s'", instanceName)
 	if err := syncMirrorEntries(mirrorDir, exceptionTargets); err != nil {
 		// 同步失败，尝试重建
-		logger.GetLogger().Warnf("Mirror sync failed, recreating: %v", err)
+		logger.Warnf("Mirror sync failed, recreating: %v", err)
 		if err := CleanupInstanceMirror(instanceName); err != nil {
 			return "", fmt.Errorf("failed to cleanup mirror before recreate: %w", err)
 		}
 		return createInstanceMirror(instanceName, mirrorDir, exceptionTargets)
 	}
 
-	logger.GetLogger().Infof("Mirror synced successfully at %s", mirrorDir)
+	logger.Infof("Mirror synced successfully at %s", mirrorDir)
 	return mirrorDir, nil
 }
 
@@ -180,7 +180,7 @@ func ensureInstanceDirs(instanceName string) error {
 
 // createInstanceMirror 从头创建实例镜像目录
 func createInstanceMirror(instanceName string, mirrorDir string, exceptionTargets map[string]string) (string, error) {
-	logger.GetLogger().Infof("Creating instance mirror at %s", mirrorDir)
+	logger.Infof("Creating instance mirror at %s", mirrorDir)
 
 	// Walk server-files 目录树
 	err := filepath.Walk(cfgpkg.ServerFilesDir, func(path string, info os.FileInfo, err error) error {
@@ -228,17 +228,17 @@ func createInstanceMirror(instanceName string, mirrorDir string, exceptionTarget
 		if _, statErr := os.Stat(mirrorPath); os.IsNotExist(statErr) {
 			srcPath := filepath.Join(cfgpkg.ServerFilesDir, filepath.FromSlash(relPath))
 			if mkErr := os.MkdirAll(srcPath, 0755); mkErr != nil {
-				logger.GetLogger().Warnf("Failed to pre-create source dir %s: %v", srcPath, mkErr)
+				logger.Warnf("Failed to pre-create source dir %s: %v", srcPath, mkErr)
 			}
 			if jErr := createJunction(mirrorPath, target); jErr != nil {
 				_ = CleanupInstanceMirror(instanceName)
 				return "", fmt.Errorf("failed to create exception junction for %s: %w", relPath, jErr)
 			}
-			logger.GetLogger().Infof("Pre-created exception junction: %s -> %s", relPath, target)
+			logger.Infof("Pre-created exception junction: %s -> %s", relPath, target)
 		}
 	}
 
-	logger.GetLogger().Infof("Instance mirror created successfully at %s", mirrorDir)
+	logger.Infof("Instance mirror created successfully at %s", mirrorDir)
 	return mirrorDir, nil
 }
 
@@ -283,22 +283,22 @@ func migrateExceptionJunctions(mirrorDir string, exceptionTargets map[string]str
 			continue
 		}
 
-		logger.GetLogger().Infof("Migrating shared mirror dir to junction: %s -> %s", mirrorPath, target)
+		logger.Infof("Migrating shared mirror dir to junction: %s -> %s", mirrorPath, target)
 
 		// 镜像里独有的内容（典型是实例运行期下载的新版 mod）先晋升到源，
 		// 免得迁移把它删掉、服务器下次启动再下载一遍
 		if err := os.MkdirAll(target, 0755); err != nil {
-			logger.GetLogger().Warnf("Failed to create junction target %s: %v", target, err)
+			logger.Warnf("Failed to create junction target %s: %v", target, err)
 			continue
 		}
 		mergeMissingInto(mirrorPath, target)
 
 		if err := os.RemoveAll(mirrorPath); err != nil {
-			logger.GetLogger().Warnf("Failed to remove legacy mirror dir %s: %v", mirrorPath, err)
+			logger.Warnf("Failed to remove legacy mirror dir %s: %v", mirrorPath, err)
 			continue
 		}
 		if err := createJunction(mirrorPath, target); err != nil {
-			logger.GetLogger().Warnf("Failed to create junction for %s: %v", relPath, err)
+			logger.Warnf("Failed to create junction for %s: %v", relPath, err)
 		}
 	}
 }
@@ -308,7 +308,7 @@ func migrateExceptionJunctions(mirrorDir string, exceptionTargets map[string]str
 func mergeMissingInto(src, dst string) {
 	entries, err := os.ReadDir(src)
 	if err != nil {
-		logger.GetLogger().Warnf("Failed to read %s during mirror migration: %v", src, err)
+		logger.Warnf("Failed to read %s during mirror migration: %v", src, err)
 		return
 	}
 
@@ -335,10 +335,10 @@ func mergeMissingInto(src, dst string) {
 			copyErr = fsutil.CopyFile(srcPath, dstPath)
 		}
 		if copyErr != nil {
-			logger.GetLogger().Warnf("Failed to promote %s to %s: %v", srcPath, dstPath, copyErr)
+			logger.Warnf("Failed to promote %s to %s: %v", srcPath, dstPath, copyErr)
 			continue
 		}
-		logger.GetLogger().Infof("Promoted mirror-only entry to source: %s", dstPath)
+		logger.Infof("Promoted mirror-only entry to source: %s", dstPath)
 	}
 }
 
@@ -429,7 +429,7 @@ func CleanupInstanceMirror(instanceName string) error {
 	// 对着半成品镜像跑也只是无事发生。
 	plugindata.Rescue(instanceName, mirrorDir)
 
-	logger.GetLogger().Infof("Cleaning up instance mirror: %s", mirrorDir)
+	logger.Infof("Cleaning up instance mirror: %s", mirrorDir)
 
 	// 深度优先遍历，按深度降序清理
 	var allEntries []struct {
@@ -452,7 +452,7 @@ func CleanupInstanceMirror(instanceName string) error {
 		return nil
 	})
 	if err != nil {
-		logger.GetLogger().Warnf("Error walking mirror directory: %v", err)
+		logger.Warnf("Error walking mirror directory: %v", err)
 	}
 
 	// 按深度降序排序
@@ -466,9 +466,9 @@ func CleanupInstanceMirror(instanceName string) error {
 
 		if isJunctionOrSymlink(entry.path) {
 			if err := os.Remove(entry.path); err != nil {
-				logger.GetLogger().Warnf("Failed to remove symlink/junction %s: %v", entry.path, err)
+				logger.Warnf("Failed to remove symlink/junction %s: %v", entry.path, err)
 			} else {
-				logger.GetLogger().Debugf("Removed symlink/junction: %s", entry.path)
+				logger.Debugf("Removed symlink/junction: %s", entry.path)
 			}
 		}
 	}
@@ -496,13 +496,13 @@ func CleanupInstanceMirror(instanceName string) error {
 		} else {
 			// 删除真实文件
 			if err := os.Remove(path); err != nil {
-				logger.GetLogger().Warnf("Failed to remove file %s: %v", path, err)
+				logger.Warnf("Failed to remove file %s: %v", path, err)
 			}
 		}
 		return nil
 	})
 	if err != nil {
-		logger.GetLogger().Warnf("Error during cleanup walk: %v", err)
+		logger.Warnf("Error during cleanup walk: %v", err)
 	}
 
 	// 最后尝试删除根目录
@@ -513,7 +513,7 @@ func CleanupInstanceMirror(instanceName string) error {
 		}
 	}
 
-	logger.GetLogger().Infof("Instance mirror cleaned up: %s", mirrorDir)
+	logger.Infof("Instance mirror cleaned up: %s", mirrorDir)
 	return nil
 }
 
@@ -550,7 +550,7 @@ func VerifyAndRepairInstanceMirror(instanceName string, cfg *cfgpkg.InstanceConf
 		return mirrorDir, nil
 	}
 
-	logger.GetLogger().Warnf("Mirror integrity check failed for %s, recreating mirror...", instanceName)
+	logger.Warnf("Mirror integrity check failed for %s, recreating mirror...", instanceName)
 	_ = CleanupInstanceMirror(instanceName)
 
 	newMirrorDir, err := SyncInstanceMirror(instanceName, cfg)
@@ -563,7 +563,7 @@ func VerifyAndRepairInstanceMirror(instanceName string, cfg *cfgpkg.InstanceConf
 		return "", fmt.Errorf("mirror integrity check failed after recreate, %s not found: %w", exeWorkDir, err)
 	}
 
-	logger.GetLogger().Infof("Mirror recreated successfully for instance %s", instanceName)
+	logger.Infof("Mirror recreated successfully for instance %s", instanceName)
 	return newMirrorDir, nil
 }
 
@@ -586,7 +586,7 @@ func syncMirrorEntries(mirrorDir string, exceptionTargets map[string]string) err
 		return fmt.Errorf("failed to collect mirror entries: %w", err)
 	}
 
-	logger.GetLogger().Infof("Syncing mirror: %d source entries, %d mirror entries", len(sourceEntries), len(mirrorEntries))
+	logger.Infof("Syncing mirror: %d source entries, %d mirror entries", len(sourceEntries), len(mirrorEntries))
 
 	// 仅当源端安装了 ArkApi 时，才对其 Cache 目录启用运行期缓存保护
 	arkApiCache := arkApiInstalled()
@@ -624,7 +624,7 @@ func syncMirrorEntries(mirrorDir string, exceptionTargets map[string]string) err
 		case diff.Delete:
 			// 源有、镜像无 → 创建（ArkApi Cache 缺失的文件同样需要补齐）
 			if err := syncEntry(srcDir, mirrorDir, edit.X, exceptionTargets); err != nil {
-				logger.GetLogger().Warnf("Failed to sync entry %s: %v", edit.X.RelPath, err)
+				logger.Warnf("Failed to sync entry %s: %v", edit.X.RelPath, err)
 			} else {
 				added++
 			}
@@ -632,7 +632,7 @@ func syncMirrorEntries(mirrorDir string, exceptionTargets map[string]string) err
 			// 镜像有、源无 → 删除
 			// ArkApi Cache 内多出的文件是 hook 运行期缓存，属正常现象，保留不删
 			if arkApiCache && isUnderArkApiCache(edit.Y.RelPath) {
-				logger.GetLogger().Debugf("Keeping ArkApi runtime cache entry: %s", edit.Y.RelPath)
+				logger.Debugf("Keeping ArkApi runtime cache entry: %s", edit.Y.RelPath)
 				continue
 			}
 			// exception target 内部的条目是**目标目录**的内容，删它等于穿过 junction
@@ -644,14 +644,14 @@ func syncMirrorEntries(mirrorDir string, exceptionTargets map[string]string) err
 			// 插件的配置与运行期数据在源目录里根本不存在（典型是 ArkDB.db-wal），
 			// 按「多余条目」删掉就等于把上一轮的崩溃现场清掉，而这发生在 Rescue 之前。
 			if plugindata.IsProtectedRelPath(mirrorDir, edit.Y.RelPath) {
-				logger.GetLogger().Debugf("Keeping ArkApi plugin data entry: %s", edit.Y.RelPath)
+				logger.Debugf("Keeping ArkApi plugin data entry: %s", edit.Y.RelPath)
 				continue
 			}
 			if isPruned(edit.Y.RelPath) {
 				continue // 祖先目录已被整棵删除
 			}
 			if err := removeMirrorEntry(mirrorDir, edit.Y); err != nil {
-				logger.GetLogger().Warnf("Failed to remove mirror entry %s: %v", edit.Y.RelPath, err)
+				logger.Warnf("Failed to remove mirror entry %s: %v", edit.Y.RelPath, err)
 			} else {
 				removed++
 				if edit.Y.EntryType == EntryTypeDirectory {
@@ -662,18 +662,18 @@ func syncMirrorEntries(mirrorDir string, exceptionTargets map[string]string) err
 			// 两边都有 → 检查是否需要更新
 			// ArkApi Cache 内文件内容不一致是 hook 运行期缓存造成的，属正常现象，不回写覆盖
 			if arkApiCache && isUnderArkApiCache(edit.X.RelPath) {
-				logger.GetLogger().Debugf("Skipping reconcile for ArkApi runtime cache entry: %s", edit.X.RelPath)
+				logger.Debugf("Skipping reconcile for ArkApi runtime cache entry: %s", edit.X.RelPath)
 				continue
 			}
 			// 同理不回写：把源版本的主库拷进来，会与镜像里保留的旧 -wal 拼成
 			// 互不匹配的组合，SQLite 打开时拿旧 WAL 去重放，比不同步更糟。
 			// 这也是「每次重启插件权限被重置」这个原始 bug 的修复点。
 			if plugindata.IsProtectedRelPath(mirrorDir, edit.X.RelPath) {
-				logger.GetLogger().Debugf("Skipping reconcile for ArkApi plugin data entry: %s", edit.X.RelPath)
+				logger.Debugf("Skipping reconcile for ArkApi plugin data entry: %s", edit.X.RelPath)
 				continue
 			}
 			if err := reconcileEntry(srcDir, mirrorDir, edit.X, edit.Y, exceptionTargets); err != nil {
-				logger.GetLogger().Warnf("Failed to reconcile entry %s: %v", edit.X.RelPath, err)
+				logger.Warnf("Failed to reconcile entry %s: %v", edit.X.RelPath, err)
 			} else {
 				updated++
 			}
@@ -686,17 +686,17 @@ func syncMirrorEntries(mirrorDir string, exceptionTargets map[string]string) err
 		if _, statErr := os.Stat(mirrorPath); os.IsNotExist(statErr) {
 			srcPath := filepath.Join(srcDir, filepath.FromSlash(relPath))
 			if mkErr := os.MkdirAll(srcPath, 0755); mkErr != nil {
-				logger.GetLogger().Warnf("Failed to pre-create source dir %s: %v", srcPath, mkErr)
+				logger.Warnf("Failed to pre-create source dir %s: %v", srcPath, mkErr)
 			}
 			if jErr := createJunction(mirrorPath, target); jErr != nil {
 				return fmt.Errorf("failed to create exception junction for %s: %w", relPath, jErr)
 			}
-			logger.GetLogger().Infof("Pre-created exception junction: %s -> %s", relPath, target)
+			logger.Infof("Pre-created exception junction: %s -> %s", relPath, target)
 			added++
 		}
 	}
 
-	logger.GetLogger().Infof("Mirror sync completed: %d added, %d removed, %d checked", added, removed, updated)
+	logger.Infof("Mirror sync completed: %d added, %d removed, %d checked", added, removed, updated)
 	return nil
 }
 
@@ -939,7 +939,7 @@ func reconcileEntry(srcDir, mirrorDir string, srcEntry, mirrorEntryItem mirrorEn
 	// os.IsNotExist 在 Windows 上同时覆盖 ERROR_FILE_NOT_FOUND 与 ERROR_PATH_NOT_FOUND。
 	if _, err := os.Lstat(mirrorPath); err != nil {
 		if os.IsNotExist(err) {
-			logger.GetLogger().Debugf("Mirror entry missing during reconcile, recreating: %s", mirrorEntryItem.RelPath)
+			logger.Debugf("Mirror entry missing during reconcile, recreating: %s", mirrorEntryItem.RelPath)
 			return syncEntry(srcDir, mirrorDir, srcEntry, exceptionTargets)
 		}
 		return fmt.Errorf("failed to stat mirror entry %s: %w", mirrorPath, err)
@@ -948,7 +948,7 @@ func reconcileEntry(srcDir, mirrorDir string, srcEntry, mirrorEntryItem mirrorEn
 	// 检查类型是否匹配
 	if srcEntry.EntryType != mirrorEntryItem.EntryType {
 		// 真正的类型变更，删除旧的重建
-		logger.GetLogger().Infof("Entry type changed for %s, recreating", srcEntry.RelPath)
+		logger.Infof("Entry type changed for %s, recreating", srcEntry.RelPath)
 		_ = removeMirrorEntry(mirrorDir, mirrorEntryItem)
 		return syncEntry(srcDir, mirrorDir, srcEntry, exceptionTargets)
 	}
@@ -966,7 +966,7 @@ func reconcileEntry(srcDir, mirrorDir string, srcEntry, mirrorEntryItem mirrorEn
 				return fmt.Errorf("failed to compute mirror MD5 for %s: %w", mirrorPath, err)
 			}
 			if srcMD5 != dstMD5 {
-				logger.GetLogger().Infof("File changed (MD5 mismatch): %s, recopying", srcEntry.RelPath)
+				logger.Infof("File changed (MD5 mismatch): %s, recopying", srcEntry.RelPath)
 				return fsutil.CopyFile(srcPath, mirrorPath)
 			}
 		}
@@ -980,14 +980,14 @@ func reconcileEntry(srcDir, mirrorDir string, srcEntry, mirrorEntryItem mirrorEn
 			readTarget, err := os.Readlink(mirrorPath)
 			if err != nil {
 				// 无法读取链接目标，重建
-				logger.GetLogger().Infof("Cannot read symlink target: %s, recreating", mirrorEntryItem.RelPath)
+				logger.Infof("Cannot read symlink target: %s, recreating", mirrorEntryItem.RelPath)
 				_ = os.Remove(mirrorPath)
 				return syncEntry(srcDir, mirrorDir, srcEntry, exceptionTargets)
 			}
 			absReadTarget, _ := filepath.Abs(readTarget)
 			if absReadTarget != absTarget {
 				// 目标不正确，重建
-				logger.GetLogger().Infof("Symlink target mismatch for %s: got %s, want %s, recreating",
+				logger.Infof("Symlink target mismatch for %s: got %s, want %s, recreating",
 					mirrorEntryItem.RelPath, absReadTarget, absTarget)
 				_ = os.Remove(mirrorPath)
 				return syncEntry(srcDir, mirrorDir, srcEntry, exceptionTargets)
@@ -998,7 +998,7 @@ func reconcileEntry(srcDir, mirrorDir string, srcEntry, mirrorEntryItem mirrorEn
 		// 非 exception symlink，检查是否仍然有效
 		if _, err := os.Stat(mirrorPath); err != nil {
 			// 链接失效，重新创建
-			logger.GetLogger().Infof("Broken symlink detected: %s, recreating", mirrorEntryItem.RelPath)
+			logger.Infof("Broken symlink detected: %s, recreating", mirrorEntryItem.RelPath)
 			_ = os.Remove(mirrorPath)
 			return syncEntry(srcDir, mirrorDir, srcEntry, exceptionTargets)
 		}

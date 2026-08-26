@@ -1,7 +1,7 @@
 package realtime
 
 import (
-	"asa-server/internal/logger"
+	"asa-server/pkg/logger"
 	"fmt"
 	"net/http"
 	"strings"
@@ -138,7 +138,7 @@ func (h *Hub) sendEventToAll(event ServerEvent) {
 		err := conn.WriteJSON(event)
 		snap.Mus[i].Unlock()
 		if err != nil {
-			logger.GetLogger().Debugf("WebSocket write error: %v", err)
+			logger.Debugf("WebSocket write error: %v", err)
 		}
 	}
 

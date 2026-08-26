@@ -7,9 +7,9 @@ package updatemanage
 
 import (
 	"asa-server/internal/installer"
-	"asa-server/internal/logger"
 	procpkg "asa-server/internal/process"
 	"asa-server/internal/realtime"
+	"asa-server/pkg/logger"
 	"context"
 	"fmt"
 	"strings"
@@ -140,7 +140,7 @@ func (m *UpdateManager) run(ctx context.Context, done chan struct{}) {
 	defer func() {
 		if r := recover(); r != nil {
 			err := fmt.Errorf("server update panic: %v", r)
-			logger.GetLogger().Errorf("Server update panic: %v", r)
+			logger.Errorf("Server update panic: %v", r)
 			m.broadcaster.SendMessage("Error: " + err.Error())
 			m.setResult(err)
 		}
@@ -150,7 +150,7 @@ func (m *UpdateManager) run(ctx context.Context, done chan struct{}) {
 	// 保持 "Error: " 前缀的 SSE 报文格式不变、记录结果供 Result() 取回。
 	fail := func(format string, args ...any) {
 		err := fmt.Errorf(format, args...)
-		logger.GetLogger().Errorf("Server update failed: %v", err)
+		logger.Errorf("Server update failed: %v", err)
 		m.broadcaster.SendMessage("Error: " + err.Error())
 		m.setResult(err)
 	}

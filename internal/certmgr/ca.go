@@ -1,7 +1,7 @@
 package certmgr
 
 import (
-	"asa-server/internal/logger"
+	"asa-server/pkg/logger"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -43,12 +43,12 @@ func ensureCA() (*caBundle, error) {
 		return ca, nil
 	}
 	if err != nil && !os.IsNotExist(err) {
-		logger.GetLogger().Warnf("本地 CA 不可用，将重新生成: %v", err)
+		logger.Warnf("本地 CA 不可用，将重新生成: %v", err)
 	}
 	if ca != nil {
 		// 旧 CA 即将失效，先把它从受信任存储里摘掉再换新的
 		if rmErr := untrustFingerprint(Fingerprint(ca.der)); rmErr != nil {
-			logger.GetLogger().Warnf("移除过期本地 CA 失败: %v", rmErr)
+			logger.Warnf("移除过期本地 CA 失败: %v", rmErr)
 		}
 	}
 
@@ -112,7 +112,7 @@ func generateCA() (*caBundle, error) {
 	if err != nil {
 		return nil, err
 	}
-	logger.GetLogger().Infof("已生成本地 CA（指纹 %s，有效期至 %s）",
+	logger.Infof("已生成本地 CA（指纹 %s，有效期至 %s）",
 		Fingerprint(der), cert.NotAfter.Format("2006-01-02"))
 
 	return &caBundle{cert: cert, key: key, der: der}, nil
@@ -128,9 +128,9 @@ func ensureLeaf(ca *caBundle, extraDomains []string) (tls.Certificate, error) {
 		if err == nil {
 			return pair, nil
 		}
-		logger.GetLogger().Warnf("叶子证书加载失败，将重新签发: %v", err)
+		logger.Warnf("叶子证书加载失败，将重新签发: %v", err)
 	} else {
-		logger.GetLogger().Infof("重新签发服务器证书：%s", reason)
+		logger.Infof("重新签发服务器证书：%s", reason)
 	}
 
 	return generateLeaf(ca, dnsNames, ips)
@@ -192,7 +192,7 @@ func generateLeaf(ca *caBundle, dnsNames []string, ips []net.IP) (tls.Certificat
 		return tls.Certificate{}, err
 	}
 
-	logger.GetLogger().Infof("已签发服务器证书，SAN: %s", sanKey(dnsNames, ips))
+	logger.Infof("已签发服务器证书，SAN: %s", sanKey(dnsNames, ips))
 
 	return tls.Certificate{
 		Certificate: [][]byte{der},
@@ -244,7 +244,7 @@ func desiredSANs(extraDomains []string) ([]string, []net.IP) {
 func localInterfaceIPs() []net.IP {
 	ifaces, err := net.Interfaces()
 	if err != nil {
-		logger.GetLogger().Warnf("枚举网卡失败，证书 SAN 将只覆盖回环地址: %v", err)
+		logger.Warnf("枚举网卡失败，证书 SAN 将只覆盖回环地址: %v", err)
 		return nil
 	}
 

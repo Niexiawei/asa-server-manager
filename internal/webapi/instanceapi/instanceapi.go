@@ -3,17 +3,18 @@ package instanceapi
 import (
 	cfgpkg "asa-server/internal/config"
 	instancepkg "asa-server/internal/instance"
-	"asa-server/internal/logger"
 	procpkg "asa-server/internal/process"
 	statepkg "asa-server/internal/state"
 	"asa-server/internal/webapi/apiresp"
 	"asa-server/pkg/fsutil"
+	"asa-server/pkg/logger"
 	"encoding/json"
 	"fmt"
-	"github.com/gin-gonic/gin"
 	"net/http"
 	"os"
 	"path/filepath"
+
+	"github.com/gin-gonic/gin"
 )
 
 type Handler struct{}
@@ -148,16 +149,16 @@ func (h *Handler) createInstance(c *gin.Context) {
 	if _, err := os.Stat(baseConfigDir); err == nil {
 		if err := fsutil.CopyDir(baseConfigDir, instanceDir); err != nil {
 			// Log warning but continue as this is not critical
-			logger.GetLogger().Warnf("Failed to copy base server configuration: %v", err)
+			logger.Warnf("Failed to copy base server configuration: %v", err)
 		}
 	} else {
 		// Create empty Game.ini if it doesn't exist
 		if err := cfgpkg.SaveGameIniContent(req.Name, ""); err != nil {
-			logger.GetLogger().Warnf("Failed to create Game.ini: %v", err)
+			logger.Warnf("Failed to create Game.ini: %v", err)
 		}
 		// Create empty GameUserSettings.ini if it doesn't exist
 		if err := cfgpkg.SaveGameUserSettingsContent(req.Name, ""); err != nil {
-			logger.GetLogger().Warnf("Failed to create GameUserSettings.ini: %v", err)
+			logger.Warnf("Failed to create GameUserSettings.ini: %v", err)
 		}
 	}
 
@@ -165,14 +166,14 @@ func (h *Handler) createInstance(c *gin.Context) {
 	gameIniPath := filepath.Join(instanceDir, "Game.ini")
 	if _, err := os.Stat(gameIniPath); os.IsNotExist(err) {
 		if err := cfgpkg.SaveGameIniContent(req.Name, ""); err != nil {
-			logger.GetLogger().Warnf("Failed to create Game.ini: %v", err)
+			logger.Warnf("Failed to create Game.ini: %v", err)
 		}
 	}
 
 	gameUserSettingsPath := filepath.Join(instanceDir, "GameUserSettings.ini")
 	if _, err := os.Stat(gameUserSettingsPath); os.IsNotExist(err) {
 		if err := cfgpkg.SaveGameUserSettingsContent(req.Name, ""); err != nil {
-			logger.GetLogger().Warnf("Failed to create GameUserSettings.ini: %v", err)
+			logger.Warnf("Failed to create GameUserSettings.ini: %v", err)
 		}
 	}
 
@@ -325,7 +326,7 @@ func (h *Handler) renameInstance(c *gin.Context) {
 	oldSavePath := filepath.Join(cfgpkg.InstancesDir, oldName, "Save")
 	newSavePath := filepath.Join(cfgpkg.InstancesDir, req.NewName, "Save")
 	if err := os.Rename(oldSavePath, newSavePath); err != nil {
-		logger.GetLogger().Warnf("Failed to rename save directory for instance %s: %v", oldName, err)
+		logger.Warnf("Failed to rename save directory for instance %s: %v", oldName, err)
 	}
 
 	// Update SaveDir in configuration

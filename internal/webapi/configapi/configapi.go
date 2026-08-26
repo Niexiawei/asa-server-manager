@@ -2,13 +2,14 @@ package configapi
 
 import (
 	cfgpkg "asa-server/internal/config"
-	"asa-server/internal/logger"
 	"asa-server/internal/webapi/apiresp"
+	"asa-server/pkg/logger"
 	"fmt"
-	"github.com/gin-gonic/gin"
 	"io"
 	"net/http"
 	"strings"
+
+	"github.com/gin-gonic/gin"
 )
 
 type Handler struct{}
@@ -419,10 +420,10 @@ func (h *Handler) syncInstanceConfig(c *gin.Context) {
 				"instance": instanceName,
 				"error":    err.Error(),
 			})
-			logger.GetLogger().Errorf("Failed to sync config for instance '%s': %v", instanceName, err)
+			logger.Errorf("Failed to sync config for instance '%s': %v", instanceName, err)
 		} else {
 			successInstances = append(successInstances, instanceName)
-			logger.GetLogger().Infof("Successfully synced config from '%s' to instance '%s'", req.SourceInstance, instanceName)
+			logger.Infof("Successfully synced config from '%s' to instance '%s'", req.SourceInstance, instanceName)
 		}
 	}
 

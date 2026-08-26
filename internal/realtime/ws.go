@@ -1,8 +1,8 @@
 package realtime
 
 import (
-	"asa-server/internal/logger"
 	"asa-server/internal/rconx"
+	"asa-server/pkg/logger"
 	"context"
 	"errors"
 	"fmt"
@@ -74,7 +74,7 @@ func HandleServerEvents(c *gin.Context) {
 
 	conn, err := WSUpgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
-		logger.GetLogger().Warnf("WebSocket upgrade error: %v", err)
+		logger.Warnf("WebSocket upgrade error: %v", err)
 		return
 	}
 	defer conn.Close()
@@ -98,7 +98,7 @@ func HandleServerEvents(c *gin.Context) {
 		for {
 			select {
 			case <-heartbeatTicker.C:
-				logger.GetLogger().Warnf("Server events WebSocket: Client heartbeat timeout, closing connection")
+				logger.Warnf("Server events WebSocket: Client heartbeat timeout, closing connection")
 				conn.Close()
 				globalHub.RemoveClient(conn)
 				return
@@ -106,7 +106,7 @@ func HandleServerEvents(c *gin.Context) {
 				// 连接期间会话可能过期或被吊销（改密码、管理员踢人）。
 				// 用 4401 关闭，前端才知道该跳登录页而不是重连。
 				if !authorized(c) {
-					logger.GetLogger().Infof("Server events WebSocket: 会话已失效，主动断开")
+					logger.Infof("Server events WebSocket: 会话已失效，主动断开")
 					closeUnauthorized(conn, connMu)
 					globalHub.RemoveClient(conn)
 					return
@@ -137,7 +137,7 @@ func HandleServerEvents(c *gin.Context) {
 			// 无条件退出循环，不能尝试写回错误消息后 continue 再读一次
 			// （写侧短暂可用不代表读侧健康）。写法与 HandleRCONEvents 保持一致。
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				logger.GetLogger().Warnf("Server events WebSocket: read error: %v", err)
+				logger.Warnf("Server events WebSocket: read error: %v", err)
 			}
 			globalHub.RemoveClient(conn)
 			break
@@ -155,7 +155,7 @@ func HandleServerEvents(c *gin.Context) {
 			connMu.Unlock()
 
 			if err != nil {
-				logger.GetLogger().Debugf("Failed to send pong: %v", err)
+				logger.Debugf("Failed to send pong: %v", err)
 				globalHub.RemoveClient(conn)
 				break
 			}
@@ -173,7 +173,7 @@ func HandleRCONEvents(c *gin.Context) {
 
 	conn, err := WSUpgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
-		logger.GetLogger().Warnf("WebSocket upgrade error for RCON: %v", err)
+		logger.Warnf("WebSocket upgrade error for RCON: %v", err)
 		return
 	}
 	defer conn.Close()
@@ -199,12 +199,12 @@ func HandleRCONEvents(c *gin.Context) {
 		for {
 			select {
 			case <-heartbeatTicker.C:
-				logger.GetLogger().Warnf("RCON WebSocket: Client heartbeat timeout, closing connection")
+				logger.Warnf("RCON WebSocket: Client heartbeat timeout, closing connection")
 				conn.Close()
 				return
 			case <-authTicker.C:
 				if !authorized(c) {
-					logger.GetLogger().Infof("RCON WebSocket: 会话已失效，主动断开")
+					logger.Infof("RCON WebSocket: 会话已失效，主动断开")
 					closeUnauthorized(conn, connMu)
 					return
 				}
@@ -221,7 +221,7 @@ func HandleRCONEvents(c *gin.Context) {
 		err := conn.ReadJSON(&msg)
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				logger.GetLogger().Warnf("WebSocket error: %v", err)
+				logger.Warnf("WebSocket error: %v", err)
 			}
 			break
 		}
@@ -237,7 +237,7 @@ func HandleRCONEvents(c *gin.Context) {
 			})
 			connMu.Unlock()
 			if err != nil {
-				logger.GetLogger().Debugf("Failed to send pong to RCON: %v", err)
+				logger.Debugf("Failed to send pong to RCON: %v", err)
 				break
 			}
 			continue
@@ -249,7 +249,7 @@ func HandleRCONEvents(c *gin.Context) {
 		err = conn.WriteJSON(response)
 		connMu.Unlock()
 		if err != nil {
-			logger.GetLogger().Warnf("Failed to write RCON response: %v", err)
+			logger.Warnf("Failed to write RCON response: %v", err)
 			break
 		}
 	}
@@ -284,20 +284,20 @@ func rconExecuteCommand(instanceName string, command string) RCONResponse {
 		}
 	}
 
-	logger.GetLogger().Infof("WebSocket RCON: Executing command on instance '%s': %s", instanceName, command)
+	logger.Infof("WebSocket RCON: Executing command on instance '%s': %s", instanceName, command)
 
 	// 交互式面板不重试：用户就坐在屏幕前，连不上要立刻回话，
 	// 而不是让输入框卡住 4 秒（rconx 默认的 3 次尝试 × 2s 间隔）再报错。
 	response, err := rconx.Execute(context.Background(), instanceName, command, rconx.WithAttempts(1))
 	if err != nil {
-		logger.GetLogger().Errorf("WebSocket RCON: Command failed on instance '%s': %v", instanceName, err)
+		logger.Errorf("WebSocket RCON: Command failed on instance '%s': %v", instanceName, err)
 		return RCONResponse{
 			Success: false,
 			Error:   rconErrorMessage(instanceName, err),
 		}
 	}
 
-	logger.GetLogger().Infof("WebSocket RCON: Response: %s", response)
+	logger.Infof("WebSocket RCON: Response: %s", response)
 	return RCONResponse{
 		Success:      true,
 		Response:     response,

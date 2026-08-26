@@ -85,8 +85,9 @@ asa-server/
 ├── main.go                  # 入口：CLI 命令、GUI、Windows 服务检测
 │
 │  ── 领域包（自底向上，无环）──
-├── pkg/                     # 叶子工具：fsutil、winproc、netutil、tail、console、iox、
-│                            #   processjob（Windows Job Object）、serverinfo（gopsutil 指标）
+├── pkg/                     # 叶子工具：fsutil、procx（跨平台进程原语）、netutil、tail、console、iox、
+│                            #   proctree（进程树管理）、serverinfo（gopsutil 指标）、
+│                            #   logger（Zap + lumberjack，见 LOGGER_REDESIGN_PLAN.md）
 ├── config/                  # 目录布局、InstanceConfig、INI 读写、配置同步
 ├── process/                 # PID 文件存储 + IsServerRunning（解 state ↔ instance 环的关键层）
 ├── certmgr/                 # 本地 CA + 叶子证书、Windows 受信任根存储（HTTPS/h2）
@@ -119,7 +120,6 @@ asa-server/
 ├── syncthingmanage/         # Syncthing 文件同步管理（内嵌 syncthing.exe）
 ├── parseserver/             # ARK 存档解析（go-arkparser + save_monitor）
 ├── githubreleases/          # GitHub Releases API 客户端（带下载进度）
-├── logger/                  # Zap + lumberjack 结构化日志（带轮转）
 └── docs/                    # 文档
 ```
 
@@ -178,6 +178,7 @@ asa-server/
 | [V2_MIRROR_STARTUP_ARCHITECTURE.md](V2_MIRROR_STARTUP_ARCHITECTURE.md) | NTFS 镜像目录方案，支持多实例并行启动 |
 | [HTTP2_CONNECTION_OPTIMIZATION.md](HTTP2_CONNECTION_OPTIMIZATION.md) | **HTTPS + HTTP/2**（已实施）——本地 CA、受信任存储、反向代理兼容 |
 | [instance-manager-daemon.md](instance-manager-daemon.md) | 实例管理守护进程设计 |
+| [LOGGER_REDESIGN_PLAN.md](LOGGER_REDESIGN_PLAN.md) | `logger` 包重构方案（已实施，现为 `pkg/logger`）：console/file 多路 sink、`WithConsole` 链式调用、调用点全量迁移 |
 
 ### Linux 兼容
 

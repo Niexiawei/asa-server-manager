@@ -3,7 +3,7 @@
 package certmgr
 
 import (
-	"asa-server/internal/logger"
+	"asa-server/pkg/logger"
 	"errors"
 	"fmt"
 	"os"
@@ -80,7 +80,7 @@ func TrustCA() error {
 	}
 
 	if fp, ok := installedFingerprint(backend.anchorPath); ok && fp == fingerprint {
-		logger.GetLogger().Debugf("本地 CA 已在 %s 中（指纹 %s）", backend.anchorPath, fingerprint)
+		logger.Debugf("本地 CA 已在 %s 中（指纹 %s）", backend.anchorPath, fingerprint)
 		return nil
 	}
 
@@ -98,7 +98,7 @@ func TrustCA() error {
 		return err
 	}
 
-	logger.GetLogger().Infof(
+	logger.Infof(
 		"已将本地 CA 写入 %s（指纹 %s）。系统信任库不影响浏览器的 NSS 证书库，"+
 			"Firefox/Chrome 仍需手动导入 %s。如需移除，执行 `asa-server cert uninstall`",
 		backend.anchorPath, fingerprint, caCertPath())
@@ -167,7 +167,7 @@ func untrustFingerprint(fingerprint string) error {
 	if err := runUpdateCmd(backend.updateCmd); err != nil {
 		return err
 	}
-	logger.GetLogger().Infof("已从 %s 移除本地 CA（指纹 %s）", backend.anchorPath, fingerprint)
+	logger.Infof("已从 %s 移除本地 CA（指纹 %s）", backend.anchorPath, fingerprint)
 	return nil
 }
 
@@ -186,6 +186,6 @@ var hardenKey = hardenKeyFile
 // 就是权限的真相，不需要额外一层。
 func hardenKeyFile(path string) {
 	if err := os.Chmod(path, 0600); err != nil {
-		logger.GetLogger().Warnf("收紧私钥文件权限失败 %s: %v", path, err)
+		logger.Warnf("收紧私钥文件权限失败 %s: %v", path, err)
 	}
 }

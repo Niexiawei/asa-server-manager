@@ -6,15 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-
-	"asa-server/internal/logger"
 )
-
-// createJunction 会写 Debug 日志，GetLogger() 未初始化时返回 nil 会 panic。
-func TestMain(m *testing.M) {
-	logger.InitLoggerWithBaseDir(os.TempDir())
-	os.Exit(m.Run())
-}
 
 // createJunction 必须建出真正的 NTFS mount point，而不是目录符号链接。
 // 这条区别是整个去管理员化的前提：符号链接要 SeCreateSymbolicLinkPrivilege，

@@ -4,10 +4,10 @@ package gui
 
 import (
 	cfgpkg "asa-server/internal/config"
-	"asa-server/internal/logger"
 	procpkg "asa-server/internal/process"
 	"asa-server/internal/svcmgr"
 	"asa-server/internal/webapi"
+	"asa-server/pkg/logger"
 	"asa-server/pkg/serverinfo"
 	"context"
 	_ "embed"
@@ -467,7 +467,6 @@ func (g *GUIApp) startAPIServer() {
 	g.apiServerMu.Unlock()
 
 	// Set log mode for HTTP API
-	logger.SetLogMode(logger.HttpApiMode)
 
 	// Create and start API server
 	g.apiServerMu.Lock()
@@ -478,7 +477,7 @@ func (g *GUIApp) startAPIServer() {
 
 	go func() {
 		if err := g.apiServer.Start(); err != nil {
-			logger.GetLogger().Errorf("API server stopped with error: %v", err)
+			logger.Errorf("API server stopped with error: %v", err)
 			g.apiServerMu.Lock()
 			g.apiRunning = false
 			g.updateAPIServerUI()
@@ -563,7 +562,7 @@ func (g *GUIApp) confirmAndQuit() {
 				case <-done:
 					// Clean shutdown
 				case <-time.After(10 * time.Second):
-					logger.GetLogger().Warn("API server stop timed out after 10s")
+					logger.Warn("API server stop timed out after 10s")
 				}
 				g.app.Quit()
 			}()

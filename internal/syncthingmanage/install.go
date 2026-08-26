@@ -11,8 +11,8 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"asa-server/internal/logger"
 	"asa-server/pkg/download"
+	"asa-server/pkg/logger"
 )
 
 // syncthingVersion is pinned rather than "latest" for the same reason
@@ -47,7 +47,7 @@ func ensureSyncthingBinary(ctx context.Context, dir string) (string, error) {
 	)
 	archivePath := filepath.Join(dir, assetName)
 
-	logger.GetLogger().Infof("downloading syncthing v%s from %s", syncthingVersion, url)
+	logger.Infof("downloading syncthing v%s from %s", syncthingVersion, url)
 	if err := download.Fetch(ctx, download.Options{URL: url, Dest: archivePath, Resume: true}); err != nil {
 		return "", fmt.Errorf("failed to download syncthing: %w", err)
 	}

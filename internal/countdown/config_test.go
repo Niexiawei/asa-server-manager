@@ -1,20 +1,15 @@
 package countdown
 
 import (
-	"asa-server/internal/logger"
 	"os"
 	"strings"
 	"testing"
 	"time"
 )
 
-// 本包的生产代码到处直接调 logger.GetLogger()，未初始化时它返回 nil，
-// 任何走到日志的测试都会 panic。这里统一初始化到临时目录，
-// 避免把日志写进仓库。
-// 另外，runOne 会先查进程存活：测试用的实例名都是假的，真去查只会一律判死，
+// runOne 会先查进程存活：测试用的实例名都是假的，真去查只会一律判死，
 // 于是所有倒计时测试都跑不起来。这里默认放行；要验兜底本身的用例自己覆盖 isAlive。
 func TestMain(m *testing.M) {
-	logger.InitLoggerWithBaseDir(os.TempDir())
 	isAlive = func(string) bool { return true }
 	os.Exit(m.Run())
 }

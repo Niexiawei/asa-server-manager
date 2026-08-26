@@ -8,14 +8,7 @@ import (
 	"time"
 
 	cfgpkg "asa-server/internal/config"
-	"asa-server/internal/logger"
 )
-
-// 本包会写 Debug/Warn 日志，GetLogger() 未初始化时返回 nil 会 panic。
-func TestMain(m *testing.M) {
-	logger.InitLoggerWithBaseDir(os.TempDir())
-	os.Exit(m.Run())
-}
 
 // ---------- 测试脚手架 ----------
 

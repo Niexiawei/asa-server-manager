@@ -3,20 +3,11 @@ package batchmanage
 import (
 	"asa-server/internal/countdown"
 	instancepkg "asa-server/internal/instance"
-	"asa-server/internal/logger"
 	"context"
-	"os"
 	"sync"
 	"testing"
 	"time"
 )
-
-// 生产代码在部分路径上直接调 logger.GetLogger()，未初始化时它返回 nil。
-// 这里统一初始化到临时目录，避免把日志写进仓库。
-func TestMain(m *testing.M) {
-	logger.InitLoggerWithBaseDir(os.TempDir())
-	os.Exit(m.Run())
-}
 
 // newTestOperation 直接构造一个 running 状态的批量操作。
 //
