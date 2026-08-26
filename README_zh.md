@@ -225,7 +225,7 @@ asa-server/
 │                        #   configapi、saveapi、logapi、iconapi、apiresp
 ├── app/                 # 内嵌 Vue.js 前端（//go:embed dist）
 ├── gui/                 # Fyne 桌面 GUI（系统托盘、服务管理、日志查看）
-├── winservice/          # Windows 服务集成（kardianos/service）
+├── svcmgr/              # OS 服务集成（kardianos/service：Windows SCM / Linux systemd）
 ├── actions/             # CLI 命令处理器
 │
 │  ── 支撑 ──

@@ -110,7 +110,7 @@ asa-server/
 │   ├── appembed.go          # 内嵌 dist/ 供 Gin 静态服务
 │   └── src/                 # Vue.js 源码（TDesign 组件）
 ├── gui/                     # Fyne 桌面 GUI（系统托盘、服务管理、日志查看）
-├── winservice/              # Windows 服务集成（kardianos/service）
+├── svcmgr/                  # OS 服务集成（kardianos/service：Windows SCM / Linux systemd）
 ├── actions/                 # CLI 命令处理器（update）
 │
 │  ── 支撑 ──

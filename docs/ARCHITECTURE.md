@@ -60,7 +60,7 @@ ASA Server Manager 系统架构文档。
 | `main` | 程序入口，CLI 命令定义，Windows 服务检测，GUI/CLI/API 模式选择 | `main.go` |
 | `webapi` | HTTP API 服务器（Gin），路由注册，SSE 流式推送，WebSocket 事件广播 | `actions.go`, `api.go`, `ws.go`, `task.go`, `broadcast.go` |
 | `gui` | Fyne 桌面 GUI，系统托盘，服务管理，日志查看器 | 包内多个文件 |
-| `winservice` | Windows 服务安装/卸载/启动/停止，使用 `kardianos/service` | 包内文件 |
+| `svcmgr`（原 `winservice`） | OS 服务安装/卸载/启动/停止，使用 `kardianos/service`（Windows SCM / Linux systemd，见 `docs/LINUX_COMPATIBILITY_PLAN.md` §5.8） | 包内文件 |
 | `actions` | CLI 命令处理器（如 `update` 命令） | 包内文件 |
 
 ### 核心逻辑

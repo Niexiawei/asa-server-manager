@@ -4,7 +4,7 @@
 > 通过 [umu-launcher](https://github.com/Open-Wine-Components/umu-launcher) + GE-Proton 提供 Wine 运行时。
 > 参考实现：`scripts/ark_instance_manager.sh`（社区脚本，已在 Linux 上跑通完整 ASA 多实例流程，本方案大量沿用它踩过的坑）。
 >
-> 状态：**设计方案，P0–P4 已实施，P5 起尚未实施**。文档给出耦合点清单、抽象层设计、分阶段实施计划与验收标准。
+> 状态：**设计方案，P0–P5 已实施，P6 起尚未实施**。文档给出耦合点清单、抽象层设计、分阶段实施计划与验收标准。
 
 ---
 
@@ -19,7 +19,7 @@
 | **移除 WebAuthn**<br>同文档第二部分 | 已实施 | **无影响** —— 删掉的 `go-webauthn` / `go-tpm` / `fxamacker/cbor` 全是纯 Go，两平台一视同仁；`auth` 本就在 §2.3 的跨平台清单里 | 无需改动 |
 | **ArkApi 插件数据隔离**<br>`ARKAPI_PLUGIN_DATA_PLAN.md` | 已实施 | **基本无影响**，新增 `internal/plugindata` 已核对为跨平台；但它在 Linux 上应当整体静默，有四条要显式确认 | §2.2、§2.3、**§5.12 新增**、§6 风险 11/16、§8 P6、§9.1 |
 | **frp 改为库内调用**（本次新增决定） | 已实施 | **减少** Linux 工作量：frp 从「分平台内嵌二进制」直接退出工作清单 | **§5.10 已重写**、§5.9、§6 风险 14/15/16、§8 F 轨道、§9.1、§11 A |
-| **ArkApi 在 Linux 上不再是非目标**（P2 阶段新增决定） | 待实施 | **推翻**原「Linux 上标记为不支持，强制忽略开关」的结论：`EnableAsaPlugin` 在 Linux 上与 Windows 走同一个开关、同一条 `runner` 启动路径（umu-run 拉起 `AsaApiLoader.exe`，与拉起 `ArkAscendedServer.exe` 无特殊区分）。**不是**「确认能在 Wine 下稳定工作」——只是不再由程序单方面替用户关掉，社区已有在 Proton 下跑 ArkApi 的先例，让用户自己试、失败了看日志，比强制拦截更符合这个项目「能不能跑起来用户自己判断」的一贯取向 | §1 非目标表、§5.12、§6 风险 11、§8 P6、§9.1/9.2、§11 A |
+| **ArkApi 在 Linux 上不再是非目标**（P2 阶段新增决定） | 已实施 | **推翻**原「Linux 上标记为不支持，强制忽略开关」的结论：`EnableAsaPlugin` 在 Linux 上与 Windows 走同一个开关、同一条 `runner` 启动路径（umu-run 拉起 `AsaApiLoader.exe`，与拉起 `ArkAscendedServer.exe` 无特殊区分）。**不是**「确认能在 Wine 下稳定工作」——只是不再由程序单方面替用户关掉，社区已有在 Proton 下跑 ArkApi 的先例，让用户自己试、失败了看日志，比强制拦截更符合这个项目「能不能跑起来用户自己判断」的一贯取向 | §1 非目标表、§5.12、§6 风险 11、§8 P6、§9.1/9.2、§11 A |
 
 四个最值得记住的结论：
 
@@ -559,6 +559,17 @@ func createJunction(linkPath, targetPath string) error {
 CA 生成、叶子证书签发、SAN 计算、自动重签这些逻辑全部跨平台，不动。
 CA 私钥只在本机生成、绝不打包进二进制这条约束在 Linux 上同样成立。
 
+> ✅ **P5 已实现**，与上表设计一致：`detectBackend()` 按 `exec.LookPath` 探测
+> `update-ca-certificates` 优先、`update-ca-trust` 兜底；`TrustCA`/`UntrustCA` 显式检查
+> `IsElevated()` 提前给出「需要 sudo」的清晰错误，不依赖系统命令的 permission-denied 报错；
+> `ensureCA()` 重签时调用的 `untrustFingerprint` 找不到发行版工具或指纹不匹配都直接返回
+> nil（目标状态已达成，不是错误）。`cli.go` 的 `--machine` 在非 Windows 上没有意义（Linux
+> 只有一个系统级信任存储），改为非 root 时直接报错提示 `sudo` 重跑，不落到
+> `procx.RunAsAdmin`（那是 Windows 的 ShellExecute 自动提权，Linux 没有等价物）。
+> `EnsureTLSConfig` 补了一条 `else` 分支：`trust_local_ca=false` 时也在启动日志里报出 CA
+> 路径 + `cert install` 提示，而不是完全沉默——设计文本本来就要求这条，之前的代码遗漏了。
+> **未验证**：`update-ca-certificates`/`update-ca-trust` 的实际调用未在真实 Linux 主机上跑过。
+
 ### 5.8 `internal/winservice` → `internal/svcmgr`
 
 `kardianos/service` v1.3.0 原生支持 systemd，`InstallService()` 的骨架可复用。Linux 侧需要补：
@@ -586,8 +597,28 @@ svcConfig.UserName = "asa"     // 不要用 root
 
 另外在部署文档里给出 `vm.max_map_count` 提示（部分发行版默认值偏低会让 UE 分配失败）。
 
-`service remove` 联动清理本地 CA（现 `winservice/service.go:112` 调 `certmgr.UntrustCAOnCleanup()`）
+`service remove` 联动清理本地 CA（现 `svcmgr/service.go:128` 调 `certmgr.UntrustCAOnCleanup()`）
 的行为在 Linux 上保留，走 §5.7 的 Linux 实现。
+
+> ✅ **P5 已实现**，两处偏离设计文本、都记录理由：
+>
+> 1. **`RestartSec` 没有单独设置，沿用 kardianos 内置 systemd 模板的 120s**，而不是示意代码里的
+>    10s。原因：kardianos v1.3.0 的 `Option` 表里根本没有 `RestartSec` 这个键（源码翻过，只有
+>    `LimitNOFILE`/`Restart`/`ReloadSignal`/`PIDFile`/`LogDirectory`/`SystemdScript` 等），
+>    模板把 `RestartSec=120` 硬编码在内置 unit 文件里。要改就得整份复制一份 `SystemdScript`
+>    自定义模板——一份会随 kardianos 版本升级悄悄漂移的分叉。120s 对一个「重启前要先
+>    `saveworld`」的游戏服务器也更保守，不算退步。
+> 2. **没有自动创建/切换到专用用户**，`UserName` 保持空（root），只在 `service install` 时打印
+>    警告 + 手动接管步骤（`useradd` + `systemctl edit` 加 `User=`）。原因：自动切换运行身份意味着
+>    要处理 `BaseDir` 及其下所有实例目录的属主/权限迁移——对一次已经在跑的 root 安装做这个，
+>    风险显著高于「告诉用户怎么做，让用户自己决定要不要做」。这与 §5.1 结尾对
+>    `-ClusterDirOverride` 疑似 bug 的取舍是同一个原则：没有直接证据强制要求改、又会碰用户现有
+>    数据/环境的操作，优先不做。
+>
+> `HOME` 的处理按设计文本原样实现：`service install` 时用当前进程的 `os.UserHomeDir()`
+> （`sudo` 不加 `-E` 时就是 root 的 `/root`）直接写死进 unit 的 `Environment=`，而不是留给 systemd
+> 运行时环境去决定——后者正是设计文本标 ⚠️ 的那个坑。**未验证**：真实 systemd 环境下
+> `service install/start/stop/remove` 全流程、以及 `LimitNOFILE`/`HOME` 是否如预期生效。
 
 ### 5.9 `internal/gui` —— Linux 排除
 
@@ -863,7 +894,7 @@ type Config struct {
 | 1 | **GE-Proton 11.x 挂死 ASA** | 服务器永远起不来，无任何日志 | 版本硬钉 `GE-Proton10-34`；升级前必须过冷启动验收 |
 | 2 | **AppArmor 限制 userns**（Ubuntu 23.10+） | `bwrap: Permission denied`，全部启动失败 | 启动自检 + 明确 sysctl 修复指引，见 §4.2 |
 | 3 | **GitHub API 限流** | umu 解析 GE-Proton 别名失败 → `PROTONPATH` 空 → 崩 | 自己从 release 下载 URL 拉固定版本，从不碰 API |
-| 4 | **`$HOME` 未设置/错误**（systemd 场景） | 运行时反复下载或 steamclient 崩溃 | `svcmgr` 强制注入 `HOME`；启动自检校验可写 |
+| 4 | **`$HOME` 未设置/错误**（systemd 场景） | 运行时反复下载或 steamclient 崩溃 | ✅ P5 已实现：`svcmgr` 在 `service install` 时把 `HOME`（取自安装时进程自身的 `os.UserHomeDir()`，找不到兜底 `/root`）直接写进 unit 的 `Environment=`，不依赖 systemd 运行时环境。**未做**的是「启动自检校验可写」——留给真机验证时按需补 |
 | 5 | **Wine prefix 与 Proton 版本不匹配** | 微妙的行为异常，极难排查 | `.created-by-proton` 标记文件，不匹配则移开重建（重建成本 ~1 分钟，prefix 里没有任何服务器数据） |
 | 6 | **共享 prefix 的 wineserver 竞争** | 多实例并发首次启动可能互相踩；一个实例崩溃可能波及同 prefix 的其他实例 | 默认共享（与脚本一致，磁盘友好），但**首次初始化加互斥锁串行化**；`config.yaml` 提供 `prefix_mode: per-instance` 开关给追求隔离的用户 |
 | 7 | **Linux 路径直接传给 UE** | 簇目录错乱，跨服传角色损坏 | 所有含路径的 exe 参数过 `runner.GamePath()`；`CustomStartParameters` 做保存期校验告警 |
@@ -926,7 +957,7 @@ linux:
 | **P2 umu 运行时** ✅ 已完成 | `internal/runner` 接口（`Run`/`GamePath`/`EnsureRuntime`/`Preflight`/`Configure`）+ 两平台实现，`Run` 对 `ArkAscendedServer.exe` 与 `AsaApiLoader.exe` 一视同仁（见 §0/§1 的 ArkApi 决定）；`umu_linux.go` 下载 umu-launcher zipapp + GE-Proton（走 `pkg/download`，含 `github_proxy`）、prefix 预热（照抄 `ark_instance_manager.sh` 的 wineboot --init + steamrt 就绪检测 + wineserver drain 轮询）与 `.created-by-proton` 版本标记/迁移；`preflight_linux.go` 五项依赖自检（32 位 glibc / python3≥3.10 / libzstd.so.1 / tar / AppArmor userns，读 `/proc/sys` 而非 shell 出去跑 `sysctl`）；`internal/webapi/systemapi` 的 `GET /api/system/preflight`；`config.yaml` 新增 `linux:` 段（`appconfig`）；`EnsureRuntime` 在 `InitializationBasicComponents` 里后台异步跑，不阻塞服务启动。**执行细节对拍**：GE-Proton/umu 的下载 URL 与 tar 内部布局已用真实 GitHub Releases API 核对（非猜测），warm-up 与 fixups 的具体命令逐行对照本仓库 `scripts/ark_instance_manager.sh` 的验证过的实现，而非重新推导 | `CGO_ENABLED=0 GOOS=linux go build ./...`、`go build`（windows 原生 cgo）、两平台 `go vet` 均通过；`extractTar`（strip-prefix + zip-slip 拒绝，含嵌套 `..` 变体）与 Windows 侧 `Run`/`GamePath` 有真实执行的单测（非仅编译检查）。**已知偏差与限制**：①GE-Proton 校验走官方 `.sha512sum`（新增 `pkg/download` 对 `sha512:` 算法的支持），umu 校验走 GitHub Releases API 的 `digest` 字段（一次性的固定 tag 元数据请求，不是"解析 latest"，但确实触达 `api.github.com`，与 §4.3"从不碰 API"的原则有个可接受的例外，失败时降级为不校验而非拦截，已在代码注释说明）；②`umu_version` 从文档原稿的占位符 `1.4.0` 更新为已核实存在的 `1.4.4`；③`PROTON_VERB=run` 从设计阶段的示意代码中去掉——参考脚本的实际调用从不设它；④尚未在真实 Linux 主机上跑过 `EnsureRuntime`/`Preflight`（本机 WSL 的 go1.27.0 安装已损坏，见 P1 行），下载、解压、prefix 预热的端到端行为仍待 P3/P4 阶段用真机验证 | 3–4 天 |
 | **P3 安装与更新** ✅ 已完成 | `SteamCmdURL` 出 `config` 包，拆进 `installer/steamcmd_{windows,linux}.go`（各自的 URL/二进制名/解压函数，Linux 走新增的 `pkg/archive.ExtractTar` 解 `tar.gz`）；`installer/fixups*.go` 三项 ASA-on-Wine 修复（Sentry 禁用/`steam_appid.txt`/Steam SDK 软链），接在 `DownloadAndUpdateArkServer` 成功后与 `VerifyServerInstallation` 验证前；`VerifyServerInstallation` 改走 `runner.Run()` 启动 `ArkAscendedServer.exe`（Windows 直接 exec，Linux 经 umu-run），固定 60s sleep 换成轮询等待 `Saved/Config/WindowsServer/`（180s 上限，超时/取消都会如实报错，不再像原 Windows 代码那样等完固定时间就无条件宣布成功）；杀验证进程从 `procx.Kill` 换成 `procx.KillTree`（Linux 上 `LauncherPID` 是 umu-run/进程组 leader，必须整树杀，见 §5.3/§5.4）。**顺带**把 `pkg/archive`（zip-slip 防护的 tar 解压）从 `internal/runner` 提出来独立成包，因为 installer 现在也要用它——避免同一段安全相关代码存在两份 | `CGO_ENABLED=0 GOOS=linux go build ./...`、`go build`（windows 原生 cgo）、两平台 `go vet` 均通过；新增 13 个真实单测（`disableSentryPluginAt`/`writeSteamAppIDAt` 的重命名/内容纠错/幂等路径，`waitForConfigDir` 的立即返回/轮询命中/超时/取消四种路径，含真实计时断言），`internal/installer` 既有测试全部保持通过；Linux 上 `update` 走完，`server-files` 完整，`Saved/Config/WindowsServer` 生成。**已知限制**：与 P2 一致——三项 fixups 里唯一没法跨平台单测的是 `symlinkSteamSDK`（`os.Symlink` 在非提权 Windows 上可能因权限失败，该函数本来就只在 `//go:build linux` 下编译，此处无跨平台测试覆盖，逻辑走查为主）；真实 Linux 主机上的端到端验证仍待 P4/P6 | 2–3 天 |
 | **P4 实例生命周期** ✅ 已完成 | `internal/instance/server.go` 的 `startServerInternal` 改走 `runner.Run()`（PTY/非 PTY 分支合并成一次调用，`Options.PTY = arkAsaApiRunning`），**用 `context.Background()` 而非局部 `ctx` 发起启动**（局部 `ctx` 会在 `startServerInternal` 返回时被 `defer cancel()` 取消，若传给 `runner.Run` 会让 `exec.CommandContext` 在启动函数一返回就把刚起的服务器杀掉——这是本阶段最容易踩、也最隐蔽的一个坑）；`-ClusterDirOverride` 的目录过 `runner.GamePath()`；`internal/process` 新增 `SaveLauncherPID`/`GetLauncherPID`（双 PID 文件）；启动后解析真实游戏 PID 的判据从 `WaitArkApiRunServer`（按 `Port=`）泛化改名为 `waitForGamePID`（按 `AltSaveDirectoryName=`，Windows AsaApi 场景与 Linux 全场景共用），`findServerPIDByPort` 同理改名 `findServerPIDBySaveDir`；`process.isExpectedProcess` 按平台拆分（`isExpectedProcessPlatform`，见 §5.3 第 4 条），新增跨平台 `procx.ProcessCmdline`；`stopServerInternal` 5 分钟超时兜底从 `procx.Kill` 升级 `procx.KillTree`；`ForceStopServer` 新增第 4 步兜底读 `launcher_pid`；`runner` 新增 `LauncherIsDirect()` 供业务层判断「`Handle.LauncherPID` 是否就是游戏 PID 本身」。**镜像 `IsElevated` 处理**：核对后发现这一项在更早的「镜像去管理员化」重构里已经整体删除（`IsElevated()`/提权重启不再存在），P4 无需再处理，纯粹是本文档条目过时 | `CGO_ENABLED=0 GOOS=linux go build ./...`、`go build`（windows 原生 cgo）、两平台 `go vet` 均通过；新增 7 个真实单测（`SaveLauncherPID`/`GetLauncherPID` 的读写与「和游戏 PID 互相独立」、`procx.ProcessCmdline` 对自身进程的真实 WMI 查询——写测试当场炸出一个真 bug，见 §5.3 第 4 条）；`internal/instance` 既有测试保持通过（只有前置的、与本次改动无关的环境耦合失败）。对 Windows 现有代码路径逐句核对过等价性（非 AsaApi 分支：`handle.LauncherPID` 直接就是原来的 `cmd.Process.Pid`，零延迟零改变；AsaApi 分支：PTY 创建/Resize/Wait/Close/日志清洗的调用序列与原代码逐行对应）。**已知限制**：①未在真实 Linux 主机上跑过 `StartServer`/`StopServer`（WSL go 环境已损坏，见 P1），`AltSaveDirectoryName=` cmdline 匹配在 Wine 宿主进程下是否真的可靠、共享 prefix 下的进程组语义等，仍待真机验证；②`-ClusterDirOverride` 是否应该只传 `BaseDir` 而不是 `{BaseDir}/clusters/<id>`（§5.1 原文怀疑现有 Windows 实现可能导致 UE 自己再拼一层 `clusters/clusters/<id>`）**本次未改动**——没有直接证据证明现网真的有这个 bug，改这个会动到活跃用户的存档路径，风险回报比不划算，留给用户自己核实；③`CustomStartParameters` 里用户自带路径参数（如 `-UserDir`）在 Linux 上需要手写 `Z:\` 形式，配置保存时的校验告警未实现，留到 P6。**单实例**启动→玩家可连入→RCON 可用→优雅停止；**双实例**并发启动互不干扰（这两条验收本身仍待真机跑通） | 3–5 天 |
-| **P5 服务化与证书** | `winservice` → `svcmgr` + systemd（`HOME`/`LimitNOFILE`/非 root）；`certmgr` Linux 信任实现 | `service install/start/stop/remove` 全通；HTTPS 可用 | 2 天 |
+| **P5 服务化与证书** ✅ 已完成 | `internal/winservice` → `internal/svcmgr`（含调用方 `main.go`/`internal/gui/gui.go`），拆 `service_windows.go`（`configurePlatform`/`warnBeforeInstall` 空实现，行为不变）/ `service_linux.go`（systemd 加固：`Dependencies=After+Wants network-online.target`、`Option{LimitNOFILE:1048576, Restart:on-failure}`、`WorkingDirectory=BaseDir`、`EnvVars["HOME"]`，`warnBeforeInstall` 检测 root 并提示手动切换专用用户，不自动切换——两处对设计文本的偏离及理由见 §5.8）；`certmgr` 补 `store_linux.go` 真实现（`update-ca-certificates`/`update-ca-trust` 探测 + 读写 + `IsElevated` 前置校验，见 §5.7）；`appconfig` 的 `trust_local_ca` 默认值按平台区分（Linux `false`，写出的 `config.yaml` 模板注释同步区分）；`EnsureTLSConfig` 补 `trust_local_ca=false` 时的 CA 路径提示日志（设计文本要求但此前代码遗漏）；**顺带解除了本次改造的一个前置阻断**——`main.go` 删掉了 `runtime.GOOS != "windows"` 硬退出（P0 阶段就该有但漏了，`main_linux.go` 自己的注释也承认"今天不可达"），`main_windows.go`/`main_linux.go` 新增 `runDefaultAction`（无参数启动：Windows 走 GUI 不变，Linux 等价于 `api`，见 §5.9）；否则 P1–P4 的全部 Linux 实现虽然编译通过，实际跑起来仍会在 `main()` 第一行就退出，`service install/start/stop/remove` 在 Linux 上根本无法执行到 | `go build`/`go vet` 两平台均通过（含 `main` 包，此前从未因为运行时硬退出而被怀疑过构建，但从未被实际跑通过）；`internal/certmgr`/`internal/appconfig`/`internal/svcmgr` 既有测试保持通过。**已知限制**：①未在真实 systemd/Linux 主机上跑过 `service install/start/stop/remove`，`update-ca-certificates`/`update-ca-trust` 的实际调用、`LimitNOFILE`/`HOME` 生效与否均未验证；②`RestartSec` 沿用 kardianos 内置模板的 120s 而非设计文本示意的 10s（kardianos v1.3.0 无此 Option 键，自定义模板会分叉，见 §5.8）；③不自动创建/切换专用用户，只在 install 时警告 + 打印手动步骤（避免动现有 root 安装的目录属主）；④`vm.max_map_count` 提示留给部署文档，未在代码里做运行时自检——留给 P6 | 2 天 |
 | **P6 收尾** | 定时任务/批量/倒计时/备份/存档解析在 Linux 上回归；**ArkApi 在 Linux 上的落地确认（§5.12 表格四条：大小写常量核对、`override.go` 大小写折叠修复、`pluginapi`/面板可用性、`PluginSnapshotInterval` 语义）**；构建脚本与 CI 加 linux target；文档（部署指南、依赖清单、故障排查） | 测试矩阵（§9）全绿 | 2–3 天 |
 
 **合计约 15–22 人日**（P0–P6，不含并行的 F / W 轨道），不含 Wine 侧疑难问题的排查缓冲（建议再留 30%）。
@@ -1352,8 +1383,8 @@ Linux 上的完整入口就是 CLI：
 | 进程树托管 | Job Object `KILL_ON_JOB_CLOSE` | setsid 进程组（可选 `Pdeathsig`） |
 | CA 信任 | `windows.Cert*` → Root 存储 | `/usr/local/share/ca-certificates` + `update-ca-certificates`<br>或 `/etc/pki/ca-trust/source/anchors` + `update-ca-trust` |
 | 私钥权限 | `icacls` | `os.Chmod(0600)` |
-| 提权 | 镜像已不需要；仅 `cert install --machine` 走 `procx.RunAsAdmin`（`certmgr/cli.go:67`） | 不需要；仅证书信任需 root（`procx.RunAsAdmin` 返回「本平台不适用」） |
-| 服务 | SCM（kardianos） | systemd（kardianos） |
+| 提权 | 镜像已不需要；仅 `cert install --machine` 走 `procx.RunAsAdmin`（`certmgr/cli.go`） | 无 ShellExecute 式自动提权；`cert install` 非 root 直接报错提示 `sudo` 重跑（`certmgr/cli.go`，P5），不落到 `procx.RunAsAdmin` |
+| 服务 | SCM（kardianos），无额外 Option/EnvVars | systemd（kardianos），P5 加固：`LimitNOFILE=1048576`、`Restart=on-failure`、`WorkingDirectory=BaseDir`、`Environment=HOME=...`、`After=network-online.target`（`svcmgr/service_linux.go`，见 §5.8） |
 | SteamCMD | `steamcmd.exe`（zip） | `steamcmd.sh`（tar.gz，需 32 位 glibc） |
 | 打开浏览器 | `rundll32 url.dll,FileProtocolHandler` | `xdg-open`（GUI 排除后基本用不到） |
 | FRP 客户端 | 库内调用 `frp/client.NewService`（**两平台同一份代码**，见 §5.10） | 同左 |

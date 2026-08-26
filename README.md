@@ -227,7 +227,7 @@ asa-server/
 │                        #   configapi, saveapi, logapi, iconapi, apiresp
 ├── app/                 # Embedded Vue.js frontend (//go:embed dist)
 ├── gui/                 # Fyne desktop GUI (system tray, service mgmt, log viewer)
-├── winservice/          # Windows service integration (kardianos/service)
+├── svcmgr/              # OS service integration (kardianos/service: Windows SCM / Linux systemd)
 ├── actions/             # CLI command handlers
 │
 │  ── Supporting ──

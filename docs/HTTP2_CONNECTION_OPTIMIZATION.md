@@ -783,7 +783,7 @@ curl -H "X-Forwarded-For: 1.2.3.4" https://localhost:19193/health
 | `webapi/transport.go` | `protocolsH1H2()`、`http2Config()`、`parseTrustedProxies()`、`Scheme()` |
 | `webapi/actions.go` | `ListenAndServeTLS`、TLS 开关与降级、`SetTrustedProxies` |
 | `main.go` | `--tls` / `--tls-trust` / `--cert-file` / `--key-file` / `--tls-domains` / `--trusted-proxies` |
-| `winservice/service.go` | `RemoveService()` 联动 `UntrustCAOnCleanup()` |
+| `svcmgr/service.go`（原 `winservice/service.go`） | `RemoveService()` 联动 `UntrustCAOnCleanup()` |
 | `gui/gui.go` | WebUI 链接按 `webapi.Scheme()` 生成 |
 | 前端 | §4.7 的三处 dev 改动 |
 

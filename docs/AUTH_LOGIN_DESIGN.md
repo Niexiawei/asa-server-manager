@@ -1469,8 +1469,10 @@ DB 测试用临时目录里的真实 `auth.db` 文件，**不要用 `:memory:`**
 ### 17.1 Windows 服务模式下 config.yaml 会被静默忽略（已修）
 
 原计划只把配置接到 CLI flag 的 `Value` 上。但 `main.go` 在检测到服务模式时会
-`winservice.RunService(); return`，**`app.Run()` 根本不执行**，flag 的 `Destination`
-永远不会被写入 —— 而「装成 Windows 服务」正是本项目最主要的部署方式。
+`svcmgr.RunService(); return`（原 `winservice.RunService()`，见
+`docs/LINUX_COMPATIBILITY_PLAN.md` §5.8 的改名），**`app.Run()` 根本不执行**，
+flag 的 `Destination` 永远不会被写入 —— 而「装成服务」正是本项目最主要的部署方式，
+Linux 的 systemd 场景同样成立。
 
 解决：新增 `applyAppConfig()`，在服务分支之前直接把配置写进 `webapi` 的包级变量。
 交互式运行时它随后会被 flag 解析覆盖成同样的值（未传参）或命令行值（传了参），两条路径都正确。
