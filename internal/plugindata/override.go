@@ -78,11 +78,14 @@ func readOverridePath(configPath string) string {
 
 // pathWithin 判断 p 是否位于 root 之内（含 root 自身）。
 //
-// 两边都已是绝对路径。刻意用大小写不敏感的比较：本项目只跑在 Windows 上，
-// 而用户手填的路径盘符与目录名大小写与我们拼出来的十有八九对不上，
-// filepath.Rel 是逐字节比较的，直接用会把「其实就在实例目录里」误判成外部路径。
+// 两边都已是绝对路径，比较前先经 pathCompareKey 折叠——Windows 上 NTFS 大小写不敏感，
+// 用户手填的路径盘符与目录名大小写与我们拼出来的十有八九对不上，filepath.Rel 是逐字节
+// 比较的，直接用会把「其实就在实例目录里」误判成外部路径；Linux 上大多数文件系统
+// （ext4/xfs 等）大小写敏感，折叠反而会把 `/a/DB` 和 `/a/db` 错误地判成同一路径，
+// 见 docs/LINUX_COMPATIBILITY_PLAN.md §5.12 表格第 2 条，两平台分别实现见
+// override_windows.go / override_linux.go。
 func pathWithin(p, root string) bool {
-	pc := strings.ToLower(filepath.ToSlash(filepath.Clean(p)))
-	rc := strings.ToLower(filepath.ToSlash(filepath.Clean(root)))
+	pc := pathCompareKey(filepath.Clean(p))
+	rc := pathCompareKey(filepath.Clean(root))
 	return pc == rc || strings.HasPrefix(pc, rc+"/")
 }
