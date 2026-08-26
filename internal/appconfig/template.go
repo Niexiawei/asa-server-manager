@@ -114,4 +114,23 @@ download:
   http_proxy: ""
   timeout: 30s   # 只约束连接建立与响应头等待，不含大文件传输本身
   retries: 3
+
+# Linux 专属：Wine/Proton 运行时（用于在 Linux 上运行 Windows 版 ARK 服务端 exe）。
+# 这整段在 Windows 上被忽略。
+linux:
+  # 运行时来源：umu（默认，程序自动下载 umu-launcher + GE-Proton 并管理）
+  #           | custom（用户自备 PROTONPATH，程序只做只读检查，不下载不联网）
+  runtime: umu
+  # 必须是具体版本号，不能是 "latest"——通过 GitHub API 解析别名会撞限流，见文档。
+  umu_version: "1.4.4"
+  proton_version: "GE-Proton10-34"
+  # prefix 模式：shared（默认，全部实例共用一个 Wine prefix，省盘）
+  #           | per-instance（每实例独立 prefix，更隔离但更占盘）
+  prefix_mode: shared
+  # 留空 = {程序目录}/umu-prefix
+  prefix_dir: ""
+  # false 时完全不联网下载 umu/GE-Proton，缺失的组件只会在
+  # GET /api/system/preflight 里报告，不会自动尝试修复
+  auto_download: true
+  gameid: "umu-default"
 `

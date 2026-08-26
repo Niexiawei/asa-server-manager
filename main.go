@@ -6,6 +6,7 @@ import (
 	"asa-server/internal/certmgr"
 	cfgpkg "asa-server/internal/config"
 	"asa-server/internal/logger"
+	"asa-server/internal/runner"
 	"asa-server/internal/webapi"
 	"asa-server/internal/winservice"
 	"asa-server/pkg/download"
@@ -240,5 +241,16 @@ func applyAppConfig(cfg *appconfig.Config) {
 		HTTPProxy:   cfg.Download.HTTPProxy,
 		Timeout:     cfg.Download.Timeout,
 		Retries:     cfg.Download.Retries,
+	})
+
+	runner.Configure(runner.Config{
+		Runtime:       cfg.Linux.Runtime,
+		UmuVersion:    cfg.Linux.UmuVersion,
+		ProtonVersion: cfg.Linux.ProtonVersion,
+		PrefixMode:    cfg.Linux.PrefixMode,
+		PrefixDir:     cfg.Linux.PrefixDir,
+		AutoDownload:  cfg.Linux.AutoDownload,
+		GameID:        cfg.Linux.GameID,
+		BaseDir:       cfgpkg.BaseDir,
 	})
 }

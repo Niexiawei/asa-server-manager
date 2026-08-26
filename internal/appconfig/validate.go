@@ -20,7 +20,10 @@ func (c *Config) Validate() error {
 	if err := c.Auth.validate(); err != nil {
 		return err
 	}
-	return c.Download.validate()
+	if err := c.Download.validate(); err != nil {
+		return err
+	}
+	return c.Linux.validate()
 }
 
 func (s *ServerConfig) validate() error {
@@ -149,6 +152,29 @@ func (d *DownloadConfig) validate() error {
 	}
 	if d.Retries < 1 {
 		return fmt.Errorf("download.retries: 必须至少为 1，当前为 %d", d.Retries)
+	}
+	return nil
+}
+
+func (l *LinuxConfig) validate() error {
+	l.Runtime = strings.ToLower(strings.TrimSpace(l.Runtime))
+	if !slices.Contains([]string{"umu", "custom"}, l.Runtime) {
+		return fmt.Errorf("linux.runtime: 只能是 umu / custom，当前为 %q", l.Runtime)
+	}
+	l.PrefixMode = strings.ToLower(strings.TrimSpace(l.PrefixMode))
+	if !slices.Contains([]string{"shared", "per-instance"}, l.PrefixMode) {
+		return fmt.Errorf("linux.prefix_mode: 只能是 shared / per-instance，当前为 %q", l.PrefixMode)
+	}
+	if l.Runtime == "umu" {
+		if l.UmuVersion == "" {
+			return fmt.Errorf("linux.umu_version: 不得为空（且必须是具体版本号，不能是 latest）")
+		}
+		if l.ProtonVersion == "" {
+			return fmt.Errorf("linux.proton_version: 不得为空（且必须是具体版本号，不能是 latest）")
+		}
+	}
+	if l.GameID == "" {
+		return fmt.Errorf("linux.gameid: 不得为空")
 	}
 	return nil
 }

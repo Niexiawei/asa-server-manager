@@ -27,6 +27,7 @@ type Config struct {
 	Server   ServerConfig   `mapstructure:"server"`
 	Auth     AuthConfig     `mapstructure:"auth"`
 	Download DownloadConfig `mapstructure:"download"`
+	Linux    LinuxConfig    `mapstructure:"linux"`
 }
 
 // ServerConfig 对应 HTTP 服务本身
@@ -126,6 +127,27 @@ type DownloadConfig struct {
 	// Timeout 只约束连接建立与响应头等待，不含大文件传输本身。
 	Timeout time.Duration `mapstructure:"timeout"`
 	Retries int           `mapstructure:"retries"`
+}
+
+// LinuxConfig 是 docs/LINUX_COMPATIBILITY_PLAN.md §7 描述的 Linux 专属运行时配置。
+// 这整段在 Windows 上被忽略——没有 Wine/Proton 运行时的概念。
+type LinuxConfig struct {
+	// Runtime 选择 Proton 运行时的来源："umu"（默认，程序自动下载与管理）
+	// 或 "custom"（用户自备 PROTONPATH，程序只做只读的 Preflight 检查）。
+	Runtime string `mapstructure:"runtime"`
+	// UmuVersion / ProtonVersion 必须是具体的 release tag，绝不能是 "latest"——
+	// 通过 api.github.com 解析 latest/别名正是本项目要绕开的限流坑，见 §4.3。
+	UmuVersion    string `mapstructure:"umu_version"`
+	ProtonVersion string `mapstructure:"proton_version"`
+	// PrefixMode："shared"（默认，全部实例共用一个 Wine prefix）或
+	// "per-instance"（每实例独立，隔离性更好但更占盘）。
+	PrefixMode string `mapstructure:"prefix_mode"`
+	// PrefixDir 留空 = {BaseDir}/umu-prefix。
+	PrefixDir string `mapstructure:"prefix_dir"`
+	// AutoDownload 为 false 时 EnsureRuntime 完全不联网，缺失的运行时组件
+	// 只会体现为 Preflight 报告里的问题，不会自动尝试修复。
+	AutoDownload bool   `mapstructure:"auto_download"`
+	GameID       string `mapstructure:"gameid"`
 }
 
 // current 让读侧无锁：热重载时整体换指针即可。
@@ -261,6 +283,14 @@ func defaultConfig() Config {
 			Timeout: 30 * time.Second,
 			Retries: 3,
 		},
+		Linux: LinuxConfig{
+			Runtime:       "umu",
+			UmuVersion:    "1.4.4",
+			ProtonVersion: "GE-Proton10-34",
+			PrefixMode:    "shared",
+			AutoDownload:  true,
+			GameID:        "umu-default",
+		},
 	}
 }
 
@@ -309,4 +339,12 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("download.http_proxy", "")
 	v.SetDefault("download.timeout", d.Download.Timeout)
 	v.SetDefault("download.retries", d.Download.Retries)
+
+	v.SetDefault("linux.runtime", d.Linux.Runtime)
+	v.SetDefault("linux.umu_version", d.Linux.UmuVersion)
+	v.SetDefault("linux.proton_version", d.Linux.ProtonVersion)
+	v.SetDefault("linux.prefix_mode", d.Linux.PrefixMode)
+	v.SetDefault("linux.prefix_dir", "")
+	v.SetDefault("linux.auto_download", d.Linux.AutoDownload)
+	v.SetDefault("linux.gameid", d.Linux.GameID)
 }
