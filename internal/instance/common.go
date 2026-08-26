@@ -7,8 +7,8 @@ import (
 	procpkg "asa-server/internal/process"
 	"asa-server/internal/rconx"
 	statepkg "asa-server/internal/state"
+	"asa-server/pkg/procx"
 	"asa-server/pkg/tail"
-	"asa-server/pkg/winproc"
 	"bufio"
 	"bytes"
 	"context"
@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -105,9 +104,9 @@ func reconcileMissingState(instanceName string) (bool, string) {
 }
 
 func killGameServer(pid int) {
-	if err := exec.Command("taskkill", "/PID", fmt.Sprintf("%d", pid), "/T").Run(); err != nil {
+	if err := procx.TerminateTree(pid); err != nil {
 		logger.GetLogger().Warnf("failed to kill process PID %d: %s", pid, err.Error())
-		_ = exec.Command("taskkill", "/PID", fmt.Sprintf("%d", pid), "/T", "/F").Run()
+		_ = procx.KillTree(pid)
 	}
 }
 func WaitArkApiRunServer(ctx context.Context, port int) (uint32, error) {
@@ -126,7 +125,7 @@ func WaitArkApiRunServer(ctx context.Context, port int) (uint32, error) {
 			if ctx.Err() != nil {
 				return
 			}
-			process, err := winproc.QueryProcess("ArkAscendedServer.exe", fmt.Sprintf("Port=%d", port))
+			process, err := procx.QueryProcess("ArkAscendedServer.exe", fmt.Sprintf("Port=%d", port))
 			if err != nil {
 				select {
 				case processErr <- err:
@@ -382,7 +381,7 @@ func waitServerStopped(ctx context.Context, pid int, gameLogPath string,
 
 	// Monitor process exit
 	go func() {
-		if exited := winproc.WaitProcessExit(ctxLocal, pid, 500*time.Millisecond); exited {
+		if exited := procx.WaitProcessExit(ctxLocal, pid, 500*time.Millisecond); exited {
 			mu.Lock()
 			processExited = true
 			mu.Unlock()
@@ -429,7 +428,7 @@ func waitServerStartup(pid int, gameLogPath string, callback waitServerStartupFu
 	}
 
 	go func() {
-		if exited := winproc.WaitProcessExit(ctx, pid, 500*time.Millisecond); exited {
+		if exited := procx.WaitProcessExit(ctx, pid, 500*time.Millisecond); exited {
 			latestLogLineMu.Lock()
 			logLine := latestLogLine
 			if networkErrLine != "" {
@@ -466,7 +465,7 @@ func waitServerStartup(pid int, gameLogPath string, callback waitServerStartupFu
 // findServerPIDByPort 通过 WMI 查询 ArkAscendedServer.exe 进程命令行中的端口来查找 PID
 // 不依赖端口是否被监听，适用于启动中等过渡状态
 func findServerPIDByPort(port int) (int, error) {
-	processes, err := winproc.QueryProcess("ArkAscendedServer.exe", fmt.Sprintf("Port=%d", port))
+	processes, err := procx.QueryProcess("ArkAscendedServer.exe", fmt.Sprintf("Port=%d", port))
 	if err != nil {
 		return 0, fmt.Errorf("WMI query failed: %w", err)
 	}

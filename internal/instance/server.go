@@ -12,7 +12,7 @@ import (
 	"asa-server/pkg/console"
 	"asa-server/pkg/fsutil"
 	"asa-server/pkg/netutil"
-	"asa-server/pkg/winproc"
+	"asa-server/pkg/procx"
 	"context"
 	"fmt"
 	"io"
@@ -550,7 +550,7 @@ func stopServerInternal(instanceName string) error {
 		stopErr = fmt.Errorf("failed to load instance config: %w", configErr)
 		return stopErr
 	}
-	pid, err = winproc.GetPIDByPort(config.Port)
+	pid, err = procx.PIDByPort(config.Port)
 	if err != nil {
 		stopErr = fmt.Errorf("failed to find process PID: %w", err)
 		return stopErr
@@ -570,9 +570,9 @@ func stopServerInternal(instanceName string) error {
 	if err == nil && strings.Contains(response, "Exiting") {
 		logger.GetLogger().Infof("Server instance %s reported 'Exiting...'. Awaiting shutdown...", instanceName)
 	} else {
-		if taskkillErr := exec.Command("taskkill", "/PID", fmt.Sprintf("%d", pid)).Run(); taskkillErr != nil {
-			logger.GetLogger().Warnf("failed to kill process PID %d: %s", pid, taskkillErr.Error())
-			_ = exec.Command("taskkill", "/F", "/PID", fmt.Sprintf("%d", pid)).Run()
+		if termErr := procx.Terminate(pid); termErr != nil {
+			logger.GetLogger().Warnf("failed to kill process PID %d: %s", pid, termErr.Error())
+			_ = procx.Kill(pid)
 		}
 	}
 
@@ -595,14 +595,14 @@ func stopServerInternal(instanceName string) error {
 		logger.GetLogger().Infof("Server for instance %s has exited.", instanceName)
 	case <-time.After(5 * time.Minute):
 		logger.GetLogger().Warnf("Process %d did not exit within 5min, force killing", pid)
-		_ = exec.Command("taskkill", "/F", "/PID", fmt.Sprintf("%d", pid)).Run()
+		_ = procx.Kill(pid)
 		waitCancel() // 取消 waitServerStopped goroutine 的 context
 	}
 
 	// Cleanup
 	if config.EnableAsaPlugin {
 		if pid2, pidErr := procpkg.GetInstancePID(instanceName); pidErr == nil {
-			_ = exec.Command("taskkill", "/F", "/PID", fmt.Sprintf("%d", pid2)).Run()
+			_ = procx.Kill(pid2)
 		}
 	}
 
@@ -650,12 +650,12 @@ func KillServer(instanceName string) error {
 	if err != nil {
 		return err
 	}
-	pid, err := winproc.GetPIDByPort(cfg.Port)
+	pid, err := procx.PIDByPort(cfg.Port)
 	if err != nil {
 		return err
 	}
 
-	err = exec.Command("taskkill", "/F", "/PID", fmt.Sprintf("%d", pid)).Run()
+	err = procx.Kill(pid)
 	if err != nil {
 		return err
 	}

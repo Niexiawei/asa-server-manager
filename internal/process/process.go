@@ -1,11 +1,11 @@
 // Package process handles per-instance PID persistence and process-liveness checks.
 // It sits below both state and instance packages to break the state<->instance
-// import cycle: both depend on process, process depends only on config + winproc.
+// import cycle: both depend on process, process depends only on config + procx.
 package process
 
 import (
 	cfgpkg "asa-server/internal/config"
-	"asa-server/pkg/winproc"
+	"asa-server/pkg/procx"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -72,6 +72,23 @@ func GetAsaServerApiPID(instanceName string) (int, error) {
 	return pid, nil
 }
 
+// IsServerRunning checks if a server instance is running by verifying its
+// game port has a socket bound to it (uniquely identifies the specific
+// server instance). "Not found" is reported as (false, nil), same as the
+// netstat-parsing implementation this replaces — only a failure to query
+// the OS's connection table at all is surfaced as an error.
+func IsServerRunning(instanceName string) (bool, error) {
+	config, err := cfgpkg.LoadInstanceConfig(instanceName)
+	if err != nil {
+		return false, err
+	}
+
+	if _, err := procx.PIDByPort(config.Port); err != nil {
+		return false, nil
+	}
+	return true, nil
+}
+
 // expectedExecutables 是本项目会启动、且会写 PID 文件的可执行文件名（小写）。
 // 见 instance/server.go 的 ArkAscendedServer.exe / AsaApiLoader.exe。
 var expectedExecutables = map[string]bool{
@@ -86,7 +103,7 @@ var expectedExecutables = map[string]bool{
 // 崩溃后凑巧复用了旧 PID 的无关进程误判成"实例还活着"。查不到镜像名（进程已
 // 退出、或权限不足）一律当作"不是"——宁可漏判存活，也不能误判存活。
 func isExpectedProcess(pid uint32) bool {
-	imagePath, err := winproc.ProcessImageName(pid)
+	imagePath, err := procx.ProcessImageName(pid)
 	if err != nil {
 		return false
 	}
@@ -101,7 +118,7 @@ func IsServerRunningByPID(instanceName string) (bool, error) {
 		return false, fmt.Errorf("failed to get instance PID: %w", err)
 	}
 
-	exited, err := winproc.IsProcessExited(uint32(pid))
+	exited, err := procx.IsProcessExited(uint32(pid))
 	if err != nil {
 		return false, fmt.Errorf("failed to check process status: %w", err)
 	}
@@ -130,7 +147,7 @@ func IsInstanceProcessAlive(instanceName string) bool {
 		return false
 	}
 
-	exited, err := winproc.IsProcessExited(uint32(pid))
+	exited, err := procx.IsProcessExited(uint32(pid))
 	if err != nil || exited {
 		return false
 	}

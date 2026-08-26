@@ -1,6 +1,11 @@
-// Package winproc provides Windows process/window primitives (and, on
-// Linux, compile-time stubs for the same signatures — see winproc_linux.go).
-package winproc
+// Package procx provides cross-platform process primitives: liveness checks,
+// image-name lookup, process-by-name/cmdline queries, port->PID resolution,
+// and graceful/forceful termination. Windows implementations (including
+// Terminate/Kill/TerminateTree/KillTree) live in procx_windows.go /
+// wmi_windows.go (Win32 API + WMI); Linux implementations live in
+// procx_linux.go (/proc scanning + signals). port.go carries PIDByPort,
+// shared verbatim across both platforms via gopsutil.
+package procx
 
 import (
 	"context"

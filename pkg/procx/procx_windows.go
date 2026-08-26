@@ -1,13 +1,12 @@
 //go:build windows
 
-package winproc
+package procx
 
 import (
 	"fmt"
 	"os"
 	"os/exec"
 	"strconv"
-	"strings"
 	"syscall"
 	"unsafe"
 
@@ -185,42 +184,6 @@ func MinimizeWindowsByPID(pid uint32, onlyVisible bool) ([]uintptr, error) {
 	return minimized, nil
 }
 
-// GetPIDByPort 根据占用的端口号查询进程ID
-// port: 应用占用的端口号
-// 返回: 进程ID、错误信息
-func GetPIDByPort(port int) (int, error) {
-	cmd := exec.Command("netstat", "-ano")
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-
-	output, err := cmd.Output()
-	if err != nil {
-		return 0, fmt.Errorf("failed to execute netstat: %w", err)
-	}
-
-	netstatOutput := string(output)
-	portStr := fmt.Sprintf(":%d", port)
-
-	// Split output into lines and search for the port
-	lines := strings.Split(netstatOutput, "\n")
-	for _, line := range lines {
-		if strings.Contains(line, portStr) {
-			// The last field in the line is the PID
-			fields := strings.Fields(line)
-			if len(fields) > 2 {
-				if !strings.Contains(fields[1], portStr) {
-					continue
-				}
-				pid, err := strconv.Atoi(fields[len(fields)-1])
-				if err == nil && pid > 0 {
-					return pid, nil
-				}
-			}
-		}
-	}
-
-	return 0, fmt.Errorf("no process found listening on port %d", port)
-}
-
 // HideWindowByPID 根据进程ID隐藏应用窗口
 // pid: 应用的进程ID
 // onlyVisible: 是否仅隐藏可见窗口（true 仅隐藏可见窗口，false 隐藏所有窗口）
@@ -284,4 +247,24 @@ func RunAsAdmin(args string) error {
 	}
 
 	return nil
+}
+
+// Terminate ends a single process gracefully (taskkill without /F or /T).
+func Terminate(pid int) error {
+	return exec.Command("taskkill", "/PID", strconv.Itoa(pid)).Run()
+}
+
+// Kill force-ends a single process (taskkill /F, without /T).
+func Kill(pid int) error {
+	return exec.Command("taskkill", "/F", "/PID", strconv.Itoa(pid)).Run()
+}
+
+// TerminateTree ends a process and its descendants gracefully (taskkill /T).
+func TerminateTree(pid int) error {
+	return exec.Command("taskkill", "/PID", strconv.Itoa(pid), "/T").Run()
+}
+
+// KillTree force-ends a process and its descendants (taskkill /F /T).
+func KillTree(pid int) error {
+	return exec.Command("taskkill", "/F", "/PID", strconv.Itoa(pid), "/T").Run()
 }

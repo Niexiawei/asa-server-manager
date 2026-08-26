@@ -8,6 +8,7 @@ import (
 	"asa-server/pkg/console"
 	"asa-server/pkg/download"
 	"asa-server/pkg/netutil"
+	"asa-server/pkg/procx"
 	"context"
 	"fmt"
 	"io"
@@ -468,13 +469,13 @@ func VerifyServerInstallation(ctx context.Context, force bool) error {
 	case <-time.After(60 * time.Second):
 	case <-ctx.Done():
 		logger.GetLogger().Info("Stopping server for verification (cancelled)...")
-		exec.Command("taskkill", "/PID", fmt.Sprintf("%d", pid), "/F").Run()
+		_ = procx.Kill(pid)
 		return ctx.Err()
 	}
 	// Kill the server process
 
 	logger.GetLogger().Info("Stopping server for verification...")
-	exec.Command("taskkill", "/PID", fmt.Sprintf("%d", pid), "/F").Run()
+	_ = procx.Kill(pid)
 
 	// Wait a moment for process to clean up
 	time.Sleep(2 * time.Second)

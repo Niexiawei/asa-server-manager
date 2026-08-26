@@ -1,6 +1,6 @@
 //go:build windows
 
-package winproc
+package procx
 
 import (
 	"fmt"

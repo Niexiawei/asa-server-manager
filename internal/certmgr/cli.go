@@ -1,7 +1,7 @@
 package certmgr
 
 import (
-	"asa-server/pkg/winproc"
+	"asa-server/pkg/procx"
 	"context"
 	"fmt"
 	"os"
@@ -64,7 +64,7 @@ func ActionCertInstall(ctx context.Context, cmd *cli.Command) error {
 
 	if cmd.Bool("machine") && !IsElevated() {
 		fmt.Println("安装到 LocalMachine 需要管理员权限，正在请求提权...")
-		if err := winproc.RunAsAdmin("cert install --machine"); err != nil {
+		if err := procx.RunAsAdmin("cert install --machine"); err != nil {
 			return fmt.Errorf("提权失败: %w", err)
 		}
 		os.Exit(0)

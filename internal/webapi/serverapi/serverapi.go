@@ -9,8 +9,8 @@ import (
 	statepkg "asa-server/internal/state"
 	"asa-server/internal/updatemanage"
 	"asa-server/internal/webapi/apiresp"
+	"asa-server/pkg/procx"
 	"asa-server/pkg/serverinfo"
-	"asa-server/pkg/winproc"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -393,7 +393,7 @@ func (h *Handler) streamAllInstancesInfo(c *gin.Context) {
 					continue
 				}
 
-				exited, err := winproc.IsProcessExited(uint32(pid))
+				exited, err := procx.IsProcessExited(uint32(pid))
 				if err != nil {
 					continue
 				}
