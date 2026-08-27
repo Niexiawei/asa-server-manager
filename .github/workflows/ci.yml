@@ -43,6 +43,12 @@ jobs:
           cache: "npm"
           cache-dependency-path: app/package-lock.json
 
+      - name: Configure private modules
+        run: |
+          echo "GOPRIVATE=github.com/Niexiawei/go-arkparser" >> $GITHUB_ENV
+
+          git config --global url."https://${{ secrets.GH_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
       # app/dist is gitignored (app/.gitignore) but //go:embed dist in
       # app/appembed.go requires the directory to exist with content, or
       # `go build` fails outright ("pattern dist: no matching files found") —
