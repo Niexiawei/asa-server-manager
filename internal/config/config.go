@@ -65,20 +65,14 @@ type UpdateInstanceConfigRequest struct {
 	PluginSnapshotInterval  *int   `json:"PluginSnapshotInterval,omitempty"`
 }
 
-// EnsureDirectories Initialize directories based on executable location
-func EnsureDirectories() error {
-	// Check if ASA_BASEDIR environment variable is set
-	baseDirEnv := os.Getenv("ASA_BASEDIR")
-	if baseDirEnv != "" {
-		BaseDir = baseDirEnv
-	} else {
-		// Get the directory where the executable is located
-		exe, err := os.Executable()
-		if err != nil {
-			return fmt.Errorf("failed to get executable path: %w", err)
-		}
-		BaseDir = filepath.Dir(exe)
-	}
+// EnsureDirectories creates the standard subdirectory tree under baseDir.
+//
+// BaseDir 解析不是这个函数的职责，也不再有任何自解析兜底：调用方（main.go）必须先
+// 用 appconfig.Load() 把 BaseDir 解析好再传进来——appconfig.Load 是 BaseDir 唯一的
+// 解析权威（见 docs/APPCONFIG_BASEDIR_PLAN.md），这里再留一套自己的兜底规则只会
+// 制造出两个可能对不上的答案。baseDir 是必须的入参，这个函数只管拿它建目录。
+func EnsureDirectories(baseDir string) error {
+	BaseDir = baseDir
 	InstancesDir = filepath.Join(BaseDir, "instances")
 	ServerFilesDir = filepath.Join(BaseDir, "server-files")
 	SteamCmdDir = filepath.Join(BaseDir, "steamcmd")

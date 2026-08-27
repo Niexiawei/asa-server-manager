@@ -22,7 +22,8 @@ func setupEnv(t *testing.T, yaml string) string {
 	if err := os.WriteFile(filepath.Join(dir, appconfig.ConfigFileName), []byte(yaml), 0o644); err != nil {
 		t.Fatalf("写配置失败: %v", err)
 	}
-	if err := appconfig.Load(dir); err != nil {
+	t.Setenv("ASA_CFG", dir)
+	if _, err := appconfig.Load(); err != nil {
 		t.Fatalf("加载配置失败: %v", err)
 	}
 	if appconfig.Get().Auth.Enabled {

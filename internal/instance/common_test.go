@@ -5,11 +5,13 @@ import (
 	statepkg "asa-server/internal/state"
 	"asa-server/pkg/logger"
 	"fmt"
+	"os"
 	"testing"
 )
 
+// 环境耦合：本来就依赖本机 ASA_BASEDIR 指向的数据目录，见 CLAUDE.md 的既有说明。
 func Test_SaveWorldSafely(t *testing.T) {
-	cfgpkg.EnsureDirectories()
+	cfgpkg.EnsureDirectories(os.Getenv("ASA_BASEDIR"))
 	logger.InitLoggerWithBaseDir(cfgpkg.BaseDir)
 	fmt.Println(cfgpkg.BaseDir)
 	err := SaveWorldSafely("ces99")

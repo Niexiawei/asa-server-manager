@@ -41,16 +41,19 @@ func main() {
 		log.Fatal(err)
 	}
 
-	if err := cfgpkg.EnsureDirectories(); err != nil {
+	// 应用配置必须在构建 CLI、建目录、初始化日志之前加载：BaseDir 本身现在就是从
+	// config.yaml 解析出来的（见 docs/LINUX_COMPATIBILITY_PLAN.md §10.3/§10.5 G1），
+	// 顺序倒过来会用错误的目录建目录/写日志。下面每个 flag 的 Value 也直接取自配置，
+	// 于是「命令行 > 配置文件 > 默认值」的优先级由 cli 库天然保证，不需要在 Action
+	// 里再判断 IsSet 然后手工合并。
+	appCfg := loadAppConfig()
+
+	if err := cfgpkg.EnsureDirectories(cfgpkg.BaseDir); err != nil {
 		log.Fatal(err)
 	}
 
 	logger.InitLoggerWithBaseDir(cfgpkg.BaseDir)
 
-	// 应用配置必须在构建 CLI 之前加载：下面每个 flag 的 Value 都直接取自配置，
-	// 于是「命令行 > 配置文件 > 默认值」的优先级由 cli 库天然保证，
-	// 不需要在 Action 里再判断 IsSet 然后手工合并。
-	appCfg := loadAppConfig()
 	applyAppConfig(appCfg)
 
 	app := &cli.Command{
@@ -195,7 +198,13 @@ func main() {
 // 所以配置写坏的最坏后果是"没有鉴权"，而不是"所有人都登不进来"——
 // 对一个本机管理面板来说，后者才是真正的灾难。
 func loadAppConfig() *appconfig.Config {
-	err := appconfig.Load(cfgpkg.BaseDir)
+	// Load 不接收任何目录参数——查找规则（ASA_CFG > exe 同级 > 系统固定目录）与
+	// BaseDir 取值优先级（basedir 字段 > ASA_BASEDIR > config.yaml 所在目录）全部
+	// 内置在它自己的算法里，见 docs/APPCONFIG_BASEDIR_PLAN.md。
+	baseDir, err := appconfig.Load()
+	// 即使加载出错，appconfig.Load 也总会给出一个可用的兜底 BaseDir，后面建目录/
+	// 写日志可以放心使用。
+	cfgpkg.BaseDir = baseDir
 	if err == nil {
 		return appconfig.Get()
 	}
