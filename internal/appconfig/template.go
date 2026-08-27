@@ -37,6 +37,9 @@ const defaultConfigTemplate = `# ASA Server Manager 应用配置
 # 本文件管的是程序自身的运行参数。ARK 实例的配置在
 # instances/<实例名>/instance_config.ini，与这里无关。
 
+# 数据目录：留空 = 与本文件同目录（绿色部署默认行为，兼容全部现有安装，无需迁移）
+basedir: ""
+
 server:
   port: 19193
 

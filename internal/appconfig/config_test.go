@@ -12,7 +12,7 @@ import (
 func TestLoadCreatesTemplateWhenMissing(t *testing.T) {
 	dir := t.TempDir()
 
-	if err := Load(dir); err != nil {
+	if _, err := loadFrom(t, dir); err != nil {
 		t.Fatalf("首次 Load 不应报错: %v", err)
 	}
 	path := filepath.Join(dir, ConfigFileName)
@@ -43,10 +43,10 @@ func TestLoadCreatesTemplateWhenMissing(t *testing.T) {
 func TestGeneratedTemplateIsLoadable(t *testing.T) {
 	dir := t.TempDir()
 
-	if err := Load(dir); err != nil { // 生成模板
+	if _, err := loadFrom(t, dir); err != nil { // 生成模板
 		t.Fatalf("首次 Load: %v", err)
 	}
-	if err := Load(dir); err != nil { // 这次真的读它
+	if _, err := loadFrom(t, dir); err != nil { // 这次真的读它
 		t.Fatalf("读取自己生成的模板失败，模板有问题: %v", err)
 	}
 
@@ -79,7 +79,7 @@ auth:
 `
 	writeConfig(t, dir, yaml)
 
-	if err := Load(dir); err != nil {
+	if _, err := loadFrom(t, dir); err != nil {
 		t.Fatalf("Load: %v", err)
 	}
 	cfg := Get()
@@ -114,7 +114,7 @@ func TestLoadRejectsBadYAML(t *testing.T) {
 	def := defaultConfig()
 	current.Store(&def)
 
-	if err := Load(dir); err == nil {
+	if _, err := loadFrom(t, dir); err == nil {
 		t.Fatal("语法错误的 YAML 应返回错误")
 	}
 	// 关键：Load 失败不得清空 current。主程序据此"记 ERROR 并用默认配置继续启动"，
@@ -142,7 +142,7 @@ auth:
     networks:
       - 哦豁
 `)
-		err := Load(dir)
+		_, err := loadFrom(t, dir)
 		if err == nil {
 			t.Fatal("非法 networks 应返回错误")
 		}
@@ -164,7 +164,7 @@ auth:
     networks:
       - 哦豁
 `)
-		err := Load(dir)
+		_, err := loadFrom(t, dir)
 		if err == nil {
 			t.Fatal("非法 networks 应返回错误")
 		}
@@ -180,7 +180,7 @@ auth:
 func TestFailedLoadKeepsLastGoodConfig(t *testing.T) {
 	dir := t.TempDir()
 	writeConfig(t, dir, "auth:\n  enabled: true\n")
-	if err := Load(dir); err != nil {
+	if _, err := loadFrom(t, dir); err != nil {
 		t.Fatalf("Load: %v", err)
 	}
 	if !Get().Auth.Enabled {
@@ -188,7 +188,7 @@ func TestFailedLoadKeepsLastGoodConfig(t *testing.T) {
 	}
 
 	writeConfig(t, dir, "auth:\n  enabled: [坏掉了\n")
-	if err := Load(dir); err == nil {
+	if _, err := loadFrom(t, dir); err == nil {
 		t.Fatal("应返回错误")
 	}
 	if !Get().Auth.Enabled {
@@ -201,7 +201,7 @@ func TestEnvOverridesFile(t *testing.T) {
 	writeConfig(t, dir, "server:\n  port: 8443\n")
 	t.Setenv("ASA_SERVER_PORT", "9999")
 
-	if err := Load(dir); err != nil {
+	if _, err := loadFrom(t, dir); err != nil {
 		t.Fatalf("Load: %v", err)
 	}
 	if got := Get().Server.Port; got != 9999 {
@@ -315,4 +315,13 @@ func writeConfig(t *testing.T, dir, content string) {
 	if err := os.WriteFile(filepath.Join(dir, ConfigFileName), []byte(content), 0o644); err != nil {
 		t.Fatalf("写入测试配置失败: %v", err)
 	}
+}
+
+// loadFrom 用 ASA_CFG 把 config.yaml 的定位精确指向 dir 后调用 Load()——Load 本身
+// 不再接收目录参数，三级查找里 ASA_CFG 这一档就是留给测试用的精确覆盖，
+// t.Setenv 保证测试结束后自动还原，不污染其他用例。
+func loadFrom(t *testing.T, dir string) (string, error) {
+	t.Helper()
+	t.Setenv("ASA_CFG", dir)
+	return Load()
 }

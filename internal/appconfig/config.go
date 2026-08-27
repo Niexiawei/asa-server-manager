@@ -3,8 +3,10 @@
 // 它与 config 包（cfgpkg）是两件不同的事：cfgpkg 管的是目录布局和每个 ARK 实例的
 // INI 配置，appconfig 管的是本程序自身的运行参数（端口、TLS、鉴权）。两者不要混。
 //
-// 依赖上 appconfig 是叶子包：只用标准库和 viper，不引入任何领域包，
-// 这样 auth / webapi / certmgr 都能安全地依赖它而不成环。
+// 依赖上 appconfig 是叶子包：只用标准库、viper 和 pkg/logger，不引入任何领域包，
+// 这样 auth / webapi / certmgr 都能安全地依赖它而不成环。引入 pkg/logger 只是为了
+// Load 在 BaseDir 解析异常兜底时能打一条启动警告——pkg/logger 本身也是零
+// internal/ 依赖的叶子包，不会引入环，见 docs/APPCONFIG_BASEDIR_PLAN.md。
 package appconfig
 
 import (
@@ -15,9 +17,12 @@ import (
 	"runtime"
 	"strings"
 	"sync/atomic"
+	"testing"
 	"time"
 
 	"github.com/spf13/viper"
+
+	"asa-server/pkg/logger"
 )
 
 // ConfigFileName 是 BaseDir 下的配置文件名
@@ -25,6 +30,11 @@ const ConfigFileName = "config.yaml"
 
 // Config 是整份应用配置
 type Config struct {
+	// BaseDir 是 §10.3 的数据目录字段，本次改造里数据目录的最高权威：非空时 Load 直接
+	// 用它作为最终 BaseDir，优先级高于 ASA_BASEDIR 环境变量。留空 = 与本文件同目录
+	// （绿色部署的默认行为，兼容现有全部安装，无需迁移），此时才轮到 ASA_BASEDIR 兜底。
+	// 见 Load 的文档。
+	BaseDir  string         `mapstructure:"basedir"`
 	Server   ServerConfig   `mapstructure:"server"`
 	Auth     AuthConfig     `mapstructure:"auth"`
 	Download DownloadConfig `mapstructure:"download"`
@@ -173,15 +183,45 @@ func (c *Config) DatabasePath(baseDir string) string {
 	return filepath.Join(baseDir, "database_file", "auth.db")
 }
 
-// Load 读取 {baseDir}/config.yaml。
+// Load 定位并加载 config.yaml，返回解析出的 BaseDir。完整算法见
+// docs/APPCONFIG_BASEDIR_PLAN.md §2 第 3 条，不接收任何目录参数——查找规则是这个
+// 函数自己的职责，不是调用方传进来的外部输入。
+//
+// 第一步，确定读哪一份 config.yaml（完整覆盖，不做任何跨档的字段级合并，三档里
+// 只有一档会被真正读取）：
+//  1. 环境变量 ASA_CFG 指定的目录
+//  2. 可执行文件同级目录
+//  3. 系统固定目录（Windows %ProgramData%\ASAServerManager，Linux /etc/asa-server）
+//  4. 都没有 → 在可执行文件同级目录生成一份默认模板
+//
+// 第二步，只看第一步选中的那一份文件的 basedir 字段（本次改造的核心目的：把
+// "数据目录到底在哪"的权威从环境变量搬进配置文件，ASA_BASEDIR 从"能让文件整个
+// 失效的最高优先级"降级为"文件没写这个字段时的兜底"，不会因为字段为空就回头去看
+// 其他档位的文件）：
+//  1. 字段非空 → BaseDir = 字段值
+//  2. 字段为空 → 环境变量 ASA_BASEDIR 非空则用它，否则用这份 config.yaml 所在的目录
+//
+// 第三步，纯防御性兜底（正常输入下不会触发——第二步最后一档恒不为空）：上面两步
+// 因为异常（比如 os.Executable() 报错）拿不到可用的 BaseDir 时，回落到可执行文件
+// 同级目录，连这个都拿不到时再退到当前工作目录，并立刻打一条包含最终选中目录的
+// Warn 级别启动警告。
 //
 // 文件不存在时会写出一份带注释的模板再继续（不算错误）。
-// 返回错误时调用方应记录日志并继续运行 —— 此时 Get() 仍返回默认配置。
-func Load(baseDir string) error {
+// 返回错误时调用方应记录日志并继续运行 —— 此时 Get() 仍返回默认配置，返回的 BaseDir
+// 仍按上面同一条算法给出最佳可用值，不会是空字符串，调用方可以安全地继续建目录/
+// 写日志。
+func Load() (string, error) {
+	dir, locateErr := locateConfigDir()
+	if locateErr != nil {
+		// 第一步本身就失败了（os.Executable() 报错）：没有 dir 可用，直接走第三步兜底。
+		return fallbackBaseDir(""), fmt.Errorf("定位 %s 失败: %w", ConfigFileName, locateErr)
+	}
+	baseDir := resolveBaseDirValue("", dir) // 任何后续错误都回落到这个值
+
 	v := viper.New()
 	v.SetConfigName("config")
 	v.SetConfigType("yaml")
-	v.AddConfigPath(baseDir)
+	v.AddConfigPath(dir)
 	setDefaults(v)
 
 	v.SetEnvPrefix("ASA")
@@ -191,24 +231,164 @@ func Load(baseDir string) error {
 	if err := v.ReadInConfig(); err != nil {
 		var notFound viper.ConfigFileNotFoundError
 		if !errors.As(err, &notFound) {
-			return fmt.Errorf("读取 %s 失败: %w", ConfigFileName, err)
+			return baseDir, fmt.Errorf("读取 %s 失败: %w", ConfigFileName, err)
 		}
 		// 首次运行：写出带注释的模板，方便用户后续手改。
 		// 写失败不阻断启动 —— 内存里的默认值一样能跑。
-		if writeErr := writeDefaultConfig(filepath.Join(baseDir, ConfigFileName)); writeErr != nil {
-			return fmt.Errorf("生成默认 %s 失败: %w", ConfigFileName, writeErr)
+		if writeErr := writeDefaultConfig(filepath.Join(dir, ConfigFileName)); writeErr != nil {
+			return baseDir, fmt.Errorf("生成默认 %s 失败: %w", ConfigFileName, writeErr)
 		}
 	}
 
 	var cfg Config
 	if err := v.Unmarshal(&cfg); err != nil {
-		return wrapIfAuthWanted(v, fmt.Errorf("解析 %s 失败: %w", ConfigFileName, err))
+		return baseDir, wrapIfAuthWanted(v, fmt.Errorf("解析 %s 失败: %w", ConfigFileName, err))
 	}
+	// basedir 字段单独用一个不开 AutomaticEnv 的 viper 实例重读，只反映文件内容：
+	// 它的 key 名字面上拼出来正好是 ASA_BASEDIR，会被上面那个开了 AutomaticEnv 的
+	// v 撞见同名的 ASA_BASEDIR 环境变量，把"文件里写了什么"和"环境变量设了什么"
+	// 这两件现在优先级不同的事混在一起。
+	cfg.BaseDir = fileOnlyBaseDir(dir)
 	if err := cfg.Validate(); err != nil {
-		return wrapIfAuthWanted(v, err)
+		return baseDir, wrapIfAuthWanted(v, err)
 	}
 	current.Store(&cfg)
-	return nil
+
+	result := resolveBaseDirValue(cfg.BaseDir, dir)
+	if result == "" {
+		// 第三步防御性兜底：正常输入下不会到这里（resolveBaseDirValue 最后一档
+		// dir 恒非空），保留这道闸门纯粹是防未来的意外。
+		return fallbackBaseDir(dir), nil
+	}
+	return result, nil
+}
+
+// resolveBaseDirValue 按"文件字段 > ASA_BASEDIR 环境变量 > config.yaml 所在目录"
+// 的优先级给出最终 BaseDir。fileBaseDir 传空串表示"文件字段不可用/未知"（比如文件还
+// 没解析成功），此时只在环境变量与目录之间选。
+func resolveBaseDirValue(fileBaseDir, dir string) string {
+	if fileBaseDir != "" {
+		return fileBaseDir
+	}
+	if env := os.Getenv("ASA_BASEDIR"); env != "" {
+		return env
+	}
+	return dir
+}
+
+// fallbackBaseDir 是第三步防御性兜底：回落到可执行文件同级目录，连这个都拿不到
+// 时退到当前工作目录，并立刻打一条包含最终目录的 Warn 级别启动警告——用户看到
+// 警告要能马上知道数据落在哪，不用去翻代码或者猜。
+//
+// 直接在这里打日志，而不是让 Load 返回一个额外的"是否触发兜底"标志交给调用方
+// 处理，是因为 pkg/logger 是零依赖、全项目唯一日志入口，其 init() 已经准备了一个
+// "InitLoggerWithBaseDir 调用之前也能安全用"的纯控制台兜底 logger——这正是这个
+// 场景：警告发生在 BaseDir 还没解析出来、文件日志系统根本没法初始化的最早期，
+// WithConsole() 保证它不看 SetLevel 阈值、一定能在控制台露出来。
+func fallbackBaseDir(attempted string) string {
+	fallback := attempted
+	if fallback == "" {
+		var err error
+		fallback, err = executableDir()
+		if err != nil || fallback == "" {
+			fallback, err = os.Getwd()
+			if err != nil || fallback == "" {
+				fallback = "."
+			}
+		}
+	}
+	logger.WithConsole().Warnf(
+		"BaseDir 未能从 %s / 环境变量解析出来，已回落到 %s，数据将存放在这个目录，"+
+			"请检查 %s 的 basedir 字段或 ASA_BASEDIR 环境变量是否配置正确",
+		ConfigFileName, fallback, ConfigFileName)
+	return fallback
+}
+
+// fileOnlyBaseDir 读取 dir/config.yaml 的 basedir 字段，不受任何环境变量影响。
+// 文件不存在或解析失败时返回空串，调用方按"字段留空"处理——不是错误：
+// 主 Load 流程里已经处理过"文件不存在就生成默认模板"的情况，这里只是重复获取
+// 同一份文件的一个字段，不需要重复报错。
+func fileOnlyBaseDir(dir string) string {
+	fv := viper.New()
+	fv.SetConfigName("config")
+	fv.SetConfigType("yaml")
+	fv.AddConfigPath(dir)
+	if err := fv.ReadInConfig(); err != nil {
+		return ""
+	}
+	return fv.GetString("basedir")
+}
+
+// locateConfigDir 定位要读的 config.yaml **所在目录**（不是 BaseDir 本身，见 Load
+// 的文档），三级查找，完整覆盖语义。
+func locateConfigDir() (string, error) {
+	if cfgEnv := os.Getenv("ASA_CFG"); cfgEnv != "" {
+		return cfgEnv, nil
+	}
+	exeDir, err := executableDir()
+	if err != nil {
+		return "", fmt.Errorf("解析可执行文件目录失败: %w", err)
+	}
+	if fileExists(filepath.Join(exeDir, ConfigFileName)) {
+		return exeDir, nil
+	}
+	if sysDir := systemConfigDir(); sysDir != "" && fileExists(filepath.Join(sysDir, ConfigFileName)) {
+		return sysDir, nil
+	}
+	// 三档都没有：落回 exe 同级，Load 会在这里生成默认模板。
+	return exeDir, nil
+}
+
+// executableDirFn / systemConfigDirFn 是可在测试里替换的查找函数变量（生产代码
+// 不改变行为）：os.Executable() 返回的是测试二进制自己的临时路径，测试没法把
+// config.yaml 摆在那儿去验证"exe 同级"这一级，必须能整体换掉。
+var (
+	executableDirFn   = defaultExecutableDir
+	systemConfigDirFn = defaultSystemConfigDir
+)
+
+func executableDir() (string, error) { return executableDirFn() }
+
+func defaultExecutableDir() (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Dir(exe), nil
+}
+
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
+}
+
+func systemConfigDir() string { return systemConfigDirFn() }
+
+// defaultSystemConfigDir 是三级查找的第 3 档，主要给开发/调试用：本机固定放
+// 一份，不管当前跑的是哪次临时构建出的二进制。取不到 %ProgramData% 时返回空串，
+// 调用方按"没有这一级"处理，不当作错误。
+func defaultSystemConfigDir() string {
+	if runtime.GOOS == "windows" {
+		pd := os.Getenv("ProgramData")
+		if pd == "" {
+			return ""
+		}
+		return filepath.Join(pd, "ASAServerManager")
+	}
+	return "/etc/asa-server"
+}
+
+// OverrideSearchDirsForTest 仅供测试使用：临时把"可执行文件同级目录"与"系统固定
+// 目录"这两级查找指向给定目录，测试结束时通过 t.Cleanup 自动还原。生产代码不会、
+// 也不应该调用它。ASA_CFG 那一级不需要它，测试直接 t.Setenv("ASA_CFG", dir) 即可。
+func OverrideSearchDirsForTest(t testing.TB, exeDir, systemDir string) {
+	t.Helper()
+	origExe, origSys := executableDirFn, systemConfigDirFn
+	executableDirFn = func() (string, error) { return exeDir, nil }
+	systemConfigDirFn = func() string { return systemDir }
+	t.Cleanup(func() {
+		executableDirFn, systemConfigDirFn = origExe, origSys
+	})
 }
 
 // ErrAuthConfigInvalid 表示配置有错，而且这份配置**明确要求开启鉴权**。
@@ -229,9 +409,17 @@ func wrapIfAuthWanted(v *viper.Viper, err error) error {
 // writeDefaultConfig 写出带注释的模板。
 // 用手写模板而不是 viper.SafeWriteConfigAs，是因为后者会丢掉所有注释，
 // 而这份文件是给用户手改的，注释比什么都重要。
+//
+// 先 MkdirAll 目标目录：老版本这里能省略是因为 main.go 在调用 Load 之前已经把
+// BaseDir 的子目录建过一轮，目标目录顺带存在；现在 BaseDir 解析本身要靠这份文件
+// 才能定出来，顺序反过来了，所以这里不能再假设目录已经存在（比如 ASA_CFG 指向
+// 一个全新、尚未创建的目录）。
 func writeDefaultConfig(path string) error {
 	if _, err := os.Stat(path); err == nil {
 		return nil // 已存在就不覆盖
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("创建配置目录失败: %w", err)
 	}
 	return os.WriteFile(path, []byte(renderDefaultConfigTemplate()), 0o644)
 }
@@ -299,6 +487,8 @@ func defaultConfig() Config {
 
 func setDefaults(v *viper.Viper) {
 	d := defaultConfig()
+
+	v.SetDefault("basedir", d.BaseDir)
 
 	v.SetDefault("server.port", d.Server.Port)
 	v.SetDefault("server.tls.enabled", d.Server.TLS.Enabled)
