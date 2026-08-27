@@ -40,10 +40,9 @@
             <WSStatusIndicator/>
             <ServerResourceMonitor/>
             <WSEventNotification/>
-            <PendingRestoreDialog/>
             <!-- 没开鉴权时整块隐藏，界面和引入鉴权之前一模一样 -->
             <t-dropdown v-if="authState.authEnabled" :options="userMenuOptions" @click="onUserMenu">
-              <t-button variant="text" shape="round">
+              <t-button variant="text" class="user-name-button">
                 {{ authState.bypassed ? '内网访问' : (authState.user?.username || '未登录') }}
                 <template #suffix>▾</template>
               </t-button>
@@ -66,6 +65,7 @@
         </router-view>
       </div>
     </div>
+    <PendingRestoreDialog/>
   </div>
 </template>
 
@@ -272,8 +272,13 @@ const handleTabChange = (tab) => {
       flex: 0 0 auto;
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 8px;
       flex-shrink: 0;
+      padding-right: 8px;
+
+      .user-name-button{
+        padding: 0 8px !important;
+      }
 
       :deep(.t-button--variant-text) {
         font-size: 16px;

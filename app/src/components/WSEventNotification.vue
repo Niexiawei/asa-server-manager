@@ -170,6 +170,12 @@ onUnmounted(() => {
   align-items: center;
   background-color: #fff;
 
+  .bell-icon{
+    :deep(.t-badge--circle){
+      z-index: 99;
+    }
+  }
+
   .notification-btn {
     color: #4e5969;
     font-size: 20px;
