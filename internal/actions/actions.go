@@ -3,7 +3,6 @@ package actions
 import (
 	"asa-server/internal/installer"
 	statepkg "asa-server/internal/state"
-	"asa-server/pkg/logger"
 	"context"
 	"fmt"
 	"os"
@@ -12,7 +11,7 @@ import (
 )
 
 func ActionUpdate(ctx context.Context, cmd *cli.Command) error {
-	logger.Info("Installing/updating base server...")
+	fmt.Println("Installing/updating base server...")
 
 	stdoutFmt := os.Stdout
 	// Download and extract SteamCMD
@@ -33,7 +32,7 @@ func ActionUpdate(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
-	logger.Info("Base server installation/update completed.")
+	fmt.Println("Base server installation/update completed.")
 	return nil
 }
 

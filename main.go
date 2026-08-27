@@ -155,6 +155,7 @@ func main() {
 				Usage:  "Start GUI mode",
 				Action: actionGUI,
 			},
+			actions.SetupCommand(),
 			certmgr.Command(),
 			actions.AuthDBCommand(),
 			actions.AuthUserCommand(),
