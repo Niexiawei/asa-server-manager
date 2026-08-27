@@ -15,7 +15,7 @@
 
 | 上游改动 | 状态 | 对本方案的净影响 | 落在哪 |
 |---|---|---|---|
-| **镜像去管理员化（真 NTFS junction）**<br>`MIRROR_JUNCTION_AND_WEBAUTHN_REMOVAL_PLAN.md` 第一部分 | 已实施 | **净正**，但工作量搬了家 | §2.1（新增编译阻断行）、§2.3、**§5.6 已重写**、§5.9、§6 风险 13、§8 P0、§10.10、§11 A |
+| **镜像去管理员化（真 NTFS junction）**<br>`MIRROR_JUNCTION_AND_WEBAUTHN_REMOVAL_PLAN.md` 第一部分 | 已实施 | **净正**，但工作量搬了家 | §2.1（新增编译阻断行）、§2.3、**§5.6 已重写**、§5.9、§6 风险 13、§8 P0、§10.7、§11 A |
 | **移除 WebAuthn**<br>同文档第二部分 | 已实施 | **无影响** —— 删掉的 `go-webauthn` / `go-tpm` / `fxamacker/cbor` 全是纯 Go，两平台一视同仁；`auth` 本就在 §2.3 的跨平台清单里 | 无需改动 |
 | **ArkApi 插件数据隔离**<br>`ARKAPI_PLUGIN_DATA_PLAN.md` | 已实施 | **基本无影响**，新增 `internal/plugindata` 已核对为跨平台；但它在 Linux 上应当整体静默，有四条要显式确认 | §2.2、§2.3、**§5.12 新增**、§6 风险 11/16、§8 P6、§9.1 |
 | **frp 改为库内调用**（本次新增决定） | 已实施 | **减少** Linux 工作量：frp 从「分平台内嵌二进制」直接退出工作清单 | **§5.10 已重写**、§5.9、§6 风险 14/15/16、§8 F 轨道、§9.1、§11 A |
@@ -488,7 +488,7 @@ installer 的目录布局更顺。前两项的路径逻辑（不含 `os.Symlink`
 | `createJunction` | `mirror.go` 里的 `os.Symlink`，无构建约束 | `junction_windows.go` 的 `DeviceIoControl` + `FSCTL_SET_REPARSE_POINT`，`//go:build windows` | ⚠️ **变差**：`internal/mirror` 现在在 Linux 上编译不过，必须补 `junction_linux.go` |
 | `isJunctionOrSymlink` | 只查 `os.ModeSymlink` | `os.Readlink` | ✅ **变好**：本来就是冲跨平台选的（该文档 §1.3 方案 A），Linux 上直接正确，省掉一处将来必踩的坑 |
 | `createFileSymlink` | `os.Symlink`，失败回退 `CopyFile` | **已删除**，统一 `fsutil.CopyFile` | ➖ 中性，见下方「11 个文件」的取舍 |
-| `IsElevated()` / 提权重启 | 存在 | 已删除 | ✅ **变好**：§10.10 里那条「两平台都免特权建链接」的论述现在成立 |
+| `IsElevated()` / 提权重启 | 存在 | 已删除 | ✅ **变好**：§10.7 里那条「两平台都免特权建链接」的论述现在成立 |
 
 **需要新增的文件**（P0 阶段）：
 
@@ -622,10 +622,11 @@ svcConfig.UserName = "asa"     // 不要用 root
 
 ### 5.9 `internal/gui` —— Linux 排除
 
-> 已定案（§10 D1）：Windows GUI 最终由 Wails 重写、`internal/gui` 整包连同 Fyne 依赖一并删除。
-> 但那属于 §10 的 W 轨道；本节只做 Linux 兼容所必需的**构建约束隔离**，两者可以先后进行，互不阻塞。
+> 2026-08-26 更新：曾定案「Windows GUI 改用 Wails 重写、删除 Fyne」已放弃（见 §10.0），
+> Windows 继续用 Fyne，`internal/gui` 不会被整包删除。本节要求的只是 Linux 兼容所必需的
+> **构建约束隔离**，与 GUI 用什么框架无关，结论不变。
 
-- `internal/gui` 整包加 `//go:build windows`（W8 之后整包删除）。
+- `internal/gui` 整包加 `//go:build windows`（长期保留，不再有整包删除的计划）。
 - `main.go` 拆出 `main_windows.go` / `main_linux.go`，各自提供 `actionGUI`：
   Linux 版返回 `errors.New("GUI 仅在 Windows 上可用，请使用 asa-server api")`。
   ~~以及 `ensureAdminElevation` 的 no-op~~ —— 该函数连同 `buildElevatedArgs` / `quoteArg` / `--no-admin`
@@ -952,7 +953,7 @@ linux:
 |---|---|---|---|
 | **P0 构建打通** ✅ 已完成 | 加构建约束；`gui` 整包 windows-only；`main.go` 拆平台文件；`certmgr`/`tail`/`processjob` 拆平台文件（Linux 侧先写**返回「未实现」的存根**，`tail`/`mirror` 的 linux 实现足够小，直接写了真实现而非存根）；**`mirror` 补 `junction_linux.go`（真实现，非存根）**；`pkg/download`（§5.13，Fetch + Configure + GitHub 代理重写，两平台通用，已在 `feat/global-downloader-github-proxy` 合入）；`syncthing` 内嵌改按需下载并接到 `pkg/download`（已用真实 GitHub release 端到端验证） | `CGO_ENABLED=0 GOOS=linux go build ./...` 通过；`GOOS=windows go build`、两平台 `go vet` 均无回归；`pkg/download` 单测覆盖「命中代理域名重写」「不命中直连」「校验失败删除产物」三种路径。落在 `feat/linux-p0-build-unblock` 分支，8 个提交。顺带修掉一个已存在于 master 的死代码 bug（`main.go` 残留的 `pkg/winproc` 未用导入，被 Linux 编译约束长期掩盖） | 1–2 天 |
 | **F 轨道（frp 库内调用，可并行、可先行）** ✅ 已完成 | 见 **§5.10.6**，步骤 F0–F5。**与 Linux 兼容解耦**，在 Windows 上独立做完 | frp 退出 Linux 兼容工作清单；仓库不再有 `frpc.exe`（且原本就没被 git 追踪——`.gitignore` 的 `*.exe` 命中它，`go:embed` 全程依赖本地手放的文件）；`manager.go` 改走 `client.NewService` + `Run`/`GracefulClose`；50 次连续 Start/Stop 的 goroutine 泄漏回归测试；`CGO_ENABLED=0 GOOS=linux` 全量编译通过（含新拉进来的 quic-go/kcp-go/wireguard-go/k8s.io-apimachinery 依赖链）；新增 `THIRD_PARTY_NOTICES.md`（frp 是 Apache-2.0）。落在 `feat/frp-library-call` 分支 | 2–3 天 |
-| **W 轨道（Windows，可并行）** | Wails 取代 Fyne + 安装程序 + 首次运行引导 —— 见 **§10**，步骤 W0–W9 | Fyne 依赖清空；双击安装 → 引导 → 服务注册运行 | 另计，见 §10.8 |
+| **G 轨道（Windows+Linux，可并行）** | ~~Wails 取代 Fyne~~（2026-08-26 已放弃，见 **§10.0**）。改为：Fyne 保留 + 首次启动数据目录设置，BaseDir 并入 `config.yaml` 的 `basedir` 字段、`config.yaml` 固定放在 exe 同级（非环境变量/独立标记文件/系统级目录，见 §10.3） —— 见 **§10** | Fyne 首次运行能选目录、写 `config.yaml`；GUI/CLI/服务（Windows SCM / Linux systemd）从 exe 同级读到同一个 BaseDir，不受进程启动时机或运行账户影响 | 另计，见 §10.5 |
 | **P1 进程原语** ✅ 已完成 | `pkg/winproc` → `pkg/procx`（`GetPIDByPort` 删除，改走下面的统一实现）；`procx_linux.go` 真实现（`/proc` 扫描：`IsProcessExited`/`ProcessImageName`/`QueryProcess`，`RunAsAdmin` 返回「本平台不适用」）；新增 `pkg/procx/port.go`（`PIDByPort`，gopsutil `net.Connections("all")`，TCP/UDP 一次覆盖，无构建约束两平台共用），`internal/process.IsServerRunning` 随之从「Windows netstat 文本解析 / Linux 存根」两个平台文件收敛成一份跨平台实现；`pkg/processjob` → `pkg/proctree`，Linux 实现（`Setsid` + `Close()` 时 `kill(-pgid, SIGKILL)`，含 `pgid>1` 断言）；新增 `procx.Terminate`/`Kill`/`TerminateTree`/`KillTree`，替换掉 `server.go`/`common.go`/`installer.go` 里全部 9 处 `exec.Command("taskkill", ...)`（Windows 侧行为不变，仍是同一套 taskkill 参数，只是挪进了函数） | `CGO_ENABLED=0 GOOS=linux go build ./...`、`go build`(windows，原生 cgo)、两平台 `go vet` 均通过；`grep -rn taskkill --include=*.go` 命中数归零（除注释与 procx 内部实现自身）；新增 `pkg/procx/port_test.go` 用真实 TCP/UDP 监听自证 `PIDByPort`（不依赖解析 netstat 输出），Windows 上跑通。**未验证**：`procx_linux.go` 的 `/proc` 扫描与 `proctree_linux.go` 的 `setsid`/`kill(-pgid)` 只做到跨平台编译通过，未在真实 Linux 上跑过——本机 WSL 的 go1.27.0 安装本身已损坏（`internal/abi/map.go`/`map_swiss.go` 均缺 `//go:build` 约束、重复声明，`go build` 连标准库都过不了，与本次改动无关），修好前无法做运行时验证；这两个函数目前也没有真实调用方（游戏进程要到 P2 `runner` + P4 才会在 Linux 上真正跑起来），风险可控但记在这里，P2/P4 验收时要补跑。落在 `master`，未开分支 | 2–3 天 |
 | **P2 umu 运行时** ✅ 已完成 | `internal/runner` 接口（`Run`/`GamePath`/`EnsureRuntime`/`Preflight`/`Configure`）+ 两平台实现，`Run` 对 `ArkAscendedServer.exe` 与 `AsaApiLoader.exe` 一视同仁（见 §0/§1 的 ArkApi 决定）；`umu_linux.go` 下载 umu-launcher zipapp + GE-Proton（走 `pkg/download`，含 `github_proxy`）、prefix 预热（照抄 `ark_instance_manager.sh` 的 wineboot --init + steamrt 就绪检测 + wineserver drain 轮询）与 `.created-by-proton` 版本标记/迁移；`preflight_linux.go` 五项依赖自检（32 位 glibc / python3≥3.10 / libzstd.so.1 / tar / AppArmor userns，读 `/proc/sys` 而非 shell 出去跑 `sysctl`）；`internal/webapi/systemapi` 的 `GET /api/system/preflight`；`config.yaml` 新增 `linux:` 段（`appconfig`）；`EnsureRuntime` 在 `InitializationBasicComponents` 里后台异步跑，不阻塞服务启动。**执行细节对拍**：GE-Proton/umu 的下载 URL 与 tar 内部布局已用真实 GitHub Releases API 核对（非猜测），warm-up 与 fixups 的具体命令逐行对照本仓库 `scripts/ark_instance_manager.sh` 的验证过的实现，而非重新推导 | `CGO_ENABLED=0 GOOS=linux go build ./...`、`go build`（windows 原生 cgo）、两平台 `go vet` 均通过；`extractTar`（strip-prefix + zip-slip 拒绝，含嵌套 `..` 变体）与 Windows 侧 `Run`/`GamePath` 有真实执行的单测（非仅编译检查）。**已知偏差与限制**：①GE-Proton 校验走官方 `.sha512sum`（新增 `pkg/download` 对 `sha512:` 算法的支持），umu 校验走 GitHub Releases API 的 `digest` 字段（一次性的固定 tag 元数据请求，不是"解析 latest"，但确实触达 `api.github.com`，与 §4.3"从不碰 API"的原则有个可接受的例外，失败时降级为不校验而非拦截，已在代码注释说明）；②`umu_version` 从文档原稿的占位符 `1.4.0` 更新为已核实存在的 `1.4.4`；③`PROTON_VERB=run` 从设计阶段的示意代码中去掉——参考脚本的实际调用从不设它；④尚未在真实 Linux 主机上跑过 `EnsureRuntime`/`Preflight`（本机 WSL 的 go1.27.0 安装已损坏，见 P1 行），下载、解压、prefix 预热的端到端行为仍待 P3/P4 阶段用真机验证 | 3–4 天 |
 | **P3 安装与更新** ✅ 已完成 | `SteamCmdURL` 出 `config` 包，拆进 `installer/steamcmd_{windows,linux}.go`（各自的 URL/二进制名/解压函数，Linux 走新增的 `pkg/archive.ExtractTar` 解 `tar.gz`）；`installer/fixups*.go` 三项 ASA-on-Wine 修复（Sentry 禁用/`steam_appid.txt`/Steam SDK 软链），接在 `DownloadAndUpdateArkServer` 成功后与 `VerifyServerInstallation` 验证前；`VerifyServerInstallation` 改走 `runner.Run()` 启动 `ArkAscendedServer.exe`（Windows 直接 exec，Linux 经 umu-run），固定 60s sleep 换成轮询等待 `Saved/Config/WindowsServer/`（180s 上限，超时/取消都会如实报错，不再像原 Windows 代码那样等完固定时间就无条件宣布成功）；杀验证进程从 `procx.Kill` 换成 `procx.KillTree`（Linux 上 `LauncherPID` 是 umu-run/进程组 leader，必须整树杀，见 §5.3/§5.4）。**顺带**把 `pkg/archive`（zip-slip 防护的 tar 解压）从 `internal/runner` 提出来独立成包，因为 installer 现在也要用它——避免同一段安全相关代码存在两份 | `CGO_ENABLED=0 GOOS=linux go build ./...`、`go build`（windows 原生 cgo）、两平台 `go vet` 均通过；新增 13 个真实单测（`disableSentryPluginAt`/`writeSteamAppIDAt` 的重命名/内容纠错/幂等路径，`waitForConfigDir` 的立即返回/轮询命中/超时/取消四种路径，含真实计时断言），`internal/installer` 既有测试全部保持通过；Linux 上 `update` 走完，`server-files` 完整，`Saved/Config/WindowsServer` 生成。**已知限制**：与 P2 一致——三项 fixups 里唯一没法跨平台单测的是 `symlinkSteamSDK`（`os.Symlink` 在非提权 Windows 上可能因权限失败，该函数本来就只在 `//go:build linux` 下编译，此处无跨平台测试覆盖，逻辑走查为主）；真实 Linux 主机上的端到端验证仍待 P4/P6 | 2–3 天 |
@@ -960,7 +961,7 @@ linux:
 | **P5 服务化与证书** ✅ 已完成 | `internal/winservice` → `internal/svcmgr`（含调用方 `main.go`/`internal/gui/gui.go`），拆 `service_windows.go`（`configurePlatform`/`warnBeforeInstall` 空实现，行为不变）/ `service_linux.go`（systemd 加固：`Dependencies=After+Wants network-online.target`、`Option{LimitNOFILE:1048576, Restart:on-failure}`、`WorkingDirectory=BaseDir`、`EnvVars["HOME"]`，`warnBeforeInstall` 检测 root 并提示手动切换专用用户，不自动切换——两处对设计文本的偏离及理由见 §5.8）；`certmgr` 补 `store_linux.go` 真实现（`update-ca-certificates`/`update-ca-trust` 探测 + 读写 + `IsElevated` 前置校验，见 §5.7）；`appconfig` 的 `trust_local_ca` 默认值按平台区分（Linux `false`，写出的 `config.yaml` 模板注释同步区分）；`EnsureTLSConfig` 补 `trust_local_ca=false` 时的 CA 路径提示日志（设计文本要求但此前代码遗漏）；**顺带解除了本次改造的一个前置阻断**——`main.go` 删掉了 `runtime.GOOS != "windows"` 硬退出（P0 阶段就该有但漏了，`main_linux.go` 自己的注释也承认"今天不可达"），`main_windows.go`/`main_linux.go` 新增 `runDefaultAction`（无参数启动：Windows 走 GUI 不变，Linux 等价于 `api`，见 §5.9）；否则 P1–P4 的全部 Linux 实现虽然编译通过，实际跑起来仍会在 `main()` 第一行就退出，`service install/start/stop/remove` 在 Linux 上根本无法执行到 | `go build`/`go vet` 两平台均通过（含 `main` 包，此前从未因为运行时硬退出而被怀疑过构建，但从未被实际跑通过）；`internal/certmgr`/`internal/appconfig`/`internal/svcmgr` 既有测试保持通过。**已知限制**：①未在真实 systemd/Linux 主机上跑过 `service install/start/stop/remove`，`update-ca-certificates`/`update-ca-trust` 的实际调用、`LimitNOFILE`/`HOME` 生效与否均未验证；②`RestartSec` 沿用 kardianos 内置模板的 120s 而非设计文本示意的 10s（kardianos v1.3.0 无此 Option 键，自定义模板会分叉，见 §5.8）；③不自动创建/切换专用用户，只在 install 时警告 + 打印手动步骤（避免动现有 root 安装的目录属主）；④`vm.max_map_count` 提示留给部署文档，未在代码里做运行时自检——留给 P6 | 2 天 |
 | **P6 收尾** ✅ 已完成 | 定时任务/批量/倒计时/备份/存档解析在 Linux 上回归审查：`schedule`/`batchmanage`/`backup`/`parseserver`/`countdown`/`updatemanage` 六个包逐一 grep 排查过 `exec.Command`/`.exe`/`taskkill`/`syscall.`/`windows.` 等平台风险模式，**零命中**——它们都建立在已在 P1–P5 验证过的 `instance`/`countdown`/`process`/`runner` 之上，本身不认识平台，无需改动，回归审查本身就是产出；**ArkApi 在 Linux 上的落地确认**（§5.12 表格四条，逐条见该节：①大小写常量因无法真机验证改为运行时诊断而非静默失配，新增 `casecheck.go`/`casecheck_linux.go` + 4 个真实单测，②`override.go:85` 的大小写折叠按平台拆分修复（`pathCompareKey`，`override_windows.go`/`override_linux.go` 各一组真实单测），③`pluginapi`/`PluginDataPanel.vue` 复查确认无平台门禁，无需改动，未添加软性 UI 提示，④`PluginSnapshotInterval` 复查确认两平台语义一致）；**新增 GitHub Actions CI**（`.github/workflows/ci.yml`，windows-latest + ubuntu-latest 矩阵，`go build`/`go vet` 为硬门槛，`go test` 因既有环境耦合测试作为 informational 不阻断合并；顺带发现一个此前从未暴露的问题——`app/dist` 被 `.gitignore` 排除但 `//go:embed dist` 要求它存在，CI 必须先跑 `npm run build` 否则任何一个平台的 `go build` 都会失败，历史上从未有人在真正干净的检出上试过）；**新增部署文档** `docs/LINUX_DEPLOYMENT.md`（依赖清单、安装步骤、systemd 服务化要点、故障排查表，均已链入 `docs/README.md`/`README.md`/`README_zh.md` 的文档索引——这三处此前从未收录过 Linux 相关文档，包括本设计文档自己） | `go build`/`go vet` 两平台通过；`go test`（排除已知会挂起的 `pkg/tail` 手动调试用例与已建立先例排除的 `internal/frpmanage`）仅剩此前就存在、与本次改动无关的 3 个环境耦合失败（`TestNormalizePoints`/`Test_SaveWorldSafely`/`Test_GetAllInstanceNames`/`TestGetProcessInfo`，硬编码了作者本机路径与 PID）；`internal/plugindata` 新增 10 个真实单测全部通过 | 2–3 天 |
 
-**合计约 15–22 人日**（P0–P6，不含并行的 F / W 轨道），不含 Wine 侧疑难问题的排查缓冲（建议再留 30%）。
+**合计约 15–22 人日**（P0–P6，不含并行的 F / G 轨道），不含 Wine 侧疑难问题的排查缓冲（建议再留 30%）。
 F 轨道另计 2–3 天，但它**减少** P0 的工作量（省掉 frp 分平台内嵌），净增很小。
 
 **顺序上的一个取舍**：P1 的「端口→PID 切 gopsutil」会动 Windows 现有代码路径。
@@ -1021,279 +1022,198 @@ F 轨道另计 2–3 天，但它**减少** P0 的工作量（省掉 frp 分平�
 
 ---
 
-## 10. Windows 侧配套：Wails GUI、安装程序与首次运行引导
+## 10. 首次运行的数据目录设置（BaseDir）
 
-> 本节不是 Linux 兼容的必要工作，但与 P0「把 GUI 拆出去」是同一块工作面，一起做可以省一次返工。
-> **当前状态：已定案，尚未动代码。**
+> 本节不是 Linux 兼容的必要工作，但两个平台共享同一个 BaseDir 解析问题，一起定案可以省一次返工。
+> **当前状态：2026-08-26 改过一次方向（放弃 Wails，见 §10.0），新方向已定案；
+> §10.5 的 G1/G2 已实施。⚠️ `appconfig.Load` 的具体查找/取值算法后来又改了一版
+> （新增 `ASA_CFG` 环境变量、`Load()` 不再接收目录参数、`EnsureDirectories` 不再
+> 自解析、外加一道防御性兜底），本节与 §10.5 只保留大方向的描述，**具体实现细节
+> 以 `docs/APPCONFIG_BASEDIR_PLAN.md` 为准**，那份文档已实施完毕。G3（Fyne 对话框）
+> 与 G4（Linux setup CLI）尚未开始。**
 
-### 10.1 决策记录
+### 10.0 决策变更记录：Wails 方案已放弃
+
+本节原计划是「移除 Fyne，改用 Wails 重写 Windows GUI，复用 Vue SPA」（见下方折叠的历史决策 D1–D8）。
+2026-08-26 用独立 demo（`wails-demo`，不在本仓库）跑通 W0/W1 落地验证时，发现两个 Wails v2 Windows
+后端的框架级问题，方向由此推翻：
+
+1. **SSE/WebSocket 在反代路径下完全无法连接。** Wails 的 `AssetServer.Handler` 在 Windows 上经
+   `ICoreWebView2Environment.CreateWebResourceResponse` 把响应体整体缓冲成 `[]byte` 后才一次性交给
+   WebView2（`pkg/assetserver/webview/responsewriter_windows.go` 的 `responseWriter.Finish()`），
+   长连接/流式响应在这条链路下永远等不到数据——这是框架设计决定的硬限制，不是配置或版本问题。
+   本项目的启动/停止/更新进度、日志流、系统资源监控（SSE）与交互式 RCON、全局事件（WebSocket）
+   全部依赖这两种长连接，反代方案因此立不住，D3（原 §10.4）整个作废。
+2. **附带发现一个真 bug（已验证可修，但不改变上面的结论）**：同一个 `Finish()` 对多值响应头一律
+   `strings.Join(v, ",")` 拼成一行发给 WebView2，而 `Set-Cookie` 是 HTTP 里唯一不允许逗号折叠多值的
+   响应头（RFC 6265）——两个 `Set-Cookie` 会被拼成一行，浏览器只认出第一个，第二个连同其内容一起被
+   当成第一个 cookie 的垃圾属性吞掉。本项目 TOTP 两阶段登录一次响应里正好要设两个 cookie
+   （清 `asa_session_pre` + 发 `asa_session`），精确命中这个 bug。
+
+   绕开办法是：整页导航离开 Wails 的虚拟 host（`http://wails.localhost`）直连真实后端
+   （`https://127.0.0.1:19193`），这样 WebView2 走的就是原生网络栈，SSE/WS/Cookie 全部正常
+   （`internal/frontend/desktop/windows/frontend.go:658-664`，请求 host 不匹配 `startURL` 时会
+   放行给 WebView2 默认处理）。但这样一来 D3「反代复用同一份 SPA」这个 Wails 迁移最大的卖点也没剩多少
+   ——真要走这条路，不如维持现状用 Fyne。
+
+**决定**：Windows 保留 Fyne，不引入 Wails / webview2 / NSIS 相关依赖。原 D1–D8、原 §10.3~§10.6、
+原 §10.8（步骤 W0–W10）全部作废，仅保留原 §10.7.1（BaseDir 冲突问题）与原 §10.7.5（边界情况校验规则）
+——这两处与用什么 GUI 框架无关，下面 §10.2/§10.4 沿用其结论。
+
+<details>
+<summary>已作废的决策记录 D1–D8（历史参考，不再执行）</summary>
 
 | # | 决策 | 内容 | 理由 |
 |---|---|---|---|
-| D1 | **移除 Fyne，改用 Wails** | 删除 `internal/gui` 整包与 `fyne.io/fyne/v2`，Windows GUI 用 Wails 重写 | 复用现有 Vue SPA（不再维护第二套 UI）+ 去掉全仓库唯一的 cgo 来源 |
-| D2 | **同时提供安装程序** | `wails build -nsis` 产出 NSIS 安装器，负责装文件、注册服务 | 与 D1 同一条工具链，不额外引入 Inno Setup / WiX |
-| D3 | **前端走反向代理** | Wails `AssetServer.Handler` 反代 `127.0.0.1:19193`，不内嵌 dist | HttpOnly Cookie 鉴权要求同源，见 §10.4 |
-| D4 | **服务管理走 Wails 绑定方法** | 不补 `/api/service/*` HTTP 端点 | 服务管理需要管理员，不该挂在可远程访问的 HTTP 面上 |
-| D5 | **系统托盘：本期移除** | 不再提供托盘驻留 | Wails v2 无内置托盘；等 v3 正式版再考虑。见 §10.5 的行为后果 |
-| D6 | **新增首次运行引导程序** | 页面化完成 BaseDir 选择与 SteamCMD 初始化 | 解决 §10.7 的 BaseDir 冲突，且是安装器能否注册服务的前置 |
-| D7 | **Linux 只有 CLI 模式** | Linux 不编译任何 GUI，引导走 `asa-server setup` | Wails Linux 后端需 cgo，与静态编译目标冲突；见 §10.9 |
-| D8 | **`asa-server api` 保持一等入口** | GUI 与引导都是**可选外壳**，不能成为运行的必经之路 | 见 §10.10，这条约束反向限制了 D6 的设计 |
+| D1 | 移除 Fyne，改用 Wails | 删除 `internal/gui` 整包与 `fyne.io/fyne/v2`，Windows GUI 用 Wails 重写 | 复用现有 Vue SPA + 去掉全仓库唯一的 cgo 来源 |
+| D2 | 同时提供安装程序 | `wails build -nsis` 产出 NSIS 安装器，负责装文件、注册服务 | 与 D1 同一条工具链 |
+| D3 | 前端走反向代理 | Wails `AssetServer.Handler` 反代 `127.0.0.1:19193`，不内嵌 dist | HttpOnly Cookie 鉴权要求同源——**已被 §10.0 推翻，SSE/WS 在此路径下不通** |
+| D4 | 服务管理走 Wails 绑定方法 | 不补 `/api/service/*` HTTP 端点 | 服务管理需要管理员 |
+| D5 | 系统托盘：本期移除 | 不再提供托盘驻留 | Wails v2 无内置托盘 |
+| D6 | 新增首次运行引导程序 | 页面化完成 BaseDir 选择与 SteamCMD 初始化 | 解决 BaseDir 冲突 |
+| D7 | Linux 只有 CLI 模式 | Linux 不编译任何 GUI，引导走 `asa-server setup` | Wails Linux 后端需 cgo；**这条结论不受 §10.0 影响，原样保留，见 §10.6** |
+| D8 | `asa-server api` 保持一等入口 | GUI 与引导都是可选外壳 | **不受 §10.0 影响，原样保留，见 §10.7** |
 
-D1 + D2 + D6 三者是耦合的：**安装器不能在安装阶段就注册并启动服务**，
-因为那时 BaseDir 还没选，服务会在 Program Files 里建目录 —— 正是要避免的事。
-正确顺序是 `安装文件 → 首次运行引导 → 引导结束时才注册服务`，详见 §10.6 与 §10.7。
+</details>
 
-### 10.2 为什么现在讨论
+### 10.1 新决策记录
 
-P0 已经要给 `internal/gui` 加 `//go:build windows`。Fyne 是**本仓库唯一的 cgo 来源** ——
-实测 `go build ./...` 目前只在 `github.com/go-gl/gl`、`github.com/go-gl/glfw` 两个包上因缺 C 工具链失败，其余全部正常。
-Wails v2 的 Windows 后端不需要 cgo（见 §10.3），换过去之后**两个平台都能 `CGO_ENABLED=0` 出静态二进制**，
-交叉编译与 CI 都变简单。既然 P0 无论如何要动 GUI 的构建约束，这时候一并决定「拆走还是换掉」最省事。
+> ⚠️ **编号说明（2026-08-27 合并）**：本节曾经自己用 `G1`–`G5` 编号决策，§10.5「落地步骤」
+> 又独立用 `G0`–`G4` 编号可执行步骤——两套编号同时存在且含义不同（例如本节旧 `G3` 指
+> 「BaseDir 并入 config.yaml」这个决策，§10.5 旧 `G3` 却指「Linux setup CLI」这个步骤），
+> 引用时极易说错。现在**只有 §10.5 的 `G0`–`G5` 是全文档唯一的编号**，本节每条决策改用
+> 「落地步骤」列指向它对应的那个 ID，不再自带编号。
 
-### 10.3 Wails 可行性核对表
+| 决策 | 内容 | 理由 | 落地步骤 |
+|---|---|---|---|
+| Windows 保留 Fyne | 不删 `internal/gui`，不引入 Wails 依赖 | 见 §10.0 | G0 |
+| Fyne 新增「首次启动设置数据目录」 | 检测到按 §10.3 两级顺序都没有可用 `config.yaml` 时弹目录选择对话框，校验后把 `config.yaml`（含 `basedir` 字段）写到 exe 同级目录（§10.3 第 2 级） | 解决 §10.2 的 BaseDir 冲突；范围只到「选目录」——服务安装/卸载/证书/账号在现有 Fyne GUI 与 CLI 里都已经有等价功能（`gui.go:384-457` 服务管理、`cert install`、`user add`），不需要再重复做一套引导页 | G3 |
+| BaseDir 并入 `config.yaml`，`appconfig` 按两级固定目录查找，两平台统一 | 不再是 bootstrap.json 的四级优先级，也不是环境变量/独立标记文件；`config.yaml` 新增可选字段 `basedir`，`appconfig.Load` 依次查 exe 同级、系统固定目录，见 §10.3 | exe 同级与系统固定目录都是跟运行账户（LocalSystem/root/普通用户）无关的固定磁盘路径，GUI/CLI/服务天然读到同一份文件；系统固定目录额外解决开发/调试时 exe 产出路径不稳定的问题；`basedir` 留空时默认等于「`config.yaml` 自己所在目录」，现有部署零迁移成本 | G1（实现）/ G2（验证） |
+| Linux 仍然只有 CLI 模式（原 D7，不变） | `asa-server setup`，不编译任何 GUI | 见 §10.6 | G4 |
+| `asa-server api` 保持一等入口（原 D8，不变） | GUI 与 setup 都是可选外壳 | 见 §10.7 | G5 |
 
-| 项 | 结论 | 备注 |
-|---|---|---|
-| Windows 是否需要 cgo | **否**（v2 用 go-webview2 的纯 Go COM 绑定） | ⚠️ 这是选型前提，**必须实测确认**（§10.8 W0），一条 `wails build` 就能验 |
-| WebView2 Runtime | Win11 预装；Win10 需引导 | `wails build -webview2 embed\|download\|browser\|error` 选策略 |
-| 系统托盘 | **本期不做**（D5） | v2 无内置托盘。`fyne.io/systray` 虽是独立纯 Go 模块（`go.mod:37`，Windows 下不拖回 OpenGL），但为了 D1 的「彻底移除 Fyne 依赖」目标，本期一并删掉，等 Wails v3 正式版的内置托盘 |
-| v2 / v3 选型 | 按 v2 规划 | v3 长期处于 alpha，动手前核对上游当前状态；托盘是 v3 才补齐的能力之一 |
-| 生成安装器 | `wails build -nsis` | 需本机装 NSIS(`makensis`)；产出可编辑的 `build/windows/installer/project.nsi` |
-| Linux 后端 | 需 gtk3 + webkit2gtk（cgo） | 见 §10.9，**Linux 侧一律不参与** |
-
-### 10.4 前端复用：反向代理（定案 D3）
-
-**webview 不内嵌资源，反向代理到本地 API。**
-用 Wails 的 `AssetServer.Handler` 挂一个反代打到 `127.0.0.1:19193`：
-
-- `app/` 的 Vue SPA **零改动**，GUI 与浏览器看到的是同一个前端，以后也只维护一份。
-- **关键理由**：本项目的会话凭证走 **HttpOnly Cookie**（`docs/AUTH_LOGIN_DESIGN.md`：`EventSource` 与浏览器
-  `WebSocket` 都无法设置自定义请求头，所以 `Authorization: Bearer` 在本项目不成立）。
-  若 webview 内嵌一份 dist 再跨源 fetch API，Cookie 会因跨源 / SameSite 失效，**鉴权直接坏掉**。
-  反代让两者同源，整个问题绕开。
-- 附带好处：webview 走进程内 http，不碰 TLS，本地 CA 是否已被信任与 GUI 无关。
-
-被否掉的替代方案：把 `app/dist` 交给 Wails assetserver、再用绑定方法暴露后端能力 ——
-前端要改、鉴权要重做，且从此有两份前端要同步。
-
-**唯一的例外是引导页面**（§10.7）：它必须在 API server 起来之前就能显示，
-所以引导页走 Wails 自己的 AssetServer，不经反代。反代只在引导完成后接管。
-
-### 10.5 现有 GUI 功能的落点
-
-`internal/gui/gui.go`（862 行）目前提供 7 类能力，迁移后落点不同：
-
-| 现有能力 | 落点 |
-|---|---|
-| 资源监控（CPU/内存，`gui.go:102`） | SPA 已有，白拿 |
-| 实例列表（`gui.go:187`） | SPA 已有，白拿 |
-| 打开 WebUI（`gui.go:538`，`rundll32`） | 不再需要，GUI 本身就是 WebUI |
-| **服务安装/卸载/启停**（`gui.go:384-457`） | **Wails 绑定方法**（D4）直接调 `winservice.InstallService/Remove/Start/Stop`。不补 `/api/service/*` HTTP 端点 —— 服务管理需要管理员权限，不该挂在可被远程访问的 HTTP 面上 |
-| API server 内嵌启停（`gui.go:458-516`） | 保留；GUI 进程自带 API 的「单机模式」与「连到已注册服务」两种形态的取舍不变 |
-| 系统托盘（`gui.go:584`） | ❌ **移除**（D5） |
-| 管理员检测与提权（`gui.go:345,369`） | 保留 —— 引导程序（§10.7）与服务管理都要它 |
-
-**托盘移除的行为后果**（要在 UI 上讲清楚，否则是个坑）：
-关闭窗口 = GUI 进程退出，但**已注册的 Windows 服务仍在后台运行，游戏实例不受影响**。
-用户很容易把「关掉窗口」误解成「关掉服务器」。建议关闭时给一次确认提示，
-说明服务仍在运行、以及如何重新打开或停止。等 Wails v3 补上托盘后再回到驻留形态。
-
-`gui.go:32` 内嵌的 `ASA_Logo_transparent.webp` 原本用作托盘与窗口图标，
-托盘移除后仍可复用为 Wails 窗口图标与安装器图标，资源不用重做。
-
-**移除 Fyne 后 `go.mod` 可删除的依赖**：`fyne.io/fyne/v2`、`fyne.io/systray`、
-`github.com/fyne-io/{gl-js,glfw-js,image,oksvg}`、`github.com/go-gl/gl`、`github.com/go-gl/glfw/v3.4/glfw`
-及其传递依赖。这也是全仓库最后的 cgo 来源。
-
-### 10.6 安装程序（D2）
-
-⚠️ **与直觉相反的一点：安装阶段不注册服务。**
-注册服务必须知道 BaseDir（服务启动就会去建目录），而 BaseDir 由引导程序决定。
-若在安装段就 `service install + start`，服务会以 LocalSystem 在 `$INSTDIR`（多半是 Program Files）
-里建出 `instances/`、`server-files/` —— 正是 §10.7 要避免的事。
-
-**安装段**只做三件事：
-
-```nsis
-; 1. 释放文件到 $INSTDIR（只放程序，不放数据）
-; 2. 创建开始菜单/桌面快捷方式
-; 3. 拉起首次运行引导（服务注册在引导结束时才做）
-Exec '"$INSTDIR\asa-server.exe"'
-```
-
-**卸载段**必须完整走这套，顺序不能反：
-
-```nsis
-ExecWait '"$INSTDIR\asa-server.exe" service stop'
-ExecWait '"$INSTDIR\asa-server.exe" service remove'
-; 再删 bootstrap（见 §10.7），最后删程序文件
-```
-
-四条硬性要求：
-
-1. **安装器必须 `RequestExecutionLevel admin`**。注册服务、写 `%ProgramData%`、装 CA 都要管理员。
-2. **重复安装要幂等**：服务已存在时先 `service remove` 再装，否则 SCM 报「服务已存在」。
-3. **卸载必须走 `service remove`，不能直接删文件**。`winservice/service.go:112` 在 Remove 时会调
-   `certmgr.UntrustCAOnCleanup()`，清理装进 `LocalMachine\Root` 的本地 CA。
-   跳过它会在用户系统里**永久留下一张受信任的根证书** —— 这是安全问题，不是清洁度问题。
-   卸载时服务可能本来就没注册（用户装完没走完引导），所以这两条要容忍失败。
-4. **卸载默认不删数据目录**。BaseDir 下是 25 GB+ 的服务端与存档，
-   删不删必须显式问用户，且默认「保留」。程序目录与数据目录分离正是为了这个。
-
-### 10.7 首次运行引导程序（D6）
-
-#### 10.7.1 要解决的问题：BaseDir
+### 10.2 要解决的问题：BaseDir（原 §10.7.1，结论不变）
 
 `internal/config/config.go:69-80` 的 `BaseDir` = 环境变量 `ASA_BASEDIR`，否则 **exe 所在目录**。
-项目当前是「绿色解压即用」形态，这条规则没问题；一旦有了安装器就成了坑：
+项目当前是「绿色解压即用」形态，这条规则没问题；但只要用户把程序装进 `C:\Program Files\...` 这类需要
+管理员才能写的目录，就会出现问题：
 
-- 装进 `C:\Program Files\...` 后，服务以 LocalSystem 跑写得进去，
-  但 `instances/` + `server-files/` 是 **25 GB 起步的游戏数据**，落在系统盘 Program Files 是错的。
-- 更糟的是**交互式 GUI 以普通用户身份运行**，会把 BaseDir 解析到同一个 Program Files 路径却没有写权限 ——
+- 服务以 LocalSystem 跑，能写 `Program Files`，但 `instances/` + `server-files/` 是 **25 GB 起步的游戏数据**，
+  落在系统盘 Program Files 本来就不合适。
+- **交互式 GUI 以普通用户身份运行**，会把 BaseDir 解析到同一个 Program Files 路径却没有写权限 ——
   服务与 GUI 看到同一路径、一个能写一个不能写，故障现象非常难懂。
 
-引导程序让用户在页面上选定数据目录，从根上消掉这个歧义。
+首次启动时让用户显式选一个数据目录，从根上消掉这个歧义。
 
-#### 10.7.2 先决改动：BaseDir 的解析与持久化
+### 10.3 BaseDir 并入 `config.yaml`，`appconfig.Load` 按两级固定目录查找（替代 bootstrap.json 方案，也替代环境变量/独立标记文件方案）
 
-**⚠️ 这是引导程序的最大障碍**：`main.go:51` 目前**无条件**调用 `cfgpkg.EnsureDirectories()`，
-而且在 logger 初始化和 CLI 解析**之前**。也就是说程序一跑起来，目录树就已经建在 exe 旁边了 ——
-引导页还没机会显示，事情就已经做完了。
+> 2026-08-26 四次修正：第一版（写系统级环境变量）被指出覆盖不到「同一个终端里 setup 跑完接着直接手动
+> 敲 `asa-server api`」这种场景（Windows `WM_SETTINGCHANGE` 只影响之后由 Explorer 派生的新进程，Linux
+> `/etc/environment` 只在 PAM 新登录会话读一次）。第二版（自解析标记文件）解决了这个问题，但多了一份
+> 独立于 `config.yaml` 的新文件格式。第三版简化成「`basedir` 做成 `config.yaml` 字段，固定放在 exe 同级」，
+> 干掉了独立文件也干掉了系统级目录这一层。这一版把系统级目录**按查找位置**请回来（不是按持久化机制）：
+> 开发/调试时可执行文件的产出路径经常变（`go run`、临时 build 目录、每次不同的调试输出位置），
+> exe 同级这条路径因此并不稳定；系统固定目录不随 exe 输出路径变化，本机固定放一份，不管调试还是正式
+> 环境，跑的是哪个临时二进制都能找到同一份 `config.yaml`——这是开发便利性上的真实需求，原先只保留
+> exe 同级考虑得不够全面。
 
-必须拆成两步：
+`config.yaml` 新增一个可选顶层字段：
 
-```go
-// config 包
-func ResolveBaseDir() (dir string, configured bool)  // 只解析，不落盘
-func EnsureDirectories() error                       // 真正建目录，引导完成后才调
+```yaml
+# 数据目录：留空 = 与本文件同目录（绿色部署默认行为，兼容全部现有安装，无需迁移）
+basedir: ""
 ```
 
-`main.go` 的顺序改为：`ResolveBaseDir()` → 已配置则照旧（`EnsureDirectories` + logger + appconfig）；
-未配置则**只启动引导**，不碰磁盘。
+**`appconfig.Load` 按固定顺序查找 `config.yaml` 本身，两级都是与运行账户无关的固定磁盘路径**（不用
+`%USERPROFILE%`/`$HOME`——原因见 §10.2：Windows 服务默认以 LocalSystem 运行，它的「用户目录」跟普通
+登录用户的 Fyne GUI 不是同一个路径）：
 
-**BaseDir 存哪**（它必须在 BaseDir 之外，`config.yaml` 解决不了这个鸡生蛋问题）：
+1. `--basedir` 显式给了路径 → 直接用，跳过下面的查找（测试/CI/临时场景的逃生舱）；仍然支持
+   `ASA_BASEDIR` 环境变量作为同级覆盖（沿用项目现有「flag > 环境变量 ASA_* > 文件 > 默认值」惯例，
+   不是新机制，只是不再指望它来承担首次启动向导的持久化职责）。
+2. **exe 同级目录**（`os.Executable()` 解析出来的路径，不是 cwd，也不是 `WorkingDirectory`）——
+   兼容全部现有绿色部署，它们的 `config.yaml` 本来就在这里；首次启动向导默认也写这里（见下）。
+3. **系统固定目录**：Windows `%ProgramData%\ASAServerManager\config.yaml`；
+   Linux `/etc/asa-server/config.yaml`。exe 同级没有时才查这一级——主要给开发/调试用：本机放一份，
+   不管当前跑的是哪次临时构建出的二进制、放在哪个目录，都能读到同一份配置；生产环境上这一级平时不会
+   被用到（向导已经把 `config.yaml` 放到 exe 同级了），但留着不冲突。
+4. 都找不到 → 沿用今天的行为：在 exe 所在目录自动生成一份默认 `config.yaml`（`basedir` 留空），
+   `asa-server api` 不经任何向导也能直接跑起来（§10.7 的一等入口不变量不变）。
 
-| 平台 | bootstrap 路径 |
-|---|---|
-| Windows | `%ProgramData%\ASAServerManager\bootstrap.json` |
-| Linux | `/etc/asa-server/bootstrap.json` |
+找到 `config.yaml` 后，`BaseDir` = 该文件里的 `basedir` 字段；字段为空则 `BaseDir` = 这份 `config.yaml`
+自己所在的目录——这正是**现有全部部署**的隐式状态（`config.yaml` 与数据目录同处一地），所以老用户
+升级后行为完全不变，不需要在他们的 `config.yaml` 里补任何字段。
 
-内容就一行：`{"base_dir": "D:\\ASAServerManager"}`。
+**首次启动向导（Fyne / `asa-server setup`）完成后要做的事**：用户选好数据目录，向导把
+`config.yaml`（`basedir` 字段填用户选的路径）**写在可执行文件同级目录**（第 2 级，不是第 3 级的系统
+目录——保持与现有绿色部署一致，权限要求也和「写这个目录本身」挂钩，不强制多一层系统目录的写入）。
+若 exe 所在目录本身需要管理员/root 才能写（比如用户手动把 exe 放进了 `Program Files`），向导继承
+§10.4「拿不到权限就给清楚提示，不做半套」的既有规则；若 exe 所在目录普通用户就能写（典型绿色部署），
+写这份文件完全不需要提权。系统固定目录（第 3 级）不是向导的写入目标，是留给开发/调试手动放一份的
+逃生舱，`asa-server setup` 也可以额外支持一个 `--system`/等价 flag 显式写那里，但不是默认行为。
 
-选 ProgramData 而不是注册表或机器级环境变量，理由：
-**服务以 LocalSystem 跑、GUI 以普通用户跑，两者都能读到同一份**（ProgramData 默认 Everyone 可读，
-写需要管理员 —— 而引导程序本来就要提权）；不碰注册表；Linux 有天然对应物。
+**不再需要**：bootstrap.json、独立的 `basedir.env`/`env` 标记文件、Windows 注册表写入与
+`WM_SETTINGCHANGE` 广播、`svcmgr` 为 BaseDir 专门传 `cfg.EnvVars`——固定目录查找本身就不依赖这些机制，
+问题从根上不存在了。`ASA_BASEDIR` 环境变量本身**不删**（现有文档已经在用，`appconfig` 对其余配置项
+也统一走这条 `ASA_*` 规则），只是不再是首次启动向导的持久化手段，纯粹作为 flag 之下的一层显式覆盖保留。
 
-最终优先级（**保留 exe 目录兜底**，现有绿色部署升级后行为不变）：
+**权限**：写系统固定目录（第 3 级，开发/调试用）需要管理员/root（`%ProgramData%` 默认普通用户不可写；
+`/etc/asa-server/` 同理）；写 exe 同级（第 2 级，向导默认路径）权限要求取决于 exe 自己所在的目录。
 
-```
---basedir 参数  >  ASA_BASEDIR 环境变量  >  bootstrap.json  >  exe 所在目录
-```
+`config.ResolveBaseDir()` / `EnsureDirectories()` 的两步拆分（原设计文本已提出，结论不变）依然要做：
+`main.go` 目前无条件先建目录、后解析 CLI/日志/appconfig，这个问题不因为换持久化方式而消失——只是现在
+「解析」这一步变成「按上面 4 级顺序找 `config.yaml`、读 `basedir` 字段」，首次启动对话框要在任何目录
+被创建之前就有机会弹出来。
 
-#### 10.7.3 引导页面怎么渲染
+### 10.4 首次启动设置数据目录的校验规则（原 §10.7.5，规则不变）
 
-引导必须在 API server 起来**之前**显示（没有 BaseDir 就没有 config.yaml、auth.db、日志目录、证书），
-所以它**不能**走 §10.4 的反代。
+放进平台无关的共享代码（Fyne 的对话框回调与 Linux `asa-server setup` CLI 都调它），两条硬性规则：
 
-- 引导页由 **Wails 自己的 AssetServer** 提供，是一个独立的小页面（不塞进 `app/` 主 SPA —— 
-  主 SPA 依赖完整的鉴权与 API）。
-- 页面通过 **Wails 绑定方法**调后端，与 D4 的服务管理走同一套机制。
-- 引导完成 → 建目录、写 bootstrap、起 API server → webview 导航到反代的主 SPA。
+1. **可写 + 剩余空间 ≥ 30GB**（ARK 本体约 25GB + 存档增长）；已存在 `config.yaml` 时识别为
+   「接管已有安装」而不是新建。
+2. **禁止选在映射网络盘 / 网络文件系统上。** 表面理由是权限（服务的 LocalSystem/root 会话看不到
+   用户登录会话挂的网络盘），更硬的理由是 **BadgerDB 用 mmap + 文件锁**
+   （`{BaseDir}/database_file/state_db`），在 SMB/CIFS/NFS 上行为不可靠，可能直接损坏实例状态库。
 
-#### 10.7.4 引导步骤
+   | 平台 | 拒绝条件 |
+   |---|---|
+   | Windows | `GetDriveTypeW() == DRIVE_REMOTE`；UNC 路径（`\\server\share` 开头）；`subst` 出来的虚拟盘 |
+   | Linux | 挂载点 fstype 属于 `nfs`/`nfs4`/`cifs`/`smbfs`/`fuse.sshfs` 等（查 `/proc/mounts`） |
 
-| 步 | 内容 | 复用的现成能力 |
-|---|---|---|
-| 1 | 环境自检：管理员权限、WebView2、19193 端口占用 | Linux 侧复用 `runner.Preflight()`（§4.2） |
-| 2 | **选择数据目录**（原生目录选择框 `runtime.OpenDirectoryDialog`） | — |
-| 3 | 服务模式：注册为 Windows 服务（开机自启）/ 仅本次会话运行 | `winservice.InstallService/Start` |
-| 4 | 端口与 TLS：是否把本地 CA 装进 Root 存储 | `certmgr.TrustCA()` |
-| 5 | 鉴权：是否启用 `auth.enabled`；启用则建第一个管理员账号 | `internal/auth`（CLI 已有 `user add`） |
-| 6 | **SteamCMD 安装**（流式输出日志） | `installer.DownloadAndExtractSteamCmd(ctx, w)` |
-| 7 | ARK 服务端本体下载（~25 GB，**可跳过**，之后从主界面做） | `installer.UpdateArkServer(ctx, w)` / `/api/server/update` |
-| 8 | 完成：写 bootstrap.json + config.yaml → 注册并启动服务 → 跳主界面 | — |
+校验失败时明确告诉用户「换一个本地磁盘目录」，不要笼统报错。
 
-**进度流式输出是白拿的**：`installer.DownloadAndExtractSteamCmd(ctx, outputCallback ...io.Writer)`
-与 `UpdateArkServer` 已经接受 `io.Writer` 用于透传控制台输出（现在喂给 SSE `TaskBroadcaster`）。
-引导只需把一个 writer 适配到 Wails 的 `runtime.EventsEmit`，**installer 一行不用改**。
+**Fyne 端的触发时机**：GUI 启动时若按 §10.3 两级顺序（exe 同级 → 系统固定目录）都找不到
+`config.yaml`（全新安装/绿色解压），弹目录选择对话框；如果任一级已有旧版 `config.yaml`
+（老用户绿色部署升级，没有 `basedir` 字段），维持现状不弹窗——按 §10.3 规则它会被判定为「已配置」
+（`basedir` 留空 = BaseDir 就是该文件所在目录，和它今天的实际行为完全一致）。拿不到写权限时给出
+清楚的提示（为什么需要、如何以管理员重新运行），并保留「不设置、直接用 exe 目录跑」这条退路，不强制。
 
-第 2 步的目录校验必须做三件事：**可写**、**剩余空间 ≥ 30 GB**（ARK 本体约 25 GB + 存档增长）、
-**已存在 `config.yaml` 时识别为「接管已有安装」而非新建**。
+### 10.5 落地步骤
 
-#### 10.7.5 两个必须处理的边界情况
-
-**1. 用户拒绝提权 → 友好提示后直接退出。**
-
-引导要做的每件事（写 `%ProgramData%`、注册服务、装 CA 到 `LocalMachine\Root`）都需要管理员。
-拿不到就**不做半套** —— 给一句说清楚的提示然后退出，不要静默降级成一个功能残缺、
-用户还以为装好了的状态。提示至少要讲清三件事：为什么需要管理员、如何以管理员重新运行、
-以及「只想直接跑起来可以用 `asa-server api`」这条出路（见 §10.10）。
-
-> 这条只约束**引导程序与 GUI**。headless 运行的非管理员出口是另一条路径，不受此限，见 §10.10。
-
-**2. 禁止把 BaseDir 选在映射网络盘 / 网络文件系统上。**
-
-表面的理由是权限：服务以 LocalSystem 运行，映射盘（`Z:` 之类）是**登录会话级**的，
-在服务会话里根本不存在；用户目录（`C:\Users\xxx\...`）的 ACL 也可能挡住。
-这个坑的表现是「GUI 里一切正常，注册成服务后启动就失败」，极难排查。
-
-更硬的理由是：**BadgerDB 用 mmap + 文件锁**（`{BaseDir}/database_file/state_db`），
-在 SMB/CIFS/NFS 上行为不可靠，可能直接损坏实例状态库。
-
-校验规则：
-
-| 平台 | 拒绝条件 |
-|---|---|
-| Windows | `GetDriveTypeW() == DRIVE_REMOTE`；UNC 路径（`\\server\share` 开头）；`subst` 出来的虚拟盘 |
-| Linux | 挂载点 fstype 属于 `nfs`/`nfs4`/`cifs`/`smbfs`/`fuse.sshfs` 等（查 `/proc/mounts`） |
-
-校验失败时明确告诉用户「换一个本地磁盘目录」，而不是笼统报错。
-同一套校验 `asa-server setup` CLI 也要走 —— 规则属于 `internal/setup`，不属于 GUI。
-
-#### 10.7.6 非 GUI 的引导路径：`asa-server setup`
-
-引导的编排逻辑放进**平台无关的 `internal/setup` 包**，前端有两个：
-
-| 前端 | 平台 | 说明 |
-|---|---|---|
-| Wails 引导页 | 仅 Windows | §10.7.3 |
-| `asa-server setup` CLI | **Windows + Linux** | 可交互，也可全参数非交互跑（自动化部署/CI） |
-
-**CLI 版在两个平台上都要有**，不只是 Linux：Windows 上也存在无桌面、
-只想 headless 跑的场景（见 §10.10），不能强迫用户先过一遍 GUI。
-Linux 上它是**唯一**的引导路径（D7），并且多一步 umu/GE-Proton 运行时安装（§4）。
-
-`setup` 与现有的 `service` / `db` / `user` / `cert` 是同级 CLI 命令组，风格一致。
-
-### 10.8 落地步骤
-
-**W0 / W1 是整个方案的地基，不通过就不值得动 `internal/gui`。**
+> **本表的 `G0`–`G5` 是全文档唯一的步骤编号**（§10.1 决策表已改为反向引用这里，不再自带编号）。
 
 | 步骤 | 内容 | 通过判据 | 依赖 |
 |---|---|---|---|
-| **W0** | 空目录起一个 Wails v2 demo，`CGO_ENABLED=0 wails build` | 在**没装 mingw** 的机器上能出 exe → cgo 前提成立 | — |
-| **W1** | demo 里用 `AssetServer.Handler` 反代 `http://127.0.0.1:19193` | 现有 SPA 能登录（HttpOnly Cookie 有效）、SSE 与 WebSocket 均正常 | W0 |
-| W2 | 拆 `config.ResolveBaseDir()` / `EnsureDirectories()`，改 `main.go` 启动顺序 | 未配置 BaseDir 时启动**不产生任何目录** | — |
-| W3 | bootstrap.json 读写 + 四级优先级 | 服务（LocalSystem）与 GUI（普通用户）读到同一个 BaseDir；无 bootstrap 时回落 exe 目录，绿色部署行为不变 | W2 |
-| W4 | 引导页面（Wails AssetServer）+ 绑定方法，走通步骤 1–8 | 全新机器上选目录 → 装 SteamCMD → 注册服务 → 跳主界面 | W1,W3 |
-| W5 | 服务管理绑定方法（D4）替换 `gui.go:384-457` | 安装/卸载/启停四个操作在 Wails 下等价可用 | W1 |
-| W6 | `wails build -nsis`，按 §10.6 改模板（**安装段不注册服务**） | 双击安装 → 自动进引导 → 完成后服务已注册并运行 | W4,W5 |
-| W7 | 走一遍卸载 | 服务已移除、本地 CA 已从 Root 存储清掉、**数据目录保留**、bootstrap 已删 | W6 |
-| W8 | 删除 `internal/gui` 与全部 Fyne 依赖，`go mod tidy` | 全仓库 `CGO_ENABLED=0` 可构建（Windows 与 Linux 皆是） | W5 |
-| W9 | `internal/setup` 抽出平台无关编排 + `asa-server setup` CLI（**两平台都要**） | Windows 与 Linux 上均能非交互跑通同一套引导 | W4 |
-| W10 | **回归：`asa-server api` 独立可用**（D8 三条不变量） | 全新解压的目录里直接 `asa-server api`，不经安装器/引导也能起服，行为与改造前一致 | W3,W9 |
+| G0 | 决策，非实现项：Windows 保留 Fyne，不引入 Wails 依赖（§10.1「Windows 保留 Fyne」，见 §10.0） | 不适用——已生效，`internal/gui` 未删、无 Wails 依赖 | — |
+| G1 ✅ | `config.yaml` 新增 `basedir` 字段；`appconfig.Load` 依次查 exe 同级、系统固定目录 + 新增 `ResolveBaseDir` 阶段（现由 `appconfig.Load` 承担查找与解析，`cfgpkg.EnsureDirectories` 只负责建目录，两者拆开由 `main.go` 依次调用），改 `main.go` 启动顺序（先解析配置，再建目录/初始化日志） | 两级都没有 `config.yaml` 时启动**不产生任何目录**；有则按 `basedir` 字段（留空则用该文件所在目录）解析出正确 BaseDir | G0 |
+| G2 ✅ | 验证两级查找顺序 + 「exe 目录已有旧版 `config.yaml`（无 `basedir` 字段）」这条兼容路径 | 老部署原地升级后 BaseDir 与升级前完全一致，无需任何手动迁移或补字段；只在系统固定目录放一份 `config.yaml`、exe 目录清空的场景下也能正确解析（验证第 2 级查找真的生效，覆盖开发/调试场景） | G1 |
+| G3 | Fyne 首次启动对话框 + §10.4 校验规则：把 `config.yaml` 写到 exe 同级目录（第 2 级），`basedir` 填用户选的路径 | 全新机器上双击 exe → 选目录 → 直接进入正常 GUI，无需重启程序；用另一个全新启动的进程（不带任何 flag/env）在同一个 exe 目录下也能解析到同一个 BaseDir | G2 |
+| G4 | `asa-server setup` CLI（Linux，交互 + 非交互两种模式）：把 `config.yaml` 写到二进制同级目录 | 全新 Linux 主机上非交互跑通：BaseDir → umu/GE-Proton → SteamCMD → ARK 本体；systemd 服务重启后解析到同一个 BaseDir，不依赖 unit 文件传参 | G2 |
+| G5 | **回归：`asa-server api` 独立可用**（见 §10.7 三条不变量） | 全新解压的目录里直接 `asa-server api`，不经 GUI/setup 也能起服，行为与改造前一致 | G0–G4 |
 
-- W9 与 Linux 方案的 P2/P3 有重叠（运行时安装、SteamCMD 安装），建议合并实施。
-- **W10 是每一步都要复查的红线**，不是做完一次就算过 —— W2/W3 动的是 BaseDir 解析，
-  最容易在这里把便携模式改坏。
+**G5 是每一步都要复查的红线**——G1/G2 动的是 `config.yaml` 的查找逻辑，最容易在这里把便携模式改坏。
+**G2/G3 的验收判据刻意挑「不给任何环境变量」的场景**——这正是本节要修的那个漏洞，不能只测「设了环境变量能读到」这种已经没问题的路径。
 
-### 10.9 Linux：只有 CLI 模式（D7）
+> **G1 落地时发现一个真 bug**：`basedir` 字段配合 viper 的 `AutomaticEnv()`（前缀 `ASA_`）会被自动
+> 解析成环境变量名 `ASA_BASEDIR`——而这个变量名早就被 `explicitDir` 逃生舱本身占用了，两者语义完全
+> 不同（前者是"两级查找里 config.yaml 的一个字段"，后者是"整个跳过两级查找"）。开发机上只要设了
+> `ASA_BASEDIR`，`basedir` 字段就会被这个八竿子打不着的环境变量悄悄顶掉。修法是 `basedir` 字段单独
+> 用一个不开 `AutomaticEnv` 的 viper 实例重读（`appconfig.fileOnlyBaseDir`），只反映文件内容，
+> 不受任何环境变量影响。
 
-**Linux 不编译任何 GUI。** Wails 的 Linux 后端需要 gtk3 + webkit2gtk、**必须开 cgo**，
-与本方案「Linux 无头、`CGO_ENABLED=0` 静态二进制、交叉编译无痛」直接冲突。
-所以 **Wails 包与现在的 `gui` 包一样加 `//go:build windows`**。
-一旦让 Wails 参与 Linux 构建，§5.9 的全部收益作废 —— 这条不能松。
+### 10.6 Linux：只有 CLI 模式（原 D7，结论不变）
 
+**Linux 不编译任何 GUI**（这条本来就与 Wails 无关——Linux 从来没打算给它装图形界面）。
 Linux 上的完整入口就是 CLI：
 
 | 命令 | 用途 |
@@ -1306,43 +1226,33 @@ Linux 上的完整入口就是 CLI：
 管理界面仍然有 —— 就是浏览器打开 `https://<host>:19193` 的那个 SPA，
 只是不再有一个本地桌面外壳。这对无头服务器反而是正确形态。
 
-两处必须共享、不能各写一份的东西：
+两平台共享、不能各写一份的东西：BaseDir 校验规则（§10.4）与解析优先级（§10.3）。
 
-- **`internal/setup`**（§10.7.6）：引导编排逻辑平台无关，Wails 引导页与 `asa-server setup` CLI 都是它的前端。
-- **bootstrap.json**（§10.7.2）：两平台同一套解析优先级，只有落盘路径不同
-  （`%ProgramData%\ASAServerManager\` vs `/etc/asa-server/`）。
+### 10.7 `asa-server api` 始终是一等入口（原 D8，结论不变）
 
-### 10.10 `asa-server api` 始终是一等入口（D8）
-
-> **这条是对 D1/D2/D6 的反向约束**：GUI、安装器、引导程序都是**可选外壳**，
-> 任何时候用户都能绕开它们，直接 `asa-server api` 把服务跑起来。
+> GUI 与 `setup` 都是**可选外壳**，任何时候用户都能绕开它们，直接 `asa-server api` 把服务跑起来。
 
 三条不变量，改造过程中不允许被破坏：
 
 1. **BaseDir 解析必须保留 exe 目录兜底。**
-   §10.7.2 的四级优先级里，`bootstrap.json` 之后仍然回落到 exe 所在目录。
-   所以在一台从未跑过引导的机器上解压即用、直接 `asa-server api`，
-   行为与今天**完全一致** —— 绿色/便携模式不因为引入安装器而消失。
-2. **引导做的每件事都必须有 CLI 或配置等价物**，且都已经存在或已在计划内：
+   §10.3 里，exe 同级、系统固定目录都没有 `config.yaml` 时自动在 exe 同级生成一份默认的（`basedir` 留空）。
+   所以在一台从未跑过首次启动向导的机器上解压即用、直接 `asa-server api`，
+   行为与今天**完全一致** —— 绿色/便携模式不因为引入首次启动向导而消失。
+2. **首次启动向导做的事都必须有 CLI 或配置等价物**：
 
-   | 引导步骤 | 非 GUI 等价物 |
+   | 步骤 | 非 GUI 等价物 |
    |---|---|
-   | 选 BaseDir | `--basedir` / `ASA_BASEDIR` / bootstrap.json |
+   | 选 BaseDir | `--basedir` / `ASA_BASEDIR` / 手动编辑 `config.yaml` 的 `basedir` 字段 |
    | 注册服务 | `asa-server service install` |
    | 装本地 CA | `asa-server cert install` |
    | 建管理员账号 | `asa-server user add` |
    | SteamCMD + ARK 本体 | `asa-server update` |
-   | 全流程一把梭 | `asa-server setup`（非交互模式） |
+   | 全流程一把梭（Linux） | `asa-server setup`（非交互模式） |
 
-3. **`api` 不得依赖 GUI 进程，也不得要求 bootstrap.json 存在。**
-   两者缺失时按第 1 条回落，不报错、不弹引导。
+3. **`api` 不得依赖 GUI 进程，也不得要求 `config.yaml` 里存在 `basedir` 字段或任何环境变量。**
+   缺失时按第 1 条回落，不报错、不弹窗。
 
-**与 §10.7.5.1「拒绝提权即退出」的关系**（容易看成矛盾，其实不是）：
-那条约束的是**引导程序**——引导要么完整做完，要么干净退出，不留半套。
-而 headless 的非管理员路径现在**根本不需要出口**：提权逻辑整体没了，`asa-server api`
-在普通账户下直接就能跑（Linux 上则从来不存在提权这回事）。两者并行，互不覆盖。
-
-> ✅ **已完成，本节的历史问题已全部消解。**
+> ✅ **已完成，历史遗留问题（曾记录在本节）已全部消解，与本次 Wails→Fyne 的方向调整无关，原样保留：**
 >
 > 原文这里记录了两个问题：(1) `ensureAdminElevation()` 打印「将以非管理员模式继续运行」
 > 却紧接着 `os.Exit(1)`，文案与行为相反；(2) 警告文案里「镜像启动将使用文件复制模式」
@@ -1359,10 +1269,9 @@ Linux 上的完整入口就是 CLI：
 >
 > **对本方案的下游影响**：
 > - §5.6 已重写 —— 收益兑现（两平台都免特权建链接），代价是 `mirror` 在 Linux 上多出一个编译阻断点。
-> - §10.7.5.1「引导拒绝提权即退出」的**理由收窄**：引导仍需管理员，但只剩「注册服务」
->   与「装本地 CA 到 `LocalMachine\Root`」两项，**镜像不再是理由**。该节的提示文案要相应删掉
->   与镜像/权限相关的措辞。
-> - 安装器（§10.6）对管理员的依赖同步减半。
+> - §10.4「首次启动拒绝提权即退出」的**理由收窄**：仍需管理员，但只剩「注册服务」与
+>   「装本地 CA 到 `LocalMachine\Root`」两项，**镜像不再是理由**。
+> - 原安装器相关的管理员依赖描述已随 §10.0 一并作废。
 
 ---
 
@@ -1384,7 +1293,7 @@ Linux 上的完整入口就是 CLI：
 | CA 信任 | `windows.Cert*` → Root 存储 | `/usr/local/share/ca-certificates` + `update-ca-certificates`<br>或 `/etc/pki/ca-trust/source/anchors` + `update-ca-trust` |
 | 私钥权限 | `icacls` | `os.Chmod(0600)` |
 | 提权 | 镜像已不需要；仅 `cert install --machine` 走 `procx.RunAsAdmin`（`certmgr/cli.go`） | 无 ShellExecute 式自动提权；`cert install` 非 root 直接报错提示 `sudo` 重跑（`certmgr/cli.go`，P5），不落到 `procx.RunAsAdmin` |
-| 服务 | SCM（kardianos），无额外 Option/EnvVars | systemd（kardianos），P5 加固：`LimitNOFILE=1048576`、`Restart=on-failure`、`WorkingDirectory=BaseDir`、`Environment=HOME=...`、`After=network-online.target`（`svcmgr/service_linux.go`，见 §5.8） |
+| 服务 | SCM（kardianos）。BaseDir 靠服务进程自己按 §10.3 两级查找（exe 同级 → `%ProgramData%\ASAServerManager\`）读 `config.yaml` 的 `basedir` 字段，不依赖 SCM 传参 | systemd（kardianos），P5 加固：`LimitNOFILE=1048576`、`Restart=on-failure`、`WorkingDirectory=BaseDir`、`Environment=HOME=...`、`After=network-online.target`（`svcmgr/service_linux.go`，见 §5.8）；BaseDir 同理靠 §10.3 两级查找（二进制同级 → `/etc/asa-server/`），不依赖 unit 文件传参 |
 | SteamCMD | `steamcmd.exe`（zip） | `steamcmd.sh`（tar.gz，需 32 位 glibc） |
 | 打开浏览器 | `rundll32 url.dll,FileProtocolHandler` | `xdg-open`（GUI 排除后基本用不到） |
 | FRP 客户端 | 库内调用 `frp/client.NewService`（**两平台同一份代码**，见 §5.10） | 同左 |
