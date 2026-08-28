@@ -49,6 +49,10 @@ func (h *Handler) preflight(c *gin.Context) {
 			"serverBinaryReady": st.ServerBinaryReady,
 			"serverConfigReady": st.ServerConfigReady,
 			"environmentReady":  runtimeErr == nil && st.Ready(),
+			// Drop-privileges runtime-user state (Linux; always {ready:true} on
+			// Windows). See docs/UMU_RUNTIME_USER_PLAN.md §4.3.
+			"umuRuntimeUser":         runner.RuntimeUserStatus(),
+			"umuRuntimeUserProblems": runner.RuntimeUserProblems(),
 		},
 	})
 }

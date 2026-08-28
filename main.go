@@ -187,6 +187,7 @@ func main() {
 
 	// Check if running as an OS service and run service
 	if isService {
+		enforceRuntimeUserGate()
 		svcmgr.RunService()
 		return
 	}
@@ -213,6 +214,7 @@ func main() {
 // the escape hatch. Service mode never reaches here — RunService returns
 // before CLI dispatch and only logs a warning (see svcmgr.program.Start).
 func gatedActionAPI(ctx context.Context, cmd *cli.Command) error {
+	enforceRuntimeUserGate()
 	if !cmd.Bool("skip-env-check") {
 		if err := actions.VerifyEnvironmentReady(); err != nil {
 			return cli.Exit(fmt.Sprintf("%v\n\n（如确需在环境未就绪的情况下启动，加 --skip-env-check）", err), 1)
@@ -278,13 +280,54 @@ func applyAppConfig(cfg *appconfig.Config) {
 	})
 
 	runner.Configure(runner.Config{
-		Runtime:       cfg.Linux.Runtime,
-		UmuVersion:    cfg.Linux.UmuVersion,
-		ProtonVersion: cfg.Linux.ProtonVersion,
-		PrefixMode:    cfg.Linux.PrefixMode,
-		PrefixDir:     cfg.Linux.PrefixDir,
-		AutoDownload:  cfg.Linux.AutoDownload,
-		GameID:        cfg.Linux.GameID,
-		BaseDir:       cfgpkg.BaseDir,
+		Runtime:          cfg.Linux.Runtime,
+		UmuVersion:       cfg.Linux.UmuVersion,
+		ProtonVersion:    cfg.Linux.ProtonVersion,
+		PrefixMode:       cfg.Linux.PrefixMode,
+		PrefixDir:        cfg.Linux.PrefixDir,
+		AutoDownload:     cfg.Linux.AutoDownload,
+		GameID:           cfg.Linux.GameID,
+		BaseDir:          cfgpkg.BaseDir,
+		RuntimeUser:      cfg.Linux.UmuRuntimeUser,
+		RuntimeUID:       cfg.Linux.UmuRuntimeUID,
+		RuntimeGID:       cfg.Linux.UmuRuntimeGID,
+		RunAsRoot:        cfg.Linux.UmuRunAsRoot,
+		RuntimeDeepProbe: cfg.Linux.UmuRuntimeDeepProbe,
 	})
+}
+
+// exitRuntimeUserUnsatisfied is EX_CONFIG from sysexits.h — a config/environment
+// error that retrying won't fix. The systemd unit template
+// (svcmgr.umuRuntimeSystemdScript) pairs it with RestartPreventExitStatus=78 so
+// the service goes straight to `failed` instead of restart-looping. See
+// docs/UMU_RUNTIME_USER_PLAN.md §9.3b.
+const exitRuntimeUserUnsatisfied = 78
+
+// enforceRuntimeUserGate is the hard startup check for "game instances run as a
+// dedicated non-root user" (docs/UMU_RUNTIME_USER_PLAN.md §2/§4). Synchronous,
+// before the API listens. No-op on Windows and on Linux unless euid==0 &&
+// !umu_run_as_root. A failure means asa-server must not come up as-is — the one
+// escape hatch is linux.umu_run_as_root: true.
+func enforceRuntimeUserGate() {
+	if err := runner.EnsureRuntimeUser(context.Background()); err != nil {
+		logger.WithConsole().Errorf(
+			"降权运行时用户准备失败，asa-server 拒绝启动：\n%v\n\n"+
+				"如确需以 root 运行游戏进程，在 config.yaml 设 linux.umu_run_as_root: true", err)
+		os.Exit(exitRuntimeUserUnsatisfied)
+	}
+	problems := runner.VerifyRuntimeAccess()
+	if len(problems) == 0 {
+		return
+	}
+	var b strings.Builder
+	b.WriteString("降权运行时环境自检未通过，asa-server 拒绝启动：\n")
+	for _, p := range problems {
+		fmt.Fprintf(&b, "  - [%s] %s\n", p.Name, p.Detail)
+		if p.Fix != "" {
+			fmt.Fprintf(&b, "      修复：%s\n", p.Fix)
+		}
+	}
+	b.WriteString("\n如确需以 root 运行游戏进程，在 config.yaml 设 linux.umu_run_as_root: true")
+	logger.WithConsole().Errorf("%s", b.String())
+	os.Exit(exitRuntimeUserUnsatisfied)
 }

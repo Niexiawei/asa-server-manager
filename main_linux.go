@@ -25,6 +25,7 @@ func actionGUI(ctx context.Context, cmd *cli.Command) error {
 // §3.3) — a bare `asa-server` on a fresh box should point at `setup`, not
 // silently start an API server no instance can use.
 func runDefaultAction(ctx context.Context) error {
+	enforceRuntimeUserGate()
 	if err := actions.VerifyEnvironmentReady(); err != nil {
 		return fmt.Errorf("%w\n\n（如确需继续启动，运行 asa-server api --skip-env-check）", err)
 	}
