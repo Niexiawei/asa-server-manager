@@ -1,12 +1,15 @@
 // Package systemapi exposes host-level diagnostics that aren't tied to any
-// particular ARK instance. Today that's just the Linux runtime dependency
-// self-check (docs/LINUX_COMPATIBILITY_PLAN.md §4.2) — a no-op returning an
-// empty, healthy result on Windows.
+// particular ARK instance: the Linux runtime dependency self-check
+// (docs/LINUX_COMPATIBILITY_PLAN.md §4.2) plus the base-environment
+// readiness bits (docs/SETUP_FLOW_OPTIMIZATION_PLAN.md §3.6). On Windows the
+// preflight is empty and healthy; the readiness bits still reflect whether
+// SteamCMD / the ARK server files are installed.
 package systemapi
 
 import (
 	"net/http"
 
+	"asa-server/internal/installer"
 	"asa-server/internal/runner"
 	"asa-server/internal/webapi/apiresp"
 
@@ -22,15 +25,30 @@ func (h *Handler) RegisterRouter(r *gin.Engine) {
 }
 
 // preflight reports host dependency problems that would stop the Linux
-// Wine/Proton runtime from working (missing 32-bit glibc, python3, etc. —
-// see runner.Preflight). Always empty/healthy on Windows.
+// Wine/Proton runtime from working (missing 32-bit glibc, python3, etc.) plus
+// per-component readiness so the frontend can steer the user to
+// `asa-server setup` when the environment isn't initialised.
 func (h *Handler) preflight(c *gin.Context) {
 	problems := runner.Preflight()
+	runtimeErr := runner.CheckRuntime()
+	st := installer.CheckInstalled()
+
+	runtimeMsg := ""
+	if runtimeErr != nil {
+		runtimeMsg = runtimeErr.Error()
+	}
+
 	c.JSON(http.StatusOK, apiresp.StatusResponse{
 		Success: true,
 		Data: gin.H{
-			"healthy":  len(problems) == 0,
-			"problems": problems,
+			"healthy":           len(problems) == 0,
+			"problems":          problems,
+			"runtimeReady":      runtimeErr == nil,
+			"runtimeMessage":    runtimeMsg,
+			"steamCmdReady":     st.SteamCmdReady,
+			"serverBinaryReady": st.ServerBinaryReady,
+			"serverConfigReady": st.ServerConfigReady,
+			"environmentReady":  runtimeErr == nil && st.Ready(),
 		},
 	})
 }
