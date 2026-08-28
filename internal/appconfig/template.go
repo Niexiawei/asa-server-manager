@@ -156,6 +156,17 @@ linux:
   prefix_mode: shared
   # 留空 = {程序目录}/umu-prefix
   prefix_dir: ""
+  # umu-launcher（zipapp）用哪个 Python 解释器执行。
+  #   留空  : 自动探测系统解释器，扫 python3 / python3.10 … python3.20，多个取最高版本
+  #           （不动系统默认 python3，也不会自动发现 venv/pyenv）
+  #   非留空: 只用这一个，不再自动探测。可填：
+  #           - 裸名字，如  python3.14                    （走 PATH）
+  #           - 绝对路径，如 /usr/bin/python3.14
+  #           - venv 解释器，如 /opt/asa-venv/bin/python
+  #           - pyenv 版本解释器，如 ~/.pyenv/versions/3.14.0/bin/python
+  #             （用 versions/<x>/bin/python 真实路径，不要用 ~/.pyenv/shims/python）
+  #   要求 Python >= 3.10；降权运行时该解释器需能被降权用户读取/执行（别放在某个用户 HOME 下）
+  umu_python_bin: ""
   # false 时完全不联网下载 umu/GE-Proton，缺失的组件只会在
   # GET /api/system/preflight 里报告，不会自动尝试修复
   auto_download: true

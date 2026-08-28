@@ -155,6 +155,12 @@ type LinuxConfig struct {
 	PrefixMode string `mapstructure:"prefix_mode"`
 	// PrefixDir 留空 = {BaseDir}/umu-prefix。
 	PrefixDir string `mapstructure:"prefix_dir"`
+	// UmuPythonBin：执行 umu-launcher zipapp 的 Python 解释器。
+	// 留空 = 自动探测系统 python3 / python3.10…python3.N，多个取最高版本（不动系统默认 python3，
+	// 也不会自动发现 venv/pyenv）。非空 = 只用这一个、不再自动探测，可填裸名字（python3.14）、
+	// 绝对路径，或 venv / pyenv 的解释器路径（~ 会展开）。要求 Python >= 3.10。
+	// 见 docs/UMU_PYTHON_DISCOVERY_PLAN.md。
+	UmuPythonBin string `mapstructure:"umu_python_bin"`
 	// AutoDownload 为 false 时 EnsureRuntime 完全不联网，缺失的运行时组件
 	// 只会体现为 Preflight 报告里的问题，不会自动尝试修复。
 	AutoDownload bool   `mapstructure:"auto_download"`
@@ -573,6 +579,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("linux.proton_version", d.Linux.ProtonVersion)
 	v.SetDefault("linux.prefix_mode", d.Linux.PrefixMode)
 	v.SetDefault("linux.prefix_dir", "")
+	v.SetDefault("linux.umu_python_bin", "")
 	v.SetDefault("linux.auto_download", d.Linux.AutoDownload)
 	v.SetDefault("linux.gameid", d.Linux.GameID)
 	v.SetDefault("linux.umu_runtime_user", d.Linux.UmuRuntimeUser)

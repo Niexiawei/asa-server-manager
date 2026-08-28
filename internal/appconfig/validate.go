@@ -176,6 +176,10 @@ func (l *LinuxConfig) validate() error {
 	if l.GameID == "" {
 		return fmt.Errorf("linux.gameid: 不得为空")
 	}
+	// 只做去空白：是否存在 / 可执行 / 版本 >= 3.10 / ~ 展开，都由 runner 在 Linux
+	// 上真正解析时校验（validate 跨平台跑，这里 stat 没意义）。
+	l.UmuPythonBin = strings.TrimSpace(l.UmuPythonBin)
+
 	l.UmuRuntimeUser = strings.TrimSpace(l.UmuRuntimeUser)
 	if l.UmuRuntimeUser == "" {
 		l.UmuRuntimeUser = "asa-umu-runtime"
