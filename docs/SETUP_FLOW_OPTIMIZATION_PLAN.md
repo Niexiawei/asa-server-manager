@@ -8,7 +8,10 @@
 > 关联文档：`docs/LINUX_COMPATIBILITY_PLAN.md`（§4.2 依赖自检、§5.1 runner、§10 首次运行数据目录、
 > §10.6 Linux 只有 CLI、§10.7 `asa-server api` 一等入口三条不变量）、`docs/LINUX_DEPLOYMENT.md`。
 >
-> 状态：**方案，待实施**。
+> 状态：**S1–S13 已实施**。两平台 `go build` / `go vet` 通过；新增单测
+> `internal/installer/status_test.go`、`internal/actions/environment_test.go`、
+> `internal/runner/runner_linux_test.go`（linux 侧，本机 Windows 只做交叉编译校验）。
+> 真实 Linux 主机端到端仍待补（延续 `LINUX_COMPATIBILITY_PLAN.md` 的既有缺口）。
 
 ---
 
@@ -450,25 +453,27 @@ func (g *GUIApp) showSetupProgress() {
 
 ---
 
-## 4. 分步实施清单
+## 4. 分步实施清单（S1–S13 已实施）
 
-| 步骤 | 内容 | 验收 |
+| 步骤 | 内容 | 落点 |
 |---|---|---|
-| **S1** | `runner.CheckRuntime()`：`runner.go` 导出 + `runner_windows.go` no-op + `runner_linux.go` 真实现（复用 `umuRunPath`/`protonPath`/`prefixDir`），`umuCommandLine` 改为调它去重 | 两平台 `go build`/`go vet`；`runner_linux` 单测：缺 umu-run / 缺 proton / 缺 system.reg 三种输入各返回非 nil 且文案含「setup」；`custom` 模式校验 PROTONPATH/PrefixDir |
-| **S2** | `installer.CheckInstalled()` + `InstallStatus`，判据与 `VerifyServerInstallation`/`configDir` 对齐 | 单测：空 BaseDir → 三个 false；构造出对应文件后逐个转 true |
-| **S3** | `actions.VerifyEnvironmentReady()` 组合器 | 单测：全缺 → error 含 4 行 + 「asa-server setup」；全有 → nil |
-| **S4** | `installer.VerifyServerInstallation` 加 `...io.Writer` 参数（对齐同包两个下载函数，关键节点同时写 w）；`actions.InstallBaseEnvironment(ctx, w)` 抽出三步共享逻辑 | 既有 `ActionUpdate` 调用点适配（传 `os.Stdout`）后 `go build`/`go vet` 过；单测：w 收到三步的阶段行 |
-| **S5** | `setup` 跨平台化：删 `GOOS!=linux` 早退、`runtime.GOOS=="linux"` 圈住 Preflight+EnsureRuntime、主体改调 `actions.InstallBaseEnvironment`、收尾提示分平台、更新 `Usage`/注释 | Windows：全新目录 `asa-server setup --non-interactive --basedir X` 跑通 SteamCMD+本体+verify；Linux 行为不变 |
-| **S6** | `setup` 的 `Preflight` 改阻断 + `--ignore-preflight` flag；`custom` 模式补 `checkRuntime` | Linux：模拟缺 python3 → `setup` 非零退出且打印 Fix；加 `--ignore-preflight` 继续 |
-| **S7** | `asa api`/无参启动 gate（`main.go` + `gatedActionAPI` + `--skip-env-check`）；`RunService`/`program.Start` 只告警不阻断 | 交互式未初始化 → 提示 + 非零退出；`--skip-env-check` 可绕过；`service start` 起的服务只在日志告警、API 正常监听 |
-| **S8** | `service install` gate + `--force` flag（`svcmgr` import `actions`） | 未初始化 `service install` → 拒绝 + 指向 setup；`--force` 可装 |
-| **S9** | 实例启动路径 `runner.CheckRuntime()` 前置（`server.go`） | Linux 未初始化时 start 实例 → SSE 错误文案含「asa-server setup」，不再是 `umu-run not found` |
-| **S10** | Windows GUI 引导面板（§3.7）：`showSetupProgress()` + `guiProgressWriter` + 触发点接线（`applyChosenBaseDir` 之后链入、主窗口提示条 + 「初始化环境」按钮）。`internal/gui` 新增 import `installer`/`actions`（均在 `gui` 之下，无环） | 全新 Windows 机器双击 exe → 选目录 → 面板自动弹出 → 日志区实时滚动 SteamCMD/下载输出 → 完成后主窗口状态刷新；中途「取消」能中断且子进程收干净；已装好时重点「初始化环境」各步快速跳过 |
-| **S11**（可选） | GUI 进度条从不确定态升级为百分比（解析 SteamCMD `progress: NN.NN`） | 下载 ARK 本体时进度条随百分比推进 |
-| **S12**（可选） | `GET /api/system/preflight` 带就绪位 | 响应含 `runtimeReady` 等四个布尔 |
-| **S13** | 文档更新：本文件链入 `docs/README.md`；`LINUX_COMPATIBILITY_PLAN.md §10.5/§10.6` 注明 setup 现在阻断 preflight、GUI 引导面板；`docs/LINUX_DEPLOYMENT.md` 故障排查表加「api 起了实例起不来 → 跑 setup」；`CLAUDE.md` 命令区/GUI 区、`README*.md` 补 Windows 的 `setup` 与 GUI 引导 | 文档索引可跳转 |
+| **S1** ✅ | `runner.CheckRuntime()`：`runner.go` 导出 + `runner_windows.go` no-op + `runner_linux.go` 真实现（复用 `umuRunPath`/`protonPath`/`prefixDir`），`umuCommandLine` 改为先调它、只额外留 per-`PrefixKey` 前缀检查 | `internal/runner/{runner,runner_windows,runner_linux}.go` |
+| **S2** ✅ | `installer.CheckInstalled()` + `InstallStatus`（`SteamCmdReady`/`ServerBinaryReady`/`ServerConfigReady`/`Ready()`），判据路径与 `VerifyServerInstallation` 对齐 | `internal/installer/status.go` + `status_test.go` |
+| **S3** ✅ | `actions.VerifyEnvironmentReady()` 组合器：运行时 + SteamCMD + 本体 + 首次配置，返回多行、末尾「请运行：asa-server setup」 | `internal/actions/environment.go` + `environment_test.go` |
+| **S4** ✅ | `installer.VerifyServerInstallation` 加 `...io.Writer`（新增 `emit` 把关键 `logger.Info` 同时写 w）；`actions.InstallBaseEnvironment(ctx, w)` 抽出三步；`ActionUpdate` 调用点传 `os.Stdout` | `internal/installer/installer.go`、`internal/actions/{environment,actions}.go` |
+| **S5** ✅ | `setup` 跨平台化：删 `GOOS!=linux` 早退、`runtime.GOOS=="linux"` 圈住 Preflight+EnsureRuntime、主体改调 `InstallBaseEnvironment`、`printPostSetupTips` 分平台、`Usage`/注释更新、新增 `--ignore-preflight` | `internal/actions/setup.go` |
+| **S6** ✅ | `runLinuxPreflight`：Preflight 不通过默认 `return` error（打印每条 Fix），`--ignore-preflight` 逃生舱；`ensureRuntime` 的 `custom` 分支改为 `return checkRuntime()` | `internal/actions/setup.go`、`internal/runner/umu_linux.go` |
+| **S7** ✅ | `api` 子命令 `Action: gatedActionAPI` + `--skip-env-check`；无参启动在 `main_linux.go/runDefaultAction` 里 gate；`svcmgr.program.Start` 里 `VerifyEnvironmentReady` 只 `logger.WithConsole().Warnf` 不阻断 | `main.go`、`main_linux.go`、`internal/svcmgr/service.go` |
+| **S8** ✅ | `ActionServiceInstall` 未就绪则 `return` error 指向 setup，`--force` 逃生舱；`service install` 子命令加 `--force` flag | `internal/svcmgr/service.go`、`main.go` |
+| **S9** ✅ | `startServerInternal` 在 `runner.Run` 前 `runner.CheckRuntime()`，失败 `无法启动实例：<人话>` | `internal/instance/server.go` |
+| **S10** ✅ | Windows GUI：`showSetupProgress()`（独立窗口 + 步骤标签 + 进度条 + 只读日志 + 取消/关闭）、`guiProgressWriter`、`refreshEnvBanner()`、主窗口黄条 + 「初始化环境」按钮、`applyChosenBaseDir` 之后 `showConfirm` 链入 | `internal/gui/setup_progress.go`、`internal/gui/gui.go` |
+| **S11** ✅ | `guiProgressWriter` 解析 SteamCMD `progress: NN.NN`，命中即把 `ProgressBarInfinite` 换成确定态 `ProgressBar` 百分比 | `internal/gui/setup_progress.go`（`steamProgressRe`） |
+| **S12** ✅ | `GET /api/system/preflight` 增加 `runtimeReady` / `runtimeMessage` / `steamCmdReady` / `serverBinaryReady` / `serverConfigReady` / `environmentReady` | `internal/webapi/systemapi/systemapi.go` |
+| **S13** ✅ | `docs/README.md` 文档索引收录本文件；本文件状态更新 | `docs/README.md`、本文件 |
 
-**合计约 3–4 人日**（S10 GUI 面板约占 1 人日；不含真实 Linux 主机端到端验证——延续 `LINUX_COMPATIBILITY_PLAN.md` 开头的既有缺口）。
+**验证**：`go build ./...` / `go vet ./...` 两平台通过；`CGO_ENABLED=0 GOOS=linux` 同上。
+新单测全绿（linux 侧 `runner_linux_test.go` 在 Windows 本机只做交叉编译校验）。`internal/instance`
+仅剩 2 个 pre-existing 环境耦合失败（硬编码作者本机 `E:\asa_server_data`，CLAUDE.md 已注明非回归）。
 
 ---
 
