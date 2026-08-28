@@ -17,7 +17,7 @@ Wine/Proton（经 [umu-launcher](https://github.com/Open-Wine-Components/umu-lau
 | 依赖 | 用途 | 典型安装（Debian/Ubuntu） |
 |---|---|---|
 | 32 位 glibc | Wine 是 32/64 位混合二进制 | `apt install libc6-i386` |
-| Python ≥ 3.10 | umu-launcher 本身是 Python 写的 | `apt install python3` |
+| Python ≥ 3.10 | umu-launcher 本身是 Python 写的 | `apt install python3`（系统自带过低见下方「低版本系统的 Python」） |
 | `libzstd.so.1` | Steam Linux Runtime 依赖 | `apt install libzstd1` |
 | `tar` | 解压 SteamCMD/GE-Proton/umu 归档 | 通常预装 |
 | AppArmor 允许非特权 user namespace | pressure-vessel 沙箱需要；Ubuntu 23.10+ 默认限制 | `sysctl kernel.apparmor_restrict_unprivileged_userns=0`（永久生效需写 `/etc/sysctl.d/`） |
@@ -29,6 +29,31 @@ sysctl vm.max_map_count
 # 太低（远小于 262144）时：
 sysctl -w vm.max_map_count=262144
 ```
+
+### 低版本系统的 Python（RHEL 8 / Ubuntu 20.04 / Debian 11 等）
+
+这些发行版自带的 `python3` 低于 3.10，且**不应该替换**（系统组件绑死在它上面）。做法是**并行安装**
+一个带版本号的解释器，asa-server 会自动扫描 `python3` / `python3.10` … `python3.20` 并选最高版本：
+
+| 发行版系 | 命令 |
+|---|---|
+| Debian/Ubuntu | `add-apt-repository ppa:deadsnakes/ppa && apt install python3.12` |
+| RHEL/Alma/Rocky | `dnf install python3.12` |
+| Arch | `pacman -S python`（已是最新） |
+
+也可以在 `config.yaml` 的 `linux.umu_python_bin` 里**显式指定**一个解释器，指定后就不再自动探测：
+
+```yaml
+linux:
+  umu_python_bin: "python3.14"                          # 裸名字，走 PATH
+  # umu_python_bin: "/usr/bin/python3.14"               # 绝对路径
+  # umu_python_bin: "/opt/asa-venv/bin/python"          # venv
+  # umu_python_bin: "~/.pyenv/versions/3.14.0/bin/python"  # pyenv（用真实路径，别用 shims/）
+```
+
+> **降权运行注意**：以 root 运行、游戏进程降权到 `asa-umu-runtime` 时，选定的解释器必须能被那个非 root
+> 用户读取/执行。把 venv/pyenv 放到某个用户的 HOME 下（如 `/root/.pyenv`）会导致启动失败——放到
+> `/opt` 或系统路径。`GET /api/system/preflight` 的 `umuPython` 字段会显示最终解析到的解释器路径与版本。
 
 系统信任存储写入（`cert install`）需要以下二选一，两者都没有会导致该命令报错（不影响 HTTPS 本身，只影响
 浏览器是否报证书警告）：

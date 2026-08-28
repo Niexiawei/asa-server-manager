@@ -225,7 +225,7 @@ internal/
 | 依赖 | 用途 | 缺失症状 |
 |---|---|---|
 | **32 位 glibc**（`libc6:i386` / `glibc.i686` / `lib32-glibc`） | SteamCMD 是 32 位 ELF | 内核对存在的文件返回 `ENOENT` |
-| **python3 ≥ 3.10** | 跑 umu zipapp | zipapp 无法执行 |
+| **Python ≥ 3.10**（`python3` 或 `python3.10`…`python3.N` 任一即可，多个取最高版本；也可用 `linux.umu_python_bin` 显式指定 venv/pyenv 解释器） | 跑 umu zipapp，并用该解释器固定后续所有 umu-run 调用 | zipapp 无法执行；系统默认 `python3` 过低时不再直接卡死（见 `docs/UMU_PYTHON_DISCOVERY_PLAN.md`） |
 | **libzstd.so.1** | umu 的 pyzstd 链接它 | umu import 失败 |
 | `tar` | 解 GE-Proton / steamcmd | — |
 | `kernel.apparmor_restrict_unprivileged_userns = 0` | pressure-vessel 的 bwrap 建容器 | `bwrap: setting up uid map: Permission denied`（Ubuntu 23.10+ 默认开启） |

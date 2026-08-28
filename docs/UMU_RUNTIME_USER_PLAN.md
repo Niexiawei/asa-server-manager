@@ -486,6 +486,7 @@ linux:
 | 7 | **`asa-server` 将来若真的改成非 root**（§5.8 万一翻案） | 那时 runtime 产物属主是 `asa-umu-runtime`，非 root 的 asa-server（另一个 uid）可能读不到日志/存档做备份 | 届时让 asa-server 进程加入 `asa-umu-runtime` 组，或本方案改用「共享组 + setgid」而非纯 chown。当前不预先复杂化 |
 | 8 | **极简容器无 `useradd`** | 建用户失败 → `asa-server` 拒绝启动 | §4.3：报错给三条出路（手动建 / 指定既有 uid / 显式 `umu_run_as_root: true`）。容器场景本就常以非 root 跑整个进程，那时 `euid!=0`、自检 no-op，不受影响 |
 | 9 | **启动自检是抽样，可能漏报属主漂移** | `verifyRuntimeAccess` 为了不拖慢启动只抽查 prefix 等大目录里的少量深层条目，带外把某个中间子目录 `chown root` 可能抽不到 | 逐文件的正确性由**同一次启动动作里先跑的** `reconcileRuntimeOwnership` 全量 `WalkDir` 保证；自检只是它之后的便宜复查。实例门禁处的 deep-probe（真实 `touch`/`unlink`）是第二道网。真要根治得靠 reconcile，不是靠自检 |
+| 10 | **降权用户执行不到选定的 Python 解释器** | `linux.umu_python_bin`（或自动探测命中的解释器）若在某个用户 HOME 下（`/root/.pyenv`、`/home/foo/venv`）或权限 700，preflight 以 root 跑会「通过」，实际降权启动 `umu-run` 时 `EACCES`。系统解释器 `/usr/bin/python3.*`（0755）无此问题 | 文档要求把 venv/pyenv 放 `/opt` 或系统路径。二期：deep-probe 里以降权身份 `python -c 'pass'` 真跑一次，失败点名「解释器在 HOME 下，降权用户读不到」。见 `docs/UMU_PYTHON_DISCOVERY_PLAN.md` §4 |
 | 3c | **自定义 systemd 模板随 kardianos 升级漂移** | 用 `Option["SystemdScript"]` 传的是一份**基于 kardianos v1.3.0 内置模板**的副本，上游改了内置模板我们不会自动跟上（`LINUX_COMPATIBILITY_PLAN.md` §5.8 当初正是为了躲这个才没自定义模板） | 模板常量集中放一处、注释标明「fork 自 kardianos vX.Y.Z 的 `systemdScript`，仅加/改了带 `# asa-server:` 标记的行」；`go.mod` 升 kardianos 时把这个常量列入必查项。改动面小（见 §9.3b 的 diff，仅一行），re-diff 成本低。收益（`RestartPreventExitStatus` 这个 key kardianos 的 `Option` 表根本没有，不 fork 模板就表达不了）值这个代价 |
 
 ### 9.3b 的 systemd 模板改法
