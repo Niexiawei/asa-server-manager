@@ -28,7 +28,7 @@ func ActionUpdate(ctx context.Context, cmd *cli.Command) error {
 	forceServer := cmd.Bool("force-server")
 
 	// Verify server installation by running it to generate config files
-	if err := installer.VerifyServerInstallation(ctx, forceServer); err != nil {
+	if err := installer.VerifyServerInstallation(ctx, forceServer, stdoutFmt); err != nil {
 		return err
 	}
 

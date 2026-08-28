@@ -346,7 +346,20 @@ func DownloadAndUpdateArkServer(ctx context.Context, outputCallback ...io.Writer
 // VerifyServerInstallation checks if server configuration directory exists
 // If not, it runs the server to generate initial configuration files
 // force parameter: if true, will re-run server verification even if config exists
-func VerifyServerInstallation(ctx context.Context, force bool) error {
+// outputCallback is an optional writer for streaming progress (same shape as
+// DownloadAndExtractSteamCmd / DownloadAndUpdateArkServer).
+func VerifyServerInstallation(ctx context.Context, force bool, outputCallback ...io.Writer) error {
+	var outputWriter io.Writer
+	if len(outputCallback) > 0 && outputCallback[0] != nil {
+		outputWriter = outputCallback[0]
+	}
+	emit := func(msg string) {
+		logger.Info(msg)
+		if outputWriter != nil {
+			_, _ = outputWriter.Write([]byte(msg + "\n"))
+		}
+	}
+
 	// 本函数会从 server-files 拉起一个服务端进程，且不指定 -Port（占默认 7777），
 	// 与运行中的实例既撞端口又共用文件，必须同样拦下
 	if err := beginServerFilesUpdate(); err != nil {
@@ -358,13 +371,13 @@ func VerifyServerInstallation(ctx context.Context, force bool) error {
 
 	// Check if configuration directory already exists
 	if _, err := os.Stat(configDir); err == nil && !force {
-		logger.Info("Server configuration directory already exists. Skipping initial verification.")
+		emit("Server configuration directory already exists. Skipping initial verification.")
 		return nil
 	}
 
 	if force {
 		if _, err := os.Stat(configDir); err == nil {
-			logger.Info("Force verification enabled. Re-running server verification...")
+			emit("Force verification enabled. Re-running server verification...")
 		}
 	}
 
@@ -384,7 +397,7 @@ func VerifyServerInstallation(ctx context.Context, force bool) error {
 	}
 
 	if !force {
-		logger.Info("First installation detected. Running server to generate configuration files...")
+		emit("First installation detected. Running server to generate configuration files...")
 	}
 
 	// Get the logs directory path
@@ -397,7 +410,7 @@ func VerifyServerInstallation(ctx context.Context, force bool) error {
 		logger.Warnf("Failed to get a free UDP port, falling back to 7777: %v", err)
 		port = 7777
 	}
-	logger.Infof("Running server verification on port %d...", port)
+	emit(fmt.Sprintf("Running server verification on port %d (this can take up to 3 minutes on first run)...", port))
 
 	// Start the server to generate config files. On Windows this is a plain
 	// exec of arkExe; on Linux runner.Run wraps it in umu-run (Wine/Proton) —
@@ -451,7 +464,7 @@ func VerifyServerInstallation(ctx context.Context, force bool) error {
 		return fmt.Errorf("server verification failed: %w", waitErr)
 	}
 
-	logger.Info("Server verification completed. Configuration files generated.")
+	emit("Server verification completed. Configuration files generated.")
 	return nil
 }
 
