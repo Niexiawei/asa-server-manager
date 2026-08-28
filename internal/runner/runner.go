@@ -159,6 +159,20 @@ func RuntimeUserStatus() RuntimeUserInfo { return runtimeUserInfo() }
 // Not part of Preflight() — see preflight_linux.go's runtimeUserProblems.
 func RuntimeUserProblems() []Problem { return runtimeUserProblems() }
 
+// RuntimePythonInfo reports which Python interpreter umu-run runs under
+// (Linux only — umu-run is a zipapp). On Windows it is always {Resolved:true}
+// with empty fields: there is no Python in the launch path.
+type RuntimePythonInfo struct {
+	Resolved bool   `json:"resolved"`
+	Path     string `json:"path"`
+	Version  string `json:"version"` // "3.14" etc.
+	Source   string `json:"source"`  // "config" | "auto" | ""
+}
+
+// RuntimePython resolves (and memoises) the interpreter used to execute the
+// umu-launcher zipapp. Empty {Resolved:true} on Windows.
+func RuntimePython() RuntimePythonInfo { return runtimePython() }
+
 // Config is the Linux runtime configuration described in
 // docs/LINUX_COMPATIBILITY_PLAN.md §7 (the `linux:` config.yaml section).
 // Windows builds accept and ignore it via Configure so main.go's
@@ -179,6 +193,15 @@ type Config struct {
 	PrefixMode string
 	// PrefixDir overrides the default {BaseDir}/umu-prefix location.
 	PrefixDir string
+	// PythonBin selects the interpreter that runs the umu-launcher zipapp
+	// (Linux only). Empty = auto-detect a system python3 (python3,
+	// python3.10 … python3.N, highest wins). Non-empty = use exactly this
+	// one, with no auto-detect fallback: a bare name resolved via PATH
+	// ("python3.14"), an absolute path, or a venv/pyenv interpreter path
+	// ("/opt/asa-venv/bin/python", "~/.pyenv/versions/3.14.0/bin/python" —
+	// "~" is expanded). Must be Python >= 3.10. See
+	// docs/UMU_PYTHON_DISCOVERY_PLAN.md.
+	PythonBin string
 	// AutoDownload false means EnsureRuntime never touches the network —
 	// missing runtime pieces are reported as Preflight problems instead.
 	AutoDownload bool

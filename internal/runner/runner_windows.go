@@ -75,3 +75,7 @@ func checkRuntime() error { return nil }
 
 // preflight has nothing to check on Windows.
 func preflight() []Problem { return nil }
+
+// runtimePython: there is no Python in the Windows launch path (the ARK exe
+// runs directly), so this is trivially "resolved" with empty fields.
+func runtimePython() RuntimePythonInfo { return RuntimePythonInfo{Resolved: true} }
