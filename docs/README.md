@@ -186,7 +186,7 @@ asa-server/
 |------|------|
 | [LINUX_COMPATIBILITY_PLAN.md](LINUX_COMPATIBILITY_PLAN.md) | Linux 兼容改造方案：耦合点清单、抽象层设计、分阶段实施记录（P0–P5 已实施） |
 | [LINUX_DEPLOYMENT.md](LINUX_DEPLOYMENT.md) | Linux 部署指南：依赖清单、安装步骤、systemd 服务化、故障排查 |
-| [UMU_RUNTIME_USER_PLAN.md](UMU_RUNTIME_USER_PLAN.md) | umu 运行时降权：asa-server 保持 root，但游戏实例的 umu/wine 进程树自动降到专用非 root 用户 `asa-umu-runtime`（设计方案，未实施） |
+| [UMU_RUNTIME_USER_PLAN.md](UMU_RUNTIME_USER_PLAN.md) | umu 运行时降权：asa-server 保持 root，但游戏实例的 umu/wine 进程树自动降到专用非 root 用户 `asa-umu-runtime`（首轮实现已落地，真机验证待补） |
 | [SETUP_FLOW_OPTIMIZATION_PLAN.md](SETUP_FLOW_OPTIMIZATION_PLAN.md) | 环境未初始化时的引导：`setup` 跨平台化、`api`/`service install` 就绪门禁、Windows GUI 带实时进度的初始化面板（已实施） |
 
 ### 功能设计

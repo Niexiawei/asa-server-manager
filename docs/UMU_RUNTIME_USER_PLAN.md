@@ -1,6 +1,9 @@
 # umu 运行时降权：以专用非 root 用户 `asa-umu-runtime` 执行游戏实例
 
-> 状态：**设计方案，未实施**。本文只给设计与实施清单，代码尚未落地。
+> 状态：**首轮实现已落地**（`GOOS=linux`/`GOOS=windows` 双平台 `go build`/`go vet` 通过，
+> 新增跨平台可跑单测）。**真实 Linux 主机上的端到端验证仍待补**——降权后 umu/bwrd/wine 能否
+> 正常拉起、PTS 属主坑（§9 风险 1）、SELinux/NFS 交互等只做到编译与逻辑走查。
+> §10 验收判据即真机待办清单。
 >
 > 关联文档：
 > - `LINUX_COMPATIBILITY_PLAN.md` §4.1（目录布局）、§5.1（`runner` 抽象）、§5.4（停止/`kill(-pgid)`）、
@@ -492,25 +495,21 @@ kardianos/service 的 systemd 后端支持 `Option["SystemdScript"]` 覆盖**整
 `systemdScript` **原样抄成一个包级常量**，只加/改带 `# asa-server:` 标记的行，然后在
 `configurePlatform` 里 `cfg.Option["SystemdScript"] = umuRuntimeSystemdScript`。
 
-相对内置模板，**只有两处改动**：
+相对内置模板，**只加两行**，插在无条件的 `RestartSec=120` 之后（不放进任何 `{{if}}` 守卫，
+保证一定渲染出来）：
 
 ```diff
- [Service]
- StartLimitInterval=5
- StartLimitBurst=10
- ExecStart={{Path | cmdEscape}}{{range Arguments}} {{. | cmd}}{{end}}
- ...
-+# asa-server: 降权环境不满足时进程以 78 (EX_CONFIG) 退出；这类退出重试无意义，
-+# asa-server: 直接进 failed，不参与 Restart=on-failure 自愈。见 docs/UMU_RUNTIME_USER_PLAN.md §9 风险 3b
-+RestartPreventExitStatus=78
- {{if SuccessExitStatus}}SuccessExitStatus={{SuccessExitStatus}}
+ {{end}}{{if SuccessExitStatus}}SuccessExitStatus={{SuccessExitStatus}}
  {{end}}RestartSec=120
++# asa-server: exit 78 (EX_CONFIG) = drop-privileges runtime user unavailable; retrying cannot fix it
++RestartPreventExitStatus=78
  EnvironmentFile=-/etc/sysconfig/{{Name}}
 ```
 
-（第二处「改动」其实是不改：内置模板里 `RestartSec=120`、`StartLimitInterval=5` /
-`StartLimitBurst=10` 全部保留，`LINUX_COMPATIBILITY_PLAN.md` §5.8 已接受这套默认值。
-`RestartPreventExitStatus` 是唯一新增行。`EnvVars["HOME"]` 经 `{{range EnvVars}}` 照常渲染。）
+内置模板里 `RestartSec=120`、`StartLimitInterval=5` / `StartLimitBurst=10` 全部保留不动
+（`LINUX_COMPATIBILITY_PLAN.md` §5.8 已接受这套默认值），`EnvVars["HOME"]` 经
+`{{range EnvVars}}` 照常渲染。单测 `TestUmuRuntimeSystemdScript_IsKardianosPlusExactlyTheForkLines`
+把这两行剔掉后与 kardianos v1.3.0 的 `systemdScript` 逐字比对，升级 kardianos 时它会红。
 
 - 退出码 `78` 定义成 `const exitRuntimeUserUnsatisfied = 78`（`main` 包），
   `main` 里自检失败时 `os.Exit(78)`；其它错误路径不用这个码。

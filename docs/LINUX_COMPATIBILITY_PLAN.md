@@ -619,6 +619,15 @@ svcConfig.UserName = "asa"     // 不要用 root
 > （`sudo` 不加 `-E` 时就是 root 的 `/root`）直接写死进 unit 的 `Environment=`，而不是留给 systemd
 > 运行时环境去决定——后者正是设计文本标 ⚠️ 的那个坑。**未验证**：真实 systemd 环境下
 > `service install/start/stop/remove` 全流程、以及 `LimitNOFILE`/`HOME` 是否如预期生效。
+>
+> **后续（`UMU_RUNTIME_USER_PLAN.md`，已实现）**：上面第 2 条「不自动创建/切换专用用户」的结论
+> 被一个**更窄**的方案替代——`asa-server` 服务进程**仍然是 root**（`UserName` 仍为空），但
+> **每个游戏实例的 umu/wine 进程树在启动时被 `SysProcAttr.Credential` 降权到专用非 root 用户
+> `asa-umu-runtime`**，该用户由程序按需 `useradd -r` 自动创建、相关运行时子树自动 chown。
+> 第 1 条「不自定义 kardianos 模板」的取舍也被有意推翻：为了给 unit 加一行
+> `RestartPreventExitStatus=78`（降权环境不满足时 `asa-server` 以 78/`EX_CONFIG` 退出、systemd
+> 不重试），`svcmgr` 现在通过 `Option["SystemdScript"]` 传一份 fork 自 kardianos v1.3.0 内置模板
+> 的自定义模板（`internal/svcmgr/systemd_script_linux.go`，drift 风险按该文档 §9.3c 接受）。
 
 ### 5.9 `internal/gui` —— Linux 排除
 

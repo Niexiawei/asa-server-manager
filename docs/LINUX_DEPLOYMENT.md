@@ -97,19 +97,37 @@ sudo ./asa-server service remove    # 同时联动清理已安装的本地 CA（
   每次启动都重新下载运行时，或者直接崩在 steamclient
 - 加 `LimitNOFILE=1048576`（ARK + Wine 打开的文件描述符数量很大）、`Restart=on-failure`、
   `After=network-online.target`
-- **默认以 root 运行**并打印警告：ARK/Proton 生态普遍假设非 root，pressure-vessel 的
-  非特权 user namespace 路径在 root 下行为不同。想换成专用用户：
+- **`asa-server` 服务进程本身仍以 root 运行**（写系统信任库、操作 systemd 都需要 root）。
+- **但每个游戏实例的 umu/wine 进程树会自动降权到专用非 root 用户 `asa-umu-runtime`**——
+  见下一节。
 
-  ```bash
-  sudo useradd -r -m asa
-  sudo chown -R asa:asa /path/to/BaseDir   # 服务运行账户必须能读写 BaseDir
-  sudo systemctl edit ASA-Server-Manager.service   # 加一行 User=asa
-  sudo systemctl daemon-reload
-  sudo systemctl restart ASA-Server-Manager
+### 4.1 游戏实例以专用非 root 用户运行
+
+`asa-server` 以 root 运行时，启动任何实例都会把 `umu-run` → `bwrap` → `wine` →
+`ArkAscendedServer.exe` 整棵进程树降权到专用系统用户 `asa-umu-runtime`
+（`ps -o user=` 看不到 root）。这个用户由程序**自动创建与维护**：
+
+- `asa-server setup` / `service install` / 每次服务启动时，若 `asa-umu-runtime` 不存在就
+  `useradd -r -m` 创建（家目录 `{BaseDir}/runtime-home`），并把它要读写的运行时子树
+  （`umu-prefix*`、`runtime-home`、`clusters`、实例镜像目录）`chown` 给它。
+- **降权环境准备失败时，`asa-server` 会拒绝启动**（退出码 `78`；systemd 下服务直接进
+  `failed` 不重启）。这是有意的——不会默默把公网游戏进程跑成 root。
+- 排障 / 特殊环境的逃生舱：`config.yaml` 里
+  ```yaml
+  linux:
+    umu_run_as_root: true      # 明确接受以 root 运行游戏进程，跳过降权与全部自检
+    # 或者，指向一个已存在的非 root 账号 / 固定 uid：
+    umu_runtime_user: "someuser"
+    umu_runtime_uid: 0          # 非 0 时固定数值 uid（BaseDir 跨机迁移时保持属主稳定）
   ```
+- **迁移注意**：把 `{BaseDir}` 整体搬到另一台机器前，先 `id asa-umu-runtime` 记下 uid/gid；
+  新机器上如果 `useradd -r` 分到不同的 uid，存档等目录的属主会对不上——用 `umu_runtime_uid`
+  在两边固定成同一个数值可避免。
+- **卸载**：`service remove` 不会 `userdel asa-umu-runtime`（它下面可能还有存档数据）。
+  确定不再需要时手动 `sudo userdel asa-umu-runtime`。
 
-详细设计与两处对原计划的偏离（`RestartSec` 沿用 kardianos 内置的 120s、不自动创建专用用户）
-见 `docs/LINUX_COMPATIBILITY_PLAN.md` §5.8。
+详细设计见 `docs/UMU_RUNTIME_USER_PLAN.md`。`RestartSec` 沿用 kardianos 内置的 120s
+（`docs/LINUX_COMPATIBILITY_PLAN.md` §5.8）。
 
 ## 5. 故障排查
 
@@ -124,6 +142,9 @@ sudo ./asa-server service remove    # 同时联动清理已安装的本地 CA（
 | 多实例共享 prefix 时偶发互相影响 | 共享 Wine prefix 下并发首次初始化竞争 | 已有互斥锁串行化首次初始化；持续出现可将 `linux.prefix_mode` 改成 `per-instance` 换取更强隔离（更占盘） |
 | ArkApi 插件的数据（如 Permissions 库）没有按实例隔离，感觉「每次重启被重置」 | `pluginsRelPath` 硬编码大小写 `ShooterGame/Binaries/Win64/ArkApi/Plugins`，若磁盘上实际大小写不同会静默失效 | 看启动日志里有没有「检测到 ArkApi 插件目录大小写与预期不符」的告警（P6 新增的诊断）；有的话按日志里给出的实际路径重命名，或反馈上游调整 |
 | 想确认 Wine/依赖是否齐全，不想等启动失败才知道 | — | `GET /api/system/preflight` 直接列出所有缺失项，无需翻日志 |
+| `asa-server` 启动即以退出码 `78` 退出 / systemd 服务停在 `failed` 且不重启 | 降权运行时用户 `asa-umu-runtime` 建不出来或对相关目录没权限（`useradd` 缺失、SELinux、只读挂载、NFS root_squash） | 看日志里 `[umu-runtime-*]` 开头的错误按提示修；或 `config.yaml` 设 `linux.umu_run_as_root: true` 明确以 root 运行游戏。见 4.1 |
+| 游戏进程仍以 root 运行（`ps -o user`） | `linux.umu_run_as_root: true` 已设，或 `asa-server` 本身不是 root 启动 | 按需求取舍：非 root 启动 `asa-server` 时子进程本就以当前用户跑，无需降权 |
+| 存档 / prefix 目录属主是 root，实例起不来报 `umu-runtime-owner-drift` | 手工动过 `{BaseDir}` 属主，或跨机迁移后 uid 变了 | 重启 `asa-server` 会自动 `chown` 修复；修不回来看是不是只读挂载 / SELinux。迁移场景用 `umu_runtime_uid` 固定 uid |
 
 更完整的风险清单（含已知不会在 Linux 上发生的坑，供交叉核对）见
 `docs/LINUX_COMPATIBILITY_PLAN.md` §6。
