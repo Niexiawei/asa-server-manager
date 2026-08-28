@@ -53,6 +53,9 @@ func (h *Handler) preflight(c *gin.Context) {
 			// Windows). See docs/UMU_RUNTIME_USER_PLAN.md §4.3.
 			"umuRuntimeUser":         runner.RuntimeUserStatus(),
 			"umuRuntimeUserProblems": runner.RuntimeUserProblems(),
+			// Which Python interpreter umu-run runs under (Linux; empty on
+			// Windows). See docs/UMU_PYTHON_DISCOVERY_PLAN.md.
+			"umuPython": runner.RuntimePython(),
 		},
 	})
 }

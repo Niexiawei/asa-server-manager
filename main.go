@@ -285,6 +285,7 @@ func applyAppConfig(cfg *appconfig.Config) {
 		ProtonVersion:    cfg.Linux.ProtonVersion,
 		PrefixMode:       cfg.Linux.PrefixMode,
 		PrefixDir:        cfg.Linux.PrefixDir,
+		PythonBin:        cfg.Linux.UmuPythonBin,
 		AutoDownload:     cfg.Linux.AutoDownload,
 		GameID:           cfg.Linux.GameID,
 		BaseDir:          cfgpkg.BaseDir,

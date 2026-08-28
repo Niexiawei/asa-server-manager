@@ -82,6 +82,7 @@ func ActionSetup(ctx context.Context, cmd *cli.Command) error {
 		ProtonVersion: appCfg.Linux.ProtonVersion,
 		PrefixMode:    appCfg.Linux.PrefixMode,
 		PrefixDir:     appCfg.Linux.PrefixDir,
+		PythonBin:     appCfg.Linux.UmuPythonBin,
 		AutoDownload:  appCfg.Linux.AutoDownload,
 		GameID:        appCfg.Linux.GameID,
 		BaseDir:       baseDir,
