@@ -113,6 +113,52 @@ type Problem struct {
 	Fix    string // suggested remediation command, if any ("" when there isn't one)
 }
 
+// RuntimeUserInfo summarises the drop-privileges state for the preflight API
+// (docs/UMU_RUNTIME_USER_PLAN.md §4.3). On Windows: always {Ready:true}.
+type RuntimeUserInfo struct {
+	Managed  bool   `json:"managed"`  // Linux && euid==0 && !RunAsRoot
+	Bypassed bool   `json:"bypassed"` // Linux && euid==0 && RunAsRoot
+	Name     string `json:"name"`
+	Ready    bool   `json:"ready"`
+}
+
+// EnsureRuntimeUser makes sure the dedicated non-root account the game
+// process is dropped to exists, and that the runtime-artifact subtrees it
+// writes to are owned by it. No-op on Windows, and on Linux unless
+// euid==0 && !RunAsRoot. Called synchronously from package main's startup
+// gate — a returned error means asa-server must not continue.
+func EnsureRuntimeUser(ctx context.Context) error { return ensureRuntimeUser(ctx) }
+
+// VerifyRuntimeAccess re-checks (read-only, sampled) that the runtime user
+// still exists and still has access to the directories it needs. Non-empty
+// result at startup => asa-server refuses to start. No-op on Windows.
+func VerifyRuntimeAccess() []Problem { return verifyRuntimeAccess(false) }
+
+// VerifyRuntimeAccessForLaunch is VerifyRuntimeAccess with the real-write
+// deep probe forced on — used as the per-instance start gate.
+func VerifyRuntimeAccessForLaunch() []Problem { return verifyRuntimeAccess(true) }
+
+// RuntimeHomeDir is the HOME the dropped child sees (umu's Steam Linux
+// Runtime cache + lsteamclient's ~/.steam/sdk{32,64} live under it). On
+// Windows / when not managing a user: this process's own home.
+func RuntimeHomeDir() string { return runtimeHomeDir(getConfig()) }
+
+// ChownMirrorForRuntime hands a freshly (re)built per-instance mirror dir to
+// the runtime user. No-op unless managing a dropped user.
+func ChownMirrorForRuntime(mirrorDir string) error { return chownMirrorForRuntime(mirrorDir) }
+
+// ChownTreeForRuntime chowns an arbitrary path recursively to the runtime
+// user (installer fixups use it for ~/.steam). No-op unless managing one.
+func ChownTreeForRuntime(root string) error { return chownTreeForRuntime(root) }
+
+// RuntimeUserStatus is the RuntimeUserInfo for the current config/euid.
+func RuntimeUserStatus() RuntimeUserInfo { return runtimeUserInfo() }
+
+// RuntimeUserProblems is the drop-privileges self-check result, for the
+// preflight API's diagnostics. Empty on Windows / when not managing a user.
+// Not part of Preflight() — see preflight_linux.go's runtimeUserProblems.
+func RuntimeUserProblems() []Problem { return runtimeUserProblems() }
+
 // Config is the Linux runtime configuration described in
 // docs/LINUX_COMPATIBILITY_PLAN.md §7 (the `linux:` config.yaml section).
 // Windows builds accept and ignore it via Configure so main.go's
@@ -137,6 +183,24 @@ type Config struct {
 	// missing runtime pieces are reported as Preflight problems instead.
 	AutoDownload bool
 	GameID       string
+	// RuntimeUser is the dedicated non-root account the game instance's
+	// umu/wine process tree is dropped to when asa-server itself runs as
+	// root. Empty = "asa-umu-runtime". See docs/UMU_RUNTIME_USER_PLAN.md.
+	RuntimeUser string
+	// RuntimeUID / RuntimeGID pin the account's numeric ids (0 = let
+	// useradd -r pick). Pinning keeps ownership stable when BaseDir is
+	// carried to another host — see that doc's §9 risk 2.
+	RuntimeUID int
+	RuntimeGID int
+	// RunAsRoot: true means run the game process as root on purpose and
+	// skip the whole drop-privileges path + its startup self-check. The
+	// only bypass for "asa-server refuses to start when the runtime user
+	// can't be established" (that doc's §2 / §4.3).
+	RunAsRoot bool
+	// RuntimeDeepProbe: at asa-server startup, additionally fork a dropped
+	// child that really writes a probe file (catches SELinux/ACL/mount
+	// issues a stat check misses). Always forced on at instance-launch time.
+	RuntimeDeepProbe bool
 	// BaseDir anchors every relative path this package manages
 	// ({BaseDir}/umu-launcher, {BaseDir}/proton, the default prefix dir).
 	// runner has no dependency on the config package (would create an
