@@ -126,7 +126,15 @@ func umuCommandLine(exePath string, args []string, opt Options) (bin string, lau
 	}
 	cfg := getConfig()
 
-	bin = umuRunPath(cfg)
+	// Run the umu-launcher zipapp under an explicitly resolved interpreter
+	// rather than its "#!/usr/bin/env python3" shebang — the system default
+	// may be older than the 3.10 umu needs. See docs/UMU_PYTHON_DISCOVERY_PLAN.md.
+	py, err := umuInterpreter()
+	if err != nil {
+		return "", nil, nil, err
+	}
+
+	bin = py.Path
 	proton := protonPath(cfg)
 
 	// checkRuntime validated the default shared prefix; a per-instance launch
@@ -137,7 +145,8 @@ func umuCommandLine(exePath string, args []string, opt Options) (bin string, lau
 		return "", nil, nil, fmt.Errorf("runner: Wine prefix not found at %s (call EnsureRuntime first): %w", prefix, statErr)
 	}
 
-	launchArgs = append([]string{exePath}, args...)
+	// argv: <python> <umu-run> <exe> <exe args...>
+	launchArgs = append([]string{umuRunPath(cfg), exePath}, args...)
 
 	baseEnv := opt.Env
 	if baseEnv == nil {

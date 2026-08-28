@@ -252,8 +252,12 @@ func warmPrefix(ctx context.Context, cfg Config, logf func(string, ...any)) erro
 		return fmt.Errorf("failed to hand prefix dir to the runtime user: %w", err)
 	}
 
-	bin := umuRunPath(cfg)
-	cmd := exec.CommandContext(ctx, bin, "wineboot", "--init")
+	py, err := umuInterpreter()
+	if err != nil {
+		return fmt.Errorf("failed to resolve a Python interpreter for umu-run: %w", err)
+	}
+
+	cmd := exec.CommandContext(ctx, py.Path, umuRunPath(cfg), "wineboot", "--init")
 	cmd.Env = append(os.Environ(),
 		"WINEPREFIX="+prefix,
 		"GAMEID="+cfg.GameID,

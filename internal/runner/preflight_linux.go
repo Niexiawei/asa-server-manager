@@ -67,27 +67,12 @@ func checkGlibc32() *Problem {
 	}
 }
 
-func checkPython3() *Problem {
-	path, err := exec.LookPath("python3")
-	if err != nil {
-		return &Problem{
-			Name:   "python3",
-			Detail: "python3 is required to run the umu-launcher zipapp",
-			Fix:    "Install python3 >= 3.10 via your distro's package manager",
-		}
-	}
-
-	out, err := exec.Command(path, "-c", "import sys; print(sys.version_info >= (3, 10))").Output()
-	if err != nil || strings.TrimSpace(string(out)) != "True" {
-		ver, _ := exec.Command(path, "--version").CombinedOutput()
-		return &Problem{
-			Name:   "python3-version",
-			Detail: "umu-launcher requires Python >= 3.10, found: " + strings.TrimSpace(string(ver)),
-			Fix:    "Update Python, or use a backports repo on older distros",
-		}
-	}
-	return nil
-}
+// checkPython3 verifies umu-run has an interpreter to run under: any of
+// python3 / python3.10 … python3.N / python that is >= 3.10, or the explicit
+// linux.umu_python_bin override. The scan + selection lives in
+// python_linux.go so a launch pins the exact same interpreter this check
+// blessed.
+func checkPython3() *Problem { return pythonProblem() }
 
 // libzstdPaths are common locations for libzstd.so.1, which umu's pyzstd
 // dependency links against.
