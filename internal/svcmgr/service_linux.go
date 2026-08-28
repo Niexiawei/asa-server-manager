@@ -4,6 +4,8 @@ package svcmgr
 
 import (
 	cfgpkg "asa-server/internal/config"
+	"asa-server/internal/runner"
+	"context"
 	"fmt"
 	"os"
 
@@ -43,6 +45,12 @@ func configurePlatform(cfg *service.Config) {
 	cfg.Option = service.KeyValue{
 		"LimitNOFILE": 1048576,
 		"Restart":     "on-failure",
+		// Custom unit template: identical to kardianos's built-in one plus a
+		// RestartPreventExitStatus=78 line, so a drop-privileges runtime-user
+		// failure (exit 78) goes straight to `failed` instead of
+		// restart-looping. See docs/UMU_RUNTIME_USER_PLAN.md §9.3b and
+		// systemd_script_linux.go.
+		"SystemdScript": umuRuntimeSystemdScript,
 	}
 	cfg.WorkingDirectory = cfgpkg.BaseDir
 	cfg.EnvVars = map[string]string{
@@ -71,10 +79,18 @@ func serviceHomeDir() string {
 // BaseDir, migrating an already-running root-owned install) this function
 // deliberately doesn't attempt — it only surfaces the choice.
 func warnBeforeInstall() {
-	if os.Geteuid() == 0 {
-		fmt.Println("警告: 服务将以 root 身份运行。ARK/Proton 生态普遍假设非 root，")
-		fmt.Println("      建议改用专用用户：先用 `useradd -r -m asa` 创建，装完服务后手动")
-		fmt.Printf("      执行 `systemctl edit %s.service` 加一行 User=asa，\n", ServiceName)
-		fmt.Println("      并确保该用户对 BaseDir 有读写权限，再执行 `systemctl daemon-reload`。")
+	if os.Geteuid() != 0 {
+		return
 	}
+	// asa-server itself still runs as root (see the note above / §5.8). What
+	// we now DO automate is the narrower thing: create the dedicated non-root
+	// user the game process tree gets dropped to, and hand it the runtime
+	// subtrees it needs. See docs/UMU_RUNTIME_USER_PLAN.md.
+	if err := runner.EnsureRuntimeUser(context.Background()); err != nil {
+		fmt.Println("警告: 未能自动创建降权运行时用户：")
+		fmt.Printf("      %v\n", err)
+		fmt.Println("      服务启动时会因此拒绝启动（退出码 78），除非在 config.yaml 设 linux.umu_run_as_root: true。")
+		return
+	}
+	fmt.Printf("游戏实例将以专用非 root 用户 %s 运行（asa-server 服务本身仍为 root）。\n", runner.RuntimeUserName())
 }
