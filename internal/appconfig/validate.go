@@ -176,6 +176,13 @@ func (l *LinuxConfig) validate() error {
 	if l.GameID == "" {
 		return fmt.Errorf("linux.gameid: 不得为空")
 	}
+	l.UmuRuntimeUser = strings.TrimSpace(l.UmuRuntimeUser)
+	if l.UmuRuntimeUser == "" {
+		l.UmuRuntimeUser = "asa-umu-runtime"
+	}
+	if l.UmuRuntimeUID < 0 || l.UmuRuntimeGID < 0 {
+		return fmt.Errorf("linux.umu_runtime_uid/gid: 不得为负数")
+	}
 	return nil
 }
 

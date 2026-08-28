@@ -160,4 +160,16 @@ linux:
   # GET /api/system/preflight 里报告，不会自动尝试修复
   auto_download: true
   gameid: "umu-default"
+
+  # 游戏实例以专用非 root 用户运行（仅当 asa-server 自身以 root 运行时生效），见
+  # docs/UMU_RUNTIME_USER_PLAN.md。asa-server 进程仍是 root，只有 umu/wine/游戏进程树被降权。
+  umu_runtime_user: "asa-umu-runtime"   # 不存在则自动 useradd -r 创建
+  umu_runtime_uid: 0                     # 非 0 时固定 uid（BaseDir 跨机迁移时保持属主稳定）
+  umu_runtime_gid: 0                     # 非 0 时固定 gid
+  # true = 有意以 root 运行游戏进程：不降权、跳过全部自检。
+  # 这是「降权环境不满足时 asa-server 拒绝启动」的唯一绕过开关。
+  # 默认 false —— 宁可服务起不来，也不默默把公网游戏进程跑成 root。
+  umu_run_as_root: false
+  # asa-server 启动自检时是否 fork 降权子进程做真实写探测（实例启动门禁处恒为开）
+  umu_runtime_deep_probe: false
 `

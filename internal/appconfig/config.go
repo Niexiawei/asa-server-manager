@@ -159,6 +159,21 @@ type LinuxConfig struct {
 	// 只会体现为 Preflight 报告里的问题，不会自动尝试修复。
 	AutoDownload bool   `mapstructure:"auto_download"`
 	GameID       string `mapstructure:"gameid"`
+
+	// 以下为「游戏实例以专用非 root 用户运行」相关配置，见
+	// docs/UMU_RUNTIME_USER_PLAN.md。仅当 asa-server 自身以 root 运行时生效。
+	//
+	// UmuRuntimeUser：降权运行游戏进程的专用账号；不存在则自动 useradd -r。
+	UmuRuntimeUser string `mapstructure:"umu_runtime_user"`
+	// UmuRuntimeUID / UmuRuntimeGID：非 0 时固定数值 uid/gid（BaseDir 跨机迁移时保持属主稳定）。
+	UmuRuntimeUID int `mapstructure:"umu_runtime_uid"`
+	UmuRuntimeGID int `mapstructure:"umu_runtime_gid"`
+	// UmuRunAsRoot：true = 有意以 root 运行游戏进程，不降权、跳过全部自检。
+	// 这是「降权环境不满足时 asa-server 拒绝启动」的唯一绕过开关。
+	UmuRunAsRoot bool `mapstructure:"umu_run_as_root"`
+	// UmuRuntimeDeepProbe：asa-server 启动自检时是否 fork 降权子进程做真实写探测。
+	// 实例启动门禁处恒为开，此项只管 asa-server 启动那一次。
+	UmuRuntimeDeepProbe bool `mapstructure:"umu_runtime_deep_probe"`
 }
 
 // current 让读侧无锁：热重载时整体换指针即可。
@@ -494,12 +509,13 @@ func defaultConfig() Config {
 			Retries: 3,
 		},
 		Linux: LinuxConfig{
-			Runtime:       "umu",
-			UmuVersion:    "1.4.4",
-			ProtonVersion: "GE-Proton10-34",
-			PrefixMode:    "shared",
-			AutoDownload:  true,
-			GameID:        "umu-default",
+			Runtime:        "umu",
+			UmuVersion:     "1.4.4",
+			ProtonVersion:  "GE-Proton10-34",
+			PrefixMode:     "shared",
+			AutoDownload:   true,
+			GameID:         "umu-default",
+			UmuRuntimeUser: "asa-umu-runtime",
 		},
 	}
 }
@@ -559,4 +575,9 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("linux.prefix_dir", "")
 	v.SetDefault("linux.auto_download", d.Linux.AutoDownload)
 	v.SetDefault("linux.gameid", d.Linux.GameID)
+	v.SetDefault("linux.umu_runtime_user", d.Linux.UmuRuntimeUser)
+	v.SetDefault("linux.umu_runtime_uid", d.Linux.UmuRuntimeUID)
+	v.SetDefault("linux.umu_runtime_gid", d.Linux.UmuRuntimeGID)
+	v.SetDefault("linux.umu_run_as_root", d.Linux.UmuRunAsRoot)
+	v.SetDefault("linux.umu_runtime_deep_probe", d.Linux.UmuRuntimeDeepProbe)
 }
