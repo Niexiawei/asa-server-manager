@@ -252,6 +252,15 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 	plugindata.Rescue(instanceName, mirrorDir)
 	plugindata.Inject(instanceName, mirrorDir)
 
+	// The mirror was just (re)built as root; on Linux the game process runs
+	// dropped to a dedicated non-root user, which must own this tree to write
+	// saves/logs/dumps into it. No-op on Windows and when not managing a
+	// dropped user. See docs/UMU_RUNTIME_USER_PLAN.md §5.2.
+	if err := runner.ChownMirrorForRuntime(mirrorDir); err != nil {
+		startErr = fmt.Errorf("为降权运行时用户准备实例镜像目录失败: %w", err)
+		return startErr
+	}
+
 	exeWorkDir := filepath.Join(mirrorDir, "ShooterGame/Binaries/Win64")
 
 	// Build the command
@@ -376,6 +385,15 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 	// docs/SETUP_FLOW_OPTIMIZATION_PLAN.md §3.5.
 	if err := runner.CheckRuntime(); err != nil {
 		startErr = fmt.Errorf("无法启动实例：%w", err)
+		return startErr
+	}
+
+	// Second net for "game runs as a dedicated non-root user": re-check that
+	// the runtime user still exists and can actually write the dirs it needs
+	// (with the real-write deep probe forced on). No-op on Windows / when not
+	// managing a dropped user. See docs/UMU_RUNTIME_USER_PLAN.md §4.4.
+	if probs := runner.VerifyRuntimeAccessForLaunch(); len(probs) > 0 {
+		startErr = fmt.Errorf("无法启动实例：降权运行时环境自检未通过：\n%s", formatRunnerProblems(probs))
 		return startErr
 	}
 
@@ -858,6 +876,19 @@ func syncConfigFile(sourcePath, destPath string) error {
 	}
 
 	return nil
+}
+
+// formatRunnerProblems renders runner.Problem entries as an indented,
+// fix-hinted block for an instance-start error message.
+func formatRunnerProblems(problems []runner.Problem) string {
+	var b strings.Builder
+	for _, p := range problems {
+		fmt.Fprintf(&b, "  - [%s] %s\n", p.Name, p.Detail)
+		if p.Fix != "" {
+			fmt.Fprintf(&b, "      修复：%s\n", p.Fix)
+		}
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
 
 // pluginSnapshotInterval 把实例配置里的分钟数换算成快照周期。
