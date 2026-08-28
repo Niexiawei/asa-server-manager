@@ -3,7 +3,6 @@ package actions
 import (
 	"asa-server/internal/appconfig"
 	cfgpkg "asa-server/internal/config"
-	"asa-server/internal/installer"
 	"asa-server/internal/runner"
 	"asa-server/pkg/logger"
 	"bufio"
@@ -16,17 +15,19 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-// SetupCommand 是 docs/LINUX_COMPATIBILITY_PLAN.md §10.5 G4 的 `asa-server setup`：
-// Linux 上的首次引导入口，交互 + 非交互两种模式，串联 BaseDir 选择 → umu/GE-Proton
-// 运行时 → SteamCMD → ARK 本体安装。Windows 上直接报错，指向 Fyne GUI 首次启动
-// 向导（见 §10.7「首次启动向导做的事都必须有 CLI 或配置等价物」）。不拆
-// _windows.go/_linux.go：下面的逻辑本身在两平台都能编译，只有一处 runtime.GOOS
-// 分支，不涉及任何平台专属 API。
+// SetupCommand 是 `asa-server setup`：两平台通用的首次引导入口，交互 + 非交互两种
+// 模式，串联 BaseDir 选择 → （Linux）umu/GE-Proton 运行时 → SteamCMD → ARK 本体。
+// Windows 上不涉及 Wine/Proton（无 Preflight、无 EnsureRuntime），其余步骤相同；
+// 双击运行的 Windows 用户走 GUI 引导面板（internal/gui/setup_progress.go），CLI 这条
+// 主要给无头 / 脚本化安装。见 docs/SETUP_FLOW_OPTIMIZATION_PLAN.md §3.2。
+//
+// 不拆 _windows.go/_linux.go：下面的逻辑本身在两平台都能编译，只有 runtime.GOOS
+// 分支圈住的 Preflight/EnsureRuntime 是 Linux 专属，不涉及任何平台专属 API。
 func SetupCommand() *cli.Command {
 	return &cli.Command{
 		Name: "setup",
-		Usage: "Linux 首次引导：BaseDir → umu/GE-Proton 运行时 → SteamCMD → ARK 本体" +
-			"（Windows 请用 GUI 首次启动向导）",
+		Usage: "首次引导：BaseDir → （Linux）umu/GE-Proton 运行时 → SteamCMD → ARK 本体" +
+			"（Windows 双击运行时 GUI 里也有同样的引导）",
 		Flags: []cli.Flag{
 			&cli.BoolFlag{
 				Name: "non-interactive",
@@ -37,32 +38,27 @@ func SetupCommand() *cli.Command {
 				Name:  "basedir",
 				Usage: "数据目录。交互模式下留空会提示输入；非交互模式下必须提供，除非 config.yaml 已经配置过",
 			},
+			&cli.BoolFlag{
+				Name: "ignore-preflight",
+				Usage: "（Linux）宿主依赖自检不通过时仍继续。默认自检不通过会中止 setup，" +
+					"因为缺 32 位 glibc / python3 等会让后续下载安装必然失败",
+			},
 		},
 		Action: ActionSetup,
 	}
 }
 
 func ActionSetup(ctx context.Context, cmd *cli.Command) error {
-	if runtime.GOOS != "linux" {
-		return fmt.Errorf("setup 命令仅在 Linux 上可用；Windows 请直接运行 GUI，首次启动会弹出同样的数据目录选择向导")
-	}
-
 	nonInteractive := cmd.Bool("non-interactive")
+	ignorePreflight := cmd.Bool("ignore-preflight")
 	flagBaseDir := strings.TrimSpace(cmd.String("basedir"))
 
 	fmt.Println("=== ASA Server Manager 首次引导 ===")
 
-	if problems := runner.Preflight(); len(problems) > 0 {
-		fmt.Println("宿主依赖自检发现以下问题（不阻断继续，但对应功能可能起不来）：")
-		for _, p := range problems {
-			if p.Fix != "" {
-				fmt.Printf("  - [%s] %s（修复建议：%s）\n", p.Name, p.Detail, p.Fix)
-			} else {
-				fmt.Printf("  - [%s] %s\n", p.Name, p.Detail)
-			}
+	if runtime.GOOS == "linux" {
+		if err := runLinuxPreflight(ignorePreflight); err != nil {
+			return err
 		}
-	} else {
-		fmt.Println("宿主依赖自检：通过")
 	}
 
 	baseDir, err := resolveSetupBaseDir(flagBaseDir, nonInteractive)
@@ -91,42 +87,71 @@ func ActionSetup(ctx context.Context, cmd *cli.Command) error {
 		BaseDir:       baseDir,
 	})
 
-	fmt.Println("正在准备 umu/GE-Proton 运行时（首次运行需要下载，可能需要几分钟）...")
-	if err := runner.EnsureRuntime(ctx, os.Stdout); err != nil {
-		return fmt.Errorf("准备 Wine/Proton 运行时失败: %w", err)
+	if runtime.GOOS == "linux" {
+		fmt.Println("正在准备 umu/GE-Proton 运行时（首次运行需要下载，可能需要几分钟）...")
+		if err := runner.EnsureRuntime(ctx, os.Stdout); err != nil {
+			return fmt.Errorf("准备 Wine/Proton 运行时失败: %w", err)
+		}
 	}
 
-	fmt.Println("正在下载/更新 SteamCMD...")
-	if err := installer.DownloadAndExtractSteamCmd(ctx, os.Stdout); err != nil {
-		return fmt.Errorf("安装 SteamCMD 失败: %w", err)
-	}
-
-	fmt.Println("正在下载/更新 ARK 服务端本体（体积较大，请耐心等待）...")
-	if err := installer.DownloadAndUpdateArkServer(ctx, os.Stdout); err != nil {
-		return fmt.Errorf("安装 ARK 服务端本体失败: %w", err)
-	}
-
-	fmt.Println("正在验证服务端安装...")
-	if err := installer.VerifyServerInstallation(ctx, false); err != nil {
-		return fmt.Errorf("验证服务端安装失败: %w", err)
+	fmt.Println("正在下载 / 更新 SteamCMD 与 ARK 服务端本体（体积较大，请耐心等待）...")
+	if err := InstallBaseEnvironment(ctx, os.Stdout); err != nil {
+		return err
 	}
 
 	fmt.Println()
 	fmt.Println("=== 引导完成 ===")
 	fmt.Printf("数据目录: %s\n", baseDir)
+	printPostSetupTips()
+	return nil
+}
+
+// runLinuxPreflight 跑宿主依赖自检。与 `asa-server api` 启动路径（那里只打日志告警、
+// 不阻断，见 docs/LINUX_COMPATIBILITY_PLAN.md §4.2）不同：在 setup 语境下用户已明确
+// 表达"我要初始化环境"，缺 32 位 glibc（SteamCMD 是 32 位 ELF）或 python3（umu 需要）
+// 还继续只会白下载几百 MB，所以默认不通过就中止。--ignore-preflight 是逃生舱，
+// 供某些非主流发行版上检查误报时使用。
+func runLinuxPreflight(ignore bool) error {
+	problems := runner.Preflight()
+	if len(problems) == 0 {
+		fmt.Println("宿主依赖自检：通过")
+		return nil
+	}
+
+	fmt.Println("宿主运行时依赖不满足，setup 无法继续。请按下面的建议手动安装后重试：")
+	for _, p := range problems {
+		if p.Fix != "" {
+			fmt.Printf("  - [%s] %s\n      修复：%s\n", p.Name, p.Detail, p.Fix)
+		} else {
+			fmt.Printf("  - [%s] %s\n", p.Name, p.Detail)
+		}
+	}
+
+	if ignore {
+		fmt.Println("--ignore-preflight 已指定，忽略上述问题继续。")
+		return nil
+	}
+	return fmt.Errorf("宿主依赖缺失，已中止；补齐后重跑 asa-server setup（或加 --ignore-preflight 强行继续）")
+}
+
+func printPostSetupTips() {
 	fmt.Println("接下来可以：")
-	fmt.Println("  asa-server service install   # 安装为 systemd 服务")
-	fmt.Println("  asa-server cert install       # 安装本地 HTTPS 证书（需要 sudo）")
+	if runtime.GOOS == "linux" {
+		fmt.Println("  asa-server service install    # 安装为 systemd 服务")
+		fmt.Println("  asa-server cert install       # 安装本地 HTTPS 证书（需要 sudo）")
+	} else {
+		fmt.Println("  asa-server service install    # 安装为 Windows 服务（需要管理员）")
+		fmt.Println("  或直接双击 asa-server.exe 使用 GUI")
+	}
 	fmt.Println("  asa-server user add           # 创建管理员账号（如需开启鉴权）")
 	fmt.Println("  asa-server api                # 直接前台启动，验证一下也行")
-	return nil
 }
 
 // resolveSetupBaseDir 决定这次引导用哪个 BaseDir：
 //   - WasConfigAutoGenerated() 为 false：main.go 启动时那次 Load 读到的是已经存在
 //     的 config.yaml（可能是重复运行 setup，或者手动配置过），直接沿用当前解析出
-//     的 BaseDir，不重新问、不重新写文件——避免覆盖用户已经调好的设置，见 §10.4
-//     「任一级已有 config.yaml 就维持现状」这条规则的 CLI 等价物。
+//     的 BaseDir，不重新问、不重新写文件——避免覆盖用户已经调好的设置，见
+//     docs/LINUX_COMPATIBILITY_PLAN.md §10.4「任一级已有 config.yaml 就维持现状」。
 //   - 为 true：真正的全新安装，需要选一个数据目录并写回 basedir 字段。
 func resolveSetupBaseDir(flagBaseDir string, nonInteractive bool) (string, error) {
 	if !appconfig.WasConfigAutoGenerated() {
