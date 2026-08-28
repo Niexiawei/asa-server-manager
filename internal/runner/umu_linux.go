@@ -65,8 +65,8 @@ func ensureRuntime(ctx context.Context, progress io.Writer) error {
 	logf := progressLogger(progress)
 
 	if cfg.Runtime == "custom" {
-		logf("linux runtime mode is \"custom\": skipping umu/GE-Proton download, expecting a pre-configured PROTONPATH")
-		return nil
+		logf("linux runtime mode is \"custom\": skipping umu/GE-Proton download, verifying the pre-configured runtime instead")
+		return checkRuntime()
 	}
 	if !cfg.AutoDownload {
 		return fmt.Errorf("runner: auto_download is disabled and runtime is not fully installed (see GET /api/system/preflight)")

@@ -72,22 +72,44 @@ func runPTY(ctx context.Context, bin string, args, env []string, opt Options) (*
 	}, nil
 }
 
+// checkRuntime verifies umu-run, the pinned GE-Proton build and the shared
+// Wine prefix are all present, with no network access — the same
+// preconditions umuCommandLine enforces, factored out so business-layer
+// callers can probe readiness up front. Error text is end-user facing.
+func checkRuntime() error {
+	cfg := getConfig()
+
+	bin := umuRunPath(cfg)
+	if fi, err := os.Stat(bin); err != nil || fi.Mode()&0111 == 0 {
+		return fmt.Errorf("Wine/Proton 运行时尚未初始化：缺少 umu-run（%s）。请运行 asa-server setup 完成环境准备", bin)
+	}
+	proton := protonPath(cfg)
+	if fi, err := os.Stat(filepath.Join(proton, "proton")); err != nil || fi.IsDir() {
+		return fmt.Errorf("Wine/Proton 运行时尚未初始化：缺少 %s（%s）。请运行 asa-server setup 完成环境准备", cfg.ProtonVersion, proton)
+	}
+	prefix := prefixDir(cfg, "")
+	if _, err := os.Stat(filepath.Join(prefix, "system.reg")); err != nil {
+		return fmt.Errorf("Wine 前缀尚未初始化：%s。请运行 asa-server setup 完成环境准备", prefix)
+	}
+	return nil
+}
+
 // umuCommandLine builds the umu-run invocation for exePath/args, matching
 // scripts/ark_instance_manager.sh's proven env var set exactly (notably: no
 // PROTON_VERB — the reference script doesn't set it, and umu-run's default
 // is already correct for running a game exe).
 func umuCommandLine(exePath string, args []string, opt Options) (bin string, launchArgs []string, env []string, err error) {
+	if err := checkRuntime(); err != nil {
+		return "", nil, nil, err
+	}
 	cfg := getConfig()
 
 	bin = umuRunPath(cfg)
-	if _, statErr := os.Stat(bin); statErr != nil {
-		return "", nil, nil, fmt.Errorf("runner: umu-run not found at %s (call EnsureRuntime first): %w", bin, statErr)
-	}
 	proton := protonPath(cfg)
-	if fi, statErr := os.Stat(filepath.Join(proton, "proton")); statErr != nil || fi.IsDir() {
-		return "", nil, nil, fmt.Errorf("runner: %s not found at %s (call EnsureRuntime first)", cfg.ProtonVersion, proton)
-	}
 
+	// checkRuntime validated the default shared prefix; a per-instance launch
+	// (Options.PrefixKey set under PrefixMode "per-instance") uses a distinct
+	// directory that still has to exist.
 	prefix := prefixDir(cfg, opt.PrefixKey)
 	if _, statErr := os.Stat(prefix); statErr != nil {
 		return "", nil, nil, fmt.Errorf("runner: Wine prefix not found at %s (call EnsureRuntime first): %w", prefix, statErr)

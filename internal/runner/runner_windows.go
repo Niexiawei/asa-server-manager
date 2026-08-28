@@ -70,5 +70,8 @@ func launcherIsDirect() bool { return true }
 // download or warm.
 func ensureRuntime(ctx context.Context, progress io.Writer) error { return nil }
 
+// checkRuntime has nothing to verify on Windows — the ARK exe runs directly.
+func checkRuntime() error { return nil }
+
 // preflight has nothing to check on Windows.
 func preflight() []Problem { return nil }

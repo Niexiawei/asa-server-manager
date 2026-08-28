@@ -89,6 +89,18 @@ func EnsureRuntime(ctx context.Context, progress io.Writer) error {
 	return ensureRuntime(ctx, progress)
 }
 
+// CheckRuntime reports whether the launch runtime is ready, using only local
+// filesystem checks — it never touches the network. Windows always returns
+// nil. On Linux it verifies umu-run, the pinned GE-Proton build and the
+// shared Wine prefix are all in place (the same three preconditions a real
+// launch enforces), so callers — instance start, `service install`,
+// `asa-server api` startup — can fail fast with a "run asa-server setup"
+// message instead of a deep launch error. The returned error text is written
+// for end users and is safe to display verbatim.
+func CheckRuntime() error {
+	return checkRuntime()
+}
+
 // Preflight runs host dependency checks. Always empty on Windows.
 func Preflight() []Problem {
 	return preflight()
