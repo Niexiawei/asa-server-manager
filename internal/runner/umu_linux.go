@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"asa-server/pkg/archive"
@@ -63,6 +64,13 @@ func ensureRuntime(ctx context.Context, progress io.Writer) error {
 
 	cfg := getConfig()
 	logf := progressLogger(progress)
+
+	// Create + reconcile the dedicated non-root user first: warmPrefix below
+	// runs wineboot as that user, and it must be able to write the prefix and
+	// its own HOME. See docs/UMU_RUNTIME_USER_PLAN.md §3.2.
+	if err := ensureRuntimeUser(ctx); err != nil {
+		return fmt.Errorf("failed to prepare the non-root runtime user: %w", err)
+	}
 
 	if cfg.Runtime == "custom" {
 		logf("linux runtime mode is \"custom\": skipping umu/GE-Proton download, verifying the pre-configured runtime instead")
@@ -236,6 +244,14 @@ func warmPrefix(ctx context.Context, cfg Config, logf func(string, ...any)) erro
 
 	logf("first-time umu setup: downloading Steam Linux Runtime and initializing the Wine prefix (this can take several minutes)")
 
+	// wineboot below may run as the dropped non-root user (see below); it must
+	// be able to write into the prefix dir, which was just MkdirAll'd (or
+	// recreated by reconcilePrefixVersion) as root. No-op when not managing a
+	// user. See docs/UMU_RUNTIME_USER_PLAN.md §3.2.
+	if err := chownPathForRuntime(prefix); err != nil {
+		return fmt.Errorf("failed to hand prefix dir to the runtime user: %w", err)
+	}
+
 	bin := umuRunPath(cfg)
 	cmd := exec.CommandContext(ctx, bin, "wineboot", "--init")
 	cmd.Env = append(os.Environ(),
@@ -245,6 +261,15 @@ func warmPrefix(ctx context.Context, cfg Config, logf func(string, ...any)) erro
 		// Deliberately no UMU_RUNTIME_UPDATE=0 here: this is the one
 		// invocation that must be allowed to fetch a missing runtime.
 	)
+	// Warm the prefix as the same non-root user that will later run the
+	// game, so the prefix + Steam Linux Runtime cache are created with the
+	// right owner from the start (docs/UMU_RUNTIME_USER_PLAN.md §3.2).
+	if cred, home, err := resolveRuntimeCredential(cfg); err != nil {
+		return err
+	} else if cred != nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{Credential: cred}
+		cmd.Env = runtimeEnv(cmd.Env, home, runtimeUserName(cfg))
+	}
 	cmd.Stdout = progressWriter{logf}
 	cmd.Stderr = progressWriter{logf}
 	// Best-effort like the reference script (`|| true`): a non-zero exit
@@ -308,8 +333,10 @@ func writePrefixMarker(prefix, version string) error {
 // an unrecognized/future generation conservatively accepts any installed
 // runtime rather than forcing a re-download.
 func steamLinuxRuntimeReady(protonVersion string) bool {
-	home, err := os.UserHomeDir()
-	if err != nil {
+	// umu's runtime cache lives under the HOME the game process runs with —
+	// the dropped non-root user's home when we manage one, not root's.
+	home := runtimeHomeDir(getConfig())
+	if home == "" {
 		return false
 	}
 	glob := "steamrt*"

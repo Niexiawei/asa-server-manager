@@ -36,6 +36,13 @@ func preflight() []Problem {
 	return problems
 }
 
+// runtimeUserProblems is verifyRuntimeAccess exposed for the preflight API
+// only. It is deliberately NOT folded into Preflight(): Preflight runs during
+// `asa-server setup` *before* EnsureRuntime creates the user, where a
+// "user missing" result would be a false alarm. The real enforcement is
+// package main's startup gate (EnsureRuntimeUser then VerifyRuntimeAccess).
+func runtimeUserProblems() []Problem { return verifyRuntimeAccess(false) }
+
 // glibc32LoaderPaths are the well-known locations of the 32-bit dynamic
 // linker across distros. SteamCMD is a 32-bit ELF binary; without i386
 // multilib the kernel returns ENOENT for it even though the file itself

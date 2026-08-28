@@ -23,8 +23,20 @@ func run(ctx context.Context, exePath string, args []string, opt Options) (*Hand
 		return nil, err
 	}
 
+	// Drop the umu-run child (and everything bwrap/wine spawns below it) to
+	// the dedicated non-root user when asa-server runs as root — see
+	// docs/UMU_RUNTIME_USER_PLAN.md. cred is nil (no drop) when euid != 0
+	// or umu_run_as_root=true.
+	cred, home, err := resolveRuntimeCredential(getConfig())
+	if err != nil {
+		return nil, err
+	}
+	if cred != nil {
+		env = runtimeEnv(env, home, runtimeUserName(getConfig()))
+	}
+
 	if opt.PTY {
-		return runPTY(ctx, bin, launchArgs, env, opt)
+		return runPTY(ctx, bin, launchArgs, env, cred, opt)
 	}
 
 	cmd := exec.CommandContext(ctx, bin, launchArgs...)
@@ -37,7 +49,7 @@ func run(ctx context.Context, exePath string, args []string, opt Options) (*Hand
 	// bwrap/wineserver — see docs/LINUX_COMPATIBILITY_PLAN.md §5.4/§5.6
 	// risk 9. It's also what decouples the launch from this program's own
 	// controlling terminal, matching Windows's HideWindow intent.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Credential: cred}
 
 	if err := cmd.Start(); err != nil {
 		return nil, err
@@ -49,7 +61,7 @@ func run(ctx context.Context, exePath string, args []string, opt Options) (*Hand
 	}, nil
 }
 
-func runPTY(ctx context.Context, bin string, args, env []string, opt Options) (*Handle, error) {
+func runPTY(ctx context.Context, bin string, args, env []string, cred *syscall.Credential, opt Options) (*Handle, error) {
 	pp, err := pty.New()
 	if err != nil {
 		return nil, fmt.Errorf("failed to open pty: %w", err)
@@ -57,10 +69,20 @@ func runPTY(ctx context.Context, bin string, args, env []string, opt Options) (*
 	w, h := ptySize(opt)
 	_ = pp.Resize(w, h)
 
+	// The slave pts is created owned by this (root) process; the dropped
+	// child needs to own it to open it as its controlling terminal.
+	// See docs/UMU_RUNTIME_USER_PLAN.md §9 risk 1 — this path (AsaApiLoader
+	// under a dropped user) is still unverified on real hardware.
+	if cred != nil {
+		if up, ok := pp.(pty.UnixPty); ok {
+			_ = up.Slave().Chown(int(cred.Uid), int(cred.Gid))
+		}
+	}
+
 	c := pp.CommandContext(ctx, bin, args...)
 	c.Dir = opt.Dir
 	c.Env = env
-	c.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	c.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Credential: cred}
 	if err := c.Start(); err != nil {
 		_ = pp.Close()
 		return nil, err
