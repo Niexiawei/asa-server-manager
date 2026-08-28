@@ -370,6 +370,15 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 		logger.Infof("Created log file: %s", gameLogPath)
 	}
 
+	// Fail fast with an actionable message if the Linux Wine/Proton runtime
+	// isn't in place yet (no-op on Windows) — otherwise runner.Run reports a
+	// low-level "umu-run not found" from deep in the launch path. See
+	// docs/SETUP_FLOW_OPTIMIZATION_PLAN.md §3.5.
+	if err := runner.CheckRuntime(); err != nil {
+		startErr = fmt.Errorf("无法启动实例：%w", err)
+		return startErr
+	}
+
 	// Launch arkExe (ArkAscendedServer.exe, or AsaApiLoader.exe wrapping it
 	// with the same arguments — runner treats both identically, see
 	// internal/runner's package doc). Windows: direct exec/pty, unchanged

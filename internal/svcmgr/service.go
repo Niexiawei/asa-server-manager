@@ -10,9 +10,11 @@
 package svcmgr
 
 import (
+	"asa-server/internal/actions"
 	"asa-server/internal/certmgr"
 	"asa-server/internal/frpmanage"
 	"asa-server/internal/webapi"
+	"asa-server/pkg/logger"
 	"context"
 	"errors"
 	"fmt"
@@ -40,6 +42,15 @@ type program struct {
 // Start starts the service
 func (p *program) Start(s service.Service) error {
 	log.Printf("Starting %s service \n", ServiceName)
+
+	// Warn (never block) if the base environment isn't ready: a service that
+	// hard-exits here would just restart-loop under systemd/SCM. The API and
+	// web UI still come up; instance starts will report the same thing.
+	// See docs/SETUP_FLOW_OPTIMIZATION_PLAN.md §3.3.
+	if err := actions.VerifyEnvironmentReady(); err != nil {
+		logger.WithConsole().Warnf("基础环境尚未初始化，服务已启动但实例暂时无法运行：\n%v", err)
+	}
+
 	// Create API server
 	p.apiServer = webapi.NewAPIServer()
 
@@ -184,8 +195,16 @@ func RunService() error {
 	return nil
 }
 
-// ActionServiceInstall installs the OS service
+// ActionServiceInstall installs the OS service. Refuses when the base
+// environment isn't initialised (a service that can't run any instance is a
+// foot-gun) unless --force is given — see
+// docs/SETUP_FLOW_OPTIMIZATION_PLAN.md §3.4.
 func ActionServiceInstall(ctx context.Context, cmd *cli.Command) error {
+	if cmd == nil || !cmd.Bool("force") {
+		if err := actions.VerifyEnvironmentReady(); err != nil {
+			return fmt.Errorf("%w\n\n装成服务前请先完成环境初始化；确需强行安装可加 --force", err)
+		}
+	}
 	return InstallService()
 }
 

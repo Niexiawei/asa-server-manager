@@ -119,9 +119,15 @@ func main() {
 				Action: actions.ActionUpdate,
 			},
 			{
-				Name:   "api",
-				Usage:  "Start HTTP API server",
-				Action: webapi.ActionAPI,
+				Name:  "api",
+				Usage: "Start HTTP API server",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{
+						Name:  "skip-env-check",
+						Usage: "跳过基础环境（运行时 / SteamCMD / ARK 本体）就绪检查后仍启动",
+					},
+				},
+				Action: gatedActionAPI,
 			},
 
 			{
@@ -129,8 +135,14 @@ func main() {
 				Usage: "Manage the OS service (Windows service / systemd on Linux)",
 				Commands: []*cli.Command{
 					{
-						Name:   "install",
-						Usage:  "Install as an OS service",
+						Name:  "install",
+						Usage: "Install as an OS service",
+						Flags: []cli.Flag{
+							&cli.BoolFlag{
+								Name:  "force",
+								Usage: "基础环境未初始化时仍安装服务（默认会拒绝并指向 asa-server setup）",
+							},
+						},
 						Action: svcmgr.ActionServiceInstall,
 					},
 					{
@@ -191,6 +203,22 @@ func main() {
 	if err := app.Run(context.Background(), os.Args); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// gatedActionAPI wraps webapi.ActionAPI with the base-environment readiness
+// gate (docs/SETUP_FLOW_OPTIMIZATION_PLAN.md §3.3). An explicit `api`
+// subcommand invocation is a human at a terminal, so an uninitialised
+// environment fails fast with a "run asa-server setup" message rather than
+// starting an API server on which no instance can run. --skip-env-check is
+// the escape hatch. Service mode never reaches here — RunService returns
+// before CLI dispatch and only logs a warning (see svcmgr.program.Start).
+func gatedActionAPI(ctx context.Context, cmd *cli.Command) error {
+	if !cmd.Bool("skip-env-check") {
+		if err := actions.VerifyEnvironmentReady(); err != nil {
+			return cli.Exit(fmt.Sprintf("%v\n\n（如确需在环境未就绪的情况下启动，加 --skip-env-check）", err), 1)
+		}
+	}
+	return webapi.ActionAPI(ctx, cmd)
 }
 
 // loadAppConfig 读取 {BaseDir}/config.yaml。
