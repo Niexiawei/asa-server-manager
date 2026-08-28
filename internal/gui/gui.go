@@ -3,6 +3,7 @@
 package gui
 
 import (
+	"asa-server/internal/actions"
 	"asa-server/internal/appconfig"
 	cfgpkg "asa-server/internal/config"
 	procpkg "asa-server/internal/process"
@@ -73,6 +74,8 @@ type GUIApp struct {
 	// Instance list
 	instances    []InstanceInfo
 	instanceList *widget.List
+	// Base-environment readiness banner (docs/SETUP_FLOW_OPTIMIZATION_PLAN.md §3.7)
+	envBanner *widget.Label
 	// API server management
 	apiServer      *webapi.APIServer
 	apiServerMu    sync.Mutex
@@ -293,6 +296,22 @@ func (g *GUIApp) updateStatus() {
 	})
 }
 
+// refreshEnvBanner shows/hides the "base environment not initialised" banner
+// based on actions.VerifyEnvironmentReady(). Must run on the Fyne main thread
+// (a widget callback or inside a fyne.Do closure) — the readiness check is a
+// handful of stat calls, cheap enough to do inline.
+func (g *GUIApp) refreshEnvBanner() {
+	if g.envBanner == nil {
+		return
+	}
+	if err := actions.VerifyEnvironmentReady(); err != nil {
+		g.envBanner.SetText("⚠ 基础环境未初始化，游戏实例暂时无法运行 — 点击「初始化环境」开始安装")
+		g.envBanner.Show()
+	} else {
+		g.envBanner.Hide()
+	}
+}
+
 // updateTrayMenu updates the tray menu with current status
 func (g *GUIApp) updateTrayMenu() {
 	if g.desktopApp == nil {
@@ -385,6 +404,11 @@ func (g *GUIApp) showBaseDirPicker() {
 			return
 		}
 		g.applyChosenBaseDir(chosen)
+		g.refreshEnvBanner()
+		g.showConfirm("初始化环境",
+			"数据目录已设置为:\n"+chosen+"\n\n现在下载安装 SteamCMD 与 ARK 服务端本体（约 25 GB）？\n"+
+				"（也可稍后在主界面点「初始化环境」）",
+			g.showSetupProgress)
 	}, g.window)
 	fd.SetConfirmText("选择此目录")
 	fd.Show()
@@ -418,8 +442,6 @@ func (g *GUIApp) applyChosenBaseDir(chosen string) {
 		GameID:        appCfg.Linux.GameID,
 		BaseDir:       baseDir,
 	})
-
-	g.showSuccess("数据目录已设置为:\n" + baseDir)
 }
 
 // isAdmin checks if the current process is running with admin privileges
@@ -738,6 +760,13 @@ func (g *GUIApp) createMainWindow() {
 	statusRow := container.NewHBox(g.statusIcon, g.statusLabel)
 	statusBox := container.NewPadded(statusRow)
 
+	// Base-environment readiness banner — hidden unless SteamCMD / ARK server
+	// files aren't installed yet (docs/SETUP_FLOW_OPTIMIZATION_PLAN.md §3.7).
+	g.envBanner = widget.NewLabel("")
+	g.envBanner.Wrapping = fyne.TextWrapWord
+	g.envBanner.Importance = widget.WarningImportance
+	g.envBanner.Hide()
+
 	// Resource Monitor Section
 	resourceSection := widget.NewLabel("资源监控")
 	resourceSection.TextStyle = fyne.TextStyle{Bold: true}
@@ -812,6 +841,12 @@ func (g *GUIApp) createMainWindow() {
 		g.openWebUI()
 	})
 
+	setupBtn := widget.NewButtonWithIcon("初始化环境", theme.DownloadIcon(), func() {
+		g.showConfirm("初始化环境",
+			"将下载安装 SteamCMD 与 ARK 服务端本体（约 25 GB），期间可查看实时进度。是否继续？",
+			g.showSetupProgress)
+	})
+
 	exitBtn := widget.NewButtonWithIcon("退出", theme.LogoutIcon(), func() {
 		g.confirmAndQuit()
 	})
@@ -829,6 +864,7 @@ func (g *GUIApp) createMainWindow() {
 	otherButtons := container.NewGridWithColumns(2,
 		makeButtonBox(refreshBtn),
 		makeButtonBox(openWebBtn),
+		makeButtonBox(setupBtn),
 	)
 
 	// API Server Section
@@ -862,6 +898,7 @@ func (g *GUIApp) createMainWindow() {
 	leftPanel := container.NewVBox(
 		statusSection,
 		statusBox,
+		g.envBanner,
 		widget.NewSeparator(),
 		resourceSection,
 		container.NewPadded(resourceBox),
@@ -908,6 +945,7 @@ func (g *GUIApp) Run() {
 	go func() {
 		time.Sleep(100 * time.Millisecond)
 		g.updateStatus()
+		fyne.Do(g.refreshEnvBanner)
 	}()
 
 	// Start resource monitoring
