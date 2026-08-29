@@ -23,6 +23,11 @@ func chownMirrorForRuntime(mirrorDir string) error { return nil }
 
 func chownTreeForRuntime(root string) error { return nil }
 
+// prepareSharedTree has nothing to do on Windows: the game process runs with
+// the same identity as asa-server itself, so server-files and the instances
+// directory are already writable by everyone who needs them.
+func prepareSharedTree(root string) error { return nil }
+
 func runtimeHomeDir(cfg Config) string {
 	h, _ := os.UserHomeDir()
 	return h

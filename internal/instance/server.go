@@ -261,6 +261,16 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 		return startErr
 	}
 
+	// 镜像里的 Config / Logs / Save 是指回 instances/<name>/ 的软链，Mods 与
+	// ModsUserData 则指回 server-files —— 上面那次 chown 用的是 Lchown，只改链接
+	// 本身，目标目录仍归 root。所以链接目标必须单独按「root 与运行时用户共写」
+	// 处理，否则游戏能看到目录却写不进去。Windows 上是空实现。
+	// 见 docs/LINUX_KILLTREE_AND_VERIFY_HANG_DIAGNOSIS.md §3.6 / §4。
+	if err := runner.PrepareSharedTree(filepath.Join(cfgpkg.InstancesDir, instanceName)); err != nil {
+		startErr = fmt.Errorf("为降权运行时用户准备实例目录失败: %w", err)
+		return startErr
+	}
+
 	exeWorkDir := filepath.Join(mirrorDir, "ShooterGame/Binaries/Win64")
 
 	// Build the command

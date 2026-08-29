@@ -29,6 +29,15 @@ type Options struct {
 	PTY  bool     // AsaApiLoader.exe and SteamCMD need a real terminal; ArkAscendedServer.exe doesn't
 	PTYW int      // PTY width; 0 uses the default (1920)
 	PTYH int      // PTY height; 0 uses the default (1080)
+	// Log receives the launched process's stdout and stderr. nil discards
+	// both, which was the only behaviour before — and on Linux that meant
+	// every diagnostic umu-run, pressure-vessel and Wine produce went to
+	// /dev/null, so a launch that died inside the container left nothing to
+	// read (docs/LINUX_KILLTREE_AND_VERIFY_HANG_DIAGNOSIS.md §3.5 c).
+	// scripts/ark_instance_manager.sh redirects both to a file for exactly
+	// this reason. Ignored when PTY is set — there the PTY *is* the stream,
+	// and the caller already owns it through Handle.PTY.
+	Log io.Writer
 	// PrefixKey selects which Wine prefix to use under Config.PrefixMode
 	// "per-instance" (see docs/LINUX_COMPATIBILITY_PLAN.md §6 risk 6).
 	// Empty always means the default shared prefix, including under
@@ -40,10 +49,16 @@ type Options struct {
 //
 // On Windows, LauncherPID is the game PID. On Linux it is umu-run's PID —
 // umu-run execs into bwrap/wine before the real game process exists, so
-// LauncherPID is NOT the game's PID there. It is, however, the process
-// group id (Run sets Setsid), which is what Close-by-tree operations need;
-// resolving the actual game PID is a separate step (procx.QueryProcess) not
-// yet wired up — see docs/LINUX_COMPATIBILITY_PLAN.md §5.3, landing in P4.
+// LauncherPID is NOT the game's PID there, and resolving the real one is a
+// separate step (see internal/instance's waitForGamePID).
+//
+// LauncherPID is also NOT a usable process-group handle on Linux, despite Run
+// setting Setsid: pressure-vessel starts a new session on the way into the
+// container, and so does Wine for the game itself, so the launcher's process
+// group ends up containing nothing but the launcher. Anything that wants the
+// whole launch has to go through the parent/child tree instead — which is
+// what procx.KillTree/TerminateTree do. See
+// docs/LINUX_KILLTREE_AND_VERIFY_HANG_DIAGNOSIS.md §2.
 type Handle struct {
 	LauncherPID int
 	Process     *os.Process // set outside PTY mode
@@ -150,6 +165,17 @@ func ChownMirrorForRuntime(mirrorDir string) error { return chownMirrorForRuntim
 // ChownTreeForRuntime chowns an arbitrary path recursively to the runtime
 // user (installer fixups use it for ~/.steam). No-op unless managing one.
 func ChownTreeForRuntime(root string) error { return chownTreeForRuntime(root) }
+
+// PrepareSharedTree makes a directory tree writable by BOTH this process
+// (root) and the dropped runtime user, without transferring ownership: group +
+// setgid + a POSIX default ACL, so files created later by *either* side stay
+// writable by the other. Used for server-files and the instances directory,
+// which SteamCMD, admin uploads and the game process all write to.
+//
+// No-op on Windows and whenever privileges aren't being dropped. Idempotent,
+// and degrades to a plain recursive chown when the filesystem has no ACL
+// support. See internal/runner/sharedaccess_linux.go.
+func PrepareSharedTree(root string) error { return prepareSharedTree(root) }
 
 // RuntimeUserStatus is the RuntimeUserInfo for the current config/euid.
 func RuntimeUserStatus() RuntimeUserInfo { return runtimeUserInfo() }

@@ -33,6 +33,9 @@ func preflight() []Problem {
 	if p := checkAppArmorUserns(); p != nil {
 		problems = append(problems, *p)
 	}
+	if p := checkACLSupport(); p != nil {
+		problems = append(problems, *p)
+	}
 	return problems
 }
 

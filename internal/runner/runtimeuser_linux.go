@@ -212,6 +212,22 @@ func reconcileRuntimeOwnership(cfg Config, u *user.User) error {
 		}
 	}
 
+	// server-files / instances are shared with root rather than handed over —
+	// see sharedaccess_linux.go for why. Walking server-files (~50k entries)
+	// on every startup would be pure overhead once it's already set up, so a
+	// cheap sample decides whether the full pass is worth doing; the
+	// authoritative unconditional pass runs after every SteamCMD update and
+	// before verification (installer.go).
+	group := runtimeGroupName(u.Gid)
+	for _, dir := range sharedSubtrees(cfg) {
+		if !pathExists(dir) || !sharedAccessNeeded(dir, gid) {
+			continue
+		}
+		if err := applySharedAccess(dir, uid, gid, group); err != nil {
+			return fmt.Errorf("prepare shared access on %s: %w", dir, err)
+		}
+	}
+
 	if proton := protonPath(cfg); pathExists(proton) {
 		if err := ensureWorldReadExec(proton); err != nil {
 			return fmt.Errorf("chmod %s: %w", proton, err)
@@ -243,6 +259,51 @@ func rwSubtrees(cfg Config, includeMirrors bool) []string {
 		}
 	}
 	return out
+}
+
+// sharedAccessNeeded samples root and reports whether the (expensive) full
+// applySharedAccess pass is worth running: any entry whose group isn't gid, or
+// that the group can't write, or a directory missing its setgid bit, means the
+// inheritance chain is broken somewhere and the tree needs another pass.
+//
+// Sampled rather than exhaustive, on the same reasoning as
+// sampleOwnerMismatch: the authoritative pass is the unconditional one the
+// installer runs after each update. A clean tree costs a few hundred stats
+// here instead of a full walk on every asa-server start.
+func sharedAccessNeeded(root string, gid int) bool {
+	const sampleCap = 400
+	n := 0
+	needed := false
+	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		n++
+		if n > sampleCap {
+			return filepath.SkipAll
+		}
+		info, ierr := d.Info()
+		if ierr != nil {
+			return nil
+		}
+		if st, ok := info.Sys().(*syscall.Stat_t); ok && int(st.Gid) != gid {
+			needed = true
+			return filepath.SkipAll
+		}
+		if d.Type()&fs.ModeSymlink != 0 {
+			return nil // no permission bits of its own
+		}
+		if info.Mode().Perm()&0o060 != 0o060 {
+			needed = true
+			return filepath.SkipAll
+		}
+		if d.IsDir() && info.Mode()&os.ModeSetgid == 0 {
+			needed = true
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	return needed
 }
 
 // chownTree Lchowns every entry under root (does NOT follow symlinks — the
