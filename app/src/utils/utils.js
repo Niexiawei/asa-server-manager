@@ -28,10 +28,6 @@ export function buildEventSourceUrl(url) {
     return urlJoin(window.location.origin, basePrefix(), url)
 }
 
-export function getSSEBaseUrl() {
-    return urlJoin(window.location.origin, basePrefix())
-}
-
 function urlJoin(...args) {
     return args
         .filter(arg => arg)

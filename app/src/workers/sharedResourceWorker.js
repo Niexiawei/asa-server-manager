@@ -27,8 +27,9 @@ const ports = new Set();
 const subscribers = new Map();
 // Single SSE connection
 let eventSource = null;
-// API base URL
-let API_BASE_URL = '';
+// 完整 SSE URL 由主线程用 buildEventSourceUrl() 拼好后传进来，
+// Worker 不再自己拼路径（曾因 base 带尾斜杠 + 模板字符串拼接产生 `//api/...` 而 404）。
+let SSE_URL = '';
 
 // Reconnect state
 let isReconnecting = false;
@@ -44,10 +45,10 @@ self.onconnect = (event) => {
 
     switch (type) {
       case 'INIT':
-        // Initialize API base URL from first port
-        if (!API_BASE_URL) {
-          API_BASE_URL = payload.apiBaseUrl;
-          console.log('[SharedWorker] Initialized with API base URL');
+        // Initialize SSE URL from first port
+        if (!SSE_URL) {
+          SSE_URL = payload.sseUrl;
+          console.log('[SharedWorker] Initialized with SSE URL');
           startSSEConnection();
         }
         break;
@@ -130,8 +131,8 @@ function startSSEConnection() {
   }
 
   try {
-    console.log('[SharedWorker] Creating SSE connection to /api/server/all-info');
-    eventSource = new EventSource(`${API_BASE_URL}/api/server/all-info`);
+    console.log('[SharedWorker] Creating SSE connection to', SSE_URL);
+    eventSource = new EventSource(SSE_URL);
 
     eventSource.onopen = () => {
       // 连接成功必须重置退避指数，否则下次断线会直接从上次的最大延迟起步

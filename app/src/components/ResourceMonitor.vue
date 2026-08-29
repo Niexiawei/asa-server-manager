@@ -96,7 +96,7 @@ import {ref, watch, onUnmounted, onMounted} from 'vue'
 import {ErrorCircleFilledIcon} from 'tdesign-icons-vue-next'
 import {getInstanceStatus} from '@/store/serverStore.js'
 import {handleSSECheckAuth, registerSSEWorker, unregisterSSEWorker} from '@/utils/sseAuthGate.js'
-import {getSSEBaseUrl} from "@/utils/utils.js";
+import {buildEventSourceUrl} from "@/utils/utils.js";
 
 const props = defineProps({
   instanceName: {
@@ -121,7 +121,7 @@ let workerInitialized = false
 const getSharedWorker = () => {
   if (!sharedWorker) {
     try {
-      let url = getSSEBaseUrl()
+      const url = buildEventSourceUrl('/api/server/all-info')
       console.log('[ResourceMonitor] Creating SharedWorker')
       sharedWorker = new SharedWorker(new URL('@/workers/sharedResourceWorker.js', import.meta.url))
       workerPort = sharedWorker.port
@@ -159,7 +159,7 @@ const getSharedWorker = () => {
       // 初始化 SharedWorker
       workerPort.postMessage({
         type: 'INIT',
-        payload: {apiBaseUrl: url}
+        payload: {sseUrl: url}
       })
 
       workerInitialized = true

@@ -30,8 +30,9 @@ const previousValues = new Map();
 let isReconnecting = false;
 let reconnectTimer = null;
 
-// Extract API base URL from main thread message
-let API_BASE_URL = '';
+// 完整 SSE URL 由主线程用 buildEventSourceUrl() 拼好后传进来，
+// Worker 不再自己拼路径（曾因 base 带尾斜杠 + 模板字符串拼接产生 `//api/...` 而 404）。
+let SSE_URL = '';
 
 // Initialize Web Worker
 self.onmessage = function(e) {
@@ -39,7 +40,7 @@ self.onmessage = function(e) {
 
   switch (type) {
     case 'INIT':
-      API_BASE_URL = payload.apiBaseUrl;
+      SSE_URL = payload.sseUrl;
       break;
 
     case 'START_MONITORING':
@@ -75,7 +76,7 @@ function startServerMonitoring() {
   }
 
   try {
-    const eventSource = new EventSource(`${API_BASE_URL}/api/server/info`);
+    const eventSource = new EventSource(SSE_URL);
     eventSources.set(SERVER_MONITOR_KEY, eventSource);
 
     eventSource.onopen = () => {

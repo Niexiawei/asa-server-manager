@@ -27,8 +27,16 @@ function post(target, msg) {
  * @param {Worker|MessagePort} target 用于把结论发回去
  */
 export function handleSSECheckAuth(target) {
+    // 鉴权没开：SSE 断开绝不可能是"会话失效"，没必要问服务端。
+    // authState 在 main.js 启动时已 recheck() 过一次，authEnabled 可信。
+    if (!authState.authEnabled) {
+        post(target, {type: 'AUTH_RESUMED'})
+        return
+    }
     if (!checking) {
-        checking = recheck(true)
+        // 不用 recheck(true)：这里不需要"强制最新"，去掉 force 让并发调用
+        // （401 拦截器、路由守卫、其它 Worker）复用同一次 single-flight 请求。
+        checking = recheck()
             .catch(() => {
             })
             .finally(() => {
