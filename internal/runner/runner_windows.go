@@ -24,6 +24,12 @@ func run(ctx context.Context, exePath string, args []string, opt Options) (*Hand
 	if opt.Env != nil {
 		cmd.Env = opt.Env
 	}
+	// Unset unless the caller asks, which keeps the existing behaviour (the
+	// ARK exe writes its own log file; its console output has never been
+	// captured here).
+	if opt.Log != nil {
+		cmd.Stdout, cmd.Stderr = opt.Log, opt.Log
+	}
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}

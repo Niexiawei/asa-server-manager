@@ -234,11 +234,9 @@ func warmPrefix(ctx context.Context, cfg Config, logf func(string, ...any)) erro
 		return err
 	}
 
-	prefixReady := fileExists(filepath.Join(prefix, "system.reg")) &&
-		dirExists(filepath.Join(prefix, "drive_c", "windows", "system32"))
 	runtimeReady := steamLinuxRuntimeReady(cfg.ProtonVersion)
 
-	if prefixReady && runtimeReady {
+	if prefixInitialized(prefix) && runtimeReady {
 		return writePrefixMarker(prefix, cfg.ProtonVersion)
 	}
 
@@ -258,7 +256,10 @@ func warmPrefix(ctx context.Context, cfg Config, logf func(string, ...any)) erro
 	}
 
 	cmd := exec.CommandContext(ctx, py.Path, umuRunPath(cfg), "wineboot", "--init")
-	cmd.Env = append(os.Environ(),
+	// inheritedEnv, not os.Environ(): a leaked DBUS_SESSION_BUS_ADDRESS
+	// pointing at root's session bus makes bwrap refuse to start the whole
+	// container. See inheritedEnv's comment.
+	cmd.Env = append(inheritedEnv(),
 		"WINEPREFIX="+prefix,
 		"GAMEID="+cfg.GameID,
 		"PROTONPATH="+protonPath(cfg),
@@ -274,25 +275,76 @@ func warmPrefix(ctx context.Context, cfg Config, logf func(string, ...any)) erro
 		cmd.SysProcAttr = &syscall.SysProcAttr{Credential: cred}
 		cmd.Env = runtimeEnv(cmd.Env, home, runtimeUserName(cfg))
 	}
-	cmd.Stdout = progressWriter{logf}
-	cmd.Stderr = progressWriter{logf}
-	// Best-effort like the reference script (`|| true`): a non-zero exit
-	// from wineboot doesn't necessarily mean the prefix wasn't created.
-	_ = cmd.Run()
+	out := &progressWriter{logf: logf}
+	cmd.Stdout = out
+	cmd.Stderr = out
+	// A non-zero exit is tolerated on its own — the reference script's `|| true`
+	// is right that wineboot can grumble and still have built the prefix. What
+	// is NOT tolerated is an unverified result: the exit code is kept only to
+	// annotate the verdict the filesystem gives us below.
+	runErr := cmd.Run()
 
 	waitForWineserverDrain(prefix)
+
+	// The post-condition. Without it a failed wineboot was announced as
+	// "ready", and the operator only found out minutes later, from a different
+	// package, via a message telling them to run the very command that had just
+	// silently failed. See docs/UMU_PREFIX_INIT_TROUBLESHOOTING.md.
+	if !prefixInitialized(prefix) {
+		return fmt.Errorf("Wine 前缀初始化失败：%s 里没有生成 system.reg%s。wineboot 最后的输出：\n%s",
+			prefix, exitNote(runErr), out.tail())
+	}
 
 	logf("umu runtime and Wine prefix ready")
 	return writePrefixMarker(prefix, cfg.ProtonVersion)
 }
 
-type progressWriter struct{ logf func(string, ...any) }
+// prefixInitialized is the single judgement of "this Wine prefix is usable",
+// shared by the pre-check and the post-check so they can't drift apart.
+func prefixInitialized(prefix string) bool {
+	return fileExists(filepath.Join(prefix, "system.reg")) &&
+		dirExists(filepath.Join(prefix, "drive_c", "windows", "system32"))
+}
 
-func (w progressWriter) Write(p []byte) (int, error) {
+func exitNote(err error) string {
+	if err == nil {
+		return "（wineboot 进程本身是正常退出的）"
+	}
+	return fmt.Sprintf("（wineboot: %v）", err)
+}
+
+// progressWriter forwards every line to logf and keeps the last few, so a
+// failure can quote them inline instead of sending the operator digging
+// through asaServer.log for one line buried in hundreds.
+type progressWriter struct {
+	logf func(string, ...any)
+	mu   sync.Mutex // Stdout and Stderr are written from two goroutines
+	last []string
+}
+
+const progressTailLines = 8
+
+func (w *progressWriter) Write(p []byte) (int, error) {
 	if line := strings.TrimSpace(string(p)); line != "" {
 		w.logf("%s", line)
+
+		w.mu.Lock()
+		w.last = append(w.last, line)
+		if len(w.last) > progressTailLines {
+			w.last = w.last[len(w.last)-progressTailLines:]
+		}
+		w.mu.Unlock()
 	}
 	return len(p), nil
+}
+
+func (w *progressWriter) tail() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if len(w.last) == 0 {
+		return "  （没有任何输出）"
+	}
+	return "  " + strings.Join(w.last, "\n  ")
 }
 
 // reconcilePrefixVersion moves an existing prefix aside if it was created
@@ -361,12 +413,53 @@ func steamLinuxRuntimeReady(protonVersion string) bool {
 func waitForWineserverDrain(prefix string) {
 	deadline := time.Now().Add(90 * time.Second)
 	for time.Now().Before(deadline) {
-		procs, err := procx.QueryProcess("wineserver", prefix)
-		if err != nil || len(procs) == 0 {
+		if !wineserverHoldsPrefix(prefix) {
 			return
 		}
 		time.Sleep(2 * time.Second)
 	}
+}
+
+// wineserverHoldsPrefix reports whether a wineserver process is still serving
+// prefix.
+//
+// This used to be QueryProcess("wineserver", prefix) — matching the prefix
+// against the *command line*, which never contains it: wineserver is launched
+// as a bare path and learns its prefix from the environment. The query
+// therefore returned an empty set every time and the whole 90s drain was a
+// no-op. Verified on a live server (docs/LINUX_KILLTREE_AND_VERIFY_HANG_DIAGNOSIS.md Q6):
+//
+//	cmdline: /opt/.../GE-Proton10-34/files/bin/wineserver
+//	environ: WINEPREFIX=/opt/.../umu-prefix/pfx/
+//
+// Note the value umu actually exports is "<prefix>/pfx/" — one level deeper
+// than the configured prefix, with a trailing slash — so this compares on a
+// prefix-of-the-value basis rather than for equality.
+func wineserverHoldsPrefix(prefix string) bool {
+	procs, err := procx.QueryProcess("wineserver", "")
+	if err != nil {
+		return false
+	}
+	want := strings.TrimRight(prefix, "/")
+	if want == "" {
+		return len(procs) > 0
+	}
+	for _, p := range procs {
+		data, err := os.ReadFile(fmt.Sprintf("/proc/%d/environ", p.ProcessId))
+		if err != nil {
+			continue // exited, or not ours to read
+		}
+		for _, kv := range strings.Split(string(data), "\x00") {
+			v, ok := strings.CutPrefix(kv, "WINEPREFIX=")
+			if !ok {
+				continue
+			}
+			if strings.HasPrefix(strings.TrimRight(v, "/"), want) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func fileExists(path string) bool {

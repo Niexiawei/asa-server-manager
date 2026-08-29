@@ -57,6 +57,58 @@ func TestCheckRuntime_ReportsEachMissingPieceThenPasses(t *testing.T) {
 	}
 }
 
+// The regression this guards is docs/UMU_PREFIX_INIT_TROUBLESHOOTING.md: a
+// root login shell's DBUS_SESSION_BUS_ADDRESS leaked into the dropped child,
+// pressure-vessel tried to bind /run/user/0/bus into the container, and bwrap
+// killed the launch before Wine started.
+func TestInheritedEnv_DropsSessionScopedVariables(t *testing.T) {
+	dropped := map[string]string{
+		"DBUS_SESSION_BUS_ADDRESS": "unix:path=/run/user/0/bus",
+		"XDG_RUNTIME_DIR":          "/run/user/0",
+		"SESSION_MANAGER":          "local/host:@/tmp/.ICE-unix/1234",
+		"XAUTHORITY":               "/root/.Xauthority",
+		"DISPLAY":                  ":0",
+		"WAYLAND_DISPLAY":          "wayland-0",
+		"PULSE_SERVER":             "unix:/run/user/0/pulse/native",
+		"SSH_AUTH_SOCK":            "/tmp/ssh-abc/agent.1",
+		"JOURNAL_STREAM":           "8:12345",
+	}
+	kept := map[string]string{
+		"PATH":        "/usr/bin",
+		"LANG":        "C.UTF-8",
+		"LC_ALL":      "C.UTF-8",
+		"HTTPS_PROXY": "http://127.0.0.1:8080",
+		"no_proxy":    "localhost",
+		"UMU_LOG":     "debug",
+		"PROTON_LOG":  "1",
+		"WINEDEBUG":   "-all",
+		"HOME":        "/root", // rewritten later by runtimeEnv, but must survive
+	}
+	for k, v := range dropped {
+		t.Setenv(k, v)
+	}
+	for k, v := range kept {
+		t.Setenv(k, v)
+	}
+
+	got := map[string]bool{}
+	for _, kv := range inheritedEnv() {
+		k, _, _ := strings.Cut(kv, "=")
+		got[k] = true
+	}
+
+	for k := range dropped {
+		if got[k] {
+			t.Errorf("%s must not reach the launched process", k)
+		}
+	}
+	for k := range kept {
+		if !got[k] {
+			t.Errorf("%s should have been passed through", k)
+		}
+	}
+}
+
 func TestCheckRuntime_MessagesPointAtSetup(t *testing.T) {
 	Configure(Config{Runtime: "umu", ProtonVersion: "GE-Proton10-34", BaseDir: t.TempDir()})
 	t.Cleanup(func() { Configure(defaultConfig()) })

@@ -335,6 +335,15 @@ func DownloadAndUpdateArkServer(ctx context.Context, outputCallback ...io.Writer
 		logger.Warnf("Failed to apply Linux compatibility fixups: %v", err)
 	}
 
+	// SteamCMD just ran as this process (root), so everything it wrote or
+	// replaced is root-owned. Hand the tree back to the shared-access regime
+	// so the dropped game process can still write saves, ModsUserData and
+	// crash dumps into it. Unconditional — this is the authoritative pass the
+	// sampled one in reconcileRuntimeOwnership defers to. No-op on Windows.
+	if err := runner.PrepareSharedTree(cfgpkg.ServerFilesDir); err != nil {
+		logger.Warnf("Failed to prepare %s for the runtime user: %v", cfgpkg.ServerFilesDir, err)
+	}
+
 	logMsg = "ARK server installation/update completed successfully."
 	logger.Info(logMsg)
 	if outputWriter != nil {
@@ -412,12 +421,39 @@ func VerifyServerInstallation(ctx context.Context, force bool, outputCallback ..
 	}
 	emit(fmt.Sprintf("Running server verification on port %d (this can take up to 3 minutes on first run)...", port))
 
+	// The verification launch runs straight out of server-files, with no
+	// per-instance mirror in front of it — so on Linux the dropped runtime
+	// user needs write access to this tree directly. Without it the game
+	// cannot create ShooterGame/Saved at all and the wait below is guaranteed
+	// to time out after 180s with nothing to show for it. No-op on Windows.
+	// See docs/LINUX_KILLTREE_AND_VERIFY_HANG_DIAGNOSIS.md §3.6.
+	if err := os.MkdirAll(filepath.Join(cfgpkg.ServerFilesDir, "ShooterGame/Saved"), 0o755); err != nil {
+		return fmt.Errorf("failed to create Saved directory: %w", err)
+	}
+	if err := runner.PrepareSharedTree(cfgpkg.ServerFilesDir); err != nil {
+		logger.Warnf("Failed to prepare %s for the runtime user: %v", cfgpkg.ServerFilesDir, err)
+	}
+
+	// Capture the launch's stdout/stderr. On Linux everything umu-run,
+	// pressure-vessel and Wine have to say about a failed start goes here and
+	// nowhere else — without it a container-side failure is completely silent
+	// (docs/LINUX_KILLTREE_AND_VERIFY_HANG_DIAGNOSIS.md §3.5 c).
+	var launchLog io.Writer
+	_ = os.MkdirAll(filepath.Dir(verifyLaunchLogPath()), 0o755)
+	if f, logErr := os.OpenFile(verifyLaunchLogPath(), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644); logErr != nil {
+		logger.Warnf("Failed to open verification launch log: %v", logErr)
+	} else {
+		defer f.Close()
+		launchLog = f
+		emit("Launch output: " + verifyLaunchLogPath())
+	}
+
 	// Start the server to generate config files. On Windows this is a plain
 	// exec of arkExe; on Linux runner.Run wraps it in umu-run (Wine/Proton) —
-	// see docs/LINUX_COMPATIBILITY_PLAN.md §5.1/§5.5. Either way,
-	// handle.LauncherPID is what procx.KillTree needs below: the actual game
-	// PID on Windows, umu-run's PID (== the whole launch's process group
-	// leader) on Linux.
+	// see docs/LINUX_COMPATIBILITY_PLAN.md §5.1/§5.5. handle.LauncherPID is
+	// the actual game PID on Windows and umu-run's PID on Linux; procx.KillTree
+	// below walks the parent/child tree from it, which reaches the container
+	// contents on both.
 	handle, err := runner.Run(ctx, arkExe, []string{
 		"TheIsland_WP?listen",
 		fmt.Sprintf("-Port=%d", port),
@@ -427,7 +463,7 @@ func VerifyServerInstallation(ctx context.Context, force bool, outputCallback ..
 		"-log",
 		"-nosteamclient",
 		"-game",
-	}, runner.Options{})
+	}, runner.Options{Log: launchLog})
 	if err != nil {
 		return fmt.Errorf("failed to start server for verification: %w", err)
 	}
@@ -466,6 +502,13 @@ func VerifyServerInstallation(ctx context.Context, force bool, outputCallback ..
 
 	emit("Server verification completed. Configuration files generated.")
 	return nil
+}
+
+// verifyLaunchLogPath is where the verification launch's stdout/stderr goes.
+// Truncated on every run — it describes one launch, and the interesting case
+// is always the most recent one.
+func verifyLaunchLogPath() string {
+	return filepath.Join(cfgpkg.BaseDir, "logs", "verify-launch.log")
 }
 
 // waitForConfigDir polls for configDir to appear, up to timeout or ctx
