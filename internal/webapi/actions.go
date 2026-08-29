@@ -396,6 +396,12 @@ func InitializationBasicComponents() {
 	// instance startup doesn't route through runner yet (that lands in P4).
 	// GET /api/system/preflight exposes the same result for the frontend.
 	for _, p := range runner.Preflight() {
+		if p.Warning {
+			// 建议项：能用但降级，文案上与"缺依赖"区分开，否则运维会去追一个
+			// 并不存在的故障。见 docs/ACL_PERMISSION_HARDENING_PLAN.md §1。
+			logger.Warnf("Linux runtime advisory: %s — %s (suggested: %s)", p.Name, p.Detail, p.Fix)
+			continue
+		}
 		logger.Warnf("Linux runtime preflight: %s — %s (fix: %s)", p.Name, p.Detail, p.Fix)
 	}
 	// Warm the Linux Wine/Proton runtime (no-op on Windows). Backgrounded and

@@ -33,6 +33,12 @@ func (h *Handler) preflight(c *gin.Context) {
 	runtimeErr := runner.CheckRuntime()
 	st := installer.CheckInstalled()
 
+	// healthy 只看阻断项。带 Warning 的条目描述的是"能用但降级"（目前只有
+	// posix-acl），把它们计入会让一台完全可用的机器被报成环境异常 ——
+	// 见 docs/ACL_PERMISSION_HARDENING_PLAN.md §1。前端要区分展示时看
+	// problems[].Warning。
+	blockers := runner.Blockers(problems)
+
 	runtimeMsg := ""
 	if runtimeErr != nil {
 		runtimeMsg = runtimeErr.Error()
@@ -41,7 +47,7 @@ func (h *Handler) preflight(c *gin.Context) {
 	c.JSON(http.StatusOK, apiresp.StatusResponse{
 		Success: true,
 		Data: gin.H{
-			"healthy":           len(problems) == 0,
+			"healthy":           len(blockers) == 0,
 			"problems":          problems,
 			"runtimeReady":      runtimeErr == nil,
 			"runtimeMessage":    runtimeMsg,

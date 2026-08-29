@@ -112,20 +112,30 @@ func ActionSetup(ctx context.Context, cmd *cli.Command) error {
 // 表达"我要初始化环境"，缺 32 位 glibc（SteamCMD 是 32 位 ELF）或 python3（umu 需要）
 // 还继续只会白下载几百 MB，所以默认不通过就中止。--ignore-preflight 是逃生舱，
 // 供某些非主流发行版上检查误报时使用。
+//
+// 只有**阻断项**参与中止判定。建议项（Problem.Warning）照常打印但不拦路 ——
+// 它们描述的是"能用但降级"，把它们当成缺依赖会让一台完全可用的机器装不上，
+// 见 docs/ACL_PERMISSION_HARDENING_PLAN.md §1。
 func runLinuxPreflight(ignore bool) error {
 	problems := runner.Preflight()
-	if len(problems) == 0 {
-		fmt.Println("宿主依赖自检：通过")
+	blockers, advisories := runner.Blockers(problems), runner.Advisories(problems)
+
+	// 建议项先打印再判定：即使下面因为阻断项中止，用户也已经看到了完整清单。
+	if len(blockers) == 0 {
+		if len(advisories) == 0 {
+			fmt.Println("宿主依赖自检：通过")
+		} else {
+			fmt.Printf("宿主依赖自检：通过（%d 项建议）\n", len(advisories))
+			printProblems(advisories, "建议")
+		}
 		return nil
 	}
 
 	fmt.Println("宿主运行时依赖不满足，setup 无法继续。请按下面的建议手动安装后重试：")
-	for _, p := range problems {
-		if p.Fix != "" {
-			fmt.Printf("  - [%s] %s\n      修复：%s\n", p.Name, p.Detail, p.Fix)
-		} else {
-			fmt.Printf("  - [%s] %s\n", p.Name, p.Detail)
-		}
+	printProblems(blockers, "修复")
+	if len(advisories) > 0 {
+		fmt.Printf("另有 %d 项建议（不阻断 setup）：\n", len(advisories))
+		printProblems(advisories, "建议")
 	}
 
 	if ignore {
@@ -135,11 +145,35 @@ func runLinuxPreflight(ignore bool) error {
 	return fmt.Errorf("宿主依赖缺失，已中止；补齐后重跑 asa-server setup（或加 --ignore-preflight 强行继续）")
 }
 
+func printProblems(problems []runner.Problem, fixLabel string) {
+	for _, p := range problems {
+		if p.Fix != "" {
+			fmt.Printf("  - [%s] %s\n      %s：%s\n", p.Name, p.Detail, fixLabel, p.Fix)
+		} else {
+			fmt.Printf("  - [%s] %s\n", p.Name, p.Detail)
+		}
+	}
+}
+
 func printPostSetupTips() {
+	// 降级到方案 A 时在这里再提一次装 acl。自检阶段那条建议排在几百 MB 下载日志
+	// 之前，setup 跑完几分钟后早被刷走了；末尾这一屏才是用户真正会看到的。
+	// 见 docs/ACL_PERMISSION_HARDENING_PLAN.md §4.1。
+	if info := runner.SharedAccessStatus(); info.Managed && info.Model() == "chown" {
+		fmt.Println()
+		fmt.Println("⚠ 当前系统没有可用的 POSIX ACL，权限走的是 chown 兜底方案：")
+		fmt.Println("  之后以 root 上传的 ArkApi 插件 / mod 文件，游戏进程会写不了，")
+		fmt.Println("  需要重启 asa-server 或执行 asa-server perms fix 才能生效。建议：")
+		fmt.Println("    apt install acl && systemctl restart asa-server   # Debian/Ubuntu")
+		fmt.Println("    （Fedora: dnf install acl；Arch: pacman -S acl）")
+		fmt.Println()
+	}
+
 	fmt.Println("接下来可以：")
 	if runtime.GOOS == "linux" {
 		fmt.Println("  asa-server service install    # 安装为 systemd 服务")
 		fmt.Println("  asa-server cert install       # 安装本地 HTTPS 证书（需要 sudo）")
+		fmt.Println("  asa-server perms status       # 查看共享写权限现状（排查插件/mod 写不了时用）")
 	} else {
 		fmt.Println("  asa-server service install    # 安装为 Windows 服务（需要管理员）")
 		fmt.Println("  或直接双击 asa-server.exe 使用 GUI")
