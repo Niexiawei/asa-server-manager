@@ -24,6 +24,10 @@ import (
 	"unicode/utf8"
 )
 
+// arkExeName 是游戏服务端可执行文件名，进程查找按平台各自的规则匹配它 ——
+// 见 gameproc_windows.go / gameproc_linux.go。
+const arkExeName = "ArkAscendedServer.exe"
+
 // 停止类操作的预检文案，面向用户，可直接展示。
 const (
 	ReasonNotStarted  = "实例当前不处于已启动状态"
@@ -134,7 +138,7 @@ func waitForGamePID(ctx context.Context, saveDir string) (uint32, error) {
 			if ctx.Err() != nil {
 				return
 			}
-			process, err := procx.QueryProcess("ArkAscendedServer.exe", fmt.Sprintf("AltSaveDirectoryName=%s", saveDir))
+			process, err := queryGameProcesses(fmt.Sprintf("AltSaveDirectoryName=%s", saveDir))
 			if err != nil {
 				select {
 				case processErr <- err:
@@ -472,9 +476,9 @@ func waitServerStartup(pid int, gameLogPath string, callback waitServerStartupFu
 }
 
 // findServerPIDBySaveDir 通过进程命令行中的 AltSaveDirectoryName 查找 ArkAscendedServer.exe 的 PID。
-// 不依赖端口是否被监听，适用于启动中等过渡状态（Windows 走 WMI，Linux 走 /proc 扫描，见 pkg/procx）。
+// 不依赖端口是否被监听，适用于启动中等过渡状态（匹配规则按平台拆分，见 gameproc_*.go）。
 func findServerPIDBySaveDir(saveDir string) (int, error) {
-	processes, err := procx.QueryProcess("ArkAscendedServer.exe", fmt.Sprintf("AltSaveDirectoryName=%s", saveDir))
+	processes, err := queryGameProcesses(fmt.Sprintf("AltSaveDirectoryName=%s", saveDir))
 	if err != nil {
 		return 0, fmt.Errorf("process query failed: %w", err)
 	}
