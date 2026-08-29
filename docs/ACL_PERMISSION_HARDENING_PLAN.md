@@ -1,6 +1,8 @@
 # Linux 权限方案加固执行文档（ACL 告警 / setup 提示 / 上传后自愈）
 
-> 状态：**待实施**。派生自 `docs/LINUX_KILLTREE_AND_VERIFY_HANG_DIAGNOSIS.md` §3.7 / §7.5.2。
+> 状态：**T1 / T2a / T2b / T3 全部已实施**（实施记录见 §8 与 §9），
+> 真机验证清单见 §8.4 与 §9.4。fsnotify 按 §3.1 的理由不做。
+> 派生自 `docs/LINUX_KILLTREE_AND_VERIFY_HANG_DIAGNOSIS.md` §3.7 / §7.5.2。
 > 前置背景：该文档确立了"方案 B（组 + setgid + 默认 ACL）+ 方案 A（chown）兜底"的
 > 权限模型，并已在真机验证方案 B 生效（那份文档 §7.5.2.2）。
 > 本文处理三件收尾：**ACL 缺失的可见性**、**setup 阶段的引导**、
@@ -84,11 +86,13 @@ type Problem struct {
 	// Warning 为 true 表示这是**建议**而非阻断项：功能仍然可用，
 	// 只是降级或有更好的做法。消费方必须区分对待 —— setup 不因它中止，
 	// preflight API 不因它判定 unhealthy。
-	Warning bool `json:"warning"`
+	Warning bool
 }
 ```
 
-JSON 是**新增字段**，对现有前端向后兼容（旧代码忽略即可）。
+**不加 json tag**：`Problem` 的三个既有字段都没有 tag（序列化为
+`Name`/`Detail`/`Fix`），新字段沿用同一约定，序列化为 `Warning`。
+新增字段对消费方向后兼容。
 
 ### 2.2 消费方改造
 
@@ -471,3 +475,149 @@ T1 与 T2a 都很小，建议合成一个 PR 一起验证。
   这正是 §1 那个回归的教训
 - **自动 `apt install acl`**：本项目不代替用户做包管理，
   与 `preflight` 现有的所有检查项保持一致（都是给命令、不代跑）
+
+---
+
+## 8. 实施记录：T1 + T2a（2026-08-29）
+
+`go build` / `go vet` 在 `GOOS=windows` 与 `GOOS=linux` 下均通过。
+
+### 8.1 T1：`Problem` 分级
+
+| 文件 | 改动 |
+|---|---|
+| `internal/runner/runner.go` | `Problem` 新增 `Warning bool`；新增 `Blockers()` / `Advisories()` 两个过滤器，避免每个消费方各写一遍循环 |
+| `internal/runner/sharedaccess_linux.go` | `checkACLSupport()` 返回的 Problem 置 `Warning: true` |
+| `internal/actions/setup.go` | `runLinuxPreflight` 按级别分流；**只有阻断项参与中止判定**；抽出 `printProblems(problems, fixLabel)`，阻断项标"修复"、建议项标"建议" |
+| `internal/webapi/systemapi/systemapi.go` | `healthy` 从 `len(problems)==0` 改为 `len(Blockers(problems))==0`；`problems` 原样返回（含 `Warning` 字段）供前端区分展示 |
+| `internal/webapi/actions.go` | 启动日志分流：建议项打 `Linux runtime advisory: ... (suggested: ...)`，阻断项维持 `Linux runtime preflight: ... (fix: ...)` |
+| `internal/runner/problem_test.go` | 新增：分组正确性、顺序保持、nil 输入、**全是建议项时 `Blockers` 为空**（这条直接对应 §1 的回归） |
+
+关于 JSON 字段名：`Problem` 的既有字段都没有 tag（序列化为 `Name`/`Detail`/`Fix`），
+新字段沿用同一约定，序列化为 `Warning`。前端目前**尚未消费**
+`/api/system/preflight`（全仓搜索无引用），所以不存在兼容性负担。
+
+### 8.2 T2a：junction 目标在启动前统一准备
+
+| 文件 | 改动 |
+|---|---|
+| `internal/mirror/mirror.go` | 新增导出 `ExceptionTargets(instanceName, cfg) []string` —— 从 `buildExceptionTargets` 取值、去重、排序。清单集中在一处，以后新增 junction 会自动被权限处理覆盖 |
+| `internal/instance/server.go` | **删掉** 269 行那句 `PrepareSharedTree(instances/<name>)`；改为在 `runner.Run` **正前方**遍历 `ExceptionTargets` 逐个 `PrepareSharedTree` |
+| `internal/mirror/exception_targets_test.go` | 新增：四个目标齐全、**共享 Mods 目录对每个实例都在**、输出有序且无重复 |
+
+`ChownMirrorForRuntime(mirrorDir)`（259 行）保持原位不动 ——
+它处理镜像自身，而镜像在那之后不再被 root 写入。
+
+**位置是这次改动的实质**，代码里也写明了原因：启动流程自己还会以 root 创建
+`Save/<MapName>`、`Logs/` 和 `ShooterGame.log`（§3.2.1 的第 4/5/6 项），
+放在它们之前就会漏掉 —— 而漏掉 `ShooterGame.log` 的后果最隐蔽：
+游戏写不了自己的日志，`waitServerStartup` 靠 tail 它判断启动完成，实例会一直停在
+`starting`。
+
+### 8.3 Windows 影响面
+
+- `Problem.Warning`：Windows 的 `preflight()` 恒返回 nil，`Blockers`/`Advisories`
+  对空切片返回 nil，`setup.go` 走"通过"分支，输出与改动前逐字相同
+- `PrepareSharedTree`：Windows 恒 `return nil`，新循环空转
+- `ExceptionTargets`：纯路径计算，无平台差异；Windows 上镜像用的是 NTFS junction，
+  目标目录同样是这四个
+
+### 8.4 待验证
+
+**必须在卸载了 `acl` 的环境下验证** —— 装了 acl 的机器上默认 ACL 会掩盖顺序问题，
+测不出 T2a 的价值：
+
+1. `asa-server setup` 能跑完，输出含 `[posix-acl]` 建议且不中止（T1，§2.4）
+2. `GET /api/system/preflight` 返回 `healthy: true`，`problems[]` 里那条 `Warning: true`
+3. 启动实例后 `instances/<name>/Logs/ShooterGame.log` 属组为运行时用户且组可写，
+   状态能推进到 `started`（T2a，§3.3.1）
+4. 换一张新地图启动，`instances/<name>/Save/<新地图名>` 组可写
+5. 删掉 `server-files/ShooterGame/Binaries/Win64/ShooterGame` 后启动，该目录被重建且组可写
+
+### 8.5 剩余任务
+
+- **T2b**：`asa-server perms status|fix`（§3.4）—— 只服务真·带外场景（SFTP 传 mod 包）
+- **T3**：setup 末尾提示 + `docs/LINUX_DEPLOYMENT.md` / `CLAUDE.md` 文档同步（§4）
+
+---
+
+## 9. 实施记录：T2b + T3（2026-08-29）
+
+`go build` / `go vet` 在 `GOOS=windows` 与 `GOOS=linux` 下均通过，
+`internal/actions` / `internal/runner` / `internal/mirror` 测试全绿。
+
+### 9.1 T2b：`asa-server perms status|fix`
+
+| 文件 | 改动 |
+|---|---|
+| `internal/runner/runner.go` | 新增 `SharedAccessInfo` / `TreeAccessInfo` 与 `Model()`（`"acl"` / `"chown"` / `"n/a"`）；导出 `SharedAccessStatus()`、`SharedTrees()` |
+| `internal/runner/sharedaccess_linux.go` | 实现 `sharedAccessStatus()`（**只读**：属组/权限位采样 + 默认 ACL 检查 + ACL 可用性探测）与 `sharedTrees()` |
+| `internal/runner/runtimeuser_windows.go` | 两个函数的空实现 |
+| `internal/actions/perms.go` | 新增命令，两个子命令 |
+| `main.go` | 注册 `actions.PermsCommand()` |
+| `internal/runner/sharedaccess_test.go` | 新增：`Model()` 四种状态、未降权时报告为空 |
+
+`perms status` 的实际输出（未降权时）：
+
+```
+当前不涉及降权运行：游戏进程与 asa-server 使用同一身份，无需共享写权限处理。
+（Windows 恒是这种情况；Linux 上非 root 启动、或 linux.umu_run_as_root=true 时也是。）
+```
+
+降权且 ACL 可用时逐棵树打勾：
+
+```
+运行时用户：asa-umu-runtime (uid=997 gid=997，属组 asa-umu-runtime)
+ACL 支持：  可用 (/usr/bin/setfacl)
+权限模型：  方案 B（组 + setgid + 默认 ACL）—— 新文件在创建瞬间即继承，无需事后修复
+
+  /opt/asa-server/basedir/server-files
+    属组/权限位  ✓
+    默认 ACL     ✓  (default:group:asa-umu-runtime:rwx)
+  /opt/asa-server/basedir/instances
+    ...
+
+结论：全部就绪。
+```
+
+**两个子命令都不调 `VerifyEnvironmentReady()`**：那个检查要求 SteamCMD 与服务端
+本体都已安装，而权限诊断恰恰经常发生在环境没装好的时候（安装过程本身就可能因为
+权限失败）。BaseDir 与 runner 配置由 `main()` 在 CLI 分发前统一装配，
+这两条命令需要的前提仅此而已。
+
+`perms fix` 逐棵树打印「处理 … 完成（耗时）」——`server-files` 约 5 万条目要走几秒，
+不打印用户会以为卡住。ACL 不可用时先说明"本次只能按方案 A 修复"，再给安装建议。
+
+### 9.2 T3：setup 引导与文档
+
+| 文件 | 改动 |
+|---|---|
+| `internal/actions/setup.go` | `printPostSetupTips()` 在降级（`Model() == "chown"`）时打一段醒目提示 + 安装命令；Linux 分支的"接下来可以"增加 `asa-server perms status` |
+| `docs/LINUX_DEPLOYMENT.md` | 依赖表加入 `acl`（标注**强烈建议、非必需**）；新增「共享写权限与 `acl`」小节，说明降级行为与两条命令的分工 |
+| `CLAUDE.md` | `runner` 目录树补 `sharedaccess_linux.go` 与 `preflight_linux.go` 的 Warning 语义；Key Packages 增加 runner 权限模型条目；`installer` 条目补上"verify 以端口监听为成功判据" |
+
+末尾提示放在 `printPostSetupTips()` 而不是只靠自检输出，是因为自检那条排在几百 MB
+下载日志之前 —— setup 跑完几分钟后早被刷走，末尾这一屏才是用户真正会看到的（§4.1）。
+
+### 9.3 Windows 影响面
+
+- `perms status` / `perms fix`：`SharedAccessStatus()` 恒返回零值，两条命令都打印
+  "当前不涉及降权运行"后正常退出。已在 Windows 上实跑验证
+- `printPostSetupTips()`：`info.Managed` 恒 false，新增的提示块不会触发，
+  Windows 分支输出与改动前逐字相同
+- 其余均为 Linux 专属文件或纯文档
+
+### 9.4 待验证（真机，Linux）
+
+1. **装了 `acl` 的机器**：`asa-server perms status` 报告"方案 B"，各树两项全 ✓
+2. **卸载 `acl` 后**：报告"方案 A（chown 兜底）"，`asa-server setup` 末尾出现安装提示块
+3. 以 root 在 `server-files` 下新建文件 → `perms status` 应显示属组/权限位 ✗ →
+   `perms fix` → 复查恢复 ✓
+4. `perms fix` 幂等：连跑两次，第二次 `getfacl` 输出无变化
+
+### 9.5 四项任务全部完成
+
+T1（`Problem` 分级，修 P0 回归）、T2a（junction 目标在启动前统一准备）、
+T2b（`perms status|fix`）、T3（setup 引导 + 文档）均已落地。
+**fsnotify 按 §3.1 的三条理由不做**；若日后确需，§3.6 记录了改主意的条件
+与那时应采用的窄范围设计。

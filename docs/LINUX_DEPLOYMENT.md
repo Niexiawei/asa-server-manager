@@ -21,6 +21,31 @@ Wine/Proton（经 [umu-launcher](https://github.com/Open-Wine-Components/umu-lau
 | `libzstd.so.1` | Steam Linux Runtime 依赖 | `apt install libzstd1` |
 | `tar` | 解压 SteamCMD/GE-Proton/umu 归档 | 通常预装 |
 | AppArmor 允许非特权 user namespace | pressure-vessel 沙箱需要；Ubuntu 23.10+ 默认限制 | `sysctl kernel.apparmor_restrict_unprivileged_userns=0`（永久生效需写 `/etc/sysctl.d/`） |
+| **`acl`（强烈建议，非必需）** | 让 root 新建的文件自动可被降权的游戏进程写入，见下方「共享写权限」 | `apt install acl` |
+
+### 共享写权限与 `acl`
+
+以 root 运行时，游戏进程会被降到专用账号 `asa-umu-runtime`
+（`docs/UMU_RUNTIME_USER_PLAN.md`），而 SteamCMD、配置写入、你用 SFTP 上传的
+ArkApi 插件全都是 root 身份产生的。两边要写同一批目录，asa-server 因此对
+`server-files` 与 `instances` 施加「组 + setgid + POSIX 默认 ACL」：
+默认 ACL 让**任何人**新建的文件在创建瞬间就带上组可写，无需事后修补。
+
+`setfacl` 不可用（没装 `acl`，或文件系统挂载时未启用 ACL）时会自动降级成
+「整棵 chown 给运行时用户」。**降级后一切照常工作**，`asa-server setup` 也不会
+因此中止，只是少了增量保护：之后以 root 新建的文件游戏写不了，要等下一次
+重启 asa-server / `asa-server update` / `asa-server perms fix` 才会被接管。
+
+排查与修复：
+
+```bash
+asa-server perms status   # 只读：运行时用户、ACL 可用性、各目录树当前状态
+asa-server perms fix      # 以 root 传过 mod / 插件后手动重新施加
+```
+
+程序自己创建的目录（实例的 Config/Logs/Save、共享的 Mods/ModsUserData）
+在每次实例启动时自动处理，不需要跑上面的命令 ——
+`perms fix` 只为带外变更准备。详见 `docs/ACL_PERMISSION_HARDENING_PLAN.md`。
 
 此外部署前建议检查 `vm.max_map_count`（部分发行版默认值偏低会让 UE 内存分配失败）：
 
