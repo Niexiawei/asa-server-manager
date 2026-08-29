@@ -261,16 +261,6 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 		return startErr
 	}
 
-	// 镜像里的 Config / Logs / Save 是指回 instances/<name>/ 的软链，Mods 与
-	// ModsUserData 则指回 server-files —— 上面那次 chown 用的是 Lchown，只改链接
-	// 本身，目标目录仍归 root。所以链接目标必须单独按「root 与运行时用户共写」
-	// 处理，否则游戏能看到目录却写不进去。Windows 上是空实现。
-	// 见 docs/LINUX_KILLTREE_AND_VERIFY_HANG_DIAGNOSIS.md §3.6 / §4。
-	if err := runner.PrepareSharedTree(filepath.Join(cfgpkg.InstancesDir, instanceName)); err != nil {
-		startErr = fmt.Errorf("为降权运行时用户准备实例目录失败: %w", err)
-		return startErr
-	}
-
 	exeWorkDir := filepath.Join(mirrorDir, "ShooterGame/Binaries/Win64")
 
 	// Build the command
@@ -405,6 +395,26 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 	if probs := runner.VerifyRuntimeAccessForLaunch(); len(probs) > 0 {
 		startErr = fmt.Errorf("无法启动实例：降权运行时环境自检未通过：\n%s", formatRunnerProblems(probs))
 		return startErr
+	}
+
+	// 最后一道：把镜像里各条 junction 的**目标目录**交成「root 与运行时用户共写」。
+	// ChownMirrorForRuntime 走的是 Lchown，只改到链接本身，改不到目标 ——
+	// 目标分别是 instances/<name>/{Config,Logs,Save} 和 server-files 下的
+	// Mods / ModsUserData。
+	//
+	// 位置是本段代码的一部分，不能往前挪：启动流程自己还会以 root 创建
+	// Save/<MapName>（common.go 拼参数时）、Logs/ 与 ShooterGame.log（上面几十行），
+	// 放在那些之前就会漏掉它们 —— 漏掉 ShooterGame.log 的后果尤其隐蔽：游戏写不了
+	// 自己的日志，而 waitServerStartup 正是靠 tail 它判断启动完成，实例会一直停在
+	// starting。这里是「asa-server 以 root 造完一切」与「游戏以降权用户接手」之间
+	// 唯一的交界点。详见 docs/ACL_PERMISSION_HARDENING_PLAN.md §3.2。
+	//
+	// Windows 上 PrepareSharedTree 恒为 no-op，此循环空转。
+	for _, target := range mirror.ExceptionTargets(instanceName, config) {
+		if err := runner.PrepareSharedTree(target); err != nil {
+			startErr = fmt.Errorf("为降权运行时用户准备目录 %s 失败: %w", target, err)
+			return startErr
+		}
 	}
 
 	// Launch arkExe (ArkAscendedServer.exe, or AsaApiLoader.exe wrapping it

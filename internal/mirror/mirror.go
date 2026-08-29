@@ -242,6 +242,31 @@ func createInstanceMirror(instanceName string, mirrorDir string, exceptionTarget
 	return mirrorDir, nil
 }
 
+// ExceptionTargets 返回镜像中各 junction 指向的**真实目录**（去重后的绝对路径）。
+//
+// 以不同用户运行游戏的调用方必须把这些目录处理成"两边都能写"：镜像自身的
+// chown 走的是 Lchown，只改到链接，改不到目标。这些目录还都是 asa-server
+// 自己以 root 创建的（`ShooterGame/Saved/...` 三项在实例目录下，Mods /
+// ModsUserData 那项在 server-files 下），所以降权后的游戏进程默认写不进去。
+//
+// 之所以把清单从这里导出、而不是让调用方各自拼路径：新增一条 junction 时
+// 只需要改 buildExceptionTargets，权限处理会自动跟上，不会像
+// docs/ACL_PERMISSION_HARDENING_PLAN.md §3.2 记录的那样漏掉一整个目录。
+func ExceptionTargets(instanceName string, cfg *cfgpkg.InstanceConfig) []string {
+	seen := make(map[string]bool)
+	var out []string
+	for _, target := range buildExceptionTargets(instanceName, cfg) {
+		if seen[target] {
+			continue
+		}
+		seen[target] = true
+		out = append(out, target)
+	}
+	// map 迭代顺序随机；排序让调用方的日志与错误信息可复现。
+	sort.Strings(out)
+	return out
+}
+
 // buildExceptionTargets 构建例外路径到目标目录的映射
 func buildExceptionTargets(instanceName string, cfg *cfgpkg.InstanceConfig) map[string]string {
 	targets := map[string]string{
