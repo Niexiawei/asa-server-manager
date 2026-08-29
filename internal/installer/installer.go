@@ -419,7 +419,8 @@ func VerifyServerInstallation(ctx context.Context, force bool, outputCallback ..
 		logger.Warnf("Failed to get a free UDP port, falling back to 7777: %v", err)
 		port = 7777
 	}
-	emit(fmt.Sprintf("Running server verification on port %d (this can take up to 3 minutes on first run)...", port))
+	emit(fmt.Sprintf("Running server verification on port %d — waiting for it to finish booting and start "+
+		"serving (this can take several minutes on a first run)...", port))
 
 	// The verification launch runs straight out of server-files, with no
 	// per-instance mirror in front of it — so on Linux the dropped runtime
@@ -477,12 +478,9 @@ func VerifyServerInstallation(ctx context.Context, force bool, outputCallback ..
 		logger.Infof("Monitoring log file: %s", filepath.Base(logFilePath))
 	}
 
-	// Wait for the config directory to appear rather than a fixed sleep:
-	// Wine cold starts are considerably slower than native Windows, and a
-	// fixed 60s used to be both too short under Wine and needlessly long on
-	// Windows once the directory has actually appeared. Capped at 180s per
-	// docs/LINUX_COMPATIBILITY_PLAN.md §5.5.
-	waitErr := waitForConfigDir(ctx, configDir, 180*time.Second)
+	// Wait until the server is genuinely up — see waitForVerificationServer
+	// on why "the config directory exists" is not that.
+	waitErr := waitForVerificationServer(ctx, configDir, port, handle.LauncherPID, verifyStartupTimeout, emit)
 
 	if ctx.Err() != nil {
 		logger.Info("Stopping server for verification (cancelled)...")
@@ -497,12 +495,22 @@ func VerifyServerInstallation(ctx context.Context, force bool, outputCallback ..
 	time.Sleep(2 * time.Second)
 
 	if waitErr != nil {
+		reportVerificationFailure(logsDir, emit)
 		return fmt.Errorf("server verification failed: %w", waitErr)
 	}
 
-	emit("Server verification completed. Configuration files generated.")
+	emit("Server verification completed: the server booted and served on its port.")
 	return nil
 }
+
+// verifyStartupTimeout is the whole budget for "launched" to become
+// "serving". The previous 180s covered only the first milestone (the config
+// directory, which lands within a minute or so on a cold Wine start —
+// docs/LINUX_COMPATIBILITY_PLAN.md §5.5); actually loading the map and
+// opening the port takes another 30-90s on top, and more on a first run that
+// is still warming caches. Five minutes leaves headroom for the slow path
+// without letting a genuinely hung server hold the process forever.
+const verifyStartupTimeout = 5 * time.Minute
 
 // verifyLaunchLogPath is where the verification launch's stdout/stderr goes.
 // Truncated on every run — it describes one launch, and the interesting case
@@ -511,28 +519,130 @@ func verifyLaunchLogPath() string {
 	return filepath.Join(cfgpkg.BaseDir, "logs", "verify-launch.log")
 }
 
-// waitForConfigDir polls for configDir to appear, up to timeout or ctx
-// cancellation, whichever comes first.
-func waitForConfigDir(ctx context.Context, configDir string, timeout time.Duration) error {
-	if _, err := os.Stat(configDir); err == nil {
-		return nil
+// Probes waitForVerificationServer polls through. Package-level so tests can
+// drive the wait loop without a real process or a real socket.
+var (
+	portInUse = procx.PortInUse
+
+	processExited = func(pid int) bool {
+		exited, err := procx.IsProcessExited(uint32(pid))
+		return err == nil && exited
 	}
 
-	deadline := time.NewTimer(timeout)
-	defer deadline.Stop()
-	ticker := time.NewTicker(2 * time.Second)
+	// verifyPollInterval paces the wait loop. Every probe costs a full
+	// gopsutil connection walk, so 2s is deliberate — the wait runs for
+	// minutes. Tests shrink it.
+	verifyPollInterval = 2 * time.Second
+)
+
+// waitForVerificationServer blocks until the freshly launched server is
+// actually serving — its game port is bound — or until it gives up.
+//
+// The configuration directory appearing is NOT that signal, and treating it as
+// one is what this replaced. It shows up within seconds of engine init, long
+// before the world is loaded and long before anything is listening; and on a
+// re-run (force=true) it is already there from last time, so the wait returned
+// about two seconds after launch and declared verification successful while
+// the server was still booting — or, in the case this was written for, while
+// it was hung on an unwritable directory and was never going to listen at all.
+// See docs/LINUX_KILLTREE_AND_VERIFY_HANG_DIAGNOSIS.md §3.6.
+//
+// The config directory is still tracked, but only as a progress milestone and
+// to make the failure message say which of the two stages was not reached.
+//
+// launcherPID is watched so a launch that dies outright fails immediately with
+// what actually happened, instead of being reported as a timeout minutes
+// later — the same early bail-out scripts/ark_instance_manager.sh does with
+// `kill -0 "$init_pid"`.
+func waitForVerificationServer(
+	ctx context.Context,
+	configDir string,
+	port, launcherPID int,
+	timeout time.Duration,
+	emit func(string),
+) error {
+	started := time.Now()
+	deadline := started.Add(timeout)
+
+	_, statErr := os.Stat(configDir)
+	configSeen := statErr == nil
+
+	ticker := time.NewTicker(verifyPollInterval)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-deadline.C:
-			return fmt.Errorf("timed out after %s waiting for %s to appear", timeout, configDir)
 		case <-ticker.C:
+		}
+
+		if !configSeen {
 			if _, err := os.Stat(configDir); err == nil {
-				return nil
+				configSeen = true
+				emit(fmt.Sprintf("Configuration files generated after %s. Waiting for the server to open port %d...",
+					elapsed(started), port))
 			}
 		}
+
+		if inUse, err := portInUse(port); err != nil {
+			logger.Warnf("Failed to check whether port %d is bound: %v", port, err)
+		} else if inUse {
+			emit(fmt.Sprintf("Server is listening on port %d after %s.", port, elapsed(started)))
+			return nil
+		}
+
+		// Dead process: waiting out the remaining timeout would only turn a
+		// precise failure into a vague one.
+		if processExited(launcherPID) {
+			return fmt.Errorf("server process exited after %s without ever listening on port %d",
+				elapsed(started), port)
+		}
+
+		if time.Now().After(deadline) {
+			if !configSeen {
+				return fmt.Errorf("timed out after %s: %s was never created — the server did not get "+
+					"far enough to write its own configuration", timeout, configDir)
+			}
+			return fmt.Errorf("timed out after %s: configuration was generated but the server never "+
+				"started listening on port %d", timeout, port)
+		}
 	}
+}
+
+func elapsed(since time.Time) time.Duration {
+	return time.Since(since).Round(time.Second)
+}
+
+// reportVerificationFailure emits the tail of both logs a failed verification
+// leaves behind, mirroring what scripts/ark_instance_manager.sh prints when
+// the initial server start doesn't come up. Without this the caller is told
+// "it didn't start" and has to go find the files by hand — which, when the
+// launch output was being discarded entirely, was not even possible.
+func reportVerificationFailure(logsDir string, emit func(string)) {
+	if tail := tailLines(verifyLaunchLogPath(), 20); tail != "" {
+		emit(fmt.Sprintf("--- last lines of %s ---\n%s", verifyLaunchLogPath(), tail))
+	}
+	gameLog, err := findLatestLogFile(logsDir)
+	if err != nil {
+		emit(fmt.Sprintf("(no ShooterGame log was produced in %s)", logsDir))
+		return
+	}
+	if tail := tailLines(gameLog, 30); tail != "" {
+		emit(fmt.Sprintf("--- last lines of %s ---\n%s", gameLog, tail))
+	}
+}
+
+// tailLines returns the last n lines of a file, or "" if it can't be read.
+// The logs involved are small enough (a boot's worth of output) to read whole.
+func tailLines(path string, n int) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	lines := strings.Split(strings.TrimRight(string(data), "\r\n"), "\n")
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return strings.Join(lines, "\n")
 }
