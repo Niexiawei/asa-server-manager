@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"syscall"
 	"testing"
 )
@@ -84,6 +85,29 @@ func TestChgrpSetgidTree(t *testing.T) {
 		t.Errorf("%s stopped being a symlink", link)
 	} else if st, ok := info.Sys().(*syscall.Stat_t); ok && int(st.Gid) != gid {
 		t.Errorf("%s: gid = %d, want %d", link, st.Gid, gid)
+	}
+}
+
+// TestDefaultACLMissing covers the gap that the ownership/mode sampling cannot
+// see: a tree can look perfectly prepared and still have no ACLs, which is
+// exactly the state a machine is left in by the degraded chown fallback.
+func TestDefaultACLMissing(t *testing.T) {
+	if findAdminTool("setfacl") == "" || findAdminTool("getfacl") == "" {
+		t.Skip("acl tools not installed")
+	}
+	gid := strconv.Itoa(os.Getgid())
+	group := runtimeGroupName(gid)
+
+	dir := t.TempDir()
+	if !defaultACLMissing(dir, group) {
+		t.Fatal("a fresh directory must be reported as missing the default ACL")
+	}
+
+	if err := applyDefaultACL(dir, group, []string{dir}); err != nil {
+		t.Skipf("cannot set ACLs on %s: %v", dir, err)
+	}
+	if defaultACLMissing(dir, group) {
+		t.Error("after applyDefaultACL the default entry must be found")
 	}
 }
 

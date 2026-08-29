@@ -201,6 +201,35 @@ func classifyACLError(err error, out []byte) error {
 	return err
 }
 
+// defaultACLMissing reports whether root lacks the inheritable ACL entry
+// applySharedAccess installs.
+//
+// This exists because the cheap sampling in sharedAccessNeeded only looks at
+// ownership and mode bits, and those are *already correct* on a tree that went
+// through the degraded chown fallback. Without this check, installing the acl
+// package on a machine that had been running degraded would never take effect:
+// every subsequent startup would sample a clean-looking tree and skip the pass
+// that would finally add the ACLs.
+//
+// Returns false when ACLs aren't available at all — there is nothing to fix
+// then, and saying "needed" would make the degraded path re-walk the whole
+// tree on every single start forever.
+func defaultACLMissing(root, group string) bool {
+	if findAdminTool("setfacl") == "" {
+		return false
+	}
+	tool := findAdminTool("getfacl")
+	if tool == "" {
+		return false
+	}
+	// -c drops the header comments, leaving just the entries.
+	out, err := exec.Command(tool, "-c", root).Output()
+	if err != nil {
+		return false
+	}
+	return !strings.Contains(string(out), "default:group:"+group+":")
+}
+
 // aclSupported probes whether a default ACL can actually be set inside dir,
 // by doing it for real on a throwaway subdirectory. Checking that setfacl
 // exists is not enough — the binary is frequently present on filesystems

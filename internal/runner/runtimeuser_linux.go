@@ -220,7 +220,16 @@ func reconcileRuntimeOwnership(cfg Config, u *user.User) error {
 	// before verification (installer.go).
 	group := runtimeGroupName(u.Gid)
 	for _, dir := range sharedSubtrees(cfg) {
-		if !pathExists(dir) || !sharedAccessNeeded(dir, gid) {
+		if !pathExists(dir) {
+			continue
+		}
+		// Two independent reasons to run the pass: ownership/mode drift (the
+		// common one, after an update or a manual chown), and "the ACLs were
+		// never applied" — which is what a machine that had been running the
+		// degraded fallback looks like once the acl package gets installed.
+		// The first check can't see the second: a degraded tree has perfectly
+		// correct ownership and mode bits and no ACLs at all.
+		if !sharedAccessNeeded(dir, gid) && !defaultACLMissing(dir, group) {
 			continue
 		}
 		if err := applySharedAccess(dir, uid, gid, group); err != nil {
