@@ -169,6 +169,7 @@ func main() {
 			},
 			actions.SetupCommand(),
 			actions.VerifyCommand(),
+			actions.PermsCommand(),
 			certmgr.Command(),
 			actions.AuthDBCommand(),
 			actions.AuthUserCommand(),
