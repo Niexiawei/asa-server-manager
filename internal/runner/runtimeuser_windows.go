@@ -28,6 +28,12 @@ func chownTreeForRuntime(root string) error { return nil }
 // directory are already writable by everyone who needs them.
 func prepareSharedTree(root string) error { return nil }
 
+// sharedTrees / sharedAccessStatus: same reason — there is no second identity
+// to share anything with, so there are no shared trees and nothing to report.
+func sharedTrees() []string { return nil }
+
+func sharedAccessStatus() SharedAccessInfo { return SharedAccessInfo{} }
+
 func runtimeHomeDir(cfg Config) string {
 	h, _ := os.UserHomeDir()
 	return h

@@ -64,6 +64,60 @@ func sharedSubtrees(cfg Config) []string {
 	}
 }
 
+// sharedTrees is sharedSubtrees for the active config, filtered to what
+// actually exists on disk.
+func sharedTrees() []string {
+	cfg := getConfig()
+	if !runtimeUserManaged(cfg) {
+		return nil
+	}
+	var out []string
+	for _, dir := range sharedSubtrees(cfg) {
+		if pathExists(dir) {
+			out = append(out, dir)
+		}
+	}
+	return out
+}
+
+// sharedAccessStatus answers "what regime is actually in force right now",
+// entirely read-only — the whole point is to be safe to run against a live
+// server. The ACL probe is the one exception and it creates/removes its own
+// throwaway directory (aclSupported).
+func sharedAccessStatus() SharedAccessInfo {
+	cfg := getConfig()
+	info := SharedAccessInfo{Managed: runtimeUserManaged(cfg)}
+	if !info.Managed {
+		return info
+	}
+
+	info.User = runtimeUserName(cfg)
+	u, err := user.Lookup(info.User)
+	if err != nil {
+		info.ACLError = fmt.Sprintf("运行时用户 %s 不存在: %v", info.User, err)
+		return info
+	}
+	info.UID, _ = strconv.Atoi(u.Uid)
+	info.GID, _ = strconv.Atoi(u.Gid)
+	info.Group = runtimeGroupName(u.Gid)
+
+	if err := aclSupported(cfg.BaseDir, info.Group); err != nil {
+		info.ACLError = err.Error()
+	} else {
+		info.ACLTool = findAdminTool("setfacl")
+	}
+
+	for _, dir := range sharedSubtrees(cfg) {
+		t := TreeAccessInfo{Path: dir, Exists: pathExists(dir)}
+		if t.Exists {
+			t.Prepared = !sharedAccessNeeded(dir, info.GID)
+			t.DefaultACL = info.ACLTool != "" && !defaultACLMissing(dir, info.Group)
+		}
+		info.Trees = append(info.Trees, t)
+	}
+	return info
+}
+
 // prepareSharedTree makes root writable by both root and the runtime user.
 // No-op when we aren't managing a dropped user. Idempotent.
 func prepareSharedTree(root string) error {
@@ -289,7 +343,12 @@ func checkACLSupport() *Problem {
 	if err := aclSupported(cfg.BaseDir, group); err != nil {
 		if errors.Is(err, errACLUnsupported) {
 			return &Problem{
-				Name: "posix-acl",
+				// Advisory, not a blocker: applySharedAccess degrades to a
+				// plain chown and everything keeps working. Marking it as a
+				// blocker would make `asa-server setup` refuse to run on any
+				// machine without the acl package.
+				Warning: true,
+				Name:    "posix-acl",
 				Detail: fmt.Sprintf("%s 不支持 POSIX ACL（%v）。asa-server 会退回到"+
 					"「把 server-files/instances 整体 chown 给运行时用户」的兜底方案："+
 					"当前能用，但之后以 root 上传的 ArkApi 插件、mod 文件，以及 SteamCMD "+

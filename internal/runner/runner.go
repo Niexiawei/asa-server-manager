@@ -126,6 +126,33 @@ type Problem struct {
 	Name   string // short id, e.g. "glibc32"
 	Detail string // human-readable description of what's missing/wrong
 	Fix    string // suggested remediation command, if any ("" when there isn't one)
+	// Warning marks an advisory rather than a blocker: the thing still works,
+	// just in a degraded or less convenient form. Consumers must treat the two
+	// differently — `asa-server setup` refuses to continue on a blocker but not
+	// on an advisory, and the preflight API reports healthy when only
+	// advisories are present.
+	//
+	// Without this distinction every check is a hard stop, which is how
+	// "the acl package isn't installed" once became a reason `setup` would not
+	// run at all — see docs/ACL_PERMISSION_HARDENING_PLAN.md §1.
+	Warning bool
+}
+
+// Blockers returns the subset of problems that must stop whatever is being
+// attempted; Advisories returns the rest.
+func Blockers(problems []Problem) []Problem { return filterProblems(problems, false) }
+
+// Advisories returns the subset of problems that are merely recommendations.
+func Advisories(problems []Problem) []Problem { return filterProblems(problems, true) }
+
+func filterProblems(problems []Problem, warning bool) []Problem {
+	var out []Problem
+	for _, p := range problems {
+		if p.Warning == warning {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // RuntimeUserInfo summarises the drop-privileges state for the preflight API
@@ -165,6 +192,56 @@ func ChownMirrorForRuntime(mirrorDir string) error { return chownMirrorForRuntim
 // ChownTreeForRuntime chowns an arbitrary path recursively to the runtime
 // user (installer fixups use it for ~/.steam). No-op unless managing one.
 func ChownTreeForRuntime(root string) error { return chownTreeForRuntime(root) }
+
+// SharedAccessInfo is the diagnostic view of the shared-write regime, for
+// `asa-server perms status`. On Windows (and whenever privileges aren't being
+// dropped) Managed is false and everything else is empty: the game runs as the
+// same identity as asa-server, so there is nothing to share.
+type SharedAccessInfo struct {
+	Managed bool   // Linux && euid==0 && !RunAsRoot
+	User    string // runtime user name
+	UID     int
+	GID     int
+	Group   string // primary group name, the one the ACL entries name
+	// ACLTool is the resolved setfacl path, "" when POSIX ACLs are unusable.
+	// ACLError says why in that case.
+	ACLTool  string
+	ACLError string
+	Trees    []TreeAccessInfo
+}
+
+// TreeAccessInfo is one shared tree's current state.
+type TreeAccessInfo struct {
+	Path   string
+	Exists bool
+	// Prepared is the sampled ownership/mode check (group, g+rw, setgid on
+	// dirs). DefaultACL is whether the tree root carries the inheritable
+	// entry — the part that makes files created later by root writable, and
+	// the part Prepared deliberately cannot see (see sharedAccessNeeded).
+	Prepared   bool
+	DefaultACL bool
+}
+
+// Model names the regime in force: "acl" (group + setgid + default ACL),
+// "chown" (the degraded fallback), or "n/a" when privileges aren't dropped.
+func (i SharedAccessInfo) Model() string {
+	switch {
+	case !i.Managed:
+		return "n/a"
+	case i.ACLTool != "":
+		return "acl"
+	default:
+		return "chown"
+	}
+}
+
+// SharedAccessStatus reports the current shared-write state without changing
+// anything. Read-only.
+func SharedAccessStatus() SharedAccessInfo { return sharedAccessStatus() }
+
+// SharedTrees lists the directory trees that both this process and the dropped
+// runtime user must be able to write. Empty on Windows / when not dropping.
+func SharedTrees() []string { return sharedTrees() }
 
 // PrepareSharedTree makes a directory tree writable by BOTH this process
 // (root) and the dropped runtime user, without transferring ownership: group +
