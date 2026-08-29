@@ -3,6 +3,7 @@
 package procx
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -130,20 +131,28 @@ func Kill(pid int) error {
 	return signalPID(pid, syscall.SIGKILL)
 }
 
-// TerminateTree sends SIGTERM to pid's entire process group.
+// TerminateTree sends SIGTERM to pid and every descendant of it.
 //
-// This is only meaningful for a process started as its own group leader
-// (setsid — see pkg/proctree's Linux implementation, and
-// docs/LINUX_COMPATIBILITY_PLAN.md §5.4/§5.6 risk 9). The pgid>1 &&
-// pgid!=os.Getpid() assertion exists precisely so a wrong lookup (pgid 1 is
-// init's, or ours) can never take down the wrong thing.
+// KillTree/TerminateTree used to signal pid's process group instead
+// (kill(-pgid)), on the assumption that Run's Setsid made the launcher the
+// group leader of everything it spawns. On the umu/Wine path that assumption
+// is false, and measurably so: umu-run -> srt-bwrap -> pv-adverb -> proton ->
+// the game crosses THREE setsid boundaries, and a kill(-pgid) on the launcher
+// reaches a process group whose only member is the launcher itself, leaving
+// the whole container tree — including ArkAscendedServer.exe — running. See
+// docs/LINUX_KILLTREE_AND_VERIFY_HANG_DIAGNOSIS.md §2.
+//
+// So this walks the real parent/child tree instead, which matches what
+// Windows's `taskkill /T` does. The game runs in the same PID namespace as
+// this process (only mount namespaces differ under pressure-vessel), so the
+// PIDs read here are directly signallable.
 func TerminateTree(pid int) error {
-	return signalGroup(pid, syscall.SIGTERM)
+	return signalTree(pid, syscall.SIGTERM)
 }
 
-// KillTree sends SIGKILL to pid's entire process group. See TerminateTree.
+// KillTree sends SIGKILL to pid and every descendant of it. See TerminateTree.
 func KillTree(pid int) error {
-	return signalGroup(pid, syscall.SIGKILL)
+	return signalTree(pid, syscall.SIGKILL)
 }
 
 func signalPID(pid int, sig syscall.Signal) error {
@@ -153,13 +162,110 @@ func signalPID(pid int, sig syscall.Signal) error {
 	return syscall.Kill(pid, sig)
 }
 
-func signalGroup(pid int, sig syscall.Signal) error {
-	pgid, err := syscall.Getpgid(pid)
+func signalTree(pid int, sig syscall.Signal) error {
+	if pid <= 1 {
+		return fmt.Errorf("procx: refusing to signal pid %d", pid)
+	}
+	self := os.Getpid()
+	tree := processTree(pid)
+
+	// Process groups still get swept, but only those *led by a member of the
+	// tree* — that catches grandchildren already reparented away (their ppid
+	// link is gone, their pgid isn't) without ever touching a group this
+	// launch doesn't own.
+	inTree := make(map[int]bool, len(tree))
+	for _, p := range tree {
+		inTree[p] = true
+	}
+	for _, p := range tree {
+		if p == self {
+			continue
+		}
+		if pgid, err := syscall.Getpgid(p); err == nil && pgid > 1 && pgid != self && inTree[pgid] {
+			_ = syscall.Kill(-pgid, sig)
+		}
+	}
+
+	// Leaves first: signalling a parent before its children would let the
+	// children be reparented to init mid-loop, and the entries after it in
+	// the snapshot would then be signalled by PID anyway — but doing it in
+	// this order keeps that window closed instead of relying on it.
+	var firstErr error
+	for i := len(tree) - 1; i >= 0; i-- {
+		if tree[i] == self {
+			continue
+		}
+		if err := syscall.Kill(tree[i], sig); err != nil && !errors.Is(err, syscall.ESRCH) && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
+// processTree snapshots /proc and returns root plus every descendant of it,
+// parents before children.
+//
+// It MUST be called before any signal is sent: the moment a parent dies its
+// children are reparented to init and the ppid chain that identifies them as
+// ours is gone for good.
+func processTree(root int) []int {
+	entries, err := os.ReadDir("/proc")
 	if err != nil {
-		return fmt.Errorf("procx: failed to resolve process group for pid %d: %w", pid, err)
+		return []int{root}
 	}
-	if pgid <= 1 || pgid == os.Getpid() {
-		return fmt.Errorf("procx: refusing to signal process group %d", pgid)
+
+	children := make(map[int][]int)
+	for _, e := range entries {
+		pid, convErr := strconv.Atoi(e.Name())
+		if convErr != nil {
+			continue // not a PID directory
+		}
+		if ppid, ok := readPPID(pid); ok {
+			children[ppid] = append(children[ppid], pid)
+		}
 	}
-	return syscall.Kill(-pgid, sig)
+
+	out := []int{root}
+	seen := map[int]bool{root: true}
+	for i := 0; i < len(out); i++ {
+		for _, c := range children[out[i]] {
+			if !seen[c] {
+				seen[c] = true
+				out = append(out, c)
+			}
+		}
+	}
+	return out
+}
+
+// readPPID reads the parent pid out of /proc/<pid>/stat.
+func readPPID(pid int) (int, bool) {
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	if err != nil {
+		return 0, false
+	}
+	return parsePPIDFromStat(data)
+}
+
+// parsePPIDFromStat extracts field 4 (ppid) from a /proc/<pid>/stat line.
+//
+// The second field is the executable name in parentheses and may itself
+// contain spaces and closing parens — Wine renames its threads freely, and
+// "(Web Content)" is the classic example elsewhere — so the fixed fields are
+// counted from the LAST ')' rather than by splitting the whole line. After it
+// come state (field 3) and ppid (field 4).
+func parsePPIDFromStat(data []byte) (int, bool) {
+	i := bytes.LastIndexByte(data, ')')
+	if i < 0 {
+		return 0, false
+	}
+	fields := strings.Fields(string(data[i+1:]))
+	if len(fields) < 2 {
+		return 0, false
+	}
+	ppid, err := strconv.Atoi(fields[1])
+	if err != nil {
+		return 0, false
+	}
+	return ppid, true
 }
