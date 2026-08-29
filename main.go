@@ -168,6 +168,7 @@ func main() {
 				Action: actionGUI,
 			},
 			actions.SetupCommand(),
+			actions.VerifyCommand(),
 			certmgr.Command(),
 			actions.AuthDBCommand(),
 			actions.AuthUserCommand(),
