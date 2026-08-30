@@ -2,7 +2,7 @@
   <t-drawer
       :visible="visible"
       header="服务器规则配置"
-      :confirm-btn="{ content: '保存到 Game.ini', loading: saving, theme: 'primary' }"
+      :confirm-btn="{ content: '保存', loading: saving, theme: 'primary' }"
       cancel-btn="取消"
       @confirm="handleConfirm"
       @close="handleClose"
