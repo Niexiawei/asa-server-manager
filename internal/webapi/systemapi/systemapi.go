@@ -62,6 +62,12 @@ func (h *Handler) preflight(c *gin.Context) {
 			// Which Python interpreter umu-run runs under (Linux; empty on
 			// Windows). See docs/UMU_PYTHON_DISCOVERY_PLAN.md.
 			"umuPython": runner.RuntimePython(),
+			// Whether a Wine process can get an X display. Only ArkApi
+			// instances need one, so this is reported separately rather than
+			// folded into `healthy` — but the "xvfb" preflight problem above
+			// is a blocker, so a host missing it is unhealthy anyway.
+			// See docs/ARKAPI_LINUX_VCREDIST_PLAN.md §9.
+			"display": runner.DisplayStatus(),
 		},
 	})
 }
