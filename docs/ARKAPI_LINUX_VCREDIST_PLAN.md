@@ -1044,8 +1044,8 @@ L"Static"` / `uiautomation:*` 也印证了：`AsaApiLoader.exe` 是带真窗口�
 
 | 位置 | 改动 |
 |---|---|
-| `internal/runner/display_linux.go`（新增） | 从 `vcredist_linux.go` 抽出 `displayTarget` / `resolveDisplay` / `x11SocketExists`，**vc_redist 安装与 ArkApi 启动共用同一份逻辑**；新增 `wrap()` 把 `DISPLAY=` 或 `xvfb-run -a` 施加到一条命令上 |
-| `internal/runner/preflight_linux.go` | 新增 `checkXvfb()`，**阻断级**。理由见下 |
+| `internal/runner/display_linux.go`（新增） | 从 `vcredist_linux.go` 抽出 `displayTarget` / `resolveDisplay`，**vc_redist 安装与 ArkApi 启动共用同一份逻辑**；三级解析 + X11 握手探测 + `/tmp/.X11-unix` 可写性判断（见 §9.5）；`wrap()` 把 `DISPLAY=` 或 `xvfb-run …` 施加到一条命令上 |
+| `internal/runner/preflight_linux.go` | 新增 `checkDisplay()`，**阻断级**，直接问 `resolveDisplay`。理由见下 |
 | `internal/runner/runner.go` | `Options.NeedsDisplay`；`DisplayInfo` + `DisplayStatus()` |
 | `internal/runner/runner_linux.go` | `NeedsDisplay` 时解析显示并包住命令；拿不到显示**直接返回错误**，不让实例假装启动成功 |
 | `internal/instance/server.go` | `NeedsDisplay: arkAsaApiRunning`；启动前用 `DisplayStatus()` 做一次实例名带上下文的硬校验 |
@@ -1058,33 +1058,98 @@ L"Static"` / `uiautomation:*` 也印证了：`AsaApiLoader.exe` 是带真窗口�
 缺显示**没有第二条路** —— ArkApi 与 VC++ 安装器都彻底跑不了。区别不在于严重程度，
 在于有没有降级路径。
 
-**为什么自检不接受「当前 shell 有 DISPLAY」**：`setup` 常在有桌面的会话里敲，
-而真正拉起实例的 systemd 服务没有 `DISPLAY`。认它会让检查恰好在会出问题的机器上通过。
-运行期仍然优先复用宿主已有的 `DISPLAY`（少起一个进程，且这是实测过的路径），
-没有才 `xvfb-run -a`。
+**自检不看「当前 shell 的 `DISPLAY` 变量」，但看「系统里有没有能连的 X 服务」**：
+前者不可靠 —— `setup` 常在有桌面的会话里敲，而真正拉起实例的服务进程没有 `DISPLAY`
+（真机 `/proc/<pid>/environ` 里只有 `HOME=/root`），认它会让检查恰好在会出问题的
+机器上通过；后者是磁盘上的 socket + 一次握手，服务进程同样看得见，所以可以认。
 
 **不传 `XAUTHORITY`**：它经常指向 `/run/user/0` 下的路径，而 pressure-vessel 会
 去 bind 环境变量点名的每个路径 —— 这正是 `DBUS_SESSION_BUS_ADDRESS` 那次坑掉一晚上的
-同一类问题（见 `inheritedEnv` 的注释）。需要 xauth 的显示请走 `xvfb-run`，
-它自带 cookie、自成一体。
+同一类问题（见 `inheritedEnv` 的注释）。需要 cookie 的显示请走 `xvfb-run`，
+它自带 auth、自成一体（那份 `XAUTHORITY` 由 xvfb-run 自己设，路径也是我们指定的）。
 
 **只给 `AsaApiLoader.exe` 加显示，不给 `ArkAscendedServer.exe` 加**：后者在同一台
 无头机上 42 秒就开始监听，给每次启动都套一层 `xvfb-run` 是白添一个进程和一个失败点。
 
-### 9.5 改完之后的真机验证（2026-08-30）
+### 9.5 第二轮：装了 xvfb 也可能没用 —— `/tmp/.X11-unix` 只读
 
-同一台 WSL2 机器，`apt install xvfb` 之后：
+第一版实现把「有没有 `xvfb-run`」当成判据。**装上 xvfb 之后后台进程启动实例仍然失败**，
+日志里多了这两条：
+
+```
+pressure-vessel-wrap[137270]: W: X11 socket /tmp/.X11-unix/X100 does not exist
+                                 in filesystem, trying to use abstract socket instead.
+...
+System.PlatformNotSupportedException: Video driver  not supported
+  at Xalia.Sdl.WindowingSystem.Create () ...
+```
+
+现场确认：
+
+```
+$ mount | grep X11
+none on /tmp/.X11-unix type tmpfs (ro,relatime)      ← WSLg 把它挂成只读
+$ touch /tmp/.X11-unix/probe
+touch: cannot touch '/tmp/.X11-unix/probe': Read-only file system
+```
+
+`/tmp/.X11-unix` 的路径**写死在 xtrans 里**，不受任何环境变量影响。目录只读 ⇒
+`Xvfb :100` 建不出文件 socket，只剩一个抽象 socket ⇒ pressure-vessel 没法把它 bind
+进容器 ⇒ 容器里的程序连不上显示，回到那个「零输出」的失败模式。
+
+放大伤害的是 **`xvfb-run` 在 Xvfb 启动失败时仍然会照常执行命令**，而且它默认把
+Xvfb 的输出丢进 `/dev/null`（`-e` 的默认值）—— 所以从退出码和日志都看不出发生了什么。
+
+> 为什么第一轮的真机验证（§9.6 表里 44 秒那条）在同一台机器上过了：那次
+> pressure-vessel 退到抽象 socket 之后**碰巧连上了**（抽象 socket 按网络命名空间
+> 而非路径寻址，容器没有 unshare net）。也就是说这条路不是不能用，而是**不可靠** ——
+> 这正是不该赌的理由。
+
+**修正后的解析顺序**（`resolveDisplay`），三条路，每条都验证过而不是猜的：
+
+| # | 路径 | 前提 |
+|---|---|---|
+| 1 | 显式 `DISPLAY` | 变量非空、socket 文件在、**X11 握手能过** |
+| 2 | `xvfb-run` | 装了 **且 `/tmp/.X11-unix` 可写**（无头服务器的正路：自带显示与 auth，不依赖桌面会话，进程树归我们） |
+| 3 | 系统里已在运行的 X 显示 | 扫 `/tmp/.X11-unix/X<n>`，**逐个握手**，取第一个能过的。这条是 ① 的补丁：服务进程通常**没有** `DISPLAY`（真机 `/proc/<pid>/environ` 里只有 `HOME=/root`），但机器上确实有能用的 X 服务 —— WSLg 的 `:0` 就是 |
+
+两处关键改进：
+
+- **握手代替猜测。** ①③ 都真的连一次 X 服务并走一遍**无认证**的连接建立
+  （12 字节 setup 请求，看回包第一个字节 `1=Success`）。必须做到这一步，因为本项目
+  刻意不传 `XAUTHORITY`（理由同 `inheritedEnv`：它常指向 `/run/user/0` 下的路径，
+  pressure-vessel 会去 bind 它，降权后整个容器就起不来）—— 一个需要 cookie 的显示
+  对我们就是不可用的，而它的 socket 文件明明在。拿文件存在当判据会挑中一个连不上的
+  显示，然后又变成那个谜题。代价是几微秒，无需任何 X 库。
+- **`/tmp/.X11-unix` 可写性用 `access(2)` 判**：root 会绕过权限位，但**绕不过只读挂载**
+  （返回 `EROFS`），而只读挂载正是这次的坑；再叠一条 `o+w`，因为跑 Xvfb 的是降权用户，
+  root 能写不代表它能写。
+
+顺带修掉 `xvfb-run` 两个有害的默认值（都不是调优而是纠错）：
+
+- `-e`：改为写运行时 HOME 下的 `xvfb.log`，不再丢 `/dev/null` —— Xvfb 起不来时至少有第一手证据；
+- `-f`：改为写运行时 HOME 下的 `.Xauthority-xvfb`，默认值是 `./.Xauthority`，
+  也就是**游戏工作目录**（实例镜像的 Win64）。
+
+preflight 也从「找 `xvfb-run` 这个文件」改成**直接问 `resolveDisplay`** ——
+两者分家过一次，代价就是自检通过、启动照样死（`TestCheckDisplayAgreesWithResolve`
+钉住这一条）。检查名也随之从 `xvfb` 改成 `x11-display`。
+
+### 9.6 真机验证（2026-08-30，WSL2 + WSLg，`/tmp/.X11-unix` 只读）
 
 | 场景 | 结果 |
 |---|---|
-| `verify-arkapi --check-only`，`env -u DISPLAY` | `[3] ✘ 本机没有可用的 X 显示，也没有 xvfb-run` + 安装提示（xvfb 装之前） |
-| `verify-arkapi --check-only`，`DISPLAY=:0` | `[3] ✔ 宿主的 X 显示 :0` |
-| `verify-arkapi --check-only`，装了 xvfb 且 `env -u DISPLAY` | `[3] ✔ xvfb-run（虚拟显示）` |
-| **`verify-arkapi` 完整启动，`env -u DISPLAY`**（= systemd 的真实环境） | ✅ **44 秒开始监听**；`ArkApi_352_*.log` 里 `API was successfully loaded` → `Loaded plugin Ark:SA Permissions V1.1` → `AShooterGameMode::InitGame was called` |
-| 结束后残留进程 | 无 —— `procx.KillTree` 连 `xvfb-run` 起的 `Xvfb` 一起收掉了（它是 wrapper shell 的子进程） |
+| `--check-only`，无 DISPLAY、未装 xvfb | `[3] ✘ 本机没有可用的 X 显示，也没有 xvfb-run` + 安装提示 |
+| `--check-only`，`DISPLAY=:0` | `[3] ✔ 宿主的 X 显示 :0` |
+| `--check-only`，装了 xvfb、`env -u DISPLAY`（**第一版**） | `[3] ✔ xvfb-run（虚拟显示）` —— 判断本身就是错的，见 §9.5 |
+| `--check-only`，装了 xvfb、`env -u DISPLAY`（**修正后**） | `[3] ✔ 系统里已在运行的 X 显示 :0（本机 /tmp/.X11-unix 只读，起不了 Xvfb）` |
+| **完整启动，`env -u DISPLAY`**（= 后台服务进程的真实环境） | ✅ **52 秒开始监听**；`ArkApi_372_2026-08-30_11-48.log`：`API was successfully loaded` → `Loaded plugin Ark:SA Permissions V1.1` → `AShooterGameMode::InitGame was called` → `SERVER ID: 102008681` |
+| 结束后残留进程 | 无 |
 
-**`xvfb-run` 这条路此前从未被真的跑过**（§7.2 那次是「无显示 → 跳过」），
-这次是它的首次端到端验证，且是在降权到 `asa-umu-runtime` + PTY 的组合下。
+第一版（走 xvfb-run 抽象 socket 那次）也跑通过一遍 44 秒的完整启动，
+证明 `xvfb-run` 分支本身是通的 —— 但它在同一台机器上时灵时不灵，所以现在只在
+`/tmp/.X11-unix` 可写时才走。整个验证都是在降权到 `asa-umu-runtime` + PTY 的组合下做的，
+顺带关闭了附录 B 第 3 条那个「真机未验证」的风险。
 
 ---
 

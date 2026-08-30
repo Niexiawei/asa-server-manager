@@ -36,13 +36,32 @@ failed to start.`），任何要开窗口的 Windows 程序都会在打出第一
 | `AsaApiLoader.exe`（ArkApi） | **退出码 3，零输出** —— 不打日志、不建自己的 `Win64/logs/` 目录、也不拉起游戏进程。实测（WSL2 + GE-Proton10-34 + umu 1.4.4，2026-08-30）只补一个可用的 `DISPLAY`，同一条命令就能加载 ArkApi、下载 offsets cache、加载插件并拉起 `ArkAscendedServer.exe` |
 | `vc_redist.x64.exe` | 退出码 203，什么都不装（见 `docs/ARKAPI_LINUX_VCREDIST_PLAN.md` §2.6） |
 
-因此 `xvfb` 是 **preflight 的阻断级依赖**：缺了它 `asa-server setup` 会中止
-（`--ignore-preflight` 可强行继续）。这与 `acl` 的定位不同 —— 缺 `acl` 会降级成
-可用的 chown 方案，缺显示则**没有第二条路**。
+因此「能不能拿到一个 X 显示」是 **preflight 的阻断级检查**（`x11-display`）：
+不满足时 `asa-server setup` 会中止（`--ignore-preflight` 可强行继续）。这与 `acl`
+的定位不同 —— 缺 `acl` 会降级成可用的 chown 方案，缺显示则**没有第二条路**。
 
-自检里**不接受**「当前 shell 有 `DISPLAY`」作为满足条件：`setup` 往往在有桌面的
-会话里敲，而真正拉起实例的 systemd 服务没有 `DISPLAY`，认它会让检查恰好在会出问题的
-机器上通过。运行期仍然优先复用宿主已有的 `DISPLAY`，没有才用 `xvfb-run -a` 现开一个。
+asa-server 按下面的顺序取显示，**每一条都会真的连一次 X 服务验证**（不是看变量、
+也不是看文件在不在）：
+
+| # | 用什么 | 前提 |
+|---|---|---|
+| 1 | 显式的 `DISPLAY` 环境变量 | 变量非空、socket 在、且不需要 xauth cookie 就能握手 |
+| 2 | `xvfb-run` 现开一个虚拟显示 | 装了 xvfb **且 `/tmp/.X11-unix` 可写**。这是无头服务器的正路 |
+| 3 | 系统里已在运行的 X 服务 | 扫 `/tmp/.X11-unix/X<n>` 逐个握手，取第一个能连的 |
+
+第 3 条是给**服务/后台进程**兜底的：它们通常没有 `DISPLAY` 环境变量（`/proc/<pid>/environ`
+里往往只有 `HOME`），但机器上可能确实有一个能用的 X 服务。自检也认第 3 条，
+但**不认**光有 `DISPLAY` 变量 —— 那个变量在 `setup` 的交互 shell 里有、在服务里没有，
+认它只会让检查恰好在会出问题的机器上通过。
+
+> **WSL / WSLg 注意**：WSLg 把 `/tmp/.X11-unix` 挂成**只读** tmpfs
+> （`mount | grep X11` 可见 `ro,relatime`）。该路径写死在 X 的 xtrans 里、改不了，
+> 所以 `Xvfb` 在 WSL 上**建不出 socket**，第 2 条走不通 —— 会自动落到第 3 条，
+> 用 WSLg 自己的 `:0`。此时装不装 xvfb 都一样。
+
+**不会**把 `XAUTHORITY` 传给游戏进程：它常指向 `/run/user/0` 下的路径，而
+pressure-vessel 会去 bind 环境变量点名的每个路径，降权后那次 bind 会让整个容器起不来。
+需要 cookie 的显示请让它走 `xvfb-run`（那份 auth 文件由 xvfb-run 自己管）。
 
 ### 共享写权限与 `acl`
 
@@ -208,7 +227,8 @@ sudo ./asa-server service remove    # 同时联动清理已安装的本地 CA（
 | 服务器完全起不来，日志戛然而止，无报错 | GE-Proton 版本不是 `GE-Proton10-34`（11.x 系列已知挂死 ASA） | 检查 `config.yaml` 的 `linux.proton_version`，不要手动升级到 11.x，除非先自行验证过 |
 | 每次启动都重新下载 umu/GE-Proton，或直接崩在 steamclient | systemd 服务的 `HOME` 未正确设置 | 确认走的是 `asa-server service install`（会显式写 `Environment=HOME=...`），而不是手写的、没设 `HOME` 的 unit 文件 |
 | 首次 `setup` 卡在 Steam Linux Runtime 下载 / 超时失败 | 到 `repo.steampowered.com` 的网络不稳 | 默认已由本程序用自己的下载器预取（有重试、断点续传、走 `download.http_proxy`），日志里应出现 `正在预下载 Steam Linux Runtime`。若预取本身也失败，日志会打「改由 umu 自行下载」——此时 umu 那条路只认**环境变量**，给 systemd unit 加 `Environment=HTTPS_PROXY=http://…` 后重试。排障可用 `linux.steamrt_prefetch: false` 关掉预取。见 `docs/STEAMRT_PREFETCH_PLAN.md` |
-| 启用了 ArkApi 的实例起不来，日志停在 `fsync: up and running.` 之后一个字都没有 | **没有可用的图形显示**（最常见）。`AsaApiLoader.exe` 会创建 Win32 窗口，Wine 连不上 X 就以退出码 3 静默退出 | `apt install xvfb`。装好后 `asa-server` 会自动用 `xvfb-run -a` 给加载器开一个虚拟显示；没装时实例启动会被**直接拒绝**并给出这条提示，而不是假装启动成功。见 `docs/ARKAPI_LINUX_VCREDIST_PLAN.md` §9 |
+| 启用了 ArkApi 的实例起不来，日志停在 `fsync: up and running.` 之后一个字都没有 | **没有可用的图形显示**（最常见）。`AsaApiLoader.exe` 会创建 Win32 窗口，Wine 连不上 X 就以退出码 3 静默退出 | `apt install xvfb`。装好后 `asa-server` 会自动用 `xvfb-run` 给加载器开一个虚拟显示；没装时实例启动会被**直接拒绝**并给出这条提示，而不是假装启动成功。见 `docs/ARKAPI_LINUX_VCREDIST_PLAN.md` §9 |
+| 装了 xvfb，实例仍起不来；日志里有 `W: X11 socket /tmp/.X11-unix/X100 does not exist in filesystem, trying to use abstract socket instead` 和 `PlatformNotSupportedException: Video driver not supported` | `/tmp/.X11-unix` 是**只读挂载**（WSLg 就是这么挂的），`Xvfb` 建不出 socket，pressure-vessel 没法把显示带进容器。而 `xvfb-run` 在 Xvfb 起不来时**照样会执行命令**，所以退出码看不出问题 | 升级到含本修复的版本：asa-server 会先判断 `/tmp/.X11-unix` 可不可写，不可写就自动改用系统里已在运行的 X 服务（WSL 上就是 WSLg 的 `:0`）。`asa-server verify-arkapi --check-only` 的 `[3]` 会直接说明这次用的是哪一种。Xvfb 自身的错误现在也会落到 `{运行时用户 HOME}/xvfb.log`，不再丢 `/dev/null` |
 | 启用了 ArkApi 的实例起不来（显示已就绪） | ArkApi 官方要求 Microsoft VC++ Redistributable，而 Wine/GE-Proton 的 prefix 默认优先用自己的内建实现 | 跑 **`asa-server verify-arkapi`**：它会把前置条件逐条列出来（ArkApi 装没装、Wine 运行时、图形显示、VC++ DLL 的实际出处），再真拉起一次。关键项是 **DLL override 11/11**，`setup` 会自动写入。仍失败见 `docs/ARKAPI_LINUX_VCREDIST_PLAN.md` §6 与附录 B 的排查顺序 |
 | `verify-arkapi` 说「system32 里的 vcruntime140.dll 仍是 Wine 自带的」 | 装的时候没有 X 显示：微软的安装器在 Wine 下**必须有一个能连上的显示**，否则一律以 203 退出（实测，连 `/layout` 都不行） | 与上一行同一个原因、同一个修法：`apt install xvfb` 后跑 `asa-server verify-arkapi --install-vcredist`（或重跑 `asa-server setup`）。单看这一项其实**通常不影响 ArkApi** —— ARK 自己在 exe 同目录带了 11 个运行时 DLL 里的 9 个原生版，应用目录的搜索优先级高于 system32，配合已写入的 override 一般够用 |
 | `asa-server cert install` 报错「需要 root 权限」 | 系统信任存储需要 root 才能写 | `sudo ./asa-server cert install`；Linux 上没有 Windows 的 UAC 自动提权 |
