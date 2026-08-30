@@ -4,6 +4,8 @@ server-files/
 steamcmd/
 *.exe
 /asa-server
+/asa-server-linux
+config.yaml
 .idea/
 .instance_log_mapping.json
 *.exe~
