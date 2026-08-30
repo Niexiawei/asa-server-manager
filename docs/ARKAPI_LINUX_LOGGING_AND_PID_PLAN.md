@@ -4,7 +4,8 @@
 > 那两条解决之后，ArkApi 实例**能真正跑起来了**，随之暴露出下面两个此前被
 > 「根本起不来」掩盖住的问题。两个都是 **Linux 专属**，Windows 行为不受影响。
 >
-> 状态：**已取证、已定位、待实现**。本文是实现前的设计文档。
+> 状态：**已实现**（2026-08-30）。问题一按 §1.4 的**方案 C**落地（API 层零改动），
+> 问题二连同 §2.5 的三条一并修复。落地清单见 §3，验证结果见 §4。
 
 ---
 
@@ -94,41 +95,47 @@ go func() {
 | 方案 | 做法 | 评价 |
 |---|---|---|
 | A | 过滤 PTY 流里的 umu 噪声 | ❌ 不可行。ArkApi 不往控制台写，过滤完是空文件 |
-| B | 让 API 直接 tail 镜像里最新的 `ArkApi_*.log` | ✅ 拿到的是**真日志**；要处理「每次启动换文件名」与「文件还没出现」 |
-| C | 由 asa-server 把 ArkApi 的日志转抄进 `arkAsaApi.log` | 多一个复制协程与一份重复数据，且要处理换文件；B 能做到的它都要做，收益为零 |
+| B | 让 API 直接 tail 镜像里最新的 `ArkApi_*.log` | 拿到的是真日志，但「每次启动换文件名」「文件还没出现」「镜像重建」这些复杂度全压在 HTTP 处理器上 |
+| C | **由 asa-server 把 ArkApi 的日志转抄进 `arkAsaApi.log`** | ✅ **选它**：同样拿到真日志，而复杂度收在启动路径里一次解决，**API 层与前端零改动** |
 
-**选 B**，并把 PTY 那份**留下但改用途**：
+**选 C**（用户决策）。B 与 C 拿到的内容完全相同，差别只在那三件麻烦事放在哪一层；
+放在启动路径里更合适 —— 那里本来就知道「这次启动是什么时候开始的」（区分本次日志与
+镜像里遗留的上几次所必需），而 HTTP 处理器每次连接都要重新推导一遍。
 
-1. **PTY 输出 → 启动器日志**。落到 `instances/<name>/launcher.log`（新文件名），
-   语义变成「这次启动的启动链输出」。这份**必须留着** —— §9 那次
-   「加载器退出码 3、零输出」的排障全靠它，`installer` 侧也早有同类先例
-   （`logs/verify-arkapi-launch.log`）。同样每次启动清空。
-   - Windows 上 PTY 就是加载器控制台，语义与今天一致；为不制造无谓差异，
-     Windows 继续写 `arkAsaApi.log`，Linux 写 `launcher.log`。这一处平台差异是**真实存在**
-     的（PTY 里装的东西不同），不该用同一个文件名假装它不存在。
-2. **`GET /api/logs/:name/asaapi` 改为解析并 tail 最新的 `ArkApi_*.log`**：
-   - 连接建立时在镜像的 `Win64/logs/` 里按 mtime 取最新的 `ArkApi_*.log`；
-   - 一个都没有时（实例没启动过 / 刚启动还没写出来）→ 回落到 `launcher.log`（Linux）
-     或 `arkAsaApi.log`（Windows），并先推一行说明「当前展示的是启动器输出，
-     ArkApi 日志尚未生成」。**不能静默回落** —— 那正是本问题让人困惑的原因；
-   - Windows 也走同一套解析（那边 `Win64/logs/` 同样存在），拿不到才回落到 PTY 那份。
-     两平台的「插件日志」从此是同一样东西。
-3. 前端不需要改：路由与 SSE 形状不变。
+于是 `arkAsaApi.log` 的语义统一成「**ArkApi 的输出**」，两个平台一致，只是写入者不同：
+
+| | 谁往 `arkAsaApi.log` 里写 | PTY 去哪 |
+|---|---|---|
+| Windows | PTY（里面跑的就是加载器本体，控制台即业务输出）—— **与今天逐字相同** | 就是 `arkAsaApi.log` |
+| Linux | 转抄协程：镜像里本次的 `ArkApi_*.log` → `arkAsaApi.log` | `instances/<name>/launcher.log`（新文件） |
+
+`launcher.log` **必须留着**：`ARKAPI_LINUX_VCREDIST_PLAN.md` §9 那次「加载器退出码 3、
+零输出」的排障全靠它，`installer` 侧也早有同类先例（`logs/verify-arkapi-launch.log`）。
+同样每次启动清空。
+
+Windows 侧**刻意不改**成读 ArkApi 的文件日志：那条路今天是好的，而 Windows 是已交付
+平台，不为对称性去动一个没坏的东西。
 
 **不做的事**：不把 ArkApi 的日志目录从镜像里挪出来。它是 ArkApi 自己按 exe 目录算出来的，
 改它要动 ArkApi 的配置，属于替用户改第三方组件的行为。
 
 ### 1.5 实现要点
 
-- 新增 `instancepkg.GetAsaApiRuntimeLogPath(instanceName) (string, error)`：
-  在 `mirror.InstanceMirrorDir(name)/ShooterGame/Binaries/Win64/logs/` 下取最新
-  `ArkApi_*.log`，没有则返回哨兵错误 `ErrNoArkApiLog`。**不创建文件**
-  （与 `GetAsaApiLogFilePath` 会建空文件的行为相反 —— 那是给 tail 兜底用的，
-  这里需要「有没有」是个真实答案）。
-- `GetAsaApiLogFilePath` 保留，语义收窄成「PTY 捕获的那一份」，Linux 上改名
-  `launcher.log`。**旧文件不迁移**：它每次启动都被 `O_TRUNC` 重写，没有历史价值。
-- 目录穿越：文件名必须用 `filepath.Base` 收敛后再拼，且只接受
-  `^ArkApi_.*\.log$`（实例名已由 `apiresp.ValidateInstanceName` 把关，但这一层是别人写的文件名）。
+- `internal/instance/arkapilog.go`（**无 build tag**，纯路径与时间比较，可在 Windows 上单测）：
+  `newestArkApiLog(dir, notBefore)` 取本次启动的日志，没有则返回哨兵错误 `ErrNoArkApiLog`。
+  - `notBefore` 不是可选的：**镜像是增量同步的**，上几次启动留下的 `ArkApi_*.log`
+    还在原地（真机上一个目录里躺着三份）。没有这个闸门，转抄协程会在本次日志出现之前
+    一直误认上一次那份，把陈旧内容当成实时输出贴给用户。
+  - 文件名用 `filepath.Base` 收敛后再拼，且只接受 `ArkApi_*.log` —— 那是别人写的文件名。
+- `internal/instance/asaapilog_{linux,windows}.go`：同一个 `startAsaApiLogging` 签名，
+  平台差异关在这里，`server.go` 只有一行调用。
+- 转抄协程用**轮询**而不是 `pkg/tail` 的 fsnotify：两端都是普通文件、需要的是字节级
+  透传而不是按行分发，一个「读到 EOF 就歇 1 秒」的循环没有 watch 上限、文件替换、
+  事件丢失这些边角问题。
+- 协程生命周期绑在 `launcherExited` 上（就是 §2.5 b 新加的那个信号），
+  启动链一结束就把尾巴读干净然后退出，不留常驻协程。
+- **不静默**：等待期、找不到、找到了各写一行 `[asa-server] …` 说明进 `arkAsaApi.log`。
+  「静默」正是这个问题最初难查的原因。
 
 ---
 
@@ -265,34 +272,61 @@ ArkApi 在创建游戏进程之前要先下载 offsets cache（`Downloading cach
 
 | 文件 | 改动 |
 |---|---|
-| `internal/instance/gameproc_linux.go` | 候选集扩到两个 exe 名；用 `/proc/<pid>/comm == "GameThread"` 在候选里挑游戏进程；没命中时回落到今天的规则 |
-| `internal/instance/gameproc_windows.go` | 不改（按镜像名匹配，本来就对） |
-| `internal/instance/common.go` | `waitForGamePID` 增加超时参数与「启动器已退出」信号；两个超时常量命名化 |
-| `internal/instance/server.go` | 传 ArkApi 专用超时；`waitForGamePID` 失败时 `KillTree` 收尾；PTY 落盘目标改为 `launcher.log`（Linux） |
-| `internal/instance/common.go` 或新文件 | `GetAsaApiRuntimeLogPath()`：镜像 `Win64/logs/` 里最新的 `ArkApi_*.log` |
-| `internal/webapi/logapi/logapi.go` | `streamAsaApiLogs` 优先 tail 真 ArkApi 日志，取不到时回落并**显式告知**回落原因 |
-| `docs/LINUX_DEPLOYMENT.md` | 排障表加两行（插件日志看哪个文件；ArkApi 实例 30 秒超时） |
-| `docs/ARKAPI_LINUX_VCREDIST_PLAN.md` | §9 末尾交叉引用本文 |
-| `CLAUDE.md` | `instance/` 目录树补一句 ArkApi 下的进程形状 |
+| `internal/instance/gameproc.go`（新增，**无 build tag**） | `isWineSideGameCmdline` + `pickGameProcess` + `gameCandidate` + `gameProcessComm`。不加约束是为了让这条规则能在 Windows 上跑单测 —— 它的用例就是真机快照 |
+| `internal/instance/gameproc_linux.go` | 接线：候选集扩到两个 exe 名，读 `/proc/<pid>/comm`，交给 `pickGameProcess` |
+| `internal/instance/gameproc_windows.go` | **不改**（按镜像名匹配，本来就对） |
+| `internal/instance/arkapilog.go`（新增，无 build tag） | `arkApiLogDir` / `newestArkApiLog` / `ErrNoArkApiLog` |
+| `internal/instance/asaapilog_linux.go`（新增） | PTY→`launcher.log`；转抄协程 `ArkApi_*.log`→`arkAsaApi.log`（等待/跟随/收尾/说明行） |
+| `internal/instance/asaapilog_windows.go`（新增） | 今天的行为原样搬过来（PTY→`arkAsaApi.log`） |
+| `internal/instance/common.go` | `asaApiLoaderExeName` 常量；`waitForGamePID` 加 `timeout` 与 `launcherExited` 参数；`gamePIDWaitTimeout{,ArkApi}` 常量；`ErrLauncherExited` |
+| `internal/instance/server.go` | `launchedAt`；`launcherExited` 通道 + `launcherExitErr`；`startAsaApiLogging` 一行替换原来的内联 PTY 落盘；按 ArkApi 选超时；失败时 `procx.KillTree` 收尾；`GetLauncherLogFilePath` |
+| `internal/webapi/logapi/logapi.go` | **不改**（方案 C 的全部意义所在） |
+| `internal/instance/{gameproc,arkapilog}_test.go`（新增） | 13 条用例，见 §4.1 |
+| `docs/LINUX_DEPLOYMENT.md` | 排障表加两行 |
+| `CLAUDE.md` | `instance/` 目录树补 ArkApi 下的进程与日志形状 |
 
-预计 ~150 行实现 + ~80 行测试。
+实际 ~230 行实现 + ~210 行测试。
 
 ---
 
-## 4. 验证计划
+## 4. 验证
 
-### 4.1 单测（可在 Windows 上跑的部分）
+### 4.1 单测 —— ✅ 13/13 通过（`go test ./internal/instance/`，Windows 上真跑）
 
-- 候选筛选与 comm 挑选逻辑抽成纯函数（输入：`[]struct{cmdline, comm}`），
-  用本文 §2.2 两张真机快照**逐字**作为用例：
-  - ArkApi 形态的 3 个进程 → 选中 `comm=GameThread` 那个；
-  - 非 ArkApi 形态的 2 个进程 → 选中 `comm=GameThread` 那个（回归）；
-  - 把 `GameThread` 全部改名 → 回落到 `\ArkAscendedServer.exe` 那条（防 UE 改名）；
-  - 只有加载器、没有游戏进程 → 空集（不能误把加载器当游戏，否则停不掉）。
-- 日志路径解析：多个 `ArkApi_*.log` 取最新；目录不存在 → 哨兵错误；
-  非 `ArkApi_*.log` 的文件不被选中；文件名带 `../` 时被 `filepath.Base` 收敛。
+规则被抽成纯函数（`gameproc.go` / `arkapilog.go` 都不带 build tag），用例直接引用
+§2.2 的真机快照：
 
-### 4.2 真机（Linux）
+| 用例 | 断言 |
+|---|---|
+| `TestIsWineSideGameCmdline` | 包装器全排除；**umu.exe 也必须排除**（它命令行里有反斜杠 `c:\windows\system32\umu.exe`，只判「有没有反斜杠」会误收） |
+| `TestPickGameProcessArkApi` | ArkApi 形态两个命令行逐字相同的进程 → 选中 `comm=GameThread` 的 2722 |
+| `TestPickGameProcessPlain` | 非 ArkApi 形态 → 选中 3228（回归） |
+| `TestPickGameProcessFallsBackWhenCommChanges` | 把 comm 改成别的名字 → 回落到 `\ArkAscendedServer.exe` 那条（防 UE 改名） |
+| `TestPickGameProcessRefusesTheLoader` | 只有加载器时**返回空**，绝不把它当游戏 |
+| `TestPickGameProcessPrefersCommOverOrder` | comm 的优先级高于顺序 |
+| `TestNewestArkApiLog*`（5 条） | 取最新；**早于 launchedAt 的一律不认**；只认 `ArkApi_*.log`；目录不存在 → `ErrNoArkApiLog`；同名目录不被选中 |
+
+### 4.2 规则在真进程上的验证 —— ✅ 已执行（2026-08-30）
+
+用 shell 复刻两层规则跑在真进程上，再用「谁持有游戏端口」做**独立**交叉核对：
+
+```
+=== 候选集（marker + Windows 路径形式的已知 exe）===
+  pid=3949 comm=AsaApiLoader.ex
+  pid=3970 comm=GameThread
+第1层（comm=GameThread）选中: 3970
+第2层（cmdline 含 \ArkAscendedServer.exe）选中: <无>
+最终选中: 3970
+
+=== 独立交叉核对：谁真的持有端口 41779 ===
+  UNCONN 0.0.0.0:41779  users:(("GameThread",pid=3970,fd=21),("wineserver",pid=3881,...))
+```
+
+**选中的 PID 与持有端口的 PID 一致。** 同一次还顺带证实了 `notBefore` 闸门的必要性 ——
+镜像的 `logs/` 里当时躺着**三份**日志（11:48、12:43、13:06），只有 13:06 那份的 mtime
+晚于本次 `launchedAt`；没有闸门，转抄协程会先抓住 12:43 那份陈旧内容。
+
+### 4.3 真机端到端（待部署后执行）
 
 1. 启用 ArkApi 的实例经 API 启动 → **实例状态变为 started**，`instances/<name>/pid`
    的 mtime 与本次启动一致，且内容等于 `comm=GameThread` 那个进程的 PID

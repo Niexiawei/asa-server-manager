@@ -13,6 +13,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -27,6 +28,11 @@ import (
 // arkExeName 是游戏服务端可执行文件名，进程查找按平台各自的规则匹配它 ——
 // 见 gameproc_windows.go / gameproc_linux.go。
 const arkExeName = "ArkAscendedServer.exe"
+
+// asaApiLoaderExeName 是 ArkApi 的加载器。启用 ArkApi 时它**取代** arkExeName 被启动，
+// 并且——这一点很反直觉——它创建出来的游戏进程的命令行里写的仍然是它自己，
+// 而不是 ArkAscendedServer.exe。见 gameproc_linux.go 的说明。
+const asaApiLoaderExeName = "AsaApiLoader.exe"
 
 // 停止类操作的预检文案，面向用户，可直接展示。
 const (
@@ -114,15 +120,38 @@ func killGameServer(pid int) {
 	}
 }
 
-// waitForGamePID polls for the real ArkAscendedServer.exe process and
-// returns its PID, matching on AltSaveDirectoryName rather than Port: a
-// numeric port substring can collide with -QueryPort=/-RCONPort=, while
-// SaveDir is unique per instance in this project by construction (see
-// docs/LINUX_COMPATIBILITY_PLAN.md §5.3). This is required whenever
-// Handle.LauncherPID from runner.Run isn't the game process's own PID —
-// AsaApiLoader.exe wraps and spawns it as a child on either platform, and
-// Linux's umu-run wraps every launch regardless of AsaApiLoader.
-func waitForGamePID(ctx context.Context, saveDir string) (uint32, error) {
+// 游戏进程出现的等待上限，按是否启用 ArkApi 分两档。
+const (
+	// gamePIDWaitTimeout 是直接启动 ArkAscendedServer.exe 的情形。实测游戏进程
+	// 2~3 秒就会出现，30 秒有充足余量。
+	gamePIDWaitTimeout = 30 * time.Second
+	// gamePIDWaitTimeoutArkApi 是经 AsaApiLoader.exe 启动的情形。加载器在创建游戏
+	// 进程**之前**要先去第三方 CDN 下载与当前 exe 匹配的 offsets cache，真机实测
+	// 游戏进程出现在 20 多秒 —— 离 30 秒只差几秒，CDN 慢一点就必然超时。
+	// 放宽到 3 分钟不是无脑加大：真正起不来的情形由 launcherExited 提前失败兜住
+	// （见 waitForGamePID），不会真的等满。
+	gamePIDWaitTimeoutArkApi = 3 * time.Minute
+)
+
+// ErrLauncherExited 表示启动链进程在游戏进程出现之前就结束了。调用方据此把启动器的
+// 退出状态补进错误消息 —— 那才是用户真正需要看到的东西。
+var ErrLauncherExited = errors.New("启动器进程在游戏进程出现之前就退出了")
+
+// waitForGamePID polls for the real game process and returns its PID, matching
+// on AltSaveDirectoryName rather than Port: a numeric port substring can
+// collide with -QueryPort=/-RCONPort=, while SaveDir is unique per instance in
+// this project by construction (see docs/LINUX_COMPATIBILITY_PLAN.md §5.3).
+// This is required whenever Handle.LauncherPID from runner.Run isn't the game
+// process's own PID — AsaApiLoader.exe wraps and spawns it as a child on
+// either platform, and Linux's umu-run wraps every launch regardless of
+// AsaApiLoader. 匹配规则按平台拆分，见 gameproc_*.go。
+//
+// launcherExited 在启动链进程结束时被关闭。有它才能把「加载器秒退」这种最常见的
+// 失败从「干等满超时」变成「立刻报错，并说出退出状态」—— 尤其在 ArkApi 那档超时
+// 长达 3 分钟之后，这一条是必需的而不是优化。可以传 nil（永不触发）。
+func waitForGamePID(ctx context.Context, saveDir string, timeout time.Duration, launcherExited <-chan struct{}) (uint32, error) {
+	marker := fmt.Sprintf("AltSaveDirectoryName=%s", saveDir)
+
 	var (
 		processErr = make(chan error, 1)
 		processPid = make(chan uint32, 1)
@@ -138,7 +167,7 @@ func waitForGamePID(ctx context.Context, saveDir string) (uint32, error) {
 			if ctx.Err() != nil {
 				return
 			}
-			process, err := queryGameProcesses(fmt.Sprintf("AltSaveDirectoryName=%s", saveDir))
+			process, err := queryGameProcesses(marker)
 			if err != nil {
 				select {
 				case processErr <- err:
@@ -166,10 +195,17 @@ func waitForGamePID(ctx context.Context, saveDir string) (uint32, error) {
 		return 0, err
 	case pid := <-processPid:
 		return pid, nil
+	case <-launcherExited:
+		// 最后再查一次：轮询间隔是 200ms，「游戏进程刚出现、启动器恰好同时退出」
+		// 这个窗口真实存在，直接判失败会误杀一次本来成功的启动。
+		if process, err := queryGameProcesses(marker); err == nil && len(process) > 0 {
+			return process[0].ProcessId, nil
+		}
+		return 0, ErrLauncherExited
 	case <-ctx.Done():
 		return 0, ctx.Err()
-	case <-time.After(30 * time.Second):
-		return 0, fmt.Errorf("ArkAscendedServer.exe did not appear within 30 seconds")
+	case <-time.After(timeout):
+		return 0, fmt.Errorf("游戏进程在 %s 内没有出现", timeout)
 	}
 }
 

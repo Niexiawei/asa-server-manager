@@ -9,12 +9,12 @@ import (
 	"asa-server/internal/rconx"
 	"asa-server/internal/runner"
 	statepkg "asa-server/internal/state"
-	"asa-server/pkg/console"
 	"asa-server/pkg/fsutil"
 	"asa-server/pkg/logger"
 	"asa-server/pkg/netutil"
 	"asa-server/pkg/procx"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -41,13 +41,32 @@ func GetGameLogFilePath(instanceName string) (string, error) {
 	return logPath, nil
 }
 
-// GetAsaApiLogFilePath returns the full path to the AsaApiLoader console log for a given instance
+// GetAsaApiLogFilePath returns the full path to the instance's ArkApi log —
+// the file GET /api/logs/:name/asaapi tails.
+//
+// 谁往里写按平台分（见 asaapilog_windows.go / asaapilog_linux.go）：Windows 上 PTY 里
+// 跑的就是 AsaApiLoader.exe 本体，直接把它的控制台落进来；Linux 上 PTY 里跑的是
+// umu-run 整条包装链，得由转抄协程把 ArkApi 自己的文件日志搬进来。两边写进来的
+// 都是「ArkApi 的输出」，所以 API 层不需要知道这个差异。
 func GetAsaApiLogFilePath(instanceName string) (string, error) {
+	return instanceLogFilePath(instanceName, "arkAsaApi.log")
+}
+
+// GetLauncherLogFilePath returns the full path to the launch-chain output log.
+//
+// Linux 专用：umu-run / pressure-vessel / Proton / Wine 的输出全在这里。它**必须**
+// 留着 —— 「AsaApiLoader 退出码 3、零输出」那次排障全靠它，见
+// docs/ARKAPI_LINUX_VCREDIST_PLAN.md §9。Windows 上没有这一层包装，不产生该文件。
+func GetLauncherLogFilePath(instanceName string) (string, error) {
+	return instanceLogFilePath(instanceName, "launcher.log")
+}
+
+func instanceLogFilePath(instanceName, name string) (string, error) {
 	instanceDir := filepath.Join(cfgpkg.InstancesDir, instanceName)
 	if err := os.MkdirAll(instanceDir, 0755); err != nil {
 		return "", fmt.Errorf("failed to create instance directory: %w", err)
 	}
-	logPath := filepath.Join(instanceDir, "arkAsaApi.log")
+	logPath := filepath.Join(instanceDir, name)
 	if _, err := os.Stat(logPath); os.IsNotExist(err) {
 		os.WriteFile(logPath, nil, 0644)
 	}
@@ -475,6 +494,10 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 	// not when the server stops) — passing ctx here would have
 	// exec.CommandContext kill the just-started server the moment this
 	// function's own bookkeeping finishes.
+	// launchedAt 用来把「本次启动产生的 ArkApi 日志」与镜像里遗留的上几次的区分开
+	// （镜像是增量同步的，老日志还在原地）。取在 Run 之前，宁可把闸门放宽一点点。
+	launchedAt := time.Now()
+
 	handle, err := runner.Run(context.Background(), arkExe, args, runner.Options{
 		Dir: exeWorkDir,
 		PTY: arkAsaApiRunning,
@@ -501,28 +524,25 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 	// waiting to be waited on (Windows doesn't need this, but calling Wait
 	// unconditionally is harmless there too — previously only the PTY/AsaApi
 	// branch did this).
+	//
+	// launcherExited 让下面两处知道「启动链已经结束了」：waitForGamePID 据此提前
+	// 失败（否则 ArkApi 那档要干等 3 分钟），ArkApi 日志转抄协程据此收尾退出。
+	// launcherExitErr 在 close 之前写、只在收到 close 之后读，happens-before 成立。
+	launcherExited := make(chan struct{})
+	var launcherExitErr error
 	go func() {
-		_ = handle.Wait()
+		launcherExitErr = handle.Wait()
+		close(launcherExited)
 		if handle.PTY != nil {
 			_ = handle.PTY.Close()
 		}
 	}()
 
 	if arkAsaApiRunning {
-		// 将 PTY 输出清洗后落盘，每次启动清空
-		// 打开失败只告警，不影响开服
-		if apiLogPath, logErr := GetAsaApiLogFilePath(instanceName); logErr != nil {
-			logger.Warnf("Failed to resolve AsaApi log path for instance %s: %v", instanceName, logErr)
-		} else if apiLogFile, openErr := os.OpenFile(apiLogPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644); openErr != nil {
-			logger.Warnf("Failed to open AsaApi log file %s: %v", apiLogPath, openErr)
-		} else {
-			// cleaner 独占该句柄，pty 关闭后 CleanScreenOutput 返回并释放
-			// AsaApiLoader 用光标定位排版，必须走 CleanScreenOutput 而非 CleanConsoleOutput
-			go func() {
-				defer apiLogFile.Close()
-				_ = console.CleanScreenOutput(handle.PTY, apiLogFile)
-			}()
-		}
+		// 把这次启动的输出接进实例目录。两个平台写进 arkAsaApi.log 的都是「ArkApi 的
+		// 输出」，但来源不同（Windows 是 PTY 里的加载器控制台，Linux 是 ArkApi 自己的
+		// 文件日志）—— 见 asaapilog_windows.go / asaapilog_linux.go。
+		startAsaApiLogging(instanceName, mirrorDir, handle.PTY, launchedAt, launcherExited)
 
 		// 保存 AsaApiLoader（asaServerApi）进程 PID，供停止时先于游戏进程结束。
 		// Linux 上这与 launcher_pid 是同一个值（进程组 leader），杀哪个都一样。
@@ -531,15 +551,31 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 		}
 	}
 
-	// Resolve the real ArkAscendedServer.exe PID. Windows launching it
-	// directly (no AsaApiLoader) already has the right answer in
-	// handle.LauncherPID; every other case needs a poll — AsaApiLoader.exe
-	// spawns it as a child (either platform), and Linux's umu-run wraps
-	// every launch regardless of AsaApiLoader. See waitForGamePID's doc
-	// comment and docs/LINUX_COMPATIBILITY_PLAN.md §5.3.
+	// Resolve the real game process's PID. Windows launching
+	// ArkAscendedServer.exe directly (no AsaApiLoader) already has the right
+	// answer in handle.LauncherPID; every other case needs a poll —
+	// AsaApiLoader.exe spawns it as a child (either platform), and Linux's
+	// umu-run wraps every launch regardless of AsaApiLoader. See
+	// waitForGamePID's doc comment and docs/LINUX_COMPATIBILITY_PLAN.md §5.3.
 	if arkAsaApiRunning || !runner.LauncherIsDirect() {
-		gamePID, err := waitForGamePID(ctx, config.SaveDir)
+		// ArkApi 那档超时长得多：加载器要先下 offsets cache 才会创建游戏进程。
+		// 见 gamePIDWaitTimeoutArkApi。
+		timeout := gamePIDWaitTimeout
+		if arkAsaApiRunning {
+			timeout = gamePIDWaitTimeoutArkApi
+		}
+		gamePID, err := waitForGamePID(ctx, config.SaveDir, timeout, launcherExited)
 		if err != nil {
+			if errors.Is(err, ErrLauncherExited) && launcherExitErr != nil {
+				err = fmt.Errorf("%w（退出状态：%v）", err, launcherExitErr)
+			}
+			// 收掉整条启动链。没有这一步的后果是实测过的：游戏进程还活着、实例却
+			// 被记成停止，用户看到「窗口还在但面板显示已停止」，而且下一次启动会
+			// 撞上仍被占用的端口。见 docs/ARKAPI_LINUX_LOGGING_AND_PID_PLAN.md §2.5c。
+			if killErr := procx.KillTree(handle.LauncherPID); killErr != nil {
+				logger.Warnf("Failed to clean up the launch tree of instance %s (launcher PID %d): %v",
+					instanceName, handle.LauncherPID, killErr)
+			}
 			startErr = fmt.Errorf("failed to start server: %w", err)
 			return startErr
 		}
