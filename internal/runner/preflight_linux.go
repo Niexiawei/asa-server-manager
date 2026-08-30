@@ -33,6 +33,9 @@ func preflight() []Problem {
 	if p := checkAppArmorUserns(); p != nil {
 		problems = append(problems, *p)
 	}
+	if p := checkXvfb(); p != nil {
+		problems = append(problems, *p)
+	}
 	if p := checkACLSupport(); p != nil {
 		problems = append(problems, *p)
 	}
@@ -114,6 +117,46 @@ func checkTar() *Problem {
 		Name:   "tar",
 		Detail: "tar is required to unpack GE-Proton and the umu-launcher zipapp",
 		Fix:    "Install tar via your distro's package manager (virtually always already present)",
+	}
+}
+
+// xvfbInstallHint is the per-distro install line, kept in one place because
+// three different messages point at it (preflight, the vcredist skip note and
+// the launch-time error).
+const xvfbInstallHint = "安装 xvfb（Debian/Ubuntu: sudo apt install xvfb  |  " +
+	"Fedora: sudo dnf install xorg-x11-server-Xvfb  |  Arch: sudo pacman -S xorg-server-xvfb）"
+
+// checkXvfb requires xvfb-run, and does so as a **blocker**, not an advisory.
+//
+// A headless box has no X server, and Wine's winex11.drv failing to connect
+// makes every CreateWindow call fail — which kills, before it prints a single
+// line, both AsaApiLoader.exe (ArkApi: measured exit 3 after 5s, empty log,
+// see display_linux.go) and Microsoft's vc_redist installer (exit 203).
+// Neither has a headless mode to fall back to, so "install a virtual X server"
+// is the only fix, and xvfb-run is how the launch path uses it.
+//
+// Why this one is allowed to be a blocker when "the acl package isn't
+// installed" was explicitly demoted to an advisory
+// (docs/ACL_PERMISSION_HARDENING_PLAN.md §1): missing ACLs degrade to a
+// working chown fallback, missing xvfb degrades to nothing at all. There is no
+// second path.
+//
+// Deliberately NOT satisfied by a live DISPLAY. `asa-server setup` is usually
+// typed in a desktop/WSL shell that has one, while the systemd unit that
+// actually launches instances does not — accepting DISPLAY here would let the
+// check pass on the exact machines where the launch later fails.
+// --ignore-preflight remains the escape hatch.
+func checkXvfb() *Problem {
+	if _, err := exec.LookPath("xvfb-run"); err == nil {
+		return nil
+	}
+	return &Problem{
+		Name: "xvfb",
+		Detail: "xvfb-run was not found; ArkApi's AsaApiLoader.exe and Microsoft's VC++ redist installer " +
+			"both create Win32 windows, and under Wine that fails outright without an X display " +
+			"(the loader dies with exit code 3 before writing any log). A live DISPLAY in your " +
+			"current shell does not count — the systemd service runs without one",
+		Fix: xvfbInstallHint,
 	}
 }
 
