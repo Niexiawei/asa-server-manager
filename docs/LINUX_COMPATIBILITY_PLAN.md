@@ -254,6 +254,10 @@ const (
   这次下载走 §5.13 的 `pkg/download`，国内网络访问 `github.com` 慢/抖动时可配 `github_proxy` 走加速，
   与「限流」是两个独立问题，不要混为一谈——代理解决的是**下载慢**，固定版本号解决的是**限流**。
 - 常规启动一律带 `UMU_RUNTIME_UPDATE=0`；只有首次 `wineboot --init` 预热那一次不带（它必须能拉运行时）。
+- **那一次预热要拉的 Steam Linux Runtime（150~190 MB）由我们提前下好**，见
+  `docs/STEAMRT_PREFETCH_PLAN.md`：umu 内部那次下载走它自带的 urllib3，`pkg/download`
+  的重试/断点续传/`http_proxy` 一个都够不着，是首次安装最常见的超时点。预取失败只降级
+  （回到 umu 自己下），绝不阻断安装。
 - 版本可通过 `config.yaml` 覆盖（见 §7），但默认值就是上面这两个。
 
 ---
@@ -911,7 +915,7 @@ type Config struct {
 | 8 | **大小写敏感文件系统** | Wine 内部有大小写不敏感回退，但 Go 侧构造的路径必须与磁盘完全一致 | 以 SteamCMD 下载的大小写为准；镜像同步逻辑本就按实际条目名走，风险低。加一条集成断言 `ShooterGame/Binaries/Win64` 存在 |
 | 9 | **`kill(-pgid)` 误杀** | 进程组记错会杀到自己 | `Setsid: true` 保证进程组独立；kill 前断言 `pgid > 1 && pgid != os.Getpid()` |
 | 10 | **gopsutil 在容器内看不到 Wine 的 socket** | 端口存活判定失效 | pressure-vessel 默认共享宿主 PID/net namespace，预期可见；P1 实测确认，失败则回退到 cmdline 扫描（`AltSaveDirectoryName` 匹配） |
-| 11 | **ArkApi 在 Wine/Proton 下稳定性未知** | `EnableAsaPlugin` 在 Linux 上与 Windows 走同一开关、同一条 `runner` 路径，但 `AsaApiLoader.exe` 依赖的进程注入/DLL hook 在 Wine 下是否可靠没有官方保证 | 不强制拦截、不静默降级；启动失败或行为异常时如实记录日志，让用户自己判断要不要继续用。`webapi/pluginapi` 与 `PluginDataPanel.vue` 在 Linux 上正常可用，不特殊处理。详见 §5.12、§1 目标 5 |
+| 11 | **ArkApi 在 Wine/Proton 下稳定性未知** | `EnableAsaPlugin` 在 Linux 上与 Windows 走同一开关、同一条 `runner` 路径，但 `AsaApiLoader.exe` 依赖的进程注入/DLL hook 在 Wine 下是否可靠没有官方保证 | 不强制拦截、不静默降级；启动失败或行为异常时如实记录日志，让用户自己判断要不要继续用。`webapi/pluginapi` 与 `PluginDataPanel.vue` 在 Linux 上正常可用，不特殊处理。详见 §5.12、§1 目标 5。**🆕 2026-08 补强**：已把 ArkApi 官方要求的 Microsoft VC++ 运行时装进 Wine prefix（做法照抄 winetricks 的 `vcrun2022`，含 `native,builtin` 的 DLL override），见 `docs/ARKAPI_LINUX_VCREDIST_PLAN.md`。这**只把「缺运行时」这一层从失败原因里剥掉**，注入机制本身是否可靠仍然未知，本条风险不因此关闭 |
 | 12 | **首次安装耗时长**（GE-Proton 450 MB + SLR + prefix + ARK 本体约 25 GB） | 用户以为卡死 | 全流程走既有 SSE `TaskBroadcaster` 推进度，与现有 update 流一致 |
 | 13 | 🆕 **`internal/mirror` 在 Linux 上编译不过** | `createJunction` 随去管理员化移进了 `junction_windows.go`，`mirror.go` 有 6 处调用 | P0 补 `junction_linux.go`（约 8 行 `os.Symlink`），语义必须与 Windows 侧对齐：绝对路径 target、已存在时报错不覆盖。见 §5.6 |
 | 14 | 🆕 **frp 库内调用后失去崩溃隔离** | frp 任意 goroutine 的 panic 会带走整个 asa-server，所有 ARK 实例失去管理（游戏进程本身仍在跑但无人接管） | 这是 §5.10 方案唯一的实质退步，无法用 `recover()` 消除。接受它的前提是 frp 足够成熟；若不接受则回退到「分平台内嵌二进制」的原方案 |

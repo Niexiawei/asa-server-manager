@@ -21,7 +21,28 @@ Wine/Proton（经 [umu-launcher](https://github.com/Open-Wine-Components/umu-lau
 | `libzstd.so.1` | Steam Linux Runtime 依赖 | `apt install libzstd1` |
 | `tar` | 解压 SteamCMD/GE-Proton/umu 归档 | 通常预装 |
 | AppArmor 允许非特权 user namespace | pressure-vessel 沙箱需要；Ubuntu 23.10+ 默认限制 | `sysctl kernel.apparmor_restrict_unprivileged_userns=0`（永久生效需写 `/etc/sysctl.d/`） |
+| **`xvfb`** | 虚拟 X 显示。`AsaApiLoader.exe`（ArkApi）与微软 VC++ 安装器都会创建 Win32 窗口，Wine 下没有显示就直接失败，见下方「为什么无头服务器也要装 xvfb」 | `apt install xvfb` |
 | **`acl`（强烈建议，非必需）** | 让 root 新建的文件自动可被降权的游戏进程写入，见下方「共享写权限」 | `apt install acl` |
+
+### 为什么无头服务器也要装 xvfb
+
+ARK 服务端本身**不需要**显示 —— `ArkAscendedServer.exe` 在纯无头机上照常启动。
+需要显示的是另外两个程序，成因相同：Wine 的 `winex11.drv` 连不上 X 服务时
+`CreateWindow` 一律失败（`err:winediag:nodrv_CreateWindow ... The explorer process
+failed to start.`），任何要开窗口的 Windows 程序都会在打出第一行日志之前就死掉。
+
+| 程序 | 没有显示时的表现 |
+|---|---|
+| `AsaApiLoader.exe`（ArkApi） | **退出码 3，零输出** —— 不打日志、不建自己的 `Win64/logs/` 目录、也不拉起游戏进程。实测（WSL2 + GE-Proton10-34 + umu 1.4.4，2026-08-30）只补一个可用的 `DISPLAY`，同一条命令就能加载 ArkApi、下载 offsets cache、加载插件并拉起 `ArkAscendedServer.exe` |
+| `vc_redist.x64.exe` | 退出码 203，什么都不装（见 `docs/ARKAPI_LINUX_VCREDIST_PLAN.md` §2.6） |
+
+因此 `xvfb` 是 **preflight 的阻断级依赖**：缺了它 `asa-server setup` 会中止
+（`--ignore-preflight` 可强行继续）。这与 `acl` 的定位不同 —— 缺 `acl` 会降级成
+可用的 chown 方案，缺显示则**没有第二条路**。
+
+自检里**不接受**「当前 shell 有 `DISPLAY`」作为满足条件：`setup` 往往在有桌面的
+会话里敲，而真正拉起实例的 systemd 服务没有 `DISPLAY`，认它会让检查恰好在会出问题的
+机器上通过。运行期仍然优先复用宿主已有的 `DISPLAY`，没有才用 `xvfb-run -a` 现开一个。
 
 ### 共享写权限与 `acl`
 
@@ -186,6 +207,10 @@ sudo ./asa-server service remove    # 同时联动清理已安装的本地 CA（
 | 启动即报 `bwrap: Permission denied` | AppArmor 限制了非特权 user namespace（Ubuntu 23.10+ 默认） | `sysctl kernel.apparmor_restrict_unprivileged_userns=0`，永久生效写 `/etc/sysctl.d/`；`GET /api/system/preflight` 会直接报出这条 |
 | 服务器完全起不来，日志戛然而止，无报错 | GE-Proton 版本不是 `GE-Proton10-34`（11.x 系列已知挂死 ASA） | 检查 `config.yaml` 的 `linux.proton_version`，不要手动升级到 11.x，除非先自行验证过 |
 | 每次启动都重新下载 umu/GE-Proton，或直接崩在 steamclient | systemd 服务的 `HOME` 未正确设置 | 确认走的是 `asa-server service install`（会显式写 `Environment=HOME=...`），而不是手写的、没设 `HOME` 的 unit 文件 |
+| 首次 `setup` 卡在 Steam Linux Runtime 下载 / 超时失败 | 到 `repo.steampowered.com` 的网络不稳 | 默认已由本程序用自己的下载器预取（有重试、断点续传、走 `download.http_proxy`），日志里应出现 `正在预下载 Steam Linux Runtime`。若预取本身也失败，日志会打「改由 umu 自行下载」——此时 umu 那条路只认**环境变量**，给 systemd unit 加 `Environment=HTTPS_PROXY=http://…` 后重试。排障可用 `linux.steamrt_prefetch: false` 关掉预取。见 `docs/STEAMRT_PREFETCH_PLAN.md` |
+| 启用了 ArkApi 的实例起不来，日志停在 `fsync: up and running.` 之后一个字都没有 | **没有可用的图形显示**（最常见）。`AsaApiLoader.exe` 会创建 Win32 窗口，Wine 连不上 X 就以退出码 3 静默退出 | `apt install xvfb`。装好后 `asa-server` 会自动用 `xvfb-run -a` 给加载器开一个虚拟显示；没装时实例启动会被**直接拒绝**并给出这条提示，而不是假装启动成功。见 `docs/ARKAPI_LINUX_VCREDIST_PLAN.md` §9 |
+| 启用了 ArkApi 的实例起不来（显示已就绪） | ArkApi 官方要求 Microsoft VC++ Redistributable，而 Wine/GE-Proton 的 prefix 默认优先用自己的内建实现 | 跑 **`asa-server verify-arkapi`**：它会把前置条件逐条列出来（ArkApi 装没装、Wine 运行时、图形显示、VC++ DLL 的实际出处），再真拉起一次。关键项是 **DLL override 11/11**，`setup` 会自动写入。仍失败见 `docs/ARKAPI_LINUX_VCREDIST_PLAN.md` §6 与附录 B 的排查顺序 |
+| `verify-arkapi` 说「system32 里的 vcruntime140.dll 仍是 Wine 自带的」 | 装的时候没有 X 显示：微软的安装器在 Wine 下**必须有一个能连上的显示**，否则一律以 203 退出（实测，连 `/layout` 都不行） | 与上一行同一个原因、同一个修法：`apt install xvfb` 后跑 `asa-server verify-arkapi --install-vcredist`（或重跑 `asa-server setup`）。单看这一项其实**通常不影响 ArkApi** —— ARK 自己在 exe 同目录带了 11 个运行时 DLL 里的 9 个原生版，应用目录的搜索优先级高于 system32，配合已写入的 override 一般够用 |
 | `asa-server cert install` 报错「需要 root 权限」 | 系统信任存储需要 root 才能写 | `sudo ./asa-server cert install`；Linux 上没有 Windows 的 UAC 自动提权 |
 | `cert install` 成功但浏览器仍报证书警告 | Linux 系统信任库不影响 Firefox/Chrome 的 NSS 证书库 | 需要额外手动把 CA（`{BaseDir}/certs/ca.crt`）导入浏览器自己的证书管理界面 |
 | UE 报内存分配失败 / mmap 相关崩溃 | `vm.max_map_count` 太低 | `sysctl -w vm.max_map_count=262144` |
