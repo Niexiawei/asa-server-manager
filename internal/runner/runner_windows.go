@@ -82,6 +82,14 @@ func checkRuntime() error { return nil }
 // preflight has nothing to check on Windows.
 func preflight() []Problem { return nil }
 
+// displayStatus: Windows processes always have a window station, so the
+// Options.NeedsDisplay precondition is trivially satisfied. (That whole
+// mechanism exists because Wine's winex11.drv has nothing to talk to on a
+// headless Linux box — see internal/runner/display_linux.go.)
+func displayStatus() DisplayInfo {
+	return DisplayInfo{Available: true, How: "Windows 桌面会话"}
+}
+
 // runtimePython: there is no Python in the Windows launch path (the ARK exe
 // runs directly), so this is trivially "resolved" with empty fields.
 func runtimePython() RuntimePythonInfo { return RuntimePythonInfo{Resolved: true} }

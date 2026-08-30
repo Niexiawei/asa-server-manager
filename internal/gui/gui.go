@@ -438,9 +438,14 @@ func (g *GUIApp) applyChosenBaseDir(chosen string) {
 		ProtonVersion: appCfg.Linux.ProtonVersion,
 		PrefixMode:    appCfg.Linux.PrefixMode,
 		PrefixDir:     appCfg.Linux.PrefixDir,
-		AutoDownload:  appCfg.Linux.AutoDownload,
-		GameID:        appCfg.Linux.GameID,
-		BaseDir:       baseDir,
+		AutoDownload:    appCfg.Linux.AutoDownload,
+		SteamRTPrefetch:  appCfg.Linux.SteamRTPrefetch,
+		InstallVCRedist:  appCfg.Linux.InstallVCRedist,
+		VCRedistURL:      appCfg.Linux.VCRedistURL,
+		VCRedistSHA256:   appCfg.Linux.VCRedistSHA256,
+		WineDLLOverrides: appCfg.Linux.WineDLLOverrides,
+		GameID:           appCfg.Linux.GameID,
+		BaseDir:          baseDir,
 	})
 }
 

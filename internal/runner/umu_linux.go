@@ -86,8 +86,33 @@ func ensureRuntime(ctx context.Context, progress io.Writer) error {
 	if err := ensureGEProton(ctx, cfg, logf); err != nil {
 		return fmt.Errorf("failed to install %s: %w", cfg.ProtonVersion, err)
 	}
-	if err := warmPrefix(ctx, cfg, logf); err != nil {
+
+	// warmPrefix 下面那次 wineboot 会让 umu 自己去 repo.steampowered.com 拉
+	// 150~190 MB 的 Steam Linux Runtime，用的是它内置的 urllib3 —— 我们的重试、
+	// 断点续传、download.http_proxy 一个都够不着。先用 pkg/download 下好塞进 umu
+	// 自己的下载缓存，wineboot 起来时就只剩「续传补最后 1 MiB」。
+	//
+	// 失败只降级不阻断：最坏回到今天的行为（umu 自己下）。这个优化的全部价值是省
+	// 时间，为省时间制造一个新的安装失败点是净亏。
+	// 见 docs/STEAMRT_PREFETCH_PLAN.md。
+	prefetched, err := prefetchSteamRuntime(ctx, cfg, logf)
+	if err != nil {
+		logf("Steam Linux Runtime 预下载失败（%v），改由 umu 自行下载", err)
+	}
+
+	if err := warmPrefix(ctx, cfg, logf, prefetched.Variant != ""); err != nil {
 		return fmt.Errorf("failed to prepare Wine prefix: %w", err)
+	}
+
+	// ArkApi（AsaApiLoader.exe）依赖微软 VC++ 运行时，Wine/GE-Proton 的 prefix 里
+	// 只有 Wine 自己的同名实现。放在这里是因为 prefix 必须先初始化好才能往里装东西。
+	//
+	// 失败不阻断 EnsureRuntime：这一步服务的是一个**可选功能**，不开 ArkApi 的用户
+	// 占绝大多数，为它让整个环境准备失败不成比例。但与 steamrt 预取那种「无声降级」
+	// 不同，这里的失败必须响亮 —— 真要用 ArkApi 的人必须看见这条。
+	// 见 docs/ARKAPI_LINUX_VCREDIST_PLAN.md §3.2。
+	if err := ensureVCRedist(ctx, cfg, "", logf); err != nil {
+		logf("VC++ 运行时安装失败（%v）；不使用 ArkApi 可忽略，使用 ArkApi 请看上面的输出", err)
 	}
 	return nil
 }
@@ -101,6 +126,37 @@ func progressLogger(w io.Writer) func(format string, args ...any) {
 		}
 	}
 }
+
+// downloadProgress 把 pkg/download 的字节级回调节流成人能看的进度行：每 5% 或每 2 秒
+// 一行，外加收尾那一行。回调在 io.Copy 的单个 goroutine 里串行调用，无需加锁。
+//
+// 总长未知（total <= 0）时只按时间节流 —— 否则百分比恒为 0，「涨够 5%」永远不成立，
+// 每读一个块就会打一行。
+func downloadProgress(label string, logf func(string, ...any)) func(done, total int64) {
+	var (
+		lastAt  time.Time
+		lastPct = -1
+	)
+	return func(done, total int64) {
+		pct := 0
+		if total > 0 {
+			pct = int(done * 100 / total)
+		}
+		final := total > 0 && done >= total
+		now := time.Now()
+		if !final && pct < lastPct+5 && now.Sub(lastAt) < 2*time.Second {
+			return
+		}
+		lastAt, lastPct = now, pct
+		if total > 0 {
+			logf("  %s: %d%% (%.1f/%.1f MiB)", label, pct, mib(done), mib(total))
+		} else {
+			logf("  %s: %.1f MiB", label, mib(done))
+		}
+	}
+}
+
+func mib(n int64) float64 { return float64(n) / (1 << 20) }
 
 // ensureUmu downloads+extracts the umu-launcher zipapp if umu-run isn't
 // already present at the pinned version's expected path.
@@ -224,7 +280,7 @@ func ensureGEProton(ctx context.Context, cfg Config, logf func(string, ...any)) 
 // left by an incompatible Proton generation, and a wineserver-drain poll
 // afterward so a caller-visible "ready" doesn't race the prefix still being
 // held open.
-func warmPrefix(ctx context.Context, cfg Config, logf func(string, ...any)) error {
+func warmPrefix(ctx context.Context, cfg Config, logf func(string, ...any), prefetched bool) error {
 	prefix := prefixDir(cfg, "")
 	if err := os.MkdirAll(prefix, 0755); err != nil {
 		return err
@@ -234,13 +290,17 @@ func warmPrefix(ctx context.Context, cfg Config, logf func(string, ...any)) erro
 		return err
 	}
 
-	runtimeReady := steamLinuxRuntimeReady(cfg.ProtonVersion)
+	runtimeReady := steamLinuxRuntimeReady(cfg)
 
 	if prefixInitialized(prefix) && runtimeReady {
 		return writePrefixMarker(prefix, cfg.ProtonVersion)
 	}
 
-	logf("first-time umu setup: downloading Steam Linux Runtime and initializing the Wine prefix (this can take several minutes)")
+	if prefetched {
+		logf("first-time umu setup: 正在解压已预下载的 Steam Linux Runtime 并初始化 Wine 前缀（可能需要几分钟）")
+	} else {
+		logf("first-time umu setup: downloading Steam Linux Runtime and initializing the Wine prefix (this can take several minutes)")
+	}
 
 	// wineboot below may run as the dropped non-root user (see below); it must
 	// be able to write into the prefix dir, which was just MkdirAll'd (or
@@ -382,25 +442,25 @@ func writePrefixMarker(prefix, version string) error {
 }
 
 // steamLinuxRuntimeReady checks for the toolmanifest the Proton generation
-// behind version needs under ~/.local/share/umu (umu's own runtime cache,
-// independent of WINEPREFIX — see docs/LINUX_COMPATIBILITY_PLAN.md §4.1).
-// GE-Proton 9/10 use steamrt3 ("sniper"), GE-Proton 11 uses steamrt4; a
-// present steamrt4 must not mask a missing steamrt3 after a downgrade, so
-// an unrecognized/future generation conservatively accepts any installed
-// runtime rather than forcing a re-download.
-func steamLinuxRuntimeReady(protonVersion string) bool {
+// behind cfg.ProtonVersion needs under ~/.local/share/umu (umu's own runtime
+// cache, independent of WINEPREFIX — see docs/LINUX_COMPATIBILITY_PLAN.md §4.1).
+//
+// Which variant that is comes from steamrtForProton, the same single mapping
+// the prefetch uses — "which runtime do we download" and "which runtime counts
+// as already installed" must never be able to answer differently. A present
+// steamrt4 must not mask a missing steamrt3 after a downgrade; an
+// unrecognized/future generation conservatively accepts any installed runtime
+// rather than forcing a re-download.
+func steamLinuxRuntimeReady(cfg Config) bool {
 	// umu's runtime cache lives under the HOME the game process runs with —
 	// the dropped non-root user's home when we manage one, not root's.
-	home := runtimeHomeDir(getConfig())
+	home := runtimeHomeDir(cfg)
 	if home == "" {
 		return false
 	}
 	glob := "steamrt*"
-	switch {
-	case strings.HasPrefix(protonVersion, "GE-Proton9-"), strings.HasPrefix(protonVersion, "GE-Proton10-"):
-		glob = "steamrt3"
-	case strings.HasPrefix(protonVersion, "GE-Proton11-"):
-		glob = "steamrt4"
+	if v, ok := steamrtForProton(protonPath(cfg), cfg.ProtonVersion); ok {
+		glob = v.Variant
 	}
 	matches, _ := filepath.Glob(filepath.Join(home, ".local/share/umu", glob, "toolmanifest.vdf"))
 	return len(matches) > 0

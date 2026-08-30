@@ -11,6 +11,8 @@ import (
 	"strings"
 	"syscall"
 
+	"asa-server/pkg/logger"
+
 	"github.com/aymanbagabas/go-pty"
 )
 
@@ -33,6 +35,25 @@ func run(ctx context.Context, exePath string, args []string, opt Options) (*Hand
 	}
 	if cred != nil {
 		env = runtimeEnv(env, home, runtimeUserName(getConfig()))
+	}
+
+	// AsaApiLoader.exe creates real Win32 windows, so under Wine it needs an X
+	// display even though the workload is a headless game server: without one
+	// CreateWindow fails and the loader exits with code 3 having written
+	// nothing at all — no console output, not even its own logs/ directory
+	// (measured 2026-08-30, see display_linux.go). Fail fast with something
+	// actionable instead of reporting a "started" instance that is already
+	// dead. Applied after runtimeEnv on purpose — see displayTarget.wrap.
+	if opt.NeedsDisplay {
+		disp, blocked := resolveDisplay()
+		if blocked != "" {
+			return nil, fmt.Errorf("无法启动 %s：它需要图形显示，但%s。"+
+				"AsaApiLoader.exe（ArkApi）在 Wine 下没有显示会静默退出，"+
+				"所以这里提前拒绝，而不是让实例假装启动成功",
+				filepath.Base(exePath), blocked)
+		}
+		logger.Infof("runner: %s 需要图形显示，本次使用 %s", filepath.Base(exePath), disp.How)
+		bin, launchArgs, env = disp.wrap(bin, launchArgs, env)
 	}
 
 	if opt.PTY {
@@ -163,6 +184,14 @@ func umuCommandLine(exePath string, args []string, opt Options) (bin string, lau
 		// warmPrefix() call in umu_linux.go omits this, on purpose.
 		"UMU_RUNTIME_UPDATE=0",
 	)
+	// Operator escape hatch. The VC++ override set ArkApi needs is already
+	// written into the prefix registry at install time (see
+	// docs/ARKAPI_LINUX_VCREDIST_PLAN.md §2.4), so this is for one-off
+	// troubleshooting rather than normal operation. Appended last so it wins
+	// over anything inheritedEnv let through — exec keeps the last occurrence.
+	if cfg.WineDLLOverrides != "" {
+		env = append(env, "WINEDLLOVERRIDES="+cfg.WineDLLOverrides)
+	}
 	return bin, launchArgs, env, nil
 }
 
