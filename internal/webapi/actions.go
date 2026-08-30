@@ -33,6 +33,8 @@ import (
 	"io"
 	"log"
 	"net/http"
+	nethttp "net/http"
+	"net/http/pprof"
 	"os/signal"
 	"strings"
 	"syscall"
@@ -108,6 +110,19 @@ func NewAPIServer() *APIServer {
 		serverDone:      make(chan struct{}, 1),
 		saveDataManager: saveDataManager,
 	}
+
+	go func() {
+		mux := nethttp.NewServeMux()
+		mux.HandleFunc("/debug/pprof/", pprof.Index)
+		mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+		mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+		mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+		mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+		log.Println("pprof server started on :6060")
+		if err := nethttp.ListenAndServe(":6060", mux); err != nil {
+			log.Printf("pprof server error: %v\n", err)
+		}
+	}()
 
 	// Setup routes
 	server.setupRoutes()
