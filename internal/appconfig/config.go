@@ -163,8 +163,24 @@ type LinuxConfig struct {
 	UmuPythonBin string `mapstructure:"umu_python_bin"`
 	// AutoDownload 为 false 时 EnsureRuntime 完全不联网，缺失的运行时组件
 	// 只会体现为 Preflight 报告里的问题，不会自动尝试修复。
-	AutoDownload bool   `mapstructure:"auto_download"`
-	GameID       string `mapstructure:"gameid"`
+	AutoDownload bool `mapstructure:"auto_download"`
+	// SteamRTPrefetch：umu 初始化前，是否先用 pkg/download 把 Steam Linux Runtime
+	// 归档下好塞进 umu 自己的下载缓存。默认 true —— umu 内部那次 150~190MB 的下载
+	// 走它自带的 urllib3，没有重试、也读不到 download.http_proxy，是首次安装最常见的
+	// 失败点。关掉即完全回到「让 umu 自己下」，排障用。见 docs/STEAMRT_PREFETCH_PLAN.md。
+	SteamRTPrefetch bool `mapstructure:"steamrt_prefetch"`
+	// InstallVCRedist：把微软 VC++ 运行时装进 Wine prefix。ArkApi 的 AsaApiLoader.exe
+	// 依赖它，而 Wine/GE-Proton 的 prefix 里只有 Wine 自己的同名实现。默认 true。
+	// false = 不下载不安装；启用 ArkApi 的实例启动时只多一条告警，不阻断。
+	InstallVCRedist bool `mapstructure:"install_vcredist"`
+	// VCRedistURL 留空 = 微软官方短链。最终地址的路径里自带文件 sha256，会自动提取
+	// 校验；自建镜像若没有那一段，用 VCRedistSHA256 显式指定（小写十六进制）。
+	VCRedistURL    string `mapstructure:"vcredist_url"`
+	VCRedistSHA256 string `mapstructure:"vcredist_sha256"`
+	// WineDLLOverrides 原样追加到游戏进程的 WINEDLLOVERRIDES，留空 = 不设。
+	// VC++ 那组 override 已在安装时写进 prefix 注册表，不必在这里重复；排障用。
+	WineDLLOverrides string `mapstructure:"wine_dll_overrides"`
+	GameID           string `mapstructure:"gameid"`
 
 	// 以下为「游戏实例以专用非 root 用户运行」相关配置，见
 	// docs/UMU_RUNTIME_USER_PLAN.md。仅当 asa-server 自身以 root 运行时生效。
@@ -519,8 +535,10 @@ func defaultConfig() Config {
 			UmuVersion:     "1.4.4",
 			ProtonVersion:  "GE-Proton10-34",
 			PrefixMode:     "shared",
-			AutoDownload:   true,
-			GameID:         "umu-default",
+			AutoDownload:    true,
+			SteamRTPrefetch: true,
+			InstallVCRedist: true,
+			GameID:          "umu-default",
 			UmuRuntimeUser: "asa-umu-runtime",
 		},
 	}
@@ -581,6 +599,11 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("linux.prefix_dir", "")
 	v.SetDefault("linux.umu_python_bin", "")
 	v.SetDefault("linux.auto_download", d.Linux.AutoDownload)
+	v.SetDefault("linux.steamrt_prefetch", d.Linux.SteamRTPrefetch)
+	v.SetDefault("linux.install_vcredist", d.Linux.InstallVCRedist)
+	v.SetDefault("linux.vcredist_url", "")
+	v.SetDefault("linux.vcredist_sha256", "")
+	v.SetDefault("linux.wine_dll_overrides", "")
 	v.SetDefault("linux.gameid", d.Linux.GameID)
 	v.SetDefault("linux.umu_runtime_user", d.Linux.UmuRuntimeUser)
 	v.SetDefault("linux.umu_runtime_uid", d.Linux.UmuRuntimeUID)

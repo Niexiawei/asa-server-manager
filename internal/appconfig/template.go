@@ -170,7 +170,27 @@ linux:
   # false 时完全不联网下载 umu/GE-Proton，缺失的组件只会在
   # GET /api/system/preflight 里报告，不会自动尝试修复
   auto_download: true
+  # umu 初始化前，先用本程序的下载器把 Steam Linux Runtime 归档下好放进 umu 的下载缓存。
+  # umu 自己那次 150~190MB 的下载走它内置的 urllib3：没有重试、也读不到上面的
+  # download.http_proxy，是首次安装最常见的超时点。改成 false 即回到让 umu 自己下（排障用）。
+  steamrt_prefetch: true
   gameid: "umu-default"
+
+  # --- ArkApi（AsaApiLoader.exe）在 Linux 上的前置依赖 ---
+  # ArkApi 官方要求 Microsoft Visual C++ Redistributable，而 Wine/GE-Proton 的 prefix 里
+  # 只有 Wine 自己的同名 DLL。true = 首次准备运行时时自动装进共享 prefix（约 24MB 下载），
+  # 并按 winetricks 的做法写入 native,builtin 的 DLL override。
+  # 不用 ArkApi 可以关掉；关掉后启用 ArkApi 的实例启动时只会多一条告警，不阻断。
+  install_vcredist: true
+  # 安装包地址，留空 = https://aka.ms/vs/17/release/vc_redist.x64.exe
+  # 微软的最终下载地址路径里自带文件 SHA256，跟随重定向后会自动提取校验，无需手工填。
+  vcredist_url: ""
+  # 仅当 vcredist_url 指向自建镜像、地址里没有那段哈希时才需要手工填（小写十六进制）。
+  vcredist_sha256: ""
+  # 追加到游戏进程的 WINEDLLOVERRIDES，留空 = 不设。
+  # VC++ 那组 override 已在安装时写进 prefix 注册表，这里不用重复配；排障逃生舱，例如
+  # 想把某个 DLL 强制掰回 Wine 内建：  "msvcp140=b"
+  wine_dll_overrides: ""
 
   # 游戏实例以专用非 root 用户运行（仅当 asa-server 自身以 root 运行时生效），见
   # docs/UMU_RUNTIME_USER_PLAN.md。asa-server 进程仍是 root，只有 umu/wine/游戏进程树被降权。

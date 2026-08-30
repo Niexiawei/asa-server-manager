@@ -43,6 +43,18 @@ type Options struct {
 	// Empty always means the default shared prefix, including under
 	// "per-instance" mode. Ignored on Windows.
 	PrefixKey string
+	// NeedsDisplay marks an exe that creates Win32 windows and therefore
+	// cannot run under Wine without an X display, however headless the
+	// workload looks. Set it for AsaApiLoader.exe (ArkApi) and nothing else:
+	// ArkAscendedServer.exe itself boots fine with no display, and wrapping
+	// every launch in xvfb-run would add a process and a failure mode for no
+	// gain. Ignored on Windows, which always has a window station.
+	//
+	// On Linux the launch either inherits the host's DISPLAY or gets its own
+	// xvfb-run virtual display; when neither exists Run fails fast with an
+	// actionable error rather than letting the loader die silently.
+	// See internal/runner/display_linux.go.
+	NeedsDisplay bool
 }
 
 // Handle is a running launch.
@@ -115,6 +127,101 @@ func EnsureRuntime(ctx context.Context, progress io.Writer) error {
 func CheckRuntime() error {
 	return checkRuntime()
 }
+
+// EnsurePrefixVCRedist makes sure the Microsoft VC++ runtime that ArkApi's
+// AsaApiLoader.exe depends on is installed into a Wine prefix — Wine and
+// GE-Proton ship only their own implementations of those DLLs. No-op on
+// Windows, where the runtime is a system-level component.
+//
+// prefixKey has the same meaning as Options.PrefixKey: empty selects the
+// default shared prefix. progress receives human-readable status lines, the
+// same shape EnsureRuntime uses. Idempotent — a prefix that already has it
+// costs a couple of local file reads.
+//
+// See docs/ARKAPI_LINUX_VCREDIST_PLAN.md.
+func EnsurePrefixVCRedist(ctx context.Context, prefixKey string, progress io.Writer) error {
+	return ensurePrefixVCRedist(ctx, prefixKey, progress)
+}
+
+// PrefixHasVCRedist reports whether a Wine prefix already carries the native
+// Microsoft VC++ runtime. Read-only and offline, so callers on a hot path
+// (instance start) can use it for diagnostics. Always true on Windows.
+//
+// Deliberately NOT a launch gate: the judgement is a heuristic over registry
+// text and a PE header marker, and blocking a start on a possibly-wrong check
+// is exactly what docs/LINUX_COMPATIBILITY_PLAN.md §1 goal 5 rules out — the
+// program doesn't get to decide ArkApi is unusable on the user's behalf.
+func PrefixHasVCRedist(prefixKey string) bool {
+	return prefixHasVCRedist(prefixKey)
+}
+
+// DLLOrigin says where a DLL in a Wine prefix came from.
+type DLLOrigin string
+
+const (
+	DLLMissing DLLOrigin = "missing"
+	DLLWine    DLLOrigin = "wine"   // Wine 自己的占位/内建 PE
+	DLLNative  DLLOrigin = "native" // 微软原生
+)
+
+// VCRedistDLLInfo is one runtime DLL's origin, in the prefix and next to the game.
+//
+// Both columns matter: Windows resolves a DLL from the **application directory
+// first**, and ARK ships native copies of most of the VC++ runtime right next
+// to ArkAscendedServer.exe — so what Wine ends up loading is decided by the
+// DllOverrides setting, not only by what is in system32.
+type VCRedistDLLInfo struct {
+	Name       string
+	InSystem32 DLLOrigin
+	InGameDir  DLLOrigin // empty when no game dir was supplied
+}
+
+// VCRedistInfo is the read-only view of a prefix's VC++ runtime state, for
+// `asa-server verify-arkapi`.
+type VCRedistInfo struct {
+	Managed  bool   // Linux && runtime == "umu"
+	Prefix   string
+	ProbeDLL string
+	// Installed is the single judgement "the native runtime is in system32",
+	// decided by ProbeDLL's PE header. RegistryVersion is NOT part of it —
+	// GE-Proton pre-fakes the standard detection key in a brand-new prefix
+	// (see internal/runner/vcredist.go), so it is diagnostic text only.
+	Installed       bool
+	RegistryVersion string
+	// OverridesSet/WantOverrides describe the DllOverrides entries in the
+	// prefix — the load-bearing half of this whole thing. ARK ships native
+	// copies of most of the runtime next to its exe, and the override is what
+	// makes Wine prefer them over its own builtins.
+	OverridesSet  int
+	WantOverrides int
+	// InstallerDisplay / InstallerBlocked: Microsoft's redist installer refuses
+	// to run under Wine without a reachable X display (exit 203), even with
+	// /quiet. On a headless host — this project's main deployment shape —
+	// Installed stays false by design and only the overrides apply.
+	InstallerDisplay string
+	InstallerBlocked string
+	DLLs             []VCRedistDLLInfo
+}
+
+// VCRedistStatus summarises a prefix's VC++ runtime state. Read-only, offline.
+// gameDir is the directory holding the game exe (empty skips that column).
+// On Windows: {Managed: false} with everything else zero.
+func VCRedistStatus(prefixKey, gameDir string) VCRedistInfo {
+	return vcRedistStatus(prefixKey, gameDir)
+}
+
+// DisplayInfo is how (and whether) this host can give a Wine process an X
+// display — the precondition Options.NeedsDisplay depends on. On Windows it is
+// always available: there is a real window station.
+type DisplayInfo struct {
+	Available bool   `json:"available"`
+	How       string `json:"how"`     // "宿主的 X 显示 :0" / "xvfb-run（虚拟显示）"
+	Blocked   string `json:"blocked"` // why not, when Available is false
+}
+
+// DisplayStatus reports the host's display situation. Read-only and offline —
+// one getenv, one stat and a PATH lookup.
+func DisplayStatus() DisplayInfo { return displayStatus() }
 
 // Preflight runs host dependency checks. Always empty on Windows.
 func Preflight() []Problem {
@@ -308,7 +415,27 @@ type Config struct {
 	// AutoDownload false means EnsureRuntime never touches the network —
 	// missing runtime pieces are reported as Preflight problems instead.
 	AutoDownload bool
-	GameID       string
+	// SteamRTPrefetch: before umu initializes, download the Steam Linux
+	// Runtime archive with pkg/download and drop it into umu's own download
+	// cache, so umu's internal (retry-less, proxy-deaf) urllib3 fetch of
+	// 150~190 MB turns into a 1 MiB resume. Config default is true; false
+	// restores the plain "let umu download it" behaviour for troubleshooting.
+	// Failing to prefetch is never fatal. See docs/STEAMRT_PREFETCH_PLAN.md.
+	SteamRTPrefetch bool
+	// InstallVCRedist: 在 Wine prefix 里装微软 VC++ 运行时。ArkApi 的
+	// AsaApiLoader.exe 依赖它，而 Wine/GE-Proton 的 prefix 里只有 Wine 自己的同名
+	// 实现。配置默认 true；false 完全不下载不安装，启用 ArkApi 的实例启动时只多一条
+	// 告警（不阻断）。见 docs/ARKAPI_LINUX_VCREDIST_PLAN.md。
+	InstallVCRedist bool
+	// VCRedistURL 留空 = 微软官方短链。最终下载地址的路径里自带文件 sha256，会被
+	// 自动提取用于校验；自建镜像若没有那一段，用 VCRedistSHA256 显式指定。
+	VCRedistURL    string
+	VCRedistSHA256 string
+	// WineDLLOverrides 原样追加到游戏进程的 WINEDLLOVERRIDES。留空 = 不设。
+	// VC++ 那 11 个 DLL 的 override 已在安装时写进 prefix 注册表，不必在这里重复；
+	// 这一项是排障用的逃生舱。
+	WineDLLOverrides string
+	GameID           string
 	// RuntimeUser is the dedicated non-root account the game instance's
 	// umu/wine process tree is dropped to when asa-server itself runs as
 	// root. Empty = "asa-umu-runtime". See docs/UMU_RUNTIME_USER_PLAN.md.
@@ -343,12 +470,14 @@ const (
 
 func defaultConfig() Config {
 	return Config{
-		Runtime:       "umu",
-		UmuVersion:    defaultUmuVersion,
-		ProtonVersion: defaultProtonVersion,
-		PrefixMode:    "shared",
-		AutoDownload:  true,
-		GameID:        defaultGameID,
+		Runtime:         "umu",
+		UmuVersion:      defaultUmuVersion,
+		ProtonVersion:   defaultProtonVersion,
+		PrefixMode:      "shared",
+		AutoDownload:    true,
+		SteamRTPrefetch: true,
+		InstallVCRedist: true,
+		GameID:          defaultGameID,
 	}
 }
 
