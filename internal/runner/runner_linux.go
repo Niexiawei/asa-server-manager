@@ -45,7 +45,7 @@ func run(ctx context.Context, exePath string, args []string, opt Options) (*Hand
 	// actionable instead of reporting a "started" instance that is already
 	// dead. Applied after runtimeEnv on purpose — see displayTarget.wrap.
 	if opt.NeedsDisplay {
-		disp, blocked := resolveDisplay()
+		disp, blocked := resolveDisplay(getConfig())
 		if blocked != "" {
 			return nil, fmt.Errorf("无法启动 %s：它需要图形显示，但%s。"+
 				"AsaApiLoader.exe（ArkApi）在 Wine 下没有显示会静默退出，"+

@@ -75,7 +75,7 @@ func ensureVCRedist(ctx context.Context, cfg Config, prefixKey string, logf func
 
 	// 与 ArkApi 启动路径共用 resolveDisplay：两者需要显示的原因是同一个
 	// （Wine 的 winex11.drv），见 display_linux.go。
-	display, blocked := resolveDisplay()
+	display, blocked := resolveDisplay(cfg)
 	if blocked != "" {
 		// preflight 已经把 xvfb 列为阻断级依赖，所以正常装过的机器走不到这里；
 		// 走到了说明用户用 --ignore-preflight 跳过了。不阻断 setup，但要说清楚
@@ -183,7 +183,7 @@ func vcRedistStatus(prefixKey, gameDir string) VCRedistInfo {
 	}
 	info.WantOverrides = len(vcRedistOverrideDLLs)
 
-	if d, blocked := resolveDisplay(); blocked != "" {
+	if d, blocked := resolveDisplay(cfg); blocked != "" {
 		info.InstallerBlocked = blocked
 	} else {
 		info.InstallerDisplay = d.How

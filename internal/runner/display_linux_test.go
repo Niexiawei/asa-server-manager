@@ -3,9 +3,9 @@
 package runner
 
 import (
-	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -70,51 +70,85 @@ func TestDisplayWrapZeroValue(t *testing.T) {
 	}
 }
 
-// TestX11SocketExists: 光有 DISPLAY 变量不算数 —— 实测 DISPLAY=:99（无人监听）
-// 与完全不设一样失败，所以判据必须落到 socket 上。
-func TestX11SocketExists(t *testing.T) {
-	// 借 /tmp/.X11-unix 的真实路径没法在测试里造，改为只验证解析逻辑对
-	// 「不可能存在的显示号」的判断，以及非本地形式的放行。
+// TestX11SocketPathParsing: DISPLAY 的解析必须只认本地形式，并且落到真实文件上。
+func TestX11SocketPathParsing(t *testing.T) {
 	tests := []struct {
 		display string
-		want    bool
+		want    string
 		why     string
 	}{
-		{"", false, "空值"},
-		{"99999", false, "没有冒号，不是合法 DISPLAY"},
-		{":99999", false, "本地形式但 socket 不存在"},
-		{":", false, "冒号后没有显示号"},
-		{"remote.host:0", true, "远程显示无法本地判断，放行让调用方去试"},
-		{"/tmp/some.socket:0", true, "抽象/路径形式同样放行"},
+		{"", "", "空值"},
+		{"99999", "", "没有冒号，不是本地形式"},
+		{":99999", "", "本地形式但 socket 文件不存在"},
+		{":", "", "冒号后没有显示号"},
+		{":abc", "", "显示号不是数字"},
+		{"remote.host:0", "", "远程显示没有本地 socket"},
 	}
 	for _, tt := range tests {
-		if got := x11SocketExists(tt.display); got != tt.want {
-			t.Errorf("x11SocketExists(%q) = %v, want %v（%s）", tt.display, got, tt.want, tt.why)
+		if got := x11SocketPath(tt.display); got != tt.want {
+			t.Errorf("x11SocketPath(%q) = %q, want %q（%s）", tt.display, got, tt.want, tt.why)
 		}
 	}
 }
 
-// TestResolveDisplayPrefersHostDisplay: DISPLAY 指向的 socket 真的在时优先用它，
-// 不去多起一个 Xvfb。用一个假的 /tmp/.X11-unix 条目是做不到的（路径是硬编码的），
-// 所以这里只钉「变量存在但 socket 不在 → 不采用」这一半。
+// TestX11DisplayUsableRejectsDeadDisplay: 光有 DISPLAY 变量不算数 —— 实测
+// DISPLAY=:99（无人监听）与完全不设一样失败。远程形式无法本地判断，放行。
+func TestX11DisplayUsableRejectsDeadDisplay(t *testing.T) {
+	if x11DisplayUsable(":99999") {
+		t.Error("x11DisplayUsable(\":99999\") = true, want false — 没有这个 socket")
+	}
+	if !x11DisplayUsable("remote.host:0") {
+		t.Error("x11DisplayUsable(remote) = false, want true — 远程显示交给调用方去试")
+	}
+}
+
+// TestResolveDisplayIgnoresDeadDisplay: DISPLAY 指向一个不存在的显示时不能采用它，
+// 必须继续往后找。这是「有变量 ≠ 有服务」那条实测结论的回归测试。
 func TestResolveDisplayIgnoresDeadDisplay(t *testing.T) {
 	t.Setenv("DISPLAY", ":99999")
 
-	d, blocked := resolveDisplay()
-	if len(d.Env) > 0 {
-		t.Errorf("resolveDisplay adopted a DISPLAY with no listener: %v", d.Env)
+	d, blocked := resolveDisplay(getConfig())
+	for _, kv := range d.Env {
+		if kv == "DISPLAY=:99999" {
+			t.Errorf("resolveDisplay adopted a DISPLAY with no listener: %v", d.Env)
+		}
 	}
-	// 这台机器上有没有 xvfb-run 决定了 blocked 是不是空，两种都合法 ——
-	// 断言的是「没把死的 DISPLAY 当成活的」。
-	if blocked == "" && len(d.Wrapper) == 0 {
+	// 这台机器上 xvfb-run / 现成 X 服务的有无决定 blocked 是不是空，两种都合法 ——
+	// 断言的是「没把死的 DISPLAY 当成活的」，以及成功时必然带着一种手段。
+	if blocked == "" && len(d.Env) == 0 && len(d.Wrapper) == 0 {
 		t.Errorf("resolveDisplay reported success with neither Env nor Wrapper: %+v", d)
+	}
+}
+
+// TestXvfbRunArgsOverrideBadDefaults: xvfb-run 的两个默认值必须被覆盖 ——
+// `-e` 默认丢进 /dev/null（Xvfb 起不来时现场全无，而它仍会照常执行命令），
+// `-f` 默认写 ./.Xauthority（也就是游戏工作目录）。
+func TestXvfbRunArgsOverrideBadDefaults(t *testing.T) {
+	args := xvfbRunArgs(Config{BaseDir: "/srv/asa"}, "/usr/bin/xvfb-run")
+
+	if args[0] != "/usr/bin/xvfb-run" {
+		t.Fatalf("args[0] = %q, want the resolved xvfb-run path", args[0])
+	}
+	joined := strings.Join(args, " ")
+	for _, flag := range []string{"-a", "-e", "-f"} {
+		if !strings.Contains(joined, " "+flag+" ") && !strings.HasSuffix(joined, " "+flag) {
+			t.Errorf("xvfbRunArgs is missing %s: %v", flag, args)
+		}
+	}
+	for i, a := range args {
+		if (a == "-e" || a == "-f") && (i+1 >= len(args) || !filepath.IsAbs(args[i+1])) {
+			t.Errorf("%s must be followed by an absolute path, got %v", a, args)
+		}
+	}
+	if strings.Contains(joined, "/dev/null") {
+		t.Error("xvfbRunArgs still sends Xvfb's output to /dev/null")
 	}
 }
 
 // TestDisplayStatusMatchesResolve: 诊断视图与真正的启动判断必须是同一个答案，
 // 否则 verify-arkapi 会报「✔ 显示就绪」而启动照样被拒。
 func TestDisplayStatusMatchesResolve(t *testing.T) {
-	_, blocked := resolveDisplay()
+	_, blocked := resolveDisplay(getConfig())
 	info := displayStatus()
 
 	if info.Available != (blocked == "") {
@@ -125,22 +159,28 @@ func TestDisplayStatusMatchesResolve(t *testing.T) {
 	}
 }
 
-// TestXvfbProblemIsBlocking: xvfb 是阻断级依赖，不是建议级。没有它 ArkApi 与
+// TestDisplayProblemIsBlocking: 显示是阻断级依赖，不是建议级。没有它 ArkApi 与
 // vc_redist 安装器都彻底没有第二条路可走（对比 posix-acl 有 chown 兜底，
 // 见 docs/ACL_PERMISSION_HARDENING_PLAN.md §1）。
-func TestXvfbProblemIsBlocking(t *testing.T) {
-	p := checkXvfb()
+func TestDisplayProblemIsBlocking(t *testing.T) {
+	p := checkDisplay()
 	if p == nil {
-		// 这台机器装了 xvfb-run，检查通过 —— 没有可断言的问题对象。
-		if _, err := os.Stat(filepath.Join("/usr/bin", "xvfb-run")); err != nil {
-			t.Log("checkXvfb passed; xvfb-run resolved from PATH outside /usr/bin")
-		}
-		return
+		return // 这台机器能拿到显示，没有可断言的问题对象
 	}
 	if p.Warning {
-		t.Error("checkXvfb returned an advisory; it must be a blocker")
+		t.Error("checkDisplay returned an advisory; it must be a blocker")
 	}
-	if p.Name != "xvfb" || p.Fix == "" {
-		t.Errorf("checkXvfb problem = %+v, want name \"xvfb\" and a non-empty Fix", p)
+	if p.Name != "x11-display" || p.Fix == "" {
+		t.Errorf("checkDisplay problem = %+v, want name \"x11-display\" and a non-empty Fix", p)
+	}
+}
+
+// TestCheckDisplayAgreesWithResolve: preflight 与启动路径必须是同一个判断。
+// 它们分家过一次 —— preflight 只看 xvfb-run 在不在，而 WSLg 上 xvfb-run 装了也没用
+// （/tmp/.X11-unix 只读），于是自检通过、启动照样死。
+func TestCheckDisplayAgreesWithResolve(t *testing.T) {
+	_, blocked := resolveDisplay(getConfig())
+	if got := checkDisplay(); (got == nil) != (blocked == "") {
+		t.Errorf("checkDisplay() = %+v but resolveDisplay blocked = %q", got, blocked)
 	}
 }
