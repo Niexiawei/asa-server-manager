@@ -79,6 +79,11 @@ func ensureRuntime(ctx context.Context, progress io.Writer) error { return nil }
 // checkRuntime has nothing to verify on Windows — the ARK exe runs directly.
 func checkRuntime() error { return nil }
 
+// sharesWinePrefix: there is no Wine prefix to share, so launches never need
+// serializing and ArkApi instances never collide. Keeping this false is what
+// guarantees the Windows start path is unchanged by either rule.
+func sharesWinePrefix() bool { return false }
+
 // preflight has nothing to check on Windows.
 func preflight() []Problem { return nil }
 

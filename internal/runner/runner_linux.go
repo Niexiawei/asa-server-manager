@@ -140,10 +140,18 @@ func checkRuntime() error {
 	return nil
 }
 
+// sharesWinePrefix: every mode except "per-instance" puts all instances in one
+// prefix. Tested that way round on purpose — an unconfigured (zero-value)
+// Config must still be treated as sharing, since that's the riskier default
+// and prefixDir treats anything that isn't "per-instance" as shared too.
+func sharesWinePrefix() bool { return getConfig().PrefixMode != "per-instance" }
+
 // umuCommandLine builds the umu-run invocation for exePath/args, matching
-// scripts/ark_instance_manager.sh's proven env var set exactly (notably: no
-// PROTON_VERB — the reference script doesn't set it, and umu-run's default
-// is already correct for running a game exe).
+// scripts/ark_instance_manager.sh's proven env var set exactly — including
+// PROTON_VERB=run, which that script exports on start_server()'s very first
+// line (L884), far away from the `env WINEPREFIX=... GAMEID=...` line that
+// actually launches the game. See PROTON_VERB's comment below for what
+// omitting it cost us.
 func umuCommandLine(exePath string, args []string, opt Options) (bin string, launchArgs []string, env []string, err error) {
 	if err := checkRuntime(); err != nil {
 		return "", nil, nil, err
@@ -183,6 +191,21 @@ func umuCommandLine(exePath string, args []string, opt Options) (bin string, lau
 		// Regular launches keep the runtime pinned; only the one-time
 		// warmPrefix() call in umu_linux.go omits this, on purpose.
 		"UMU_RUNTIME_UPDATE=0",
+		// PROTON_VERB=run, NOT umu's default "waitforexitandrun".
+		//
+		// waitforexitandrun runs `wineserver -w` before exec'ing the game —
+		// Steam's way of making a relaunch wait for the previous session to
+		// die. It assumes one game per prefix. Under prefix_mode "shared" all
+		// instances share one prefix, so a second instance parked forever in
+		// `wineserver -w` waiting for the first to exit: the game was never
+		// exec'd, and the only symptom upstack was waitForGamePID's
+		// "游戏进程在 3m0s 内没有出现".
+		//
+		// The reference script has always set this (start_server(), L884);
+		// our earlier claim that it "doesn't set it" came from diffing only
+		// the launch command line and missing the export above it.
+		// See docs/UMU_PREFIX_PER_INSTANCE_PLAN.md §2-§4.
+		"PROTON_VERB=run",
 	)
 	// Operator escape hatch. The VC++ override set ArkApi needs is already
 	// written into the prefix registry at install time (see

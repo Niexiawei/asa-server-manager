@@ -151,9 +151,24 @@ type LinuxConfig struct {
 	UmuVersion    string `mapstructure:"umu_version"`
 	ProtonVersion string `mapstructure:"proton_version"`
 	// PrefixMode："shared"（默认，全部实例共用一个 Wine prefix）或
-	// "per-instance"（每实例独立，隔离性更好但更占盘）。
+	// "per-instance"（每实例一个 {BaseDir}/umu-prefix-<实例名>）。
+	//
+	// 两者的实际差别：
+	//   shared       省盘；但一个 prefix 只有一个 wineserver，实例之间因此在
+	//                注册表、命名内核对象上互相可见，且**启动必须串行**
+	//                （internal/instance/launchgate.go 会自动排队，等上一台
+	//                到达 start_initialization_successful 再放行下一台）。
+	//   per-instance 实例之间完全隔离，启动可并发（与 Windows 一致）；代价是
+	//                每个实例多占一个 prefix，且该实例首次启动会多花约一分钟
+	//                创建它（GE-Proton 与 Steam Linux Runtime 仍是全局共享的，
+	//                不会重复下载）。
+	//
+	// 切回 shared 后，per-instance 时期留下的目录不会自动消失，
+	// 用 `asa-server prefix status | gc` 查看与清理。
 	PrefixMode string `mapstructure:"prefix_mode"`
 	// PrefixDir 留空 = {BaseDir}/umu-prefix。
+	// 注意：per-instance 模式下这个值是**前缀**而不是目录本身，
+	// 实际路径为 "<prefix_dir>-<实例名>"。
 	PrefixDir string `mapstructure:"prefix_dir"`
 	// UmuPythonBin：执行 umu-launcher zipapp 的 Python 解释器。
 	// 留空 = 自动探测系统 python3 / python3.10…python3.N，多个取最高版本（不动系统默认 python3，

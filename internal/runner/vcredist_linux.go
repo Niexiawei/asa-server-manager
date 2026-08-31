@@ -381,6 +381,11 @@ func runInPrefix(ctx context.Context, cfg Config, prefix, exePath string, args [
 		"GAMEID="+cfg.GameID,
 		"PROTONPATH="+protonPath(cfg),
 		"UMU_RUNTIME_UPDATE=0",
+		// 同 umuCommandLine：不能用 umu 默认的 waitforexitandrun。这里尤其致命 ——
+		// 共享 prefix 上只要有实例在跑，`wineserver -w` 就永不返回，
+		// `verify-arkapi` / EnsurePrefixVCRedist 会一路挂到下面那个硬超时
+		// （vcRedistInstallTimeout，15 分钟）才报错，且错得毫无线索。
+		"PROTON_VERB=run",
 	)
 	// 用与游戏进程相同的身份运行：装出来的文件属主才对，降权后的 AsaApiLoader
 	// 才读得到。同 warmPrefix。

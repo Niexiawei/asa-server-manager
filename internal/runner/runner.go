@@ -128,6 +128,24 @@ func CheckRuntime() error {
 	return checkRuntime()
 }
 
+// SharesWinePrefix reports whether instances all land in the same Wine prefix,
+// and therefore in the same wineserver — one Wine session shared by every
+// running instance. Always false on Windows (no prefix exists) and under
+// prefix_mode "per-instance"; true under "shared", the default.
+//
+// Two consequences follow from it, both enforced in internal/instance:
+//
+//  1. Launches must be serialized. Proton's launch path assumes a prefix is
+//     touched by one launch at a time — see launchgate.go. The gate lives
+//     there rather than here because it is held until the instance reaches
+//     start_initialization_successful, which runner.Run returns long before.
+//
+//  2. At most one ArkApi instance can run. AsaApiLoader.exe needs an X display
+//     and Wine initializes its display subsystem once per session, so a second
+//     loader joining an existing session hangs before it ever execs — measured
+//     2026-08-31, see docs/UMU_PREFIX_PER_INSTANCE_PLAN.md §2.2.
+func SharesWinePrefix() bool { return sharesWinePrefix() }
+
 // EnsurePrefixVCRedist makes sure the Microsoft VC++ runtime that ArkApi's
 // AsaApiLoader.exe depends on is installed into a Wine prefix — Wine and
 // GE-Proton ship only their own implementations of those DLLs. No-op on

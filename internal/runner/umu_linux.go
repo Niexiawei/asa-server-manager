@@ -100,7 +100,7 @@ func ensureRuntime(ctx context.Context, progress io.Writer) error {
 		logf("Steam Linux Runtime 预下载失败（%v），改由 umu 自行下载", err)
 	}
 
-	if err := warmPrefix(ctx, cfg, logf, prefetched.Variant != ""); err != nil {
+	if err := warmPrefix(ctx, cfg, "", logf, prefetched.Variant != ""); err != nil {
 		return fmt.Errorf("failed to prepare Wine prefix: %w", err)
 	}
 
@@ -280,8 +280,15 @@ func ensureGEProton(ctx context.Context, cfg Config, logf func(string, ...any)) 
 // left by an incompatible Proton generation, and a wineserver-drain poll
 // afterward so a caller-visible "ready" doesn't race the prefix still being
 // held open.
-func warmPrefix(ctx context.Context, cfg Config, logf func(string, ...any), prefetched bool) error {
-	prefix := prefixDir(cfg, "")
+//
+// key selects which prefix to warm, with Options.PrefixKey's meaning: "" is
+// the shared prefix (EnsureRuntime's caller), a non-empty key is one
+// instance's own prefix under prefix_mode "per-instance" (ensurePrefix's
+// caller). Everything below is per-prefix — the version marker, the chown, the
+// wineserver drain — so the only thing the two callers don't share is who
+// takes the lock around it.
+func warmPrefix(ctx context.Context, cfg Config, key string, logf func(string, ...any), prefetched bool) error {
+	prefix := prefixDir(cfg, key)
 	if err := os.MkdirAll(prefix, 0755); err != nil {
 		return err
 	}
@@ -438,7 +445,19 @@ func reconcilePrefixVersion(prefix, wantVersion string, logf func(string, ...any
 }
 
 func writePrefixMarker(prefix, version string) error {
-	return os.WriteFile(filepath.Join(prefix, ".created-by-proton"), []byte(version), 0644)
+	path := filepath.Join(prefix, ".created-by-proton")
+	if err := os.WriteFile(path, []byte(version), 0644); err != nil {
+		return err
+	}
+	// prefix 归运行时用户，别在里面留 root 属主的文件 —— 同 writeVCRedistMarker。
+	//
+	// 这一行不是可选的收尾：warmPrefix 的 chownPathForRuntime 在 wineboot **之前**，
+	// 而这个标记是最后由 root 写的，于是它是整个 prefix 里唯一属主错误的条目，
+	// 而 VerifyRuntimeAccessForLaunch 的 umu-runtime-owner-drift 抽样恰好逮它。
+	// 共享 prefix 上一直没暴露：它在 setup 期间创建，等到实例启动时
+	// asa-server 早已重启过，reconcileRuntimeOwnership 顺手就修了。
+	// per-instance 把创建挪进启动流程本身，中间没有重启，于是当场失败。
+	return chownPathForRuntime(path)
 }
 
 // steamLinuxRuntimeReady checks for the toolmanifest the Proton generation

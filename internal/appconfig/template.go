@@ -151,10 +151,16 @@ linux:
   # 必须是具体版本号，不能是 "latest"——通过 GitHub API 解析别名会撞限流，见文档。
   umu_version: "1.4.4"
   proton_version: "GE-Proton10-34"
-  # prefix 模式：shared（默认，全部实例共用一个 Wine prefix，省盘）
-  #           | per-instance（每实例独立 prefix，更隔离但更占盘）
+  # prefix 模式：
+  #   shared       默认。全部实例共用一个 Wine prefix，省盘。同一个 prefix 只有一个
+  #                wineserver，所以实例**启动会自动串行**（等上一台初始化成功再起下一台）。
+  #   per-instance 每实例一个 umu-prefix-<实例名>，实例之间完全隔离、启动可并发。
+  #                代价：每实例多占一个 prefix，首次启动多花约一分钟创建
+  #                （GE-Proton 与 Steam Linux Runtime 仍全局共享，不重复下载）。
+  # 切回 shared 后旧目录不会自动消失，用 "asa-server prefix status" / "asa-server prefix gc" 查看与清理。
   prefix_mode: shared
   # 留空 = {程序目录}/umu-prefix
+  # per-instance 模式下这是**前缀**而非目录本身，实际路径为 "<prefix_dir>-<实例名>"
   prefix_dir: ""
   # umu-launcher（zipapp）用哪个 Python 解释器执行。
   #   留空  : 自动探测系统解释器，扫 python3 / python3.10 … python3.20，多个取最高版本

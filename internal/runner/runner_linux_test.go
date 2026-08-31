@@ -109,6 +109,58 @@ func TestInheritedEnv_DropsSessionScopedVariables(t *testing.T) {
 	}
 }
 
+// PROTON_VERB=run is what makes concurrent instances possible at all. umu's
+// default verb, waitforexitandrun, runs `wineserver -w` before exec'ing the
+// game; with a shared prefix that means instance B parks forever waiting for
+// instance A to exit and its game process is never launched — observed on real
+// hardware 2026-08-30 as "游戏进程在 3m0s 内没有出现". The reference script has
+// always set it (start_server(), L884).
+// See docs/UMU_PREFIX_PER_INSTANCE_PLAN.md.
+func TestUmuCommandLine_PinsProtonVerbToRun(t *testing.T) {
+	base := t.TempDir()
+	Configure(Config{
+		Runtime:       "umu",
+		ProtonVersion: "GE-Proton10-34",
+		PrefixMode:    "shared",
+		GameID:        "umu-default",
+		BaseDir:       base,
+	})
+	t.Cleanup(func() { Configure(defaultConfig()) })
+
+	mustWrite := func(p string, mode os.FileMode) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		if err := os.WriteFile(p, []byte("x"), mode); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+	}
+	mustWrite(filepath.Join(base, "umu-launcher", "umu-run"), 0o755)
+	mustWrite(filepath.Join(base, "proton", "GE-Proton10-34", "proton"), 0o644)
+	mustWrite(filepath.Join(base, "umu-prefix", "system.reg"), 0o644)
+
+	// An operator (or a stale shell) exporting the broken value must not win:
+	// launchEnvAllowed lets PROTON_* through, and exec keeps the LAST
+	// occurrence of a key, so ours has to be appended after the inherited one.
+	t.Setenv("PROTON_VERB", "waitforexitandrun")
+
+	_, _, env, err := umuCommandLine(filepath.Join(base, "ArkAscendedServer.exe"), nil, Options{})
+	if err != nil {
+		t.Skipf("umuCommandLine unavailable in this environment: %v", err)
+	}
+
+	last := ""
+	for _, kv := range env {
+		if v, ok := strings.CutPrefix(kv, "PROTON_VERB="); ok {
+			last = v
+		}
+	}
+	if last != "run" {
+		t.Fatalf("effective PROTON_VERB = %q, want \"run\" (waitforexitandrun deadlocks the 2nd instance on a shared prefix)", last)
+	}
+}
+
 func TestCheckRuntime_MessagesPointAtSetup(t *testing.T) {
 	Configure(Config{Runtime: "umu", ProtonVersion: "GE-Proton10-34", BaseDir: t.TempDir()})
 	t.Cleanup(func() { Configure(defaultConfig()) })
