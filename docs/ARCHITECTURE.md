@@ -285,7 +285,7 @@ processjob.AssignProcessToJob(job, process)
 | 组件 | 并发策略 |
 |------|---------|
 | 实例状态管理 | `sync.RWMutex` + CAS 原子操作 |
-| API 请求串行化 | `serverActionsLock` 互斥锁防止并发 start/stop |
+| API 请求串行化 | 状态机 CAS（单实例）+ `batchmanage` 阶段二天然串行；**无**全局 `serverActionsLock`（已删除）。Linux `prefix_mode: shared` 下另有启动闸门 `internal/instance/launchgate.go` |
 | SSE 推送 | 每个连接一个 goroutine，通过 TaskBroadcaster 解耦 |
 | WebSocket | 每个连接一个 goroutine，Ping/Pong 90 秒超时 |
 | 日志 tail | 每个实例一个 goroutine，fsnotify 监听文件变更 |

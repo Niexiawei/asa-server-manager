@@ -187,7 +187,12 @@ app --> webapi (embedded SPA served by Gin)
 - Instance state is persisted in BadgerDB, not in memory - survives restarts
 - Server startup uses NTFS junctions to share the base server config while allowing per-instance customization
 - Long-running operations stream progress via SSE, not plain HTTP responses
-- The API server uses a mutex (`serverActionsLock`) to prevent concurrent start/stop operations
+- There is **no** global start/stop mutex. (`serverActionsLock` was removed some time ago; this line used to
+  claim otherwise.) Concurrent start/stop of *different* instances is allowed and normal — per-instance
+  serialization comes from the state machine's CAS, and batch operations are serial by construction
+  (`batchmanage` phase two). The one exception is Linux with `linux.prefix_mode: shared`, where
+  `internal/instance/launchgate.go` serializes launches until each instance reaches
+  `start_initialization_successful` — all instances share one Wine prefix/wineserver there. No-op on Windows.
 
 ### GUI (Fyne) Layout Rules
 

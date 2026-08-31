@@ -237,4 +237,6 @@ asa-server/
 - 实例状态持久化在 BadgerDB 中，重启后保持
 - 服务器启动使用 NTFS 镜像目录方案，每个实例拥有独立的 `server-files-tmp-<name>/` 镜像，通过 junction/symlink 链接到原始文件，支持多实例并行启动
 - 长时间操作通过 SSE 流式推送进度，非普通 HTTP 响应
-- API 服务器使用互斥锁（`serverActionsLock`）防止并发启动/停止操作
+- **没有**全局启停互斥锁（`serverActionsLock` 早已删除，此处旧说法有误）。不同实例的并发启停是允许的；
+  单实例的串行由状态机 CAS 保证，批量操作本身就是串行的。唯一的例外是 Linux 且
+  `linux.prefix_mode: shared` 时的启动闸门（`internal/instance/launchgate.go`），Windows 上为 no-op

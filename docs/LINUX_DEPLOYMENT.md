@@ -164,7 +164,7 @@ linux:
   runtime: umu               # umu（默认，自动下载 umu-launcher + GE-Proton）| custom（自备 PROTONPATH）
   umu_version: "1.4.4"
   proton_version: "GE-Proton10-34"   # 硬钉版本：GE-Proton 11.x 已知会挂死 ASA，升级前必须先验证
-  prefix_mode: shared         # shared（默认，全部实例共用一个 Wine prefix）| per-instance（更隔离更占盘）
+  prefix_mode: shared         # shared（默认，共用一个 Wine prefix，启动自动串行）| per-instance（每实例独立，可并发启动，更占盘）
   auto_download: true         # false 时不联网，运行时缺失直接在 preflight 里报出来，不静默重试
 ```
 
@@ -236,7 +236,11 @@ sudo ./asa-server service remove    # 同时联动清理已安装的本地 CA（
 | `asa-server cert install` 报错「需要 root 权限」 | 系统信任存储需要 root 才能写 | `sudo ./asa-server cert install`；Linux 上没有 Windows 的 UAC 自动提权 |
 | `cert install` 成功但浏览器仍报证书警告 | Linux 系统信任库不影响 Firefox/Chrome 的 NSS 证书库 | 需要额外手动把 CA（`{BaseDir}/certs/ca.crt`）导入浏览器自己的证书管理界面 |
 | UE 报内存分配失败 / mmap 相关崩溃 | `vm.max_map_count` 太低 | `sysctl -w vm.max_map_count=262144` |
-| 多实例共享 prefix 时偶发互相影响 | 共享 Wine prefix 下并发首次初始化竞争 | 已有互斥锁串行化首次初始化；持续出现可将 `linux.prefix_mode` 改成 `per-instance` 换取更强隔离（更占盘） |
+| 第二个实例启动后一直不出现游戏进程，3 分钟后报「游戏进程在 3m0s 内没有出现」，`ps` 里能看到一个 `wineserver -w` 挂着 | **旧版本的缺陷**：没有设置 `PROTON_VERB=run`，umu 默认的 `waitforexitandrun` 会先等同 prefix 的上一个游戏退出——共享 prefix 下第二个实例因此永远排队 | 升级到已修复的版本即可（见 `docs/UMU_PREFIX_PER_INSTANCE_PLAN.md`）。修复后共享模式下多实例可以同时在线，只是**启动过程**仍按顺序进行 |
+| 共享模式下点了启动没立刻动，日志说「正在等待实例 X 初始化完成后再启动」 | 这是**预期行为**：共享 prefix 只有一个 wineserver，启动阶段必须串行 | 等上一台到达 `start_initialization_successful` 会自动放行；不想等就把 `linux.prefix_mode` 改成 `per-instance`（每实例独立 prefix，可并发启动） |
+| 启动第二个 ArkApi 实例时报「同时只能有一个 ArkApi 实例」 | **共享 prefix = 共享 Wine 会话，而 Wine 的显示子系统每会话只初始化一次**，第二个 `AsaApiLoader.exe` 会卡在启动加载器之前（2026-08-31 实测确认） | 把 `linux.prefix_mode` 改成 `per-instance`——这是**同时用 ArkApi 跑多实例的唯一办法**。不用 ArkApi 的实例不受影响，共享模式下可以照常多开 |
+| 多实例共享 prefix 时偶发互相影响（注册表、崩溃波及） | 同一个 prefix 意味着同一个 wineserver，实例之间在这一层无法隔离 | 把 `linux.prefix_mode` 改成 `per-instance`。每实例首次启动会多花约一分钟创建自己的 prefix，之后正常；占盘用 `asa-server prefix status` 查看 |
+| 切回 `shared` 后盘上还留着一堆 `umu-prefix-<实例名>` | per-instance 时期创建的目录不会自动清理 | `asa-server prefix gc` 预演，确认后 `asa-server prefix gc --apply` |
 | ArkApi 插件的数据（如 Permissions 库）没有按实例隔离，感觉「每次重启被重置」 | `pluginsRelPath` 硬编码大小写 `ShooterGame/Binaries/Win64/ArkApi/Plugins`，若磁盘上实际大小写不同会静默失效 | 看启动日志里有没有「检测到 ArkApi 插件目录大小写与预期不符」的告警（P6 新增的诊断）；有的话按日志里给出的实际路径重命名，或反馈上游调整 |
 | 想确认 Wine/依赖是否齐全，不想等启动失败才知道 | — | `GET /api/system/preflight` 直接列出所有缺失项，无需翻日志 |
 | `asa-server` 启动即以退出码 `78` 退出 / systemd 服务停在 `failed` 且不重启 | 降权运行时用户 `asa-umu-runtime` 建不出来或对相关目录没权限（`useradd` 缺失、SELinux、只读挂载、NFS root_squash） | 看日志里 `[umu-runtime-*]` 开头的错误按提示修；或 `config.yaml` 设 `linux.umu_run_as_root: true` 明确以 root 运行游戏。见 4.1 |
