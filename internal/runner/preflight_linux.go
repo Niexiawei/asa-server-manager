@@ -123,8 +123,22 @@ func checkTar() *Problem {
 // xvfbInstallHint is the per-distro install line, kept in one place because
 // three different messages point at it (preflight, the vcredist skip note and
 // the launch-time error).
-const xvfbInstallHint = "安装 xvfb（Debian/Ubuntu: sudo apt install xvfb  |  " +
-	"Fedora: sudo dnf install xorg-x11-server-Xvfb  |  Arch: sudo pacman -S xorg-server-xvfb）"
+//
+// The package names here are the ones that ship **Xvfb**, the X.Org virtual
+// framebuffer server — not Debian's xvfb-run wrapper script, which this program
+// no longer uses precisely because Fedora/RHEL/Arch don't ship it. See
+// docs/XVFB_CROSS_DISTRO_DISPLAY_PLAN.md.
+const xvfbInstallHint = "安装 Xvfb（Debian/Ubuntu: sudo apt install xvfb  |  " +
+	"Fedora/RHEL: sudo dnf install xorg-x11-server-Xvfb  |  " +
+	"Arch: sudo pacman -S xorg-server-xvfb  |  " +
+	"openSUSE: sudo zypper install xorg-x11-server-extra）"
+
+// xvfbFontHint covers a failure only a self-managed Xvfb can even see: a
+// minimal install with no fonts makes the X server exit outright
+// ("could not open default font 'fixed'"). Under xvfb-run this happened too,
+// it just went to /dev/null along with everything else the server said.
+const xvfbFontHint = "Xvfb 缺少基础字体，装上即可（Debian/Ubuntu: sudo apt install xfonts-base  |  " +
+	"Fedora/RHEL: sudo dnf install xorg-x11-fonts-misc  |  Arch: sudo pacman -S xorg-fonts-misc）"
 
 // checkDisplay requires that this host can hand a Wine process an X display,
 // and does so as a **blocker**, not an advisory.
@@ -140,14 +154,18 @@ const xvfbInstallHint = "安装 xvfb（Debian/Ubuntu: sudo apt install xvfb  |  
 // working chown fallback, a missing display degrades to nothing at all. There
 // is no second path. --ignore-preflight remains the escape hatch.
 //
-// It asks resolveDisplay rather than just looking for the xvfb-run binary,
-// because "xvfb-run is installed" turned out not to imply "xvfb-run works":
-// on WSLg /tmp/.X11-unix is a read-only mount, so Xvfb cannot publish a socket
-// pressure-vessel can bind, and xvfb-run runs the command anyway. Sharing the
-// resolver means this check answers exactly the question the launch will ask,
-// including the fallback to an already-running X server.
+// It asks planDisplay rather than looking for a binary, because "some xvfb
+// package is installed" turned out not to imply "a display is obtainable" —
+// twice. On WSLg /tmp/.X11-unix is a read-only mount, so Xvfb cannot publish a
+// socket pressure-vessel can bind; and on Fedora/RHEL/Arch the xvfb-run script
+// this check used to look for doesn't exist at all even though Xvfb does
+// (docs/XVFB_CROSS_DISTRO_DISPLAY_PLAN.md §1). Sharing the resolver means this
+// check answers exactly the question the launch will ask.
+//
+// planDisplay, not acquire: a self-check must not start an X server as a side
+// effect of being asked.
 func checkDisplay() *Problem {
-	if _, blocked := resolveDisplay(getConfig()); blocked == "" {
+	if _, blocked := planDisplay(getConfig()); blocked == "" {
 		return nil
 	}
 	return &Problem{
@@ -156,7 +174,8 @@ func checkDisplay() *Problem {
 			"both create Win32 windows, and under Wine that fails outright without one " +
 			"(the loader dies with exit code 3 before writing any log)",
 		Fix: xvfbInstallHint + "。若 /tmp/.X11-unix 是只读挂载（WSLg），" +
-			"Xvfb 用不了，需要系统里有一个不需要 xauth cookie 就能连的 X 服务",
+			"Xvfb 用不了，需要系统里有一个不需要 xauth cookie 就能连的 X 服务，" +
+			"并可用 config.yaml 的 linux.display 指定它",
 	}
 }
 

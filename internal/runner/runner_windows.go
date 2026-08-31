@@ -91,6 +91,10 @@ func preflight() []Problem { return nil }
 // Options.NeedsDisplay precondition is trivially satisfied. (That whole
 // mechanism exists because Wine's winex11.drv has nothing to talk to on a
 // headless Linux box — see internal/runner/display_linux.go.)
+// stopManagedDisplay: nothing to stop — Windows processes get a real window
+// station, so no X server was ever started.
+func stopManagedDisplay() {}
+
 func displayStatus() DisplayInfo {
 	return DisplayInfo{Available: true, How: "Windows 桌面会话"}
 }

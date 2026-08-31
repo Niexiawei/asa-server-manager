@@ -3,70 +3,43 @@
 package runner
 
 import (
-	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 )
 
-// TestDisplayWrapEnvOnly: 拿到宿主 DISPLAY 时只加环境变量，命令本身不动。
-func TestDisplayWrapEnvOnly(t *testing.T) {
+// TestDisplayApplyToAppendsLast: 显示以环境变量的形式追加，且必须排在最后 ——
+// exec 取同名变量的最后一个，排最后就不会被将来新增的过滤逻辑吃掉。
+func TestDisplayApplyToAppendsLast(t *testing.T) {
 	d := displayTarget{Env: []string{"DISPLAY=:0"}}
-	bin, argv, env := d.wrap("/usr/bin/python3", []string{"umu-run", "game.exe"}, []string{"PATH=/bin"})
+	env := d.applyTo([]string{"PATH=/bin", "HOME=/root"})
 
-	if bin != "/usr/bin/python3" {
-		t.Errorf("bin = %q, want the original binary", bin)
-	}
-	if want := []string{"umu-run", "game.exe"}; !reflect.DeepEqual(argv, want) {
-		t.Errorf("argv = %v, want %v", argv, want)
-	}
-	if want := []string{"PATH=/bin", "DISPLAY=:0"}; !reflect.DeepEqual(env, want) {
-		t.Errorf("env = %v, want DISPLAY appended last", env)
+	if want := []string{"PATH=/bin", "HOME=/root", "DISPLAY=:0"}; !reflect.DeepEqual(env, want) {
+		t.Errorf("applyTo = %v, want %v", env, want)
 	}
 }
 
-// TestDisplayWrapXvfb: xvfb-run 变成新的 bin，原 bin 降为它的第一个参数。
-// 顺序错了会变成「用 python3 跑 -a」这种从现象几乎反推不出来的失败。
-func TestDisplayWrapXvfb(t *testing.T) {
-	d := displayTarget{Wrapper: []string{"/usr/bin/xvfb-run", "-a"}}
-	bin, argv, env := d.wrap("/usr/bin/python3", []string{"umu-run", "game.exe"}, []string{"PATH=/bin"})
-
-	if bin != "/usr/bin/xvfb-run" {
-		t.Errorf("bin = %q, want the xvfb-run wrapper", bin)
-	}
-	want := []string{"-a", "/usr/bin/python3", "umu-run", "game.exe"}
-	if !reflect.DeepEqual(argv, want) {
-		t.Errorf("argv = %v, want %v", argv, want)
-	}
-	if got := []string{"PATH=/bin"}; !reflect.DeepEqual(env, got) {
-		t.Errorf("env = %v, want it untouched when the target carries no Env", env)
-	}
-}
-
-// TestDisplayWrapDoesNotAliasCaller: wrap 必须返回新切片。就地 append 会让
+// TestDisplayApplyToDoesNotAliasCaller: applyTo 必须返回新切片。就地 append 会让
 // 「解析一次显示、拿它包两条命令」悄悄污染第一条 —— runInPrefix 正是这么用的。
-func TestDisplayWrapDoesNotAliasCaller(t *testing.T) {
-	argv := make([]string, 1, 8) // 有富余容量，就地 append 不会重新分配
-	argv[0] = "umu-run"
-	env := make([]string, 1, 8)
+func TestDisplayApplyToDoesNotAliasCaller(t *testing.T) {
+	env := make([]string, 1, 8) // 有富余容量，就地 append 不会重新分配
 	env[0] = "PATH=/bin"
 
-	d := displayTarget{Env: []string{"DISPLAY=:0"}, Wrapper: []string{"/usr/bin/xvfb-run", "-a"}}
-	_, _, _ = d.wrap("/usr/bin/python3", argv, env)
+	d := displayTarget{Env: []string{"DISPLAY=:0"}}
+	got := d.applyTo(env)
 
-	if len(argv) != 1 || argv[0] != "umu-run" {
-		t.Errorf("caller argv was mutated: %v", argv)
-	}
 	if len(env) != 1 || env[0] != "PATH=/bin" {
 		t.Errorf("caller env was mutated: %v", env)
 	}
+	if len(got) != 2 {
+		t.Errorf("applyTo = %v, want the caller's env plus DISPLAY", got)
+	}
 }
 
-// TestDisplayWrapZeroValue: 空 displayTarget 是恒等变换，调用方不必先判空。
-func TestDisplayWrapZeroValue(t *testing.T) {
-	bin, argv, env := displayTarget{}.wrap("bin", []string{"a"}, []string{"K=V"})
-	if bin != "bin" || !reflect.DeepEqual(argv, []string{"a"}) || !reflect.DeepEqual(env, []string{"K=V"}) {
-		t.Errorf("zero displayTarget changed the command: %q %v %v", bin, argv, env)
+// TestDisplayApplyToZeroValue: 空 displayTarget 是恒等变换，调用方不必先判空。
+func TestDisplayApplyToZeroValue(t *testing.T) {
+	if got := (displayTarget{}).applyTo([]string{"K=V"}); !reflect.DeepEqual(got, []string{"K=V"}) {
+		t.Errorf("zero displayTarget changed the env: %v", got)
 	}
 }
 
@@ -102,60 +75,61 @@ func TestX11DisplayUsableRejectsDeadDisplay(t *testing.T) {
 	}
 }
 
-// TestResolveDisplayIgnoresDeadDisplay: DISPLAY 指向一个不存在的显示时不能采用它，
+// TestPlanDisplayIgnoresDeadDisplay: DISPLAY 指向一个不存在的显示时不能采用它，
 // 必须继续往后找。这是「有变量 ≠ 有服务」那条实测结论的回归测试。
-func TestResolveDisplayIgnoresDeadDisplay(t *testing.T) {
+func TestPlanDisplayIgnoresDeadDisplay(t *testing.T) {
 	t.Setenv("DISPLAY", ":99999")
 
-	d, blocked := resolveDisplay(getConfig())
-	for _, kv := range d.Env {
-		if kv == "DISPLAY=:99999" {
-			t.Errorf("resolveDisplay adopted a DISPLAY with no listener: %v", d.Env)
-		}
+	p, blocked := planDisplay(getConfig())
+	if p.Kind == displayEnv {
+		t.Errorf("planDisplay adopted a DISPLAY with no listener: %+v", p)
 	}
-	// 这台机器上 xvfb-run / 现成 X 服务的有无决定 blocked 是不是空，两种都合法 ——
-	// 断言的是「没把死的 DISPLAY 当成活的」，以及成功时必然带着一种手段。
-	if blocked == "" && len(d.Env) == 0 && len(d.Wrapper) == 0 {
-		t.Errorf("resolveDisplay reported success with neither Env nor Wrapper: %+v", d)
+	// 这台机器上 Xvfb / 现成 X 服务的有无决定 blocked 是不是空，两种都合法 ——
+	// 断言的是「没把死的 DISPLAY 当成活的」，以及成功时必然指明了一种手段。
+	if blocked == "" && p.Kind == displayNone {
+		t.Errorf("planDisplay reported success with no kind: %+v", p)
 	}
-}
-
-// TestXvfbRunArgsOverrideBadDefaults: xvfb-run 的两个默认值必须被覆盖 ——
-// `-e` 默认丢进 /dev/null（Xvfb 起不来时现场全无，而它仍会照常执行命令），
-// `-f` 默认写 ./.Xauthority（也就是游戏工作目录）。
-func TestXvfbRunArgsOverrideBadDefaults(t *testing.T) {
-	args := xvfbRunArgs(Config{BaseDir: "/srv/asa"}, "/usr/bin/xvfb-run")
-
-	if args[0] != "/usr/bin/xvfb-run" {
-		t.Fatalf("args[0] = %q, want the resolved xvfb-run path", args[0])
-	}
-	joined := strings.Join(args, " ")
-	for _, flag := range []string{"-a", "-e", "-f"} {
-		if !strings.Contains(joined, " "+flag+" ") && !strings.HasSuffix(joined, " "+flag) {
-			t.Errorf("xvfbRunArgs is missing %s: %v", flag, args)
-		}
-	}
-	for i, a := range args {
-		if (a == "-e" || a == "-f") && (i+1 >= len(args) || !filepath.IsAbs(args[i+1])) {
-			t.Errorf("%s must be followed by an absolute path, got %v", a, args)
-		}
-	}
-	if strings.Contains(joined, "/dev/null") {
-		t.Error("xvfbRunArgs still sends Xvfb's output to /dev/null")
+	if blocked == "" && p.How == "" {
+		t.Errorf("planDisplay reported success with no explanation: %+v", p)
 	}
 }
 
-// TestDisplayStatusMatchesResolve: 诊断视图与真正的启动判断必须是同一个答案，
+// TestPlanDisplayPrefersConfiguredOverEnv: linux.display 优先于环境变量。
+// 两者都指向死显示时应该一起被跳过 —— 这里断言的是「配置被读到了」。
+func TestPlanDisplayPrefersConfiguredOverEnv(t *testing.T) {
+	t.Setenv("DISPLAY", ":99998")
+
+	d, src := configuredDisplay(Config{Display: ":99997"})
+	if d != ":99997" || src != "配置指定" {
+		t.Errorf("configuredDisplay = (%q, %q), want the configured value to win", d, src)
+	}
+	if d, src := configuredDisplay(Config{}); d != ":99998" || src != "宿主" {
+		t.Errorf("configuredDisplay = (%q, %q), want the DISPLAY env var as fallback", d, src)
+	}
+}
+
+// TestDisplayStatusMatchesPlan: 诊断视图与真正的启动判断必须是同一个答案，
 // 否则 verify-arkapi 会报「✔ 显示就绪」而启动照样被拒。
-func TestDisplayStatusMatchesResolve(t *testing.T) {
-	_, blocked := resolveDisplay(getConfig())
+func TestDisplayStatusMatchesPlan(t *testing.T) {
+	_, blocked := planDisplay(getConfig())
 	info := displayStatus()
 
 	if info.Available != (blocked == "") {
-		t.Errorf("DisplayStatus().Available = %v, but resolveDisplay blocked = %q", info.Available, blocked)
+		t.Errorf("DisplayStatus().Available = %v, but planDisplay blocked = %q", info.Available, blocked)
 	}
 	if info.Blocked != blocked {
 		t.Errorf("DisplayStatus().Blocked = %q, want %q", info.Blocked, blocked)
+	}
+}
+
+// TestDisplayStatusStartsNothing: 诊断视图不许有副作用。自管那一档的「拿到显示」
+// 意味着真的 fork 一个 X 服务端，被 GET /api/system/preflight 问一句就起一个是不行的。
+func TestDisplayStatusStartsNothing(t *testing.T) {
+	before := currentManagedXvfb()
+	_ = displayStatus()
+	_ = checkDisplay()
+	if currentManagedXvfb() != before {
+		t.Error("displayStatus/checkDisplay started an X server as a side effect")
 	}
 }
 
@@ -175,12 +149,25 @@ func TestDisplayProblemIsBlocking(t *testing.T) {
 	}
 }
 
-// TestCheckDisplayAgreesWithResolve: preflight 与启动路径必须是同一个判断。
+// TestCheckDisplayAgreesWithPlan: preflight 与启动路径必须是同一个判断。
 // 它们分家过一次 —— preflight 只看 xvfb-run 在不在，而 WSLg 上 xvfb-run 装了也没用
 // （/tmp/.X11-unix 只读），于是自检通过、启动照样死。
-func TestCheckDisplayAgreesWithResolve(t *testing.T) {
-	_, blocked := resolveDisplay(getConfig())
+func TestCheckDisplayAgreesWithPlan(t *testing.T) {
+	_, blocked := planDisplay(getConfig())
 	if got := checkDisplay(); (got == nil) != (blocked == "") {
-		t.Errorf("checkDisplay() = %+v but resolveDisplay blocked = %q", got, blocked)
+		t.Errorf("checkDisplay() = %+v but planDisplay blocked = %q", got, blocked)
+	}
+}
+
+// TestDisplayBlockedMessageNamesXvfbNotXvfbRun: 拿不到显示时给的提示必须指向
+// **Xvfb**。指向 xvfb-run 会把 Fedora/RHEL/Arch 用户带到一个他们装不上的包
+// （那是 Debian 的脚本），正是这次改动要修的错。
+func TestDisplayBlockedMessageNamesXvfbNotXvfbRun(t *testing.T) {
+	_, blocked := planDisplay(getConfig())
+	if blocked == "" {
+		return // 这台机器有显示，没有可断言的文案
+	}
+	if strings.Contains(blocked, "xvfb-run") {
+		t.Errorf("blocked message still points at xvfb-run: %q", blocked)
 	}
 }

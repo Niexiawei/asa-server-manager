@@ -46,14 +46,16 @@ type Options struct {
 	// NeedsDisplay marks an exe that creates Win32 windows and therefore
 	// cannot run under Wine without an X display, however headless the
 	// workload looks. Set it for AsaApiLoader.exe (ArkApi) and nothing else:
-	// ArkAscendedServer.exe itself boots fine with no display, and wrapping
-	// every launch in xvfb-run would add a process and a failure mode for no
-	// gain. Ignored on Windows, which always has a window station.
+	// ArkAscendedServer.exe itself boots fine with no display, and giving
+	// every launch a display would add a failure mode for no gain. Ignored on
+	// Windows, which always has a window station.
 	//
-	// On Linux the launch either inherits the host's DISPLAY or gets its own
-	// xvfb-run virtual display; when neither exists Run fails fast with an
-	// actionable error rather than letting the loader die silently.
-	// See internal/runner/display_linux.go.
+	// On Linux the launch either uses a display that is already there (the
+	// linux.display setting, DISPLAY, or a running X server) or gets one from
+	// the Xvfb this program starts and keeps for itself; when neither is
+	// possible Run fails fast with an actionable error rather than letting the
+	// loader die silently. See internal/runner/display_linux.go and
+	// xvfb_linux.go.
 	NeedsDisplay bool
 }
 
@@ -233,13 +235,35 @@ func VCRedistStatus(prefixKey, gameDir string) VCRedistInfo {
 // always available: there is a real window station.
 type DisplayInfo struct {
 	Available bool   `json:"available"`
-	How       string `json:"how"`     // "宿主的 X 显示 :0" / "xvfb-run（虚拟显示）"
+	How       string `json:"how"`     // "宿主的 X 显示 :0" / "自管 Xvfb 虚拟显示 :100"
 	Blocked   string `json:"blocked"` // why not, when Available is false
+	// Managed is true when the display comes from the Xvfb this program starts
+	// and owns, rather than one that was already running.
+	Managed bool `json:"managed"`
+	// Display is the ":N" that would be (or already is) used. Empty for a
+	// managed display that hasn't been started yet — reporting must not start
+	// one, see displayStatus.
+	Display string `json:"display"`
 }
 
 // DisplayStatus reports the host's display situation. Read-only and offline —
-// one getenv, one stat and a PATH lookup.
+// a PATH lookup, a stat and at most a few local socket handshakes. It never
+// starts an X server, even when the answer is "we'd start one".
 func DisplayStatus() DisplayInfo { return displayStatus() }
+
+// StopManagedDisplay shuts down the Xvfb this process started, if any. Call it
+// from process-exit paths; it is idempotent and a no-op on Windows, when no
+// display was ever needed, and for a display adopted from another asa-server
+// process (that one is not ours to kill).
+//
+// The instances that need a display do not outlive asa-server anyway: ArkApi
+// launches run on a PTY whose slave is their controlling terminal, so closing
+// the master on exit SIGHUPs the whole umu/wine chain. Leaving the X server
+// behind would preserve nothing and accumulate one process per restart.
+//
+// This is the deterministic layer only — Pdeathsig covers the crash/SIGKILL
+// case where nothing gets to run. See internal/runner/xvfb_linux.go.
+func StopManagedDisplay() { stopManagedDisplay() }
 
 // Preflight runs host dependency checks. Always empty on Windows.
 func Preflight() []Problem {
@@ -449,6 +473,19 @@ type Config struct {
 	// 自动提取用于校验；自建镜像若没有那一段，用 VCRedistSHA256 显式指定。
 	VCRedistURL    string
 	VCRedistSHA256 string
+	// Display 显式点名要用的 X 显示（":0"）。留空 = 看 DISPLAY 环境变量。
+	//
+	// 存在的理由：真正拉起实例的是后台服务进程，它**没有** DISPLAY（真机
+	// /proc/<pid>/environ 里只有 HOME=/root），而机器上可能确实有一个能用的
+	// X 服务。这是把它告诉服务进程的唯一办法。仍然要过握手检查，过不了就继续
+	// 往下找（自管 Xvfb / 扫现成显示）。
+	Display string
+	// XvfbBin 是 Xvfb 服务端二进制的显式路径。留空 = PATH + 几个常见位置。
+	// 注意是 **Xvfb**（X.Org 的服务端），不是 Debian 那个 xvfb-run 包装脚本 ——
+	// 后者 Fedora/RHEL/Arch 不提供，见 docs/XVFB_CROSS_DISTRO_DISPLAY_PLAN.md。
+	XvfbBin string
+	// XvfbScreen 是自管 Xvfb 的 -screen 规格，留空 = 1280x1024x24。排障用。
+	XvfbScreen string
 	// WineDLLOverrides 原样追加到游戏进程的 WINEDLLOVERRIDES。留空 = 不设。
 	// VC++ 那 11 个 DLL 的 override 已在安装时写进 prefix 注册表，不必在这里重复；
 	// 这一项是排障用的逃生舱。

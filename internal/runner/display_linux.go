@@ -19,14 +19,14 @@ package runner
 // ArkAscendedServer.exe 本身**不需要**显示（同一台机器上 42 秒就开始监听），所以
 // 只有上面两条路径会去解析显示，普通实例启动一如既往地不碰它。
 //
-// 见 docs/ARKAPI_LINUX_VCREDIST_PLAN.md §9。
+// 见 docs/ARKAPI_LINUX_VCREDIST_PLAN.md §9 与 docs/XVFB_CROSS_DISTRO_DISPLAY_PLAN.md。
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -44,28 +44,51 @@ const x11SocketDir = "/tmp/.X11-unix"
 // 给足一秒纯粹是防对端半死不活地吊着。
 const x11ProbeTimeout = time.Second
 
-// displayTarget 描述「怎么给一个 Wine 进程提供图形显示」：要么把一个已经验证过能连
-// 的显示传下去，要么用 xvfb-run 现开一个虚拟显示。
-type displayTarget struct {
-	Env     []string // 追加到进程环境，如 DISPLAY=:0
-	Wrapper []string // 命令前缀，如 [xvfb-run -a -e ... -f ...]
-	How     string   // 人类可读的说明
+// displayKind 是「显示从哪来」的三种答案。
+type displayKind string
+
+const (
+	displayNone     displayKind = ""
+	displayEnv      displayKind = "env"      // 配置或环境变量点名的现成显示
+	displayManaged  displayKind = "managed"  // 我们自己拉起的 Xvfb（xvfb_linux.go）
+	displayExisting displayKind = "existing" // 扫出来的、系统里已在跑的 X 服务
+)
+
+// displayPlan 是**只读**的判断结果：这台机器打算怎么给 Wine 进程提供显示。
+//
+// 与 displayTarget 分开是必须的，不是洁癖：preflight、DisplayStatus、
+// `verify-arkapi --check-only` 都要问「能不能拿到显示」，而自管 Xvfb 那一档的
+// 「拿到」意味着**真的 fork 一个 X 服务端**。合在一个函数里，`GET /api/system/preflight`
+// 会顺手起一个 X 服务。planDisplay 只做判断，acquire 才动手。
+type displayPlan struct {
+	Kind    displayKind
+	Display string // Kind 为 env/existing 时的 ":0"
+	XvfbBin string // Kind 为 managed 时解析好的 Xvfb 路径
+	How     string // 人类可读的说明
 }
 
-// resolveDisplay 决定怎么给进程提供显示，拿不到时第二个返回值说明原因。
+// displayTarget 是**已经拿到手**的显示：把它施加到一条命令的环境上即可。
+type displayTarget struct {
+	Env []string // 追加到进程环境，如 DISPLAY=:0
+	How string   // 人类可读的说明
+}
+
+// planDisplay 决定怎么给进程提供显示，拿不到时第二个返回值说明原因。**无副作用。**
 //
 // **vc_redist 安装与 ArkApi 启动共用这一个函数**：两者需要显示的原因是同一个
 // （Wine 的 winex11.drv），分成两套判断只会让它们慢慢漂开。
 //
 // 三条路，按「越靠前越可控」排列，每一条都是**验证过**的而不是猜的：
 //
-//  1. 显式的 DISPLAY —— 运维明确指定，且真的握手成功。
-//  2. xvfb-run，**但要求 /tmp/.X11-unix 可写**。这条是无头服务器（本项目的主力
-//     部署形态）的正路：自带显示、自带 auth、不依赖任何桌面会话，进程树归我们，
-//     用户注销也不会把游戏带走。
-//  3. 系统里已经跑着的、握手能过的 X 显示。这条是 ① 的补丁：服务进程通常**没有**
-//     DISPLAY 环境变量（真机上 /proc/<pid>/environ 里只有 HOME=/root），但机器上
-//     可能确实有一个能用的 X 服务。
+//  1. 点名的显示 —— `linux.display` 配置项或 DISPLAY 环境变量，且真的握手成功。
+//     配置项是为后台服务准备的：服务进程通常**没有** DISPLAY（真机
+//     /proc/<pid>/environ 里只有 HOME=/root），而机器上可能确实有个能用的 X 服务。
+//  2. 自管 Xvfb，**但要求 /tmp/.X11-unix 可写**。这条是无头服务器（本项目的主力
+//     部署形态）的正路：自带显示、不依赖任何桌面会话，进程归我们管，用户注销也不会
+//     把游戏带走。判据是 **Xvfb 这个服务端二进制**，不是 Debian 那个 xvfb-run 脚本
+//     —— 后者 Fedora/RHEL/Arch 压根不提供，拿它当判据会把能用的机器挡在门外
+//     （docs/XVFB_CROSS_DISTRO_DISPLAY_PLAN.md §1）。
+//  3. 系统里已经跑着的、握手能过的 X 显示。这条兜住 ① 没配、② 用不了的情况。
 //
 // 为什么 ② 要检查 /tmp/.X11-unix 可写 —— 这是 2026-08-30 真机踩出来的：WSLg 把
 // 这个目录挂成 **只读 tmpfs**（`none on /tmp/.X11-unix type tmpfs (ro,relatime)`），
@@ -76,85 +99,104 @@ type displayTarget struct {
 //
 // 然后容器里的程序连不上，GE-Proton 的 xalia 抛
 // `PlatformNotSupportedException: Video driver not supported`，AsaApiLoader 同样
-// 起不来 —— 又回到那个「零输出」的失败模式。更糟的是 xvfb-run 在 Xvfb 启动失败时
-// **仍然会照常执行命令**，所以光看它的退出码发现不了。既然这个前提可以直接测出来，
-// 就不该赌。
+// 起不来 —— 又回到那个「零输出」的失败模式。既然这个前提可以直接测出来，就不该赌。
 //
-// **不传 XAUTHORITY**（xvfb-run 自己设的那份除外）。理由与 inheritedEnv 的白名单
-// 同源：它经常指向 /run/user/0 下面的路径，而 pressure-vessel 会老老实实地去 bind
-// 环境变量点名的每一个路径，降权之后那次 bind 直接让整个容器起不来
-// （DBUS_SESSION_BUS_ADDRESS 那次就是这么坑了一整晚，见 inheritedEnv 的注释）。
-// 所以 ①③ 只认**不需要 cookie 就能握手**的显示，需要 auth 的场景请走 ②。
-func resolveDisplay(cfg Config) (displayTarget, string) {
-	if d := os.Getenv("DISPLAY"); d != "" {
+// **不传 XAUTHORITY**。理由与 inheritedEnv 的白名单同源：它经常指向 /run/user/0
+// 下面的路径，而 pressure-vessel 会老老实实地去 bind 环境变量点名的每一个路径，
+// 降权之后那次 bind 直接让整个容器起不来（DBUS_SESSION_BUS_ADDRESS 那次就是这么坑了
+// 一整晚，见 inheritedEnv 的注释）。所以三条路都只认**不需要 cookie 就能握手**的显示，
+// 自管的那个 Xvfb 也因此不带 -auth（见 xvfbArgs）。
+func planDisplay(cfg Config) (displayPlan, string) {
+	if d, src := configuredDisplay(cfg); d != "" {
 		switch {
 		case !x11SocketExists(d):
 			// 有变量没服务：实测 DISPLAY=:99（无人监听）与不设一样失败，
 			// 所以这里不能认它，继续往下找。
 		case !x11DisplayUsable(d):
 			// socket 在但握不上手，最常见的原因是它要 xauth cookie 而我们
-			// 刻意不传 XAUTHORITY。同样继续往下找 —— 有 xvfb 兜底。
+			// 刻意不传 XAUTHORITY。同样继续往下找 —— 有 Xvfb 兜底。
 		default:
-			return displayTarget{Env: []string{"DISPLAY=" + d}, How: "宿主的 X 显示 " + d}, ""
+			return displayPlan{Kind: displayEnv, Display: d, How: src + "的 X 显示 " + d}, ""
 		}
 	}
 
-	xvfbRun, xvfbErr := exec.LookPath("xvfb-run")
+	xvfbBin, xvfbErr := xvfbBinary(cfg)
 	if xvfbErr == nil && x11SocketDirWritable() {
-		return displayTarget{Wrapper: xvfbRunArgs(cfg, xvfbRun), How: "xvfb-run（虚拟显示）"}, ""
+		return displayPlan{Kind: displayManaged, XvfbBin: xvfbBin, How: "自管 Xvfb 虚拟显示"}, ""
 	}
 
 	if d := firstUsableX11Display(); d != "" {
-		return displayTarget{
-			Env: []string{"DISPLAY=" + d},
-			How: "系统里已在运行的 X 显示 " + d + "（本机 " + x11SocketDir + " 只读，起不了 Xvfb）",
+		return displayPlan{
+			Kind:    displayExisting,
+			Display: d,
+			How:     "系统里已在运行的 X 显示 " + d + xvfbUnavailableNote(xvfbErr),
 		}, ""
 	}
 
 	if xvfbErr != nil {
-		return displayTarget{}, "本机没有可用的 X 显示，也没有 xvfb-run —— 请" + xvfbInstallHint
+		return displayPlan{}, "本机没有可用的 X 显示，也没有 Xvfb —— 请" + xvfbInstallHint
 	}
-	return displayTarget{}, fmt.Sprintf(
+	return displayPlan{}, fmt.Sprintf(
 		"本机没有可用的 X 显示：%s 不可写（只读挂载？WSLg 就是这么挂的），"+
 			"Xvfb 无法在那里发布 socket，pressure-vessel 也就没法把显示带进容器；"+
 			"而系统里也没有现成的、不需要 cookie 就能连的 X 服务", x11SocketDir)
 }
 
-// xvfbRunArgs 拼 xvfb-run 的命令前缀。
-//
-// 两个默认值必须改掉，都不是调优而是纠错：
-//
-//   - `-e`：默认把 Xvfb 的输出扔进 /dev/null。而 xvfb-run 在 Xvfb 起不来时**照样
-//     执行命令**，于是失败现场只剩「游戏连不上显示」这一个二手症状。落到文件里，
-//     排障时至少有第一手证据。
-//   - `-f`：默认写 `./.Xauthority`，也就是**游戏工作目录**（实例镜像的 Win64）。
-//     往游戏目录里丢文件是副作用，而且那目录不一定可写。挪到运行时用户的 HOME。
-//
-// 两个路径都放运行时 HOME 下：降权后的 xvfb-run 就是以那个身份跑的，属主天然正确。
-func xvfbRunArgs(cfg Config, xvfbRun string) []string {
-	home := runtimeHomeDir(cfg)
-	return []string{
-		xvfbRun,
-		"-a", // 自动挑一个没被占用的显示号，多实例并发启动时不会互相撞车
-		"-e", filepath.Join(home, "xvfb.log"),
-		"-f", filepath.Join(home, ".Xauthority-xvfb"),
+// configuredDisplay 取显式点名的显示：配置优先于环境变量。
+func configuredDisplay(cfg Config) (display, source string) {
+	if cfg.Display != "" {
+		return cfg.Display, "配置指定"
 	}
+	if d := os.Getenv("DISPLAY"); d != "" {
+		return d, "宿主"
+	}
+	return "", ""
 }
 
-// wrap 把显示施加到一条命令上，返回新的 bin/argv/env。
-//
-// env 的追加放在最后是刻意的：runtimeEnv 会剥掉 XDG_*，DISPLAY 不在其列，但顺序上
-// 排最后就不会被将来新增的过滤逻辑吃掉（exec 取同名变量的最后一个）。
-func (d displayTarget) wrap(bin string, argv, env []string) (string, []string, []string) {
-	outEnv := append(append([]string{}, env...), d.Env...)
-	if len(d.Wrapper) == 0 {
-		return bin, argv, outEnv
+func xvfbUnavailableNote(xvfbErr error) string {
+	if xvfbErr != nil {
+		return "（本机没有 Xvfb）"
 	}
-	// argv: [xvfb-run …] <bin> <原 argv...>
-	outArgs := append([]string{}, d.Wrapper[1:]...)
-	outArgs = append(outArgs, bin)
-	outArgs = append(outArgs, argv...)
-	return d.Wrapper[0], outArgs, outEnv
+	return "（本机 " + x11SocketDir + " 只读，起不了 Xvfb）"
+}
+
+// acquire 把计划变成一个真的能用的显示，必要时**拉起 Xvfb**。只有启动路径该调它。
+func (p displayPlan) acquire(cfg Config) (displayTarget, error) {
+	switch p.Kind {
+	case displayEnv, displayExisting:
+		return displayTarget{Env: []string{"DISPLAY=" + p.Display}, How: p.How}, nil
+	case displayManaged:
+		x, err := ensureXvfb(cfg, p.XvfbBin)
+		if err != nil {
+			return displayTarget{}, err
+		}
+		return displayTarget{
+			Env: []string{"DISPLAY=" + x.display},
+			How: "自管 Xvfb 虚拟显示 " + x.display,
+		}, nil
+	}
+	return displayTarget{}, errors.New("本机没有可用的图形显示")
+}
+
+// acquireDisplay 是启动路径的唯一入口：先判断，再动手。
+// blocked 非空 = 这台机器压根没有显示可用（调用方给自己的上下文文案）；
+// err 非空 = 有能力但这次没拿到（Xvfb 起不来），错误里带着 xvfb.log 的现场。
+func acquireDisplay(cfg Config) (target displayTarget, blocked string, err error) {
+	p, blocked := planDisplay(cfg)
+	if blocked != "" {
+		return displayTarget{}, blocked, nil
+	}
+	target, err = p.acquire(cfg)
+	return target, "", err
+}
+
+// applyTo 把显示追加到一条命令的环境上。
+//
+// 追加在最后是刻意的：runtimeEnv 会剥掉 XDG_*，DISPLAY 不在其列，但顺序上排最后就
+// 不会被将来新增的过滤逻辑吃掉（exec 取同名变量的最后一个）。返回新切片而不是就地
+// append —— 「解析一次显示、拿它包两条命令」不能污染第一条。
+func (d displayTarget) applyTo(env []string) []string {
+	return append(append([]string{}, env...), d.Env...)
 }
 
 // --- 探测 -----------------------------------------------------------------------
@@ -197,9 +239,12 @@ func isLocalDisplay(display string) bool {
 // x11DisplayUsable 真的连一次 X 服务并走一遍**无认证**的连接握手。
 //
 // 为什么要做到这一步而不是止于「socket 文件在不在」：本项目刻意不传 XAUTHORITY
-// （见 resolveDisplay 的注释），所以一个需要 cookie 的显示对我们就是不可用的 ——
+// （见 planDisplay 的注释），所以一个需要 cookie 的显示对我们就是不可用的 ——
 // 而它的 socket 文件明明在。拿文件存在当判据，会挑中一个连不上的显示，然后又变成
 // 那个「加载器零输出退出」的谜题。握手一次就能把猜测换成事实，代价是几微秒。
+//
+// 自管 Xvfb 的就绪判定（managedXvfb.waitReady）用的也是这个函数 —— 起没起来与能不能用
+// 必须是同一个判据。
 //
 // 协议（X11 §连接建立）：客户端先发 12 字节的 setup 请求，服务端回的第一个字节
 // 0=Failed / 1=Success / 2=Authenticate。我们只看这一个字节，不解析后面的
@@ -282,12 +327,28 @@ func x11SocketDirWritable() bool {
 // so this file keeps to the standard library.
 const writeOK = 0x2
 
-// displayStatus 是 runner.DisplayStatus 的实现。
+// stopManagedDisplay 是 runner.StopManagedDisplay 的实现。
+func stopManagedDisplay() { stopManagedXvfb() }
+
+// displayStatus 是 runner.DisplayStatus 的实现。**只读**：自管那一档只报告
+// 「打算这么做」以及「现在起来没有」，绝不因为被问一句就拉起一个 X 服务端。
 func displayStatus() DisplayInfo {
-	d, blocked := resolveDisplay(getConfig())
-	return DisplayInfo{
+	cfg := getConfig()
+	p, blocked := planDisplay(cfg)
+	info := DisplayInfo{
 		Available: blocked == "",
-		How:       d.How,
+		How:       p.How,
 		Blocked:   blocked,
+		Display:   p.Display,
 	}
+	if p.Kind == displayManaged {
+		info.Managed = true
+		if x := currentManagedXvfb(); x != nil {
+			info.Display = x.display
+			info.How = "自管 Xvfb 虚拟显示 " + x.display
+		} else {
+			info.How = "自管 Xvfb 虚拟显示（尚未启动，将在需要时拉起）"
+		}
+	}
+	return info
 }

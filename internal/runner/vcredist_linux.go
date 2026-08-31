@@ -73,9 +73,16 @@ func ensureVCRedist(ctx context.Context, cfg Config, prefixKey string, logf func
 		return nil
 	}
 
-	// 与 ArkApi 启动路径共用 resolveDisplay：两者需要显示的原因是同一个
+	// 与 ArkApi 启动路径共用 acquireDisplay：两者需要显示的原因是同一个
 	// （Wine 的 winex11.drv），见 display_linux.go。
-	display, blocked := resolveDisplay(cfg)
+	display, blocked, dispErr := acquireDisplay(cfg)
+	if dispErr != nil {
+		// 有显示能力但这次没拿到（Xvfb 起不来）。与下面「本机没有显示」同样只跳过
+		// 安装、不阻断 setup，但原因不同，要如实说。
+		logf("跳过 VC++ 运行时安装：拿不到图形显示。%v", dispErr)
+		logf("  override 已经写好，普通实例不受影响；但 **ArkApi 实例同样起不来**")
+		return nil
+	}
 	if blocked != "" {
 		// preflight 已经把 xvfb 列为阻断级依赖，所以正常装过的机器走不到这里；
 		// 走到了说明用户用 --ignore-preflight 跳过了。不阻断 setup，但要说清楚
@@ -183,7 +190,8 @@ func vcRedistStatus(prefixKey, gameDir string) VCRedistInfo {
 	}
 	info.WantOverrides = len(vcRedistOverrideDLLs)
 
-	if d, blocked := resolveDisplay(cfg); blocked != "" {
+	// 诊断视图，只问计划不动手 —— `verify-arkapi --check-only` 不该顺手起个 X 服务。
+	if d, blocked := planDisplay(cfg); blocked != "" {
 		info.InstallerBlocked = blocked
 	} else {
 		info.InstallerDisplay = d.How
@@ -396,8 +404,8 @@ func runInPrefix(ctx context.Context, cfg Config, prefix, exePath string, args [
 		cred = c
 		env = runtimeEnv(env, home, runtimeUserName(cfg))
 	}
-	// 显示放最后施加，理由见 displayTarget.wrap。
-	bin, argv, env = disp.wrap(bin, argv, env)
+	// 显示放最后施加，理由见 displayTarget.applyTo。
+	env = disp.applyTo(env)
 
 	cmd := exec.CommandContext(ctx, bin, argv...)
 	cmd.Env = env

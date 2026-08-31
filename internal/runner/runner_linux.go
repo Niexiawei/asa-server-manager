@@ -45,15 +45,23 @@ func run(ctx context.Context, exePath string, args []string, opt Options) (*Hand
 	// actionable instead of reporting a "started" instance that is already
 	// dead. Applied after runtimeEnv on purpose — see displayTarget.wrap.
 	if opt.NeedsDisplay {
-		disp, blocked := resolveDisplay(getConfig())
-		if blocked != "" {
+		disp, blocked, dispErr := acquireDisplay(getConfig())
+		switch {
+		case blocked != "":
+			// 这台机器压根没有显示能力。
 			return nil, fmt.Errorf("无法启动 %s：它需要图形显示，但%s。"+
 				"AsaApiLoader.exe（ArkApi）在 Wine 下没有显示会静默退出，"+
 				"所以这里提前拒绝，而不是让实例假装启动成功",
 				filepath.Base(exePath), blocked)
+		case dispErr != nil:
+			// 有能力但这次没拿到（多半是 Xvfb 起不来）。这条失败面是自管 Xvfb
+			// 才有的 —— xvfb-run 在 Xvfb 起不来时照跑命令，于是同样的故障以前是
+			// 静默的，只能从「加载器零输出退出」反推。
+			return nil, fmt.Errorf("无法启动 %s：拿不到图形显示。%w",
+				filepath.Base(exePath), dispErr)
 		}
 		logger.Infof("runner: %s 需要图形显示，本次使用 %s", filepath.Base(exePath), disp.How)
-		bin, launchArgs, env = disp.wrap(bin, launchArgs, env)
+		env = disp.applyTo(env)
 	}
 
 	if opt.PTY {

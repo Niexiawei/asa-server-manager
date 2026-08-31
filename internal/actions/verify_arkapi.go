@@ -172,10 +172,10 @@ func printVCRedistStatus(gameDir string) bool {
 	} else {
 		fmt.Printf("  · system32 里的 %s 仍是 Wine 自带的（VC++ 运行时未装进 prefix）\n", info.ProbeDLL)
 		if info.InstallerBlocked != "" {
-			// 与 [3] 同一个原因、同一个 resolveDisplay —— 装了 xvfb 两条一起解决。
+			// 与 [3] 同一个原因、同一个 planDisplay —— 装了 Xvfb 两条一起解决。
 			fmt.Printf("      装不了的原因：%s\n", info.InstallerBlocked)
 			fmt.Println("      这一项本身通常不影响 ArkApi（游戏自带的原生 DLL 加上上面的 override 一般够用），")
-			fmt.Println("      但缺显示会让 ArkApi 根本起不来 —— 见上面的 [3]。装好 xvfb 后重跑")
+			fmt.Println("      但缺显示会让 ArkApi 根本起不来 —— 见上面的 [3]。装好 Xvfb 后重跑")
 			fmt.Println("      asa-server verify-arkapi --install-vcredist 可以把两件事一起补上")
 		} else {
 			fmt.Printf("      可用的显示：%s；跑 asa-server verify-arkapi --install-vcredist 安装\n",

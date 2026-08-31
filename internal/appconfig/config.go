@@ -192,6 +192,19 @@ type LinuxConfig struct {
 	// 校验；自建镜像若没有那一段，用 VCRedistSHA256 显式指定（小写十六进制）。
 	VCRedistURL    string `mapstructure:"vcredist_url"`
 	VCRedistSHA256 string `mapstructure:"vcredist_sha256"`
+	// Display / XvfbBin / XvfbScreen：给 Wine 进程提供图形显示的三个旋钮。
+	// AsaApiLoader.exe（ArkApi）与微软 VC++ 安装器都会创建 Win32 窗口，Wine 连不上
+	// X 就直接失败，见 docs/XVFB_CROSS_DISTRO_DISPLAY_PLAN.md。
+	//
+	// Display：显式点名要用的显示（":0"）。留空 = 读 DISPLAY 环境变量。后台服务进程
+	// 没有 DISPLAY（真机 /proc/<pid>/environ 里只有 HOME=/root），这是把机器上现成的
+	// X 服务告诉它的唯一办法。
+	Display string `mapstructure:"display"`
+	// XvfbBin：Xvfb 服务端二进制的路径，留空 = PATH + 几个常见位置。注意是
+	// **Xvfb** 而不是 Debian 的 xvfb-run 脚本（Fedora/RHEL/Arch 不提供后者）。
+	XvfbBin string `mapstructure:"xvfb_bin"`
+	// XvfbScreen：自管 Xvfb 的 -screen 规格，留空 = 1280x1024x24。排障用。
+	XvfbScreen string `mapstructure:"xvfb_screen"`
 	// WineDLLOverrides 原样追加到游戏进程的 WINEDLLOVERRIDES，留空 = 不设。
 	// VC++ 那组 override 已在安装时写进 prefix 注册表，不必在这里重复；排障用。
 	WineDLLOverrides string `mapstructure:"wine_dll_overrides"`
@@ -619,6 +632,9 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("linux.vcredist_url", "")
 	v.SetDefault("linux.vcredist_sha256", "")
 	v.SetDefault("linux.wine_dll_overrides", "")
+	v.SetDefault("linux.display", "")
+	v.SetDefault("linux.xvfb_bin", "")
+	v.SetDefault("linux.xvfb_screen", "")
 	v.SetDefault("linux.gameid", d.Linux.GameID)
 	v.SetDefault("linux.umu_runtime_user", d.Linux.UmuRuntimeUser)
 	v.SetDefault("linux.umu_runtime_uid", d.Linux.UmuRuntimeUID)
