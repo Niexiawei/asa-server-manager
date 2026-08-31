@@ -138,11 +138,15 @@ Proton: Executable a unix path, launching with /unix option.
 一个 prefix = 一个 wineserver = **一个 Wine 会话**，而 Wine 的显示子系统
 （`winex11.drv` / explorer 桌面）**每个会话只初始化一次**。第一个
 `AsaApiLoader.exe` 起来时，会话已经绑定在它那个 X 显示上；第二个加载器带着
-自己的 `DISPLAY`（`xvfb-run` 时那是它私有的一个 Xvfb）加入同一个会话，
+自己的 `DISPLAY` 加入同一个会话，
 在创建窗口这一步静默挂住 —— 不报错、不退出、什么都不打。
 
 `AsaApiLoader.exe` 是本项目里**唯一**对 X 显示有硬性要求的东西
 （`Options.NeedsDisplay` 只给它设），所以只有它会撞。
+
+> 注：显示改成「每个 asa-server 进程一个自管 Xvfb、所有实例共用」之后，这条结论
+> **不变** —— 卡点是 Wine 会话，不是显示本身。两个实例带着同一个 `DISPLAY` 进同一个
+> 会话，与各带各的一样撞。
 
 **结论：`per-instance` 是「同时用 ArkApi 跑多实例」的唯一办法。**
 这条以前被记在 §7 残余风险 2 里、标着"未知"，现在证实成立。

@@ -70,7 +70,7 @@ go func() {
 | | PTY 里跑的是谁 | 于是 `handle.PTY` 里流的是什么 |
 |---|---|---|
 | Windows | `AsaApiLoader.exe` 本体 | 加载器的控制台输出 —— 正是「插件日志」想要的 |
-| Linux | `xvfb-run → python3 → umu-run → srt-bwrap → pv-adverb → proton → wine` | 这整条链的 stdout/stderr。加载器在最里面，而且**它不往控制台打业务日志** |
+| Linux | `python3 → umu-run → srt-bwrap → pv-adverb → proton → wine`（早期版本前面还有一层 `xvfb-run`，改成自管 Xvfb 后没有了，见 `docs/XVFB_CROSS_DISTRO_DISPLAY_PLAN.md`） | 这整条链的 stdout/stderr。加载器在最里面，而且**它不往控制台打业务日志** |
 
 `runner` 包的设计取向是「对每个 exe 一视同仁」（见包注释），这是对的；
 问题出在 `instance` 层沿用了 Windows 的语义解释 Linux 的 PTY。

@@ -1151,6 +1151,22 @@ preflight 也从「找 `xvfb-run` 这个文件」改成**直接问 `resolveDispl
 `/tmp/.X11-unix` 可写时才走。整个验证都是在降权到 `asa-umu-runtime` + PTY 的组合下做的，
 顺带关闭了附录 B 第 3 条那个「真机未验证」的风险。
 
+### 9.7 第三轮：`xvfb-run` 不是每个发行版都有 → `docs/XVFB_CROSS_DISTRO_DISPLAY_PLAN.md`
+
+§9.5 那张三级解析表的第 2 条把「有没有 `xvfb-run`」当成了「能不能开虚拟显示」的判据。
+`xvfb-run` 是 **Debian 打包时自带的一个 shell 脚本**，不是 X.Org 的组件：
+Fedora / RHEL / Arch 只给 `Xvfb` 服务端二进制，于是那些机器**明明能开虚拟显示，
+自检却判它不能**，`asa-server setup` 直接被挡住；而 `Xvfb`（服务端，前台常驻）与
+`xvfb-run`（包装器，接受「要跑的命令」）命令形态完全不同，`displayTarget.Wrapper`
+那套命令前缀抽象对它不成立。
+
+修法是**由 asa-server 自己拉起并托管 Xvfb**（进程内单例、用前握手健康检查、
+`-displayfd` 挑号），并把 `resolveDisplay` 拆成只读的 `planDisplay`（preflight 用）
+与会真的起进程的 `acquire`（启动路径用）。**方案与验证矩阵见
+`docs/XVFB_CROSS_DISTRO_DISPLAY_PLAN.md`**，本节此后只保留结论。
+
+同一类错误的第二次：判据落在「某个发行版给不给某个脚本」上，而不是落在能力本身。
+
 ---
 
 ## 附录 A：winetricks 路线（备选，未采用）
