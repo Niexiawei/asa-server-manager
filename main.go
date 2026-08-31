@@ -171,6 +171,7 @@ func main() {
 			actions.VerifyCommand(),
 			actions.VerifyArkApiCommand(),
 			actions.PermsCommand(),
+			actions.PrefixCommand(),
 			certmgr.Command(),
 			actions.AuthDBCommand(),
 			actions.AuthUserCommand(),
