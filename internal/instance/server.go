@@ -399,8 +399,48 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 		}
 	}
 
-	// ArkApi 的两条前置条件。两段都在 Windows 上恒为「满足」，所以不需要构建约束。
+	// Fail fast with an actionable message if the Linux Wine/Proton runtime
+	// isn't in place yet (no-op on Windows) — otherwise runner.Run reports a
+	// low-level "umu-run not found" from deep in the launch path. See
+	// docs/SETUP_FLOW_OPTIMIZATION_PLAN.md §3.5.
+	//
+	// 位置在 ArkApi 前置检查之前：下面那两项（图形显示、VC++ 运行时）问的都是
+	// 「这个 Wine 前缀里有什么」，前缀本身还没就绪时问了也没意义。
+	if err := runner.CheckRuntime(); err != nil {
+		startErr = fmt.Errorf("无法启动实例：%w", err)
+		return startErr
+	}
+
+	// 本实例这次启动用哪个 Wine 前缀：shared 模式与 Windows 上恒为 ""（共享前缀），
+	// per-instance 模式下是实例名。下面 VC++ 检查、EnsurePrefix、runner.Run 三处
+	// 必须用同一个值，否则会出现「检查的是共享前缀、跑的是独立前缀」这种错位。
+	prefixKey := runner.PrefixKeyFor(instanceName)
+
+	// per-instance 模式下这可能是该实例的第一次启动，前缀还不存在——在这里现建。
+	// 共享模式与 Windows 上只是几次 stat。progress 传 nil：本函数没有 SSE 写入端，
+	// 进度经 logger 走系统日志流。
+	if err := runner.EnsurePrefix(ctx, prefixKey, nil); err != nil {
+		startErr = fmt.Errorf("无法启动实例：%w", err)
+		return startErr
+	}
+
+	// ArkApi 的三条前置条件。三段都在 Windows 上恒为「满足」，所以不需要构建约束。
 	if arkAsaApiRunning {
+		// ⓪ 共享 Wine prefix 下已经有另一个 ArkApi 实例在跑 —— **阻断**。
+		// 判据是三个确定事实的合取（共享模式 / 对方在运行 / 对方也开了 ArkApi），
+		// 不含任何启发式，所以这里可以、也应该拦下来：不拦的话失败形式是
+		// 「静默挂满 3 分钟再报游戏进程没出现」，还会留下一整棵孤儿进程树。
+		// 机制与实测见 conflictingArkApiInstance 的注释。
+		if other := conflictingArkApiInstance(instanceName); other != "" {
+			startErr = fmt.Errorf("无法启动实例 %s：它与正在运行的实例 %s 都启用了 ArkApi，"+
+				"而当前 linux.prefix_mode=shared 让所有实例共用同一个 Wine 会话——"+
+				"该模式下同时只能有一个 ArkApi 实例（第二个会卡在加载器启动前，直到超时）。"+
+				"把 config.yaml 的 linux.prefix_mode 改成 per-instance 即可同时运行"+
+				"（每实例独立 Wine 前缀，首次启动多花约一分钟创建）；"+
+				"或者先停掉实例 %s", instanceName, other, other)
+			return startErr
+		}
+
 		// ① 图形显示 —— **硬性**，因而阻断。AsaApiLoader.exe 会创建真正的 Win32
 		// 窗口，Wine 连不上 X 服务时 CreateWindow 直接失败，加载器退出码 3 且
 		// **什么都不打**（连自己的 logs/ 目录都不建）。这不是启发式判断，是
@@ -417,7 +457,7 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 		// ② VC++ 运行时 —— 只告警、不阻断：判据是对 PE 头标记的启发式判断，用一个
 		// 可能误判的检查拦住启动，正是 docs/LINUX_COMPATIBILITY_PLAN.md §1 目标 5
 		// 反对的「程序替用户决定 ArkApi 能不能用」。见 ARKAPI_LINUX_VCREDIST_PLAN §3.6。
-		if !runner.PrefixHasVCRedist("") {
+		if !runner.PrefixHasVCRedist(prefixKey) {
 			logger.Warnf("实例 %s 启用了 ArkApi，但 Wine 前缀里没有检测到微软 VC++ 运行时，"+
 				"AsaApiLoader.exe 可能起不来。执行 asa-server setup 会自动安装；"+
 				"或确认 config.yaml 的 linux.install_vcredist 没有被关掉。", instanceName)
@@ -442,15 +482,6 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 			return fmt.Errorf("failed to create log file %s: %w", gameLogPath, err)
 		}
 		logger.Infof("Created log file: %s", gameLogPath)
-	}
-
-	// Fail fast with an actionable message if the Linux Wine/Proton runtime
-	// isn't in place yet (no-op on Windows) — otherwise runner.Run reports a
-	// low-level "umu-run not found" from deep in the launch path. See
-	// docs/SETUP_FLOW_OPTIMIZATION_PLAN.md §3.5.
-	if err := runner.CheckRuntime(); err != nil {
-		startErr = fmt.Errorf("无法启动实例：%w", err)
-		return startErr
 	}
 
 	// Second net for "game runs as a dedicated non-root user": re-check that
@@ -482,6 +513,19 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 		}
 	}
 
+	// 共享 Wine prefix 时，同一时刻只放一台进入启动路径（Windows 与
+	// per-instance 模式下整段短路，见 launchgate.go）。位置必须在这里：
+	// 上面所有的准备工作（镜像同步、权限、自检）彼此独立，没有理由排队；
+	// 从 runner.Run 到「初始化成功」这一段才是真正共用 prefix 的那一段。
+	releaseLaunchGate, err := acquireLaunchGate(ctx, instanceName)
+	if err != nil {
+		startErr = err
+		return startErr
+	}
+	// defer 兜住下面每一条早退路径；正常路径会在初始化成功后**提前**显式放行，
+	// 不必等到 WaitServerCompleted 的完整启动（见函数末尾）。
+	defer releaseLaunchGate()
+
 	// Launch arkExe (ArkAscendedServer.exe, or AsaApiLoader.exe wrapping it
 	// with the same arguments — runner treats both identically, see
 	// internal/runner's package doc). Windows: direct exec/pty, unchanged
@@ -504,6 +548,8 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 		// 同一个条件的三个后果：AsaApiLoader 要终端排版（PTY）、要图形显示
 		// （NeedsDisplay），而 ArkAscendedServer.exe 两样都不要。
 		NeedsDisplay: arkAsaApiRunning,
+		// 与上面 EnsurePrefix / PrefixHasVCRedist 同源，见 prefixKey 的注释。
+		PrefixKey: prefixKey,
 	})
 	if err != nil {
 		startErr = fmt.Errorf("failed to start server: %w", err)
@@ -636,6 +682,11 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 		return err
 	case <-initSuccessful:
 	}
+
+	// 到达 start_initialization_successful 就放行下一台（§8 的放行判据）。
+	// 不放到函数末尾：WaitServerCompleted 还要等完整启动，那段时间 prefix 已经
+	// 不再是排他的，继续占着闸门只是白白拖慢下一台。
+	releaseLaunchGate()
 
 	if opts.WaitServerCompleted {
 		<-startupSuccess
