@@ -4,6 +4,7 @@ import (
 	cfgpkg "asa-server/internal/config"
 	instancepkg "asa-server/internal/instance"
 	procpkg "asa-server/internal/process"
+	"asa-server/internal/runner"
 	statepkg "asa-server/internal/state"
 	"asa-server/internal/webapi/apiresp"
 	"asa-server/pkg/fsutil"
@@ -269,6 +270,13 @@ func (h *Handler) deleteInstance(c *gin.Context) {
 	savePath := filepath.Join(cfgpkg.InstancesDir, name, "Save")
 	os.RemoveAll(savePath)
 
+	// 该实例在 prefix_mode: per-instance 下拥有的独立 Wine 前缀（Windows 与
+	// 从未用过该模式时都是 no-op）。只告警不失败：实例本体已经删掉了，为一个
+	// 残留的运行时目录把整个删除报成失败没有意义，`asa-server prefix gc` 会兜底。
+	if err := runner.RemoveInstancePrefix(name); err != nil {
+		logger.Warnf("删除实例 %s 的独立 Wine 前缀失败（可稍后执行 asa-server prefix gc 清理）: %v", name, err)
+	}
+
 	c.JSON(http.StatusOK, apiresp.StatusResponse{
 		Success: true,
 		Message: fmt.Sprintf("Instance '%s' deleted successfully", name),
@@ -327,6 +335,14 @@ func (h *Handler) renameInstance(c *gin.Context) {
 	newSavePath := filepath.Join(cfgpkg.InstancesDir, req.NewName, "Save")
 	if err := os.Rename(oldSavePath, newSavePath); err != nil {
 		logger.Warnf("Failed to rename save directory for instance %s: %v", oldName, err)
+	}
+
+	// 独立 Wine 前缀跟着旧名字走，这里**删除而不是改名**：Wine 前缀内部多处
+	// 记录着自己的绝对路径，mv 不保证安全；而前缀里没有任何用户数据（存档在
+	// instances/<name>/Save），删掉后新名字下次启动会自动重建，代价约一分钟。
+	// 见 docs/UMU_PREFIX_PER_INSTANCE_PLAN.md §9.2。
+	if err := runner.RemoveInstancePrefix(oldName); err != nil {
+		logger.Warnf("清理实例 %s 的旧 Wine 前缀失败（可稍后执行 asa-server prefix gc 清理）: %v", oldName, err)
 	}
 
 	// Update SaveDir in configuration
