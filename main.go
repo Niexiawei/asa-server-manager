@@ -299,6 +299,7 @@ func applyAppConfig(cfg *appconfig.Config) {
 		Display:          cfg.Linux.Display,
 		XvfbBin:          cfg.Linux.XvfbBin,
 		XvfbScreen:       cfg.Linux.XvfbScreen,
+		AllowX11Remount:  cfg.Linux.AllowX11Remount,
 		GameID:           cfg.Linux.GameID,
 		BaseDir:          cfgpkg.BaseDir,
 		RuntimeUser:      cfg.Linux.UmuRuntimeUser,

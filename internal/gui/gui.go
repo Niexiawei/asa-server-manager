@@ -450,6 +450,7 @@ func (g *GUIApp) applyChosenBaseDir(chosen string) {
 		Display:          appCfg.Linux.Display,
 		XvfbBin:          appCfg.Linux.XvfbBin,
 		XvfbScreen:       appCfg.Linux.XvfbScreen,
+		AllowX11Remount:  appCfg.Linux.AllowX11Remount,
 		GameID:           appCfg.Linux.GameID,
 		BaseDir:          baseDir,
 		RuntimeUser:      appCfg.Linux.UmuRuntimeUser,

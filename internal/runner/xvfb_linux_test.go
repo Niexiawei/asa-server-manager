@@ -470,3 +470,56 @@ func TestRuntimeChildIDsNeverCreatesUser(t *testing.T) {
 		t.Error("runtimeChildIDs created the user — 只读查询不许有副作用")
 	}
 }
+
+// TestRemountRespectsAllowX11Remount: 开关关掉时**不许动宿主的挂载表**，并且要在
+// 错误里点名是配置挡住的。这条能在任何机器上跑：目录可写时该函数是空操作，
+// 只读时也在真正 mount 之前就返回了。
+func TestRemountRespectsAllowX11Remount(t *testing.T) {
+	before := x11Remounted.Load()
+	defer x11Remounted.Store(before)
+
+	err := remountX11SocketDirRW(Config{AllowX11Remount: false})
+	if x11Remounted.Load() != before {
+		t.Error("allow_x11_remount=false 却改了挂载状态")
+	}
+	if err == nil {
+		return // 这台机器上 /tmp/.X11-unix 本来就可写，没有可断言的错误
+	}
+	if !strings.Contains(err.Error(), "allow_x11_remount") {
+		t.Errorf("拒绝原因 %q 没有点名是哪个配置项挡住的", err)
+	}
+	if !strings.Contains(err.Error(), "linux.display") {
+		t.Errorf("拒绝原因 %q 没有给出下一步（点名一个现成显示）", err)
+	}
+}
+
+// TestRemountIsNoOpWhenWritable: 常规路径（普通 Linux，目录本来就可写）一个 mount
+// syscall 都不该多花，更不该因为开关关着就报错 —— 那会把 WSL 之外的所有机器
+// 一起挡住。
+func TestRemountIsNoOpWhenWritable(t *testing.T) {
+	if syscall.Access(x11SocketDir, writeOK) != nil {
+		t.Skip("这台机器上 /tmp/.X11-unix 不可写，前提不成立")
+	}
+	before := x11Remounted.Load()
+	defer x11Remounted.Store(before)
+
+	if err := remountX11SocketDirRW(Config{AllowX11Remount: false}); err != nil {
+		t.Errorf("目录可写时 remountX11SocketDirRW 不该失败: %v", err)
+	}
+	if x11Remounted.Load() != before {
+		t.Error("目录可写时不该记下「我们改过挂载」")
+	}
+}
+
+// TestRestoreX11SocketDirROOnlyTouchesOurOwn: 不是我们改的挂载点就不许碰 ——
+// 把别人有意挂成可写的目录改回只读，是一个我们无权做的决定。
+func TestRestoreX11SocketDirROOnlyTouchesOurOwn(t *testing.T) {
+	before := x11Remounted.Load()
+	defer x11Remounted.Store(before)
+
+	x11Remounted.Store(false)
+	restoreX11SocketDirRO() // 必须是空操作，不 panic、不改状态
+	if x11Remounted.Load() {
+		t.Error("restoreX11SocketDirRO 在没改过的情况下动了状态")
+	}
+}

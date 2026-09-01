@@ -142,10 +142,18 @@ func CheckRuntime() error {
 //     there rather than here because it is held until the instance reaches
 //     start_initialization_successful, which runner.Run returns long before.
 //
-//  2. At most one ArkApi instance can run. AsaApiLoader.exe needs an X display
-//     and Wine initializes its display subsystem once per session, so a second
-//     loader joining an existing session hangs before it ever execs — measured
-//     2026-08-31, see docs/UMU_PREFIX_PER_INSTANCE_PLAN.md §2.2.
+//  2. At most one ArkApi instance can run. A second launch joining an existing
+//     session hangs in umu.exe and never execs the loader, until the launch
+//     times out. Measured 2026-08-31, re-measured 2026-09-01 with every
+//     instance on one DISPLAY — three rounds, launch order swapped, same
+//     result each time. The hang is NOT in the display: the second chain joins
+//     the first one's desktop, initializes x11drv cleanly and gets as far as
+//     Wine's conhost creating its console window; only then does umu.exe park
+//     in futex_waitv. What it waits on is still unknown — do not fill that
+//     gap in with a plausible-sounding mechanism, which is exactly how the
+//     previous (wrong) explanation got into four files. See
+//     docs/SHARED_PREFIX_MULTI_ARKAPI_PLAN.md §12 and
+//     docs/UMU_PREFIX_PER_INSTANCE_PLAN.md §2.2.
 func SharesWinePrefix() bool { return sharesWinePrefix() }
 
 // EnsurePrefixVCRedist makes sure the Microsoft VC++ runtime that ArkApi's
@@ -199,7 +207,7 @@ type VCRedistDLLInfo struct {
 // VCRedistInfo is the read-only view of a prefix's VC++ runtime state, for
 // `asa-server verify-arkapi`.
 type VCRedistInfo struct {
-	Managed  bool   // Linux && runtime == "umu"
+	Managed  bool // Linux && runtime == "umu"
 	Prefix   string
 	ProbeDLL string
 	// Installed is the single judgement "the native runtime is in system32",
@@ -244,6 +252,13 @@ type DisplayInfo struct {
 	// managed display that hasn't been started yet — reporting must not start
 	// one, see displayStatus.
 	Display string `json:"display"`
+	// Fallbacks are the remaining candidates, in order, that a launch would try
+	// if How's own acquisition failed. Diagnostic only: the display resolver
+	// returns a chain rather than a single answer so that a host whose Xvfb
+	// won't start (no fonts, full /tmp) still launches on whatever display it
+	// does have, instead of regressing to "cannot start". Empty means the head
+	// is all there is. See internal/runner/display_linux.go's planDisplay.
+	Fallbacks []string `json:"fallbacks,omitempty"`
 }
 
 // DisplayStatus reports the host's display situation. Read-only and offline —
@@ -486,6 +501,14 @@ type Config struct {
 	XvfbBin string
 	// XvfbScreen 是自管 Xvfb 的 -screen 规格，留空 = 1280x1024x24。排障用。
 	XvfbScreen string
+	// AllowX11Remount：/tmp/.X11-unix 是只读挂载时，允不允许把它重新挂载为可写。
+	// 配置默认 true。
+	//
+	// X 的 socket 路径写死在 xtrans 里，所以这是 WSL/WSLg（把该目录挂成只读 tmpfs）
+	// 上唯一能让自管 Xvfb 成立的一步；关掉它就退回「用 WSLg 自己的 :0」。只在
+	// euid==0 且 access(2) 真的返回 EROFS 时才动手，动手会留日志，退出时还原。
+	// 见 docs/ALWAYS_MANAGED_XVFB_DISPLAY_PLAN.md §4。
+	AllowX11Remount bool
 	// WineDLLOverrides 原样追加到游戏进程的 WINEDLLOVERRIDES。留空 = 不设。
 	// VC++ 那 11 个 DLL 的 override 已在安装时写进 prefix 注册表，不必在这里重复；
 	// 这一项是排障用的逃生舱。
@@ -532,6 +555,7 @@ func defaultConfig() Config {
 		AutoDownload:    true,
 		SteamRTPrefetch: true,
 		InstallVCRedist: true,
+		AllowX11Remount: true,
 		GameID:          defaultGameID,
 	}
 }

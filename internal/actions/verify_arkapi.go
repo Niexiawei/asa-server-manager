@@ -127,6 +127,11 @@ func printArkApiPrerequisites() bool {
 	fmt.Println("[3] 图形显示（AsaApiLoader.exe 会创建 Win32 窗口，Wine 下必需）")
 	if d := runner.DisplayStatus(); d.Available {
 		fmt.Printf("  ✔ %s\n", d.How)
+		// 候选链的其余各档：只有头一档拿不到时才轮得到它们。列出来是因为
+		// 「这次到底用的是哪个显示」在回退发生时是排障的第一个问题。
+		for _, f := range d.Fallbacks {
+			fmt.Printf("      备选（仅当上面那个拿不到时）：%s\n", f)
+		}
 	} else {
 		fmt.Printf("  ✘ %s\n", d.Blocked)
 		fmt.Println("      没有显示时加载器会以退出码 3 静默退出，连自己的 logs/ 都不会建")

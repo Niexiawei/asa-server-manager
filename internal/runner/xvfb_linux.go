@@ -345,6 +345,9 @@ func ensureX11SocketDir(cfg Config) error {
 	if os.Geteuid() != 0 {
 		return nil
 	}
+	if err := remountX11SocketDirRW(cfg); err != nil {
+		return err
+	}
 	fi, err := os.Stat(x11SocketDir)
 	switch {
 	case os.IsNotExist(err):
@@ -373,6 +376,80 @@ func ensureX11SocketDir(cfg Config) error {
 		return fmt.Errorf("把 %s 改为 1777 失败: %w", x11SocketDir, err)
 	}
 	return nil
+}
+
+// x11Remounted 记住「/tmp/.X11-unix 是被我们从只读改成可写的」，好在退出时还原。
+// 只可能是 true 一次：remount 之后目录就一直可写，不会再走那条分支。
+var x11Remounted atomic.Bool
+
+// remountX11SocketDirRW 把只读挂载的 /tmp/.X11-unix 重新挂载为可写。
+//
+// # 这是 WSL 上唯一能让自管 Xvfb 成立的一步
+//
+// X 的 socket 路径 /tmp/.X11-unix/X<n> **写死在 xtrans 里**，没有任何环境变量能改，
+// 所以「让 Xvfb 把 socket 建到别处」这条路不存在，只能让那个目录可写。而 WSLg 恰恰
+// 把它挂成只读 tmpfs（`none on /tmp/.X11-unix type tmpfs (ro,relatime)`），于是在
+// WSL 上自管 Xvfb 那一档从来轮不到，必然落到 WSLg 自己的 :0 —— 开发机与生产机因此
+// 走的从来不是同一条显示路径。见 docs/ALWAYS_MANAGED_XVFB_DISPLAY_PLAN.md §4。
+//
+// # 为什么是 remount 而不是盖一层新 tmpfs
+//
+// remount 只改这个挂载点的读写属性，**不遮挡任何已经存在的 socket** —— WSLg 自己的
+// X0 原样保留，我们的 X100 与它并存。盖一层新 tmpfs 则会连 X0 一起遮掉，除非再单独
+// 把它 bind 回来，而漏掉那一步就会让整个发行版的 GUI 应用瞎掉。那条路只在 remount
+// 被内核拒绝时才值得考虑（同上文档 §4.6.1 的 errno 表），且要先在真机上拿到 errno。
+//
+// # 判据是能力不是发行版
+//
+// 触发条件是**上一步 access(2) 返回了 EROFS**（由 x11SocketDirState 判定并写进候选
+// 链），不是「这台机器是不是 WSL」。任何一台把这个目录挂成只读的机器都该得到同样的
+// 处置。这里只做两件事：确认没被配置关掉，然后动手。
+//
+// 目录本来就可写时是**空操作** —— 常规路径（普通 Linux）一个 syscall 都不多花。
+func remountX11SocketDirRW(cfg Config) error {
+	aerr := syscall.Access(x11SocketDir, writeOK)
+	if aerr == nil || !errors.Is(aerr, syscall.EROFS) {
+		// 已经可写，或者不是只读挂载的问题（目录不存在、或别的错误）。后者交给下游
+		// 按老路处理：目录缺了会被建出来，别的错误会在那里被如实报出。
+		return nil
+	}
+	if !cfg.AllowX11Remount {
+		return fmt.Errorf("%s 是只读挂载（WSLg 就是这么挂的），Xvfb 建不出 socket；"+
+			"linux.allow_x11_remount 为 false，不尝试把它重新挂载为可写。"+
+			"可用 config.yaml 的 linux.display 点名一个现成的 X 显示", x11SocketDir)
+	}
+	if err := syscall.Mount("", x11SocketDir, "", syscall.MS_REMOUNT|syscall.MS_BIND, ""); err != nil {
+		return fmt.Errorf("%s 是只读挂载（WSLg 就是这么挂的），Xvfb 建不出 socket；"+
+			"把它重新挂载为可写也失败了（%v）。可用 config.yaml 的 linux.display 点名一个"+
+			"现成的 X 显示（WSLg 的是 :0），或把 linux.allow_x11_remount 关掉以省掉这次尝试",
+			x11SocketDir, err)
+	}
+	x11Remounted.Store(true)
+	logger.Infof("runner: %s 原是只读挂载，已重新挂载为可写，好让 Xvfb 在那里发布 socket"+
+		"（asa-server 退出时会还原为只读）", x11SocketDir)
+	return nil
+}
+
+// restoreX11SocketDirRO 把 remountX11SocketDirRW 改过的挂载点还原回只读。
+//
+// 只在我们真的改过时才动手（不是我们改的就不该碰）。安全性来自一个事实：
+// 还原之后**已经建好的 socket 照常能连** —— 连一个已存在的 unix socket 不需要对它
+// 所在的目录有写权限，只有新建才需要。所以这一步不会把正在跑的实例弄断；不过它本来
+// 也只在退出路径上被调用，那时需要显示的实例已经跟着 PTY 一起走了。
+//
+// best-effort：还原失败只记一条日志。目录留成可写的代价很小（1777 本来就是 X 的
+// 约定），下一次启动会再 remount 一次而不是报错。
+func restoreX11SocketDirRO() {
+	if !x11Remounted.CompareAndSwap(true, false) {
+		return
+	}
+	if err := syscall.Mount("", x11SocketDir, "",
+		syscall.MS_REMOUNT|syscall.MS_BIND|syscall.MS_RDONLY, ""); err != nil {
+		logger.Warnf("runner: 把 %s 还原为只读挂载失败（%v）——不影响运行，只是宿主的挂载表"+
+			"留下了我们的改动", x11SocketDir, err)
+		return
+	}
+	logger.Infof("runner: 已把 %s 还原为只读挂载", x11SocketDir)
 }
 
 // statWritableBy 按 POSIX 的顺序算某个 uid/gid 对这个目录的写权限：属主位优先，

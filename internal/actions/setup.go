@@ -97,6 +97,7 @@ func ActionSetup(ctx context.Context, cmd *cli.Command) error {
 		Display:          appCfg.Linux.Display,
 		XvfbBin:          appCfg.Linux.XvfbBin,
 		XvfbScreen:       appCfg.Linux.XvfbScreen,
+		AllowX11Remount:  appCfg.Linux.AllowX11Remount,
 		GameID:           appCfg.Linux.GameID,
 		BaseDir:          baseDir,
 		RuntimeUser:      appCfg.Linux.UmuRuntimeUser,

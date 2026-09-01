@@ -4,6 +4,7 @@ package runner
 
 import (
 	"errors"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -81,38 +82,103 @@ func TestX11DisplayUsableRejectsDeadDisplay(t *testing.T) {
 func TestPlanDisplayIgnoresDeadDisplay(t *testing.T) {
 	t.Setenv("DISPLAY", ":99999")
 
-	p, blocked := planDisplay(getConfig())
-	if p.Kind == displayEnv {
-		t.Errorf("planDisplay adopted a DISPLAY with no listener: %+v", p)
+	plans, blocked := planDisplay(getConfig())
+	for _, p := range plans {
+		if p.Kind == displayEnv {
+			t.Errorf("planDisplay adopted a DISPLAY with no listener: %+v", p)
+		}
 	}
 	// 这台机器上 Xvfb / 现成 X 服务的有无决定 blocked 是不是空，两种都合法 ——
 	// 断言的是「没把死的 DISPLAY 当成活的」，以及成功时必然指明了一种手段。
-	if blocked == "" && p.Kind == displayNone {
-		t.Errorf("planDisplay reported success with no kind: %+v", p)
+	if blocked == "" && len(plans) == 0 {
+		t.Error("planDisplay reported success with an empty chain")
 	}
-	if blocked == "" && p.How == "" {
-		t.Errorf("planDisplay reported success with no explanation: %+v", p)
+	for _, p := range plans {
+		if p.Kind == displayNone || p.How == "" {
+			t.Errorf("plan without a kind or explanation: %+v", p)
+		}
 	}
 }
 
-// TestPlanDisplayPrefersConfiguredOverEnv: linux.display 优先于环境变量。
-// 两者都指向死显示时应该一起被跳过 —— 这里断言的是「配置被读到了」。
-func TestPlanDisplayPrefersConfiguredOverEnv(t *testing.T) {
-	t.Setenv("DISPLAY", ":99998")
-
-	d, src := configuredDisplay(Config{Display: ":99997"})
-	if d != ":99997" || src != "配置指定" {
-		t.Errorf("configuredDisplay = (%q, %q), want the configured value to win", d, src)
+// TestPlanDisplayChainOrder: 候选链的顺序是**点名的 > 自己管的 > 捡来的 > 扫出来的**。
+// 这是本次改动的核心断言：自管 Xvfb 是唯一由我们启动、监控、随我们退出的显示，
+// 排在一个从环境里捡来的变量后面没有道理（docs/ALWAYS_MANAGED_XVFB_DISPLAY_PLAN.md §1.1）。
+func TestPlanDisplayChainOrder(t *testing.T) {
+	rank := map[displayKind]int{
+		displayConfigured: 0,
+		displayManaged:    1,
+		displayEnv:        2,
+		displayExisting:   3,
 	}
-	if d, src := configuredDisplay(Config{}); d != ":99998" || src != "宿主" {
-		t.Errorf("configuredDisplay = (%q, %q), want the DISPLAY env var as fallback", d, src)
+	plans, _ := planDisplay(getConfig())
+	for i := 1; i < len(plans); i++ {
+		if rank[plans[i-1].Kind] >= rank[plans[i].Kind] {
+			t.Errorf("候选链顺序错了：%s 排在 %s 前面\n完整链：%+v",
+				plans[i-1].Kind, plans[i].Kind, plans)
+		}
+	}
+}
+
+// TestPlanDisplayPrefersManagedOverEnv: 有 Xvfb 可用时，环境变量捡来的显示不许
+// 排在自管 Xvfb 前面。这条正是改序要保证的东西。
+//
+// 无法构造一个真的 DISPLAY，所以断言写成「只要自管那一档在链里，它就必须排在
+// env/existing 之前」——不依赖这台机器上恰好有没有 X 服务。
+func TestPlanDisplayPrefersManagedOverEnv(t *testing.T) {
+	plans, _ := planDisplay(getConfig())
+	seenBorrowed := false
+	for _, p := range plans {
+		switch p.Kind {
+		case displayEnv, displayExisting:
+			seenBorrowed = true
+		case displayManaged:
+			if seenBorrowed {
+				t.Errorf("自管 Xvfb 排在了捡来/扫出来的显示后面：%+v", plans)
+			}
+		}
+	}
+}
+
+// TestPlanDisplayConfiguredWinsOverManaged: linux.display 是逃生舱，不能被这次
+// 改序吃掉 —— 「我就是想用宿主那个显示」必须仍然有办法表达。
+//
+// 这里只能验证到「配置项被读进了解析器」：真正入链还要过一次握手，而单测环境里
+// 没有真显示。所以断言分两种情况写。
+func TestPlanDisplayConfiguredWinsOverManaged(t *testing.T) {
+	cfg := getConfig()
+	cfg.Display = ":99997" // 不存在，必然握手失败
+	plans, _ := planDisplay(cfg)
+	for _, p := range plans {
+		if p.Kind == displayConfigured {
+			t.Errorf("planDisplay 采纳了一个握不上手的 linux.display：%+v", p)
+		}
+	}
+	// 反过来：任何一个真的入链的 configured 候选都必须在最前面（由
+	// TestPlanDisplayChainOrder 的 rank 表钉住），这里只补一条 —— 配置为空时
+	// 绝不会凭空冒出 configured 这一档。
+	cfg.Display = ""
+	plans, _ = planDisplay(cfg)
+	for _, p := range plans {
+		if p.Kind == displayConfigured {
+			t.Errorf("linux.display 为空却出现了 configured 候选：%+v", p)
+		}
+	}
+}
+
+// TestPlanDisplayBlockedOnlyWhenChainEmpty: 不变量 —— blocked 为空 ⇔ 链非空。
+// preflight / DisplayStatus 都建立在这条上：它们只问 planDisplay，而启动路径沿着
+// 同一条链走，两边不能对「这台机器能不能拿到显示」给出不同答案。
+func TestPlanDisplayBlockedOnlyWhenChainEmpty(t *testing.T) {
+	plans, blocked := planDisplay(getConfig())
+	if (blocked == "") != (len(plans) > 0) {
+		t.Errorf("blocked = %q 但链长 %d —— 二者必须互为充要条件", blocked, len(plans))
 	}
 }
 
 // TestDisplayStatusMatchesPlan: 诊断视图与真正的启动判断必须是同一个答案，
 // 否则 verify-arkapi 会报「✔ 显示就绪」而启动照样被拒。
 func TestDisplayStatusMatchesPlan(t *testing.T) {
-	_, blocked := planDisplay(getConfig())
+	plans, blocked := planDisplay(getConfig())
 	info := displayStatus()
 
 	if info.Available != (blocked == "") {
@@ -120,6 +186,14 @@ func TestDisplayStatusMatchesPlan(t *testing.T) {
 	}
 	if info.Blocked != blocked {
 		t.Errorf("DisplayStatus().Blocked = %q, want %q", info.Blocked, blocked)
+	}
+	// 报的必须是**头一档**（下一次启动真正会先用的那个），其余进 Fallbacks。
+	if len(plans) > 0 && plans[0].Kind != displayManaged && info.How != plans[0].How {
+		t.Errorf("DisplayStatus().How = %q, want the chain head %q", info.How, plans[0].How)
+	}
+	if want := len(plans) - min(1, len(plans)); len(info.Fallbacks) != want {
+		t.Errorf("DisplayStatus().Fallbacks 有 %d 条，链长 %d，want %d 条",
+			len(info.Fallbacks), len(plans), want)
 	}
 }
 
@@ -187,16 +261,45 @@ func TestXvfbUnavailableReasonDistinguishesCauses(t *testing.T) {
 	}
 }
 
-// TestX11SocketDirWritableExplainsRefusal: 拒绝时必须给出可执行的原因，
+// TestX11SocketDirStateExplainsRefusal: 拒绝时必须给出可执行的原因，
 // 而且不能再拿 o+w 当判据 —— 那条判据会把「属主是运行时用户的 0755 目录」判成
 // 不可写，而目录恰恰是上一轮那个降权 Xvfb 自己建的（第一次成功毒死后续每一次）。
-func TestX11SocketDirWritableExplainsRefusal(t *testing.T) {
-	ok, why := x11SocketDirWritable()
-	if ok != (why == "") {
-		t.Errorf("x11SocketDirWritable = (%v, %q); 拒绝必须带原因，通过必须不带", ok, why)
+func TestX11SocketDirStateExplainsRefusal(t *testing.T) {
+	st := x11SocketDirState(getConfig())
+	if st.Writable && st.Why != "" {
+		t.Errorf("x11SocketDirState = %+v；可写就不该带原因", st)
 	}
-	if !ok && !strings.Contains(why, x11SocketDir) && !strings.Contains(why, "/tmp") {
-		t.Errorf("refusal reason %q names neither %s nor /tmp", why, x11SocketDir)
+	if !st.Writable && st.Why == "" {
+		t.Errorf("x11SocketDirState = %+v；不可写必须说明原因", st)
+	}
+	if st.Writable && st.Fixable {
+		t.Errorf("x11SocketDirState = %+v；已经可写就没有「待修」这回事", st)
+	}
+	if !st.Writable && !strings.Contains(st.Why, x11SocketDir) && !strings.Contains(st.Why, "/tmp") {
+		t.Errorf("refusal reason %q names neither %s nor /tmp", st.Why, x11SocketDir)
+	}
+}
+
+// TestX11SocketDirStateFixableNeedsRootAndConsent: 「只读挂载但我们修得好」这一档
+// 有两个前提，缺一不可 —— 必须是 root（remount 要 CAP_SYS_ADMIN），
+// 且 linux.allow_x11_remount 没被关掉。关掉时不但不能 Fixable，还要在原因里说清楚
+// 是**配置**挡住的，否则用户会去查一个根本不存在的权限问题。
+func TestX11SocketDirStateFixableNeedsRootAndConsent(t *testing.T) {
+	cfg := getConfig()
+	cfg.AllowX11Remount = false
+	st := x11SocketDirState(cfg)
+	if st.Fixable {
+		t.Errorf("allow_x11_remount=false 却报 Fixable：%+v", st)
+	}
+	if !st.Writable && !strings.Contains(st.Why, "allow_x11_remount") &&
+		strings.Contains(st.Why, "只读挂载") {
+		t.Errorf("只读挂载 + 开关关掉时，原因里必须点名 allow_x11_remount：%q", st.Why)
+	}
+	if os.Geteuid() != 0 {
+		cfg.AllowX11Remount = true
+		if st := x11SocketDirState(cfg); st.Fixable {
+			t.Errorf("非 root 却报 Fixable（remount 需要 CAP_SYS_ADMIN）：%+v", st)
+		}
 	}
 }
 
@@ -210,6 +313,17 @@ func TestCheckDisplayAgreesWithPlan(t *testing.T) {
 	}
 }
 
+// TestFirstLineCompressesMultilineError: 回退原因要缀进 How，而 Xvfb 的失败会带上
+// xvfb.log 的末尾若干行 —— 整段塞进一行文案里没法看。完整原文仍在 error 与日志里。
+func TestFirstLineCompressesMultilineError(t *testing.T) {
+	if got := firstLine("Xvfb 启动失败：缺字体\n/root/xvfb.log 的末尾输出：\nFatal server error"); got != "Xvfb 启动失败：缺字体" {
+		t.Errorf("firstLine = %q, want only the first line", got)
+	}
+	if got := firstLine(strings.Repeat("x", 500)); len(got) > 200 {
+		t.Errorf("firstLine 没有截断超长单行：%d 字符", len(got))
+	}
+}
+
 // TestDisplayBlockedMessageNamesXvfbNotXvfbRun: 拿不到显示时给的提示必须指向
 // **Xvfb**。指向 xvfb-run 会把 Fedora/RHEL/Arch 用户带到一个他们装不上的包
 // （那是 Debian 的脚本），正是这次改动要修的错。
@@ -220,5 +334,24 @@ func TestDisplayBlockedMessageNamesXvfbNotXvfbRun(t *testing.T) {
 	}
 	if strings.Contains(blocked, "xvfb-run") {
 		t.Errorf("blocked message still points at xvfb-run: %q", blocked)
+	}
+}
+
+// TestPlanDisplayNoPhantomXvfbNote: 自管 Xvfb **在链里**时，不许在别的候选后面缀
+// 一句「起不了 Xvfb」。判据一旦写成「头一档不是 managed」，linux.display 点名且
+// Xvfb 一切正常的机器就会得到一句空原因的假故障 —— 一个凭空造出来的排障线索，
+// 比没有线索更贵（同 XVFB 方案 §12.2 那段 Xalia 噪音的教训）。
+func TestPlanDisplayNoPhantomXvfbNote(t *testing.T) {
+	plans, blocked := planDisplay(getConfig())
+	if blocked != "" || len(plans) == 0 {
+		return
+	}
+	if !containsKind(plans, displayManaged) {
+		return // 自管那一档真的不可用，缀原因是对的
+	}
+	for _, p := range plans {
+		if strings.Contains(p.How, "起不了 Xvfb") || strings.Contains(p.How, "本机没有 Xvfb") {
+			t.Errorf("自管 Xvfb 在链里，却有候选声称它不可用：%q", p.How)
+		}
 	}
 }

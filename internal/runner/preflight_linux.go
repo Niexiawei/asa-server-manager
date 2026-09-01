@@ -185,7 +185,8 @@ const xvfbFontHint = "Xvfb 缺少基础字体，装上即可（Debian/Ubuntu: su
 // /tmp/.X11-unix was told, and told only, to go install Xvfb
 // (docs/XVFB_CROSS_DISTRO_DISPLAY_PLAN.md §11).
 func checkDisplay() *Problem {
-	_, blocked := planDisplay(getConfig())
+	cfg := getConfig()
+	_, blocked := planDisplay(cfg)
 	if blocked == "" {
 		return nil
 	}
@@ -196,8 +197,9 @@ func checkDisplay() *Problem {
 			"Wine 下没有显示时它们直接失败（加载器 5 秒后以退出码 3 退出，一行日志都不写）。" +
 			"**不启用 ArkApi 的实例不受影响** —— ArkAscendedServer.exe 本身不需要显示，" +
 			"所以这一项不阻断安装",
-		Fix: xvfbInstallHint + "。若 " + x11SocketDir + " 是只读挂载（WSLg），" +
-			"Xvfb 用不了，需要系统里有一个不需要 xauth cookie 就能连的 X 服务，" +
+		Fix: xvfbInstallHint + "。若 " + x11SocketDir + " 是只读挂载（WSLg 就是这么挂的），" +
+			"asa-server 以 root 运行时会尝试把它重新挂载为可写（linux.allow_x11_remount，" +
+			"默认开）；这一步也失败时，需要系统里有一个不需要 xauth cookie 就能连的 X 服务，" +
 			"并可用 config.yaml 的 linux.display 指定它",
 	}
 }

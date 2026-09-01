@@ -200,17 +200,27 @@ linux:
 
   # --- 图形显示（ArkApi 与 VC++ 安装器的前置依赖）---
   # AsaApiLoader.exe 会创建 Win32 窗口，Wine 连不上 X 服务就以退出码 3 静默退出。
-  # 解析顺序：① 下面的 display ②（没有就）本程序自管的 Xvfb ③ 系统里已在跑的 X 服务。
-  # 无头服务器走 ②，装 Xvfb 即可：apt install xvfb / dnf install xorg-x11-server-Xvfb
-  #                              / pacman -S xorg-server-xvfb
-  # 留空 = 读 DISPLAY 环境变量。后台服务进程没有这个变量，机器上有现成 X 服务
-  # （桌面会话、WSLg 的 :0）时在这里点名告诉它，例如  ":0"
+  # 解析顺序：点名的 > 自己管的 > 捡来的 > 扫出来的，也就是
+  #   ① 下面的 display  ② 本程序自管的 Xvfb  ③ DISPLAY 环境变量  ④ 系统里已在跑的 X 服务
+  # 默认走 ②：那是唯一由本程序启动、监控、随之退出的显示，不受桌面会话注销影响，
+  # 也不会把游戏窗口弹到用户桌面上。装 Xvfb 即可：
+  #   apt install xvfb / dnf install xorg-x11-server-Xvfb / pacman -S xorg-server-xvfb
+  # ①②都不成立时才会用 ③④，届时日志里会写明为什么。
+  #
+  # display 留空 = 不点名。想反过来用宿主现成的 X 服务（调试时想看见游戏窗口、
+  # 或本机 Xvfb 用不了），在这里写死它，例如  ":0"（WSLg 的显示就是 :0）
   display: ""
   # Xvfb 服务端二进制的路径，留空 = 从 PATH 与常见位置找。
   # 注意是 Xvfb（X.Org 服务端），不是 Debian 的 xvfb-run 脚本。
   xvfb_bin: ""
   # 自管 Xvfb 的屏幕规格，留空 = 1280x1024x24（排障用，正常不用改）
   xvfb_screen: ""
+  # /tmp/.X11-unix 是只读挂载时，允不允许把它重新挂载为可写。
+  # X 的 socket 路径写死在 X 的代码里改不了，所以这是 WSL/WSLg（正是这么挂的）上
+  # 唯一能用上自管 Xvfb 的办法。仅在 asa-server 以 root 运行、且确实是只读挂载时
+  # 才动手（只改读写属性，不遮挡 WSLg 自己的 :0），动手会记日志，退出时还原。
+  # false = 不碰宿主挂载表，WSL 上退回使用 WSLg 的 :0
+  allow_x11_remount: true
 
   # 游戏实例以专用非 root 用户运行（仅当 asa-server 自身以 root 运行时生效），见
   # docs/UMU_RUNTIME_USER_PLAN.md。asa-server 进程仍是 root，只有 umu/wine/游戏进程树被降权。

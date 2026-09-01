@@ -205,6 +205,11 @@ type LinuxConfig struct {
 	XvfbBin string `mapstructure:"xvfb_bin"`
 	// XvfbScreen：自管 Xvfb 的 -screen 规格，留空 = 1280x1024x24。排障用。
 	XvfbScreen string `mapstructure:"xvfb_screen"`
+	// AllowX11Remount：/tmp/.X11-unix 是只读挂载时，允不允许把它重新挂载为可写。
+	// 默认 true。X 的 socket 路径写死在 xtrans 里改不了，所以这是 WSL/WSLg（把该目录
+	// 挂成只读 tmpfs）上唯一能用上自管 Xvfb 的办法；关掉就退回用 WSLg 自己的 :0。
+	// 仅在 asa-server 以 root 运行、且真的是只读挂载时才动手，动手留日志，退出时还原。
+	AllowX11Remount bool `mapstructure:"allow_x11_remount"`
 	// WineDLLOverrides 原样追加到游戏进程的 WINEDLLOVERRIDES，留空 = 不设。
 	// VC++ 那组 override 已在安装时写进 prefix 注册表，不必在这里重复；排障用。
 	WineDLLOverrides string `mapstructure:"wine_dll_overrides"`
@@ -559,15 +564,16 @@ func defaultConfig() Config {
 			Retries: 3,
 		},
 		Linux: LinuxConfig{
-			Runtime:        "umu",
-			UmuVersion:     "1.4.4",
-			ProtonVersion:  "GE-Proton10-34",
-			PrefixMode:     "shared",
+			Runtime:         "umu",
+			UmuVersion:      "1.4.4",
+			ProtonVersion:   "GE-Proton10-34",
+			PrefixMode:      "shared",
 			AutoDownload:    true,
 			SteamRTPrefetch: true,
 			InstallVCRedist: true,
+			AllowX11Remount: true,
 			GameID:          "umu-default",
-			UmuRuntimeUser: "asa-umu-runtime",
+			UmuRuntimeUser:  "asa-umu-runtime",
 		},
 	}
 }
@@ -635,6 +641,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("linux.display", "")
 	v.SetDefault("linux.xvfb_bin", "")
 	v.SetDefault("linux.xvfb_screen", "")
+	v.SetDefault("linux.allow_x11_remount", d.Linux.AllowX11Remount)
 	v.SetDefault("linux.gameid", d.Linux.GameID)
 	v.SetDefault("linux.umu_runtime_user", d.Linux.UmuRuntimeUser)
 	v.SetDefault("linux.umu_runtime_uid", d.Linux.UmuRuntimeUID)
