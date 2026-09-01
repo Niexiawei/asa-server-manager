@@ -192,10 +192,11 @@ func vcRedistStatus(prefixKey, gameDir string) VCRedistInfo {
 	info.WantOverrides = len(vcRedistOverrideDLLs)
 
 	// 诊断视图，只问计划不动手 —— `verify-arkapi --check-only` 不该顺手起个 X 服务。
-	if d, blocked := planDisplay(cfg); blocked != "" {
+	// 报候选链的头一档：安装真跑起来时先试的就是它。
+	if plans, blocked := planDisplay(cfg); blocked != "" {
 		info.InstallerBlocked = blocked
 	} else {
-		info.InstallerDisplay = d.How
+		info.InstallerDisplay = plans[0].How
 	}
 
 	for _, name := range vcRedistOverrideDLLs {
@@ -207,6 +208,22 @@ func vcRedistStatus(prefixKey, gameDir string) VCRedistInfo {
 		info.DLLs = append(info.DLLs, d)
 	}
 	return info
+}
+
+// prefixHasVCRedistOverrides 报告某个 prefix 的 user.reg 里我们那批 DLL override
+// 是否已经齐了。**只读一个文件**，所以可以放在实例启动这种热路径上。
+//
+// 它与 prefixHasVCRedist 判的不是同一件事，别混用：后者看 system32 里有没有微软
+// 原生 DLL（= vc_redist 安装器跑成功过），而安装器在没有图形显示的机器上**永远
+// 装不上**（退出码 203）。拿它当「要不要再试一次」的判据，会让无头机每次启动都
+// 重跑一遍 ensureVCRedist —— 那里面有一次 regedit 容器启动，好几秒。
+// override 才是承重的那一环，也是无头可用的那一环，所以由它当判据。
+func prefixHasVCRedistOverrides(prefix string) bool {
+	data, err := os.ReadFile(filepath.Join(prefix, "user.reg"))
+	if err != nil {
+		return false
+	}
+	return countVCRedistOverrides(data) >= len(vcRedistOverrideDLLs)
 }
 
 // countVCRedistOverrides 数 user.reg 的 DllOverrides 段里有几条是我们写的

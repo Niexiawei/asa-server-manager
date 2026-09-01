@@ -79,6 +79,20 @@ func ensurePrefix(ctx context.Context, prefixKey string, progress io.Writer) err
 
 	// Fast path, and the reason this is cheap to call on every start.
 	if prefixInitialized(prefix) && prefixMarker(prefix) == cfg.ProtonVersion {
+		// ...但 VC++ 的 DLL override 要单独过一眼。装它的那一步（下面 warmPrefix
+		// 之后）只在**新建 prefix** 时跑，所以任何比那段代码更早创建的 per-instance
+		// prefix 会永远停在没有 override 的状态：闸门放行、实例起来、ArkApi 加载
+		// 不了，而且每次启动都只有一条「没检测到 VC++ 运行时」的告警。
+		// 这正是 docs/ARKAPI_LINUX_VCREDIST_PLAN.md §2.2 记的「per-instance 暂不
+		// 覆盖」——那条备注当时的理由是"没人传 PrefixKey"，而 start 路径现在传了。
+		//
+		// 判据用 override 而不是 prefixHasVCRedist：见前者的注释，安装器在无头机上
+		// 装不上，用它当判据会让每次启动都重跑一遍 regedit 容器。
+		if !prefixHasVCRedistOverrides(prefix) {
+			if err := ensureVCRedist(ctx, cfg, prefixKey, logf); err != nil {
+				logf("实例 %s 的 Wine 前缀里补装 VC++ 运行时失败（%v）；不使用 ArkApi 可忽略", prefixKey, err)
+			}
+		}
 		return nil
 	}
 
