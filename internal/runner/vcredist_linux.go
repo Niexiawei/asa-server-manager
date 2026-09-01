@@ -84,9 +84,10 @@ func ensureVCRedist(ctx context.Context, cfg Config, prefixKey string, logf func
 		return nil
 	}
 	if blocked != "" {
-		// preflight 已经把 xvfb 列为阻断级依赖，所以正常装过的机器走不到这里；
-		// 走到了说明用户用 --ignore-preflight 跳过了。不阻断 setup，但要说清楚
-		// 代价：ArkApi 在这台机器上同样起不来（不是只有 system32 没补齐）。
+		// 缺显示在 preflight 里只是**建议项**（缺它只影响 ArkApi，见 checkDisplay），
+		// 所以一台没装 Xvfb 的机器会一路走到这里 —— 这条分支是常规路径，不是意外。
+		// 不阻断 setup，但要说清楚代价：ArkApi 在这台机器上同样起不来
+		// （不是只有 system32 没补齐）。
 		logf("跳过 VC++ 运行时安装：%s。", blocked)
 		logf("  override 已经写好，普通实例不受影响；但 **ArkApi 实例同样起不来** ——")
 		logf("  AsaApiLoader.exe 也要求有图形显示。请%s，然后重跑 asa-server setup。", xvfbInstallHint)
@@ -394,6 +395,11 @@ func runInPrefix(ctx context.Context, cfg Config, prefix, exePath string, args [
 		// `verify-arkapi` / EnsurePrefixVCRedist 会一路挂到下面那个硬超时
 		// （vcRedistInstallTimeout，15 分钟）才报错，且错得毫无线索。
 		"PROTON_VERB=run",
+		// 无障碍覆盖层在这里尤其多余：override 那一步**故意不带显示**跑
+		// （见 ensureVCRedist 第一步），于是 Xalia 每次必崩一次，在
+		// 「正在写入 11 条 VC++ DLL override」正下方留一段 .NET 栈 ——
+		// 看着像 override 失败了，其实 11/11 全写进去了。见 protonNoXalia。
+		protonNoXalia,
 	)
 	// 用与游戏进程相同的身份运行：装出来的文件属主才对，降权后的 AsaApiLoader
 	// 才读得到。同 warmPrefix。

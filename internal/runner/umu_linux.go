@@ -32,6 +32,32 @@ func protonPath(cfg Config) string {
 	return filepath.Join(protonBaseDir(cfg), cfg.ProtonVersion)
 }
 
+// protonNoXalia turns off Xalia, the accessibility / gamepad UI overlay
+// GE-Proton starts alongside every launch. Its script defaults
+// PROTON_USE_XALIA to "1" but honours a value supplied from outside
+// (`if "PROTON_USE_XALIA" not in self.env`), which is how this works —
+// GE-Proton10-34's proton, L2093.
+//
+// A dedicated server has no screen and nobody sitting at one, so the overlay
+// has nothing to do here in *any* launch. And without a display it doesn't
+// merely idle, it **fails**: SDL finds no video driver and Xalia dies with
+//
+//	System.PlatformNotSupportedException: Video driver  not supported
+//	  at Xalia.Sdl.WindowingSystem.Create () ...
+//
+// (note the doubled space — the driver name is empty, i.e. no DISPLAY at all).
+// That crash is harmless to the program actually being launched, and that is
+// exactly why it earns removal: a plain instance start — the common case,
+// NeedsDisplay is false for ArkAscendedServer.exe, so it never gets a display —
+// buried a .NET stack trace in launcher.log that reads like a failure and is
+// not one. Diagnostic noise that mimics a fault costs more than the process it
+// comes from.
+//
+// Applied at all three places a umu/Proton command line is built (launch,
+// warmPrefix, runInPrefix); 2026-08-31 真机确认，见
+// docs/XVFB_CROSS_DISTRO_DISPLAY_PLAN.md §12.
+const protonNoXalia = "PROTON_USE_XALIA=0"
+
 // prefixDir resolves the Wine prefix directory for one launch. key is
 // opt.PrefixKey; empty means the default shared prefix regardless of
 // PrefixMode (per-instance callers must supply a key to actually get
@@ -332,6 +358,7 @@ func warmPrefix(ctx context.Context, cfg Config, key string, logf func(string, .
 		"PROTONPATH="+protonPath(cfg),
 		// Deliberately no UMU_RUNTIME_UPDATE=0 here: this is the one
 		// invocation that must be allowed to fetch a missing runtime.
+		protonNoXalia,
 	)
 	// Warm the prefix as the same non-root user that will later run the
 	// game, so the prefix + Steam Linux Runtime cache are created with the

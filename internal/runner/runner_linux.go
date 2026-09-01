@@ -214,6 +214,8 @@ func umuCommandLine(exePath string, args []string, opt Options) (bin string, lau
 		// the launch command line and missing the export above it.
 		// See docs/UMU_PREFIX_PER_INSTANCE_PLAN.md §2-§4.
 		"PROTON_VERB=run",
+		// No accessibility overlay on a headless server — see protonNoXalia.
+		protonNoXalia,
 	)
 	// Operator escape hatch. The VC++ override set ArkApi needs is already
 	// written into the prefix registry at install time (see

@@ -161,6 +161,52 @@ func TestUmuCommandLine_PinsProtonVerbToRun(t *testing.T) {
 	}
 }
 
+// TestUmuCommandLine_DisablesXalia: 无障碍覆盖层在服务端上没有用处，而在没有显示的
+// 启动里（普通实例就是这样）它每次必崩一次，往 launcher.log 里塞一段看着像故障的
+// .NET 栈。同样要能压过外面导出的值 —— launchEnvAllowed 放行 PROTON_*，
+// 所以我们这一份必须排在继承来的那一份后面。见 protonNoXalia。
+func TestUmuCommandLine_DisablesXalia(t *testing.T) {
+	base := t.TempDir()
+	Configure(Config{
+		Runtime:       "umu",
+		ProtonVersion: "GE-Proton10-34",
+		PrefixMode:    "shared",
+		GameID:        "umu-default",
+		BaseDir:       base,
+	})
+	t.Cleanup(func() { Configure(defaultConfig()) })
+
+	for _, p := range []string{
+		filepath.Join(base, "umu-launcher", "umu-run"),
+		filepath.Join(base, "proton", "GE-Proton10-34", "proton"),
+		filepath.Join(base, "umu-prefix", "system.reg"),
+	} {
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		if err := os.WriteFile(p, []byte("x"), 0o755); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+	}
+	t.Setenv("PROTON_USE_XALIA", "1")
+
+	_, _, env, err := umuCommandLine(filepath.Join(base, "ArkAscendedServer.exe"), nil, Options{})
+	if err != nil {
+		t.Skipf("umuCommandLine unavailable in this environment: %v", err)
+	}
+
+	last := ""
+	for _, kv := range env {
+		if v, ok := strings.CutPrefix(kv, "PROTON_USE_XALIA="); ok {
+			last = v
+		}
+	}
+	if last != "0" {
+		t.Fatalf("effective PROTON_USE_XALIA = %q, want \"0\" —— 服务端不需要无障碍覆盖层，"+
+			"而没有显示时它必崩并留下误导性的栈", last)
+	}
+}
+
 func TestCheckRuntime_MessagesPointAtSetup(t *testing.T) {
 	Configure(Config{Runtime: "umu", ProtonVersion: "GE-Proton10-34", BaseDir: t.TempDir()})
 	t.Cleanup(func() { Configure(defaultConfig()) })
