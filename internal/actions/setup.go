@@ -75,22 +75,35 @@ func ActionSetup(ctx context.Context, cmd *cli.Command) error {
 		logger.InitLoggerWithBaseDir(baseDir)
 	}
 
+	// runner.Configure **整体覆盖**（runner.go 的 current.Store），所以这里必须把
+	// linux.* 全给齐 —— 漏一项就等于在 setup 中途把它悄悄清空。曾经漏掉的正是
+	// display/xvfb_bin/xvfb_screen 与 umu_runtime_*：preflight 跑在这一行之前，
+	// 用的是 main.go 灌进去的完整配置，过了自检之后却换成一份残缺的，
+	// 同一条命令里前后两种行为。见 docs/XVFB_CROSS_DISTRO_DISPLAY_PLAN.md §11。
 	appCfg := appconfig.Get()
 	runner.Configure(runner.Config{
-		Runtime:       appCfg.Linux.Runtime,
-		UmuVersion:    appCfg.Linux.UmuVersion,
-		ProtonVersion: appCfg.Linux.ProtonVersion,
-		PrefixMode:    appCfg.Linux.PrefixMode,
-		PrefixDir:     appCfg.Linux.PrefixDir,
-		PythonBin:     appCfg.Linux.UmuPythonBin,
-		AutoDownload:    appCfg.Linux.AutoDownload,
+		Runtime:          appCfg.Linux.Runtime,
+		UmuVersion:       appCfg.Linux.UmuVersion,
+		ProtonVersion:    appCfg.Linux.ProtonVersion,
+		PrefixMode:       appCfg.Linux.PrefixMode,
+		PrefixDir:        appCfg.Linux.PrefixDir,
+		PythonBin:        appCfg.Linux.UmuPythonBin,
+		AutoDownload:     appCfg.Linux.AutoDownload,
 		SteamRTPrefetch:  appCfg.Linux.SteamRTPrefetch,
 		InstallVCRedist:  appCfg.Linux.InstallVCRedist,
 		VCRedistURL:      appCfg.Linux.VCRedistURL,
 		VCRedistSHA256:   appCfg.Linux.VCRedistSHA256,
 		WineDLLOverrides: appCfg.Linux.WineDLLOverrides,
+		Display:          appCfg.Linux.Display,
+		XvfbBin:          appCfg.Linux.XvfbBin,
+		XvfbScreen:       appCfg.Linux.XvfbScreen,
 		GameID:           appCfg.Linux.GameID,
 		BaseDir:          baseDir,
+		RuntimeUser:      appCfg.Linux.UmuRuntimeUser,
+		RuntimeUID:       appCfg.Linux.UmuRuntimeUID,
+		RuntimeGID:       appCfg.Linux.UmuRuntimeGID,
+		RunAsRoot:        appCfg.Linux.UmuRunAsRoot,
+		RuntimeDeepProbe: appCfg.Linux.UmuRuntimeDeepProbe,
 	})
 
 	if runtime.GOOS == "linux" {

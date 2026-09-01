@@ -431,21 +431,32 @@ func (g *GUIApp) applyChosenBaseDir(chosen string) {
 	}
 	logger.InitLoggerWithBaseDir(baseDir)
 
+	// 与 internal/actions/setup.go 同理：runner.Configure 是整体覆盖，字段必须给齐，
+	// 漏一项就是把它清空。见 docs/XVFB_CROSS_DISTRO_DISPLAY_PLAN.md §11。
 	appCfg := appconfig.Get()
 	runner.Configure(runner.Config{
-		Runtime:       appCfg.Linux.Runtime,
-		UmuVersion:    appCfg.Linux.UmuVersion,
-		ProtonVersion: appCfg.Linux.ProtonVersion,
-		PrefixMode:    appCfg.Linux.PrefixMode,
-		PrefixDir:     appCfg.Linux.PrefixDir,
-		AutoDownload:    appCfg.Linux.AutoDownload,
+		Runtime:          appCfg.Linux.Runtime,
+		UmuVersion:       appCfg.Linux.UmuVersion,
+		ProtonVersion:    appCfg.Linux.ProtonVersion,
+		PrefixMode:       appCfg.Linux.PrefixMode,
+		PrefixDir:        appCfg.Linux.PrefixDir,
+		PythonBin:        appCfg.Linux.UmuPythonBin,
+		AutoDownload:     appCfg.Linux.AutoDownload,
 		SteamRTPrefetch:  appCfg.Linux.SteamRTPrefetch,
 		InstallVCRedist:  appCfg.Linux.InstallVCRedist,
 		VCRedistURL:      appCfg.Linux.VCRedistURL,
 		VCRedistSHA256:   appCfg.Linux.VCRedistSHA256,
 		WineDLLOverrides: appCfg.Linux.WineDLLOverrides,
+		Display:          appCfg.Linux.Display,
+		XvfbBin:          appCfg.Linux.XvfbBin,
+		XvfbScreen:       appCfg.Linux.XvfbScreen,
 		GameID:           appCfg.Linux.GameID,
 		BaseDir:          baseDir,
+		RuntimeUser:      appCfg.Linux.UmuRuntimeUser,
+		RuntimeUID:       appCfg.Linux.UmuRuntimeUID,
+		RuntimeGID:       appCfg.Linux.UmuRuntimeGID,
+		RunAsRoot:        appCfg.Linux.UmuRunAsRoot,
+		RuntimeDeepProbe: appCfg.Linux.UmuRuntimeDeepProbe,
 	})
 }
 

@@ -545,6 +545,16 @@ func init() {
 
 // Configure sets the active Linux runtime configuration. Safe to call from
 // both platforms' startup path — see the Config doc comment.
+//
+// It **replaces** the config wholesale; it does not merge into the current
+// one. So every caller must pass a complete Config built from appconfig, not
+// the subset it happens to care about — a field left out is a field cleared.
+// This has bitten once already: `asa-server setup` reconfigured with a
+// hand-copied field list that predated linux.display/xvfb_bin/xvfb_screen, so
+// preflight (which runs earlier, on main.go's complete config) honoured them
+// and everything after that call did not
+// (docs/XVFB_CROSS_DISTRO_DISPLAY_PLAN.md §11). When adding a Config field,
+// grep for Configure( and update every call site.
 func Configure(cfg Config) {
 	current.Store(&cfg)
 }
