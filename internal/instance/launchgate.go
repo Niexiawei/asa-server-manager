@@ -88,12 +88,38 @@ func acquireLaunchGate(ctx context.Context, instanceName string) (release func()
 // conflictingArkApiInstance 找出「已经在跑、并且也启用了 ArkApi」的实例，
 // 空字符串表示没有冲突。只在共享 Wine prefix 下有意义。
 //
-// 为什么这是个硬冲突：一个 prefix = 一个 wineserver = 一个 Wine 会话，而 Wine 的
-// 显示子系统（winex11.drv / explorer 桌面）**每个会话只初始化一次**。第一个
-// AsaApiLoader.exe 起来时会话就绑定在它那个 X 显示上了；第二个加载器带着自己的
-// DISPLAY 加入同一个会话，会在 umu.exe 之后、exec 出加载器之前**静默挂住**——
-// 不报错、不退出、什么都不打，一直到 waitForGamePID 三分钟超时为止
-// （2026-08-31 真机实测，见 docs/UMU_PREFIX_PER_INSTANCE_PLAN.md §2.2）。
+// 为什么这是个硬冲突：一个 prefix = 一个 wineserver = 一个 Wine 会话，而同一个
+// 会话里起第二个 AsaApiLoader.exe，它会在 umu.exe 之后、exec 出加载器之前**挂住**
+// ——不退出、不报错，一直到 waitForGamePID 三分钟超时被清掉。
+//
+// **这一条是观测，不是推断，而且复测过两轮**：
+//
+//   - 2026-08-31 首次实测（每个实例各自 fork 一个 Xvfb、显示号互不相同）。
+//   - 2026-09-01 在自管 Xvfb 下复测，**全部实例同一个 DISPLAY=:0**，三轮、
+//     两次对调先后顺序（jibian↔meijue），后起的那个每次都止步于 umu.exe、
+//     每次都跑满 3 分钟被清。见 docs/SHARED_PREFIX_MULTI_ARKAPI_PLAN.md §5。
+//
+// 复测的意义在于：当初判死这条路的实验里两个实例带着两个不同的显示，而现在它们
+// 必然带同一个。**统一显示并不能解决问题**，所以卡点确实在 Wine 会话这一层。
+//
+// **卡点在哪，2026-09-01 的 WINEDEBUG=+x11drv,+win,+explorer 复测已经钉死**——
+// 不在显示，也不在窗口创建，而是更靠后：
+//
+//   - 后起那条链**不去建 desktop，而是加入先来那个的**：它的窗口父级就是 A 的
+//     explorer 建的桌面窗口/Message 窗口，没有 "started explorer"。
+//   - 它的 x11drv **完整初始化了两次，零错误**。
+//   - 它一路走到 **Wine conhost 为 umu.exe 建出控制台窗口**（WineConsoleClass +
+//     对应的 X 窗口），**建成功了**。
+//   - 然后 umu.exe 停在 futex_waitv，**从此不再 exec 目标 exe**；conhost 那个窗口
+//     还在一秒一次地重绘、光标还在闪，直到超时被清。
+//
+// 所以旧注释里那句「Wine 的显示子系统每会话只初始化一次，第二个加载器在创建窗口
+// 这一步静默挂住」**三处都错**：显示子系统没坏、窗口建出来了、它也不"静默"
+// （41KB 日志且还在涨，只是没人接过它的 stderr 看）。
+//
+// ⚠️ **umu.exe 在等哪个同步对象，至今未知。** 这一行是有意留空的：上一次有人在
+// 这里填了个听起来合理的推断，然后它被抄进四个地方当事实用了三个月。要填就拿
+// 观测填 —— 下一步该做的对照写在 docs/SHARED_PREFIX_MULTI_ARKAPI_PLAN.md §12.4。
 //
 // 只有 ArkApi 会撞：ArkAscendedServer.exe 根本不碰显示，所以共享 prefix 下
 // 多个纯 ARK 实例是正常可用的——参考脚本 ark_instance_manager.sh 一直如此，
