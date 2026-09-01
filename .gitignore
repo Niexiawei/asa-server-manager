@@ -27,3 +27,4 @@ CLAUDE.md
 .claude
 */.claude
 .codegraph
+tmp/
