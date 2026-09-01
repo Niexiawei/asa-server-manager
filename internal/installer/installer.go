@@ -495,7 +495,7 @@ func VerifyServerInstallation(ctx context.Context, force bool, outputCallback ..
 	time.Sleep(2 * time.Second)
 
 	if waitErr != nil {
-		reportVerificationFailure(logsDir, emit)
+		reportVerificationFailure(verifyLaunchLogPath(), logsDir, emit)
 		return fmt.Errorf("server verification failed: %w", waitErr)
 	}
 
@@ -614,14 +614,37 @@ func elapsed(since time.Time) time.Duration {
 	return time.Since(since).Round(time.Second)
 }
 
-// reportVerificationFailure emits the tail of both logs a failed verification
+// reportVerificationFailure emits the tail of the logs a failed verification
 // leaves behind, mirroring what scripts/ark_instance_manager.sh prints when
 // the initial server start doesn't come up. Without this the caller is told
 // "it didn't start" and has to go find the files by hand — which, when the
 // launch output was being discarded entirely, was not even possible.
-func reportVerificationFailure(logsDir string, emit func(string)) {
-	if tail := tailLines(verifyLaunchLogPath(), 20); tail != "" {
-		emit(fmt.Sprintf("--- last lines of %s ---\n%s", verifyLaunchLogPath(), tail))
+//
+// launchLog must be **the log this run actually wrote**, which is why it is a
+// parameter rather than verifyLaunchLogPath(). It used to be hardcoded, so a
+// failed `verify-arkapi` printed the tail of verify-launch.log — a different
+// file, written by a different command, quite possibly hours earlier. The
+// result was a report whose header said verify-arkapi-launch.log while its
+// body showed `Proton: .../ArkAscendedServer.exe` from a stale
+// VerifyServerInstallation run: every line true, the whole thing misleading.
+// 2026-08-31 真机上就是这么读岔的，见 docs/XVFB_CROSS_DISTRO_DISPLAY_PLAN.md §13.
+//
+// extraLogDirs are further directories to take the newest log from — ArkApi
+// writes its own log next to the loader and that is the one worth reading when
+// the loader is what failed.
+func reportVerificationFailure(launchLog, logsDir string, emit func(string), extraLogDirs ...string) {
+	if tail := tailLines(launchLog, 20); tail != "" {
+		emit(fmt.Sprintf("--- last lines of %s ---\n%s", launchLog, tail))
+	}
+	for _, dir := range extraLogDirs {
+		log, err := findLatestLogFile(dir)
+		if err != nil {
+			emit(fmt.Sprintf("(no log was produced in %s)", dir))
+			continue
+		}
+		if tail := tailLines(log, 30); tail != "" {
+			emit(fmt.Sprintf("--- last lines of %s ---\n%s", log, tail))
+		}
 	}
 	gameLog, err := findLatestLogFile(logsDir)
 	if err != nil {
