@@ -21,7 +21,7 @@ Wine/Proton（经 [umu-launcher](https://github.com/Open-Wine-Components/umu-lau
 | `libzstd.so.1` | Steam Linux Runtime 依赖 | `apt install libzstd1` |
 | `tar` | 解压 SteamCMD/GE-Proton/umu 归档 | 通常预装 |
 | AppArmor 允许非特权 user namespace | pressure-vessel 沙箱需要；Ubuntu 23.10+ 默认限制 | `sysctl kernel.apparmor_restrict_unprivileged_userns=0`（永久生效需写 `/etc/sysctl.d/`） |
-| **`Xvfb`** | 虚拟 X 显示。`AsaApiLoader.exe`（ArkApi）与微软 VC++ 安装器都会创建 Win32 窗口，Wine 下没有显示就直接失败，见下方「为什么无头服务器也要装 Xvfb」 | Debian/Ubuntu `apt install xvfb`  \|  Fedora/RHEL `dnf install xorg-x11-server-Xvfb`  \|  Arch `pacman -S xorg-server-xvfb` |
+| **`Xvfb`（只有用 ArkApi 才需要）** | 虚拟 X 显示。`AsaApiLoader.exe`（ArkApi）与微软 VC++ 安装器都会创建 Win32 窗口，Wine 下没有显示就直接失败，见下方「为什么无头服务器也要装 Xvfb」。不用 ArkApi 可以不装 | Debian/Ubuntu `apt install xvfb`  \|  Fedora/RHEL `dnf install xorg-x11-server-Xvfb`  \|  Arch `pacman -S xorg-server-xvfb` |
 | **`acl`（强烈建议，非必需）** | 让 root 新建的文件自动可被降权的游戏进程写入，见下方「共享写权限」 | `apt install acl` |
 
 ### 为什么无头服务器也要装 Xvfb
@@ -36,9 +36,14 @@ failed to start.`），任何要开窗口的 Windows 程序都会在打出第一
 | `AsaApiLoader.exe`（ArkApi） | **退出码 3，零输出** —— 不打日志、不建自己的 `Win64/logs/` 目录、也不拉起游戏进程。实测（WSL2 + GE-Proton10-34 + umu 1.4.4，2026-08-30）只补一个可用的 `DISPLAY`，同一条命令就能加载 ArkApi、下载 offsets cache、加载插件并拉起 `ArkAscendedServer.exe` |
 | `vc_redist.x64.exe` | 退出码 203，什么都不装（见 `docs/ARKAPI_LINUX_VCREDIST_PLAN.md` §2.6） |
 
-因此「能不能拿到一个 X 显示」是 **preflight 的阻断级检查**（`x11-display`）：
-不满足时 `asa-server setup` 会中止（`--ignore-preflight` 可强行继续）。这与 `acl`
-的定位不同 —— 缺 `acl` 会降级成可用的 chown 方案，缺显示则**没有第二条路**。
+因此「能不能拿到一个 X 显示」是 preflight 的一项检查（`x11-display`），但它是
+**建议级**，与 `acl` 同级：`asa-server setup` 会把它列出来然后照常装完。理由是
+显示只对**启用了 ArkApi 的实例**是硬依赖，而 ArkApi 是每实例可选的 —— 普通实例
+从头到尾不碰显示。真正需要它的地方会自己把关：启用 ArkApi 的实例启动时会被**直接
+拒绝**并给出原因，`asa-server verify-arkapi` 的 `[3]` 也会明确报出来。
+
+> 它一度是阻断级，结果一台永远用不到 ArkApi 的无头机连 `setup` 都跑不完。
+> 2026-08-31 已改为建议级，见 `docs/XVFB_CROSS_DISTRO_DISPLAY_PLAN.md` §11。
 
 asa-server 按下面的顺序取显示，**每一条都会真的连一次 X 服务验证**（不是看变量、
 也不是看文件在不在）：
@@ -46,7 +51,7 @@ asa-server 按下面的顺序取显示，**每一条都会真的连一次 X 服�
 | # | 用什么 | 前提 |
 |---|---|---|
 | 1 | 显式点名的显示：`config.yaml` 的 `linux.display`，其次 `DISPLAY` 环境变量 | 非空、socket 在、且不需要 xauth cookie 就能握手 |
-| 2 | **asa-server 自己拉起的 `Xvfb`** | 装了 Xvfb **且 `/tmp/.X11-unix` 可写**。这是无头服务器的正路 |
+| 2 | **asa-server 自己拉起的 `Xvfb`** | 装了 Xvfb **且 `/tmp/.X11-unix` 写得进去**（判据是 `access(2)`，不是权限位长什么样；以 root 运行时还会在起 Xvfb 前把这个目录按 X 的约定扶正到 `1777`）。这是无头服务器的正路 |
 | 3 | 系统里已在运行的 X 服务 | 扫 `/tmp/.X11-unix/X<n>` 逐个握手，取第一个能连的 |
 
 第 3 条是给**服务/后台进程**兜底的：它们通常没有 `DISPLAY` 环境变量（`/proc/<pid>/environ`
@@ -249,6 +254,8 @@ sudo ./asa-server service remove    # 同时联动清理已安装的本地 CA（
 | 每次启动都重新下载 umu/GE-Proton，或直接崩在 steamclient | systemd 服务的 `HOME` 未正确设置 | 确认走的是 `asa-server service install`（会显式写 `Environment=HOME=...`），而不是手写的、没设 `HOME` 的 unit 文件 |
 | 首次 `setup` 卡在 Steam Linux Runtime 下载 / 超时失败 | 到 `repo.steampowered.com` 的网络不稳 | 默认已由本程序用自己的下载器预取（有重试、断点续传、走 `download.http_proxy`），日志里应出现 `正在预下载 Steam Linux Runtime`。若预取本身也失败，日志会打「改由 umu 自行下载」——此时 umu 那条路只认**环境变量**，给 systemd unit 加 `Environment=HTTPS_PROXY=http://…` 后重试。排障可用 `linux.steamrt_prefetch: false` 关掉预取。见 `docs/STEAMRT_PREFETCH_PLAN.md` |
 | 启用了 ArkApi 的实例起不来，日志停在 `fsync: up and running.` 之后一个字都没有 | **没有可用的图形显示**（最常见）。`AsaApiLoader.exe` 会创建 Win32 窗口，Wine 连不上 X 就以退出码 3 静默退出 | 装 Xvfb（`apt install xvfb` / `dnf install xorg-x11-server-Xvfb` / `pacman -S xorg-server-xvfb`）。装好后 asa-server 会自己拉起一个 Xvfb 给加载器用；没装时实例启动会被**直接拒绝**并给出这条提示，而不是假装启动成功。见 `docs/ARKAPI_LINUX_VCREDIST_PLAN.md` §9 与 `docs/XVFB_CROSS_DISTRO_DISPLAY_PLAN.md` |
+| 日志里有 `System.PlatformNotSupportedException: Video driver  not supported` + `Xalia.Sdl.WindowingSystem.Create` 的栈 | **不是故障。** Xalia 是 GE-Proton 附带的无障碍/手柄 UI 覆盖层，与被启动的程序并行的另一个进程；没有 DISPLAY 时它初始化不出窗口系统就自己退出（注意 `driver` 与 `not` 之间是两个空格——驱动名是空的，即这次运行没有显示）。普通实例本来就不需要显示 | 已消音：三处 umu/Proton 命令行都加了 `PROTON_USE_XALIA=0`，升级后不再出现。判断某一步成没成功要看它自己的结论（如 `verify-arkapi` 的 `[4] DLL override: 11/11`），不是看有没有这段栈。见 `docs/XVFB_CROSS_DISTRO_DISPLAY_PLAN.md` §12 |
+| `Xvfb` 明明装了（`which Xvfb` 有），`setup` / `verify-arkapi` 却说「本机没有可用的 X 显示」 | 已修复。`/tmp/.X11-unix` 的权限被判成不可写。旧代码要求这个目录有 `o+w`，而目录常常是**上一轮那个降权 Xvfb 自己建的**——非 root 的 X 服务端建不出 `1777`，落到 umask 022 就是 `0755`、属主是运行时用户；那个用户明明是属主写得进去，`o+w` 这条判据却判它不行。于是**第一次成功启动把后续每一次都毒死了** | 升级到含本修复的版本：判据改为 `access(2)` 的实际写入能力，且以 root 运行时会在起 Xvfb 前把 `/tmp/.X11-unix` 按 X 的约定扶正到 `1777`。旧版可手动 `chmod 1777 /tmp/.X11-unix` 绕过。`asa-server verify-arkapi --check-only` 的 `[3]` 现在会说清是「没装 Xvfb」还是「目录不可写（附实际权限）」 |
 | 装了 Xvfb，实例仍起不来；日志里有 `W: X11 socket /tmp/.X11-unix/X100 does not exist in filesystem, trying to use abstract socket instead` 和 `PlatformNotSupportedException: Video driver not supported` | `/tmp/.X11-unix` 是**只读挂载**（WSLg 就是这么挂的），`Xvfb` 建不出 socket，pressure-vessel 没法把显示带进容器。（当年经 `xvfb-run` 走这条路时它在 Xvfb 起不来后**照样会执行命令**，所以退出码看不出问题）| 升级到含本修复的版本：asa-server 会先判断 `/tmp/.X11-unix` 可不可写，不可写就自动改用系统里已在运行的 X 服务（WSL 上就是 WSLg 的 `:0`）。`asa-server verify-arkapi --check-only` 的 `[3]` 会直接说明这次用的是哪一种。现在 Xvfb 由 asa-server 自己管：起不来会**当场让启动失败**并附上 `{运行时用户 HOME}/xvfb.log` 的末尾输出，不再丢 `/dev/null`、也不再带着一个坏显示往下跑 |
 | 启用了 ArkApi 的实例明明起来了（游戏窗口/端口都在），30 秒后却被标记为停止 | 已修复。旧版按 `\ArkAscendedServer.exe` 找游戏进程，而 ArkApi 下游戏进程的命令行里写的是 `\AsaApiLoader.exe`，永远找不到 → 必然超时，且失败后不收拾进程树，游戏被留成孤儿 | 升级到含本修复的版本。判据改为在候选里按 `/proc/<pid>/comm == "GameThread"` 挑；ArkApi 的等待上限也从 30 秒放宽到 3 分钟（加载器要先下载 offsets cache），同时启动链一退出就立即失败而不是干等。见 `docs/ARKAPI_LINUX_LOGGING_AND_PID_PLAN.md` §2 |
 | 「插件日志」面板里全是 `INFO: umu-launcher version …` 这类内容，看不到 ArkApi 的输出 | 已修复。Linux 上 PTY 里跑的是 umu-run 整条包装链而不是加载器本体，而 ArkApi **不往控制台写**业务日志，只写文件 | 升级后 `instances/<name>/arkAsaApi.log` 由 asa-server 从镜像里的 `ShooterGame/Binaries/Win64/logs/ArkApi_*.log` 转抄，面板内容即 ArkApi 的真日志；启动链本身的输出移到同目录的 `launcher.log`（排查「加载器起不来」时看它） |

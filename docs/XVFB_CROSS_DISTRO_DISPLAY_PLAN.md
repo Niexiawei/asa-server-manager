@@ -17,6 +17,12 @@
 
 **§8 的第一步与第二步已实现**（2026-08-31），第三步（真机验证与事实回填）待做。
 
+> **⚠️ 先读 §11。** 第一次真机（AlmaLinux）暴露出四个缺陷，其中 §11.1 是**本方案自己
+> 引入的**：`Xvfb` 的存在性改成了按能力判（对的），紧接着那条 `/tmp/.X11-unix` 的
+> `o+w` 判据却仍在按权限位的形状判，而那个 0755 目录正是**上一次成功运行自己留下的**
+> —— 第一次成功把后续每一次都毒死了。四个缺陷已全部修复，§11 是事实回填，
+> 下文正文保持提案原貌（§3.2 那张表第 2 条的前提以 §11.1 为准）。
+
 落地文件：
 
 - `internal/runner/xvfb_linux.go`（新增）：Xvfb 的发现 / 启动 / 就绪判定 / 单例 /
@@ -602,3 +608,297 @@ Xvfb :101 -screen 0 1280x1024x24 -nolisten tcp -noreset -ac & sleep 1; \
 和当初把 `xvfb-run` 存在当成「显示一定可用」（§9.5）是同一类错误的两次犯法。
 判据应该落在**能力**上：机器上有没有 `Xvfb`、它起不起得来、起来之后握不握得上手。
 把 Xvfb 自己管起来，这三件事就都能直接测出来，而不用靠一个发行版给不给某个脚本。
+
+---
+
+## 11. 落地后的第一次真机反馈（2026-08-31，AlmaLinux）——§8 三步之外的第四步
+
+§8 的前两步交付之后，第一台真机（AlmaLinux，无头，root 运行，降权用户
+`asa-umu-runtime`）**仍然**卡在 `setup`：
+
+```
+[root@niexiawei asa-server]# ./asa-server-linux setup
+宿主运行时依赖不满足，setup 无法继续。请按下面的建议手动安装后重试：
+  - [x11-display] no usable X display: ...
+      修复：安装 Xvfb（Debian/Ubuntu: sudo apt install xvfb | ...）
+[root@niexiawei asa-server]# which Xvfb
+/usr/bin/Xvfb          ← 装了
+```
+
+一共暴露出四个缺陷，前两个是本方案引入/未修完的，后两个是它顺带照出来的。
+四个都已修复，本节是事实回填。
+
+### 11.1 缺陷 A（根因）：`x11SocketDirWritable` 的 `o+w` 判据把自己毒死了
+
+现场：
+
+```
+[root@niexiawei asa-server]# ls -ld /tmp /tmp/.X11-unix
+drwxrwxrwt. 11 root            root            /tmp
+drwxr-xr-x.  2 asa-umu-runtime asa-umu-runtime /tmp/.X11-unix     ← 0755
+[root@niexiawei asa-server]# findmnt -T /tmp
+/  /dev/mapper/almalinux-root  xfs  rw,relatime,...                ← 不是只读挂载
+```
+
+`x11SocketDirWritable()` 的最后一行是 `fi.Mode().Perm()&0o002 != 0`，想用
+「目录是不是 world-writable」模拟「降权之后的 Xvfb 写不写得进去」。两处错：
+
+1. **属主/属组两条路被完全忽略。** `asa-umu-runtime` 是这个目录的**属主**、
+   `rwx` 俱全、写得进去，`o+w` 却判它不行。内核判的是「属主位优先，其次属组位，
+   都不沾边才看 other 位」，拿 other 一位当近似就是错的。
+2. **它是自我毒化的。** 目录**不存在**时这个函数只看 `/tmp`（1777）返回 true，
+   于是第一次启动成功；而非 root 的 X 服务端建不出 `1777`（那一步 chmod 会失败），
+   落到 umask 022 就是 `0755`、属主正是那个降权用户 —— **第一次成功把后续每一次
+   都毒死了**。目录的 mtime（8-28）比这次故障早好几天，正是那一次留下的。
+
+这就是为什么 §1.3「故障一」在这台机器上换了个形状复活：判据从「有没有
+`xvfb-run`」改成了「有没有 `Xvfb`」（对的），却在下一行留了另一个**按形状而不是
+按能力**判断的条件。§10 那句总结原样适用于它自己。
+
+**修法**（`display_linux.go` / `xvfb_linux.go`）：
+
+- `x11SocketDirWritable()` → `(bool, string)`，判据只剩两条，都是能力：
+  `access(2)` 的 `W_OK`（root 绕得过权限位、绕不过只读挂载的 EROFS，非 root 时它
+  本身就是完整答案），目录不存在时看 `/tmp`。`o+w` 那一行删掉。
+- 降权那一档不在判断侧猜了：`runtimeUserManaged` 蕴含 `euid == 0`，也就是说凡是
+  要降权的场合**这个目录的权限我们都改得动**。新增 `ensureX11SocketDir(cfg)`，
+  在真要拉起 Xvfb 之前（`ensureXvfb` 里，acquire 侧）把它按 X 的约定扶正到
+  `1777`：缺了就建，存在但那个身份写不进去才 `chmod`，并留一条日志——
+  `/tmp/.X11-unix` 是系统共享路径，放宽权限不该悄悄发生。非 root 时空操作。
+- 判断与动作因此各归各位，§3.1 的 `planDisplay` 只读 / `acquire` 动手这条分界，
+  现在也覆盖了 socket 目录。
+- 新增 `statWritableBy(fi, uid, gid)`（POSIX 顺序：属主位优先，其次属组位，
+  最后 other）与只读的 `runtimeChildIDs(cfg)`。
+
+> ⚠️ **`runtimeChildIDs` 必须是只读的那一个**：`resolveRuntimeCredential` 会经
+> `lookupOrCreateRuntimeUser` **`useradd` 出一个系统用户**。在权限判断这类
+> 「只是问一句」的路径上调它，与「preflight 顺手起一个 X 服务」是同一类错误。
+> 用户还不存在时 `runtimeChildIDs` 返回 `(uid_t)-1`，让权限判断自然落到保守分支。
+
+### 11.2 缺陷 B：真实原因被算出来又扔掉
+
+`checkDisplay` 是这样写的：
+
+```go
+if _, blocked := planDisplay(getConfig()); blocked == "" { return nil }
+return &Problem{Name: "x11-display", Detail: <写死>, Fix: <写死>}
+```
+
+`planDisplay` 明明算出了区分度很高的 `blocked` 原文，`checkDisplay` 只把它当布尔用。
+于是不管真实原因是「没装 Xvfb」「`linux.xvfb_bin` 指错」还是「socket 目录权限不对」，
+屏幕上永远是同一句「请安装 Xvfb」—— 而这台机器**早就装好了**。判断得对却说不清，
+等于没判断，用户唯一能做的事就是去装一个已经装了的包。
+
+**修法**：`Detail` 改为携带 `blocked` 原文；`planDisplay` 末尾的兜底文案拆成
+`xvfbUnavailableReason(xvfbErr, dirWhy)`，三种原因分开说，只有 `errNoXvfb` 才给
+安装提示，`linux.xvfb_bin` 指错时原样交出错误文本（哪个路径、不存在还是不可执行）。
+`xvfbUnavailableNote` 同步改成三分支的短版本。
+
+### 11.3 缺陷 C：`x11-display` 的严重级别放错了
+
+`checkDisplay` 是**阻断级**，而 `runLinuxPreflight` 只要有阻断项就中止 `setup` ——
+在选 BaseDir、下 SteamCMD、装 ARK 本体**之前**。可是：
+
+- `ArkAscendedServer.exe` 本身不需要显示（`display_linux.go` 文件头自己写着）；
+- ArkApi 是**每实例可选**的（`instance/server.go` 的 `NeedsDisplay: arkAsaApiRunning`）；
+- vc_redist 那一步**早就做了降级**（`vcredist_linux.go` 里 `blocked != ""` 只跳过
+  安装、明说「不阻断 setup」）。
+
+也就是说显示是**功能级、可延后**的依赖，preflight 却把它当成**安装级**依赖，
+于是一台永远用不到 ArkApi 的机器连装都装不上。当初那句辩护——「缺 ACL 能降级到
+chown，缺显示什么都不剩」——只对用 ArkApi 的人成立。
+
+**修法**：降为 `Warning: true`（建议级，与 `posix-acl` 同级），`Detail` 里明说
+「不启用 ArkApi 的实例不受影响」。把关点回到真正需要它的地方，那里本来就有：
+`runner.Run` 的 `NeedsDisplay` 分支当场拒绝启动，`verify-arkapi` 的 `[3]` 明确报出，
+`ensureVCRedist` 跳过安装并说明代价。测试
+`TestDisplayProblemIsBlocking` → `TestDisplayProblemIsAdvisory`，断言反向。
+
+### 11.4 缺陷 D：`runner.Configure` 是整体覆盖，而调用点在手抄字段列表
+
+`Configure` 直接 `current.Store(&cfg)`，**替换**而非合并。`internal/actions/setup.go`
+与 `internal/gui/gui.go` 各自手抄了一份字段列表，§5.7 新增的三项
+（`Display`/`XvfbBin`/`XvfbScreen`）只加进了 `main.go`，那两处漏了（`umu_runtime_*`
+是更早就漏的）。后果是同一条 `setup` 命令里前后两种行为：
+
+| 时刻 | 用的是哪份配置 |
+|---|---|
+| `runLinuxPreflight`（`setup.go:59`） | `main.go` 的 `applyAppConfig` 灌进去的**完整**配置，`linux.display` 有效 |
+| 此后（`setup.go:79` 之后的 `EnsureRuntime` → `ensureVCRedist` → `acquireDisplay`） | 被那次 `Configure` 换成的**残缺**配置，`linux.display` 已被清空 |
+
+`checkDisplay` 的 `Fix` 让用户「用 config.yaml 的 `linux.display` 指定它」，而这个
+逃生舱恰恰在它出现的那个命令里失效——自相矛盾。
+
+**修法**：两处调用点补齐全部字段；`Configure` 的文档注释写明「替换而非合并，
+新增 Config 字段时 grep `Configure(` 更新每一个调用点」。
+
+### 11.5 改动清单（本节）
+
+| 文件 | 改动 |
+|---|---|
+| `internal/runner/display_linux.go` | `x11SocketDirWritable()` 重写为 `(bool, string)`，删 `o+w`；新增 `xvfbUnavailableReason`，`xvfbUnavailableNote` 改三分支 |
+| `internal/runner/xvfb_linux.go` | 新增 `x11SocketDirMode`（`os.ModeSticky\|0777`）、`ensureX11SocketDir`、`statWritableBy`；`ensureXvfb` 在 `startXvfb` 前调用前者 |
+| `internal/runner/runtimeuser_linux.go` | 新增只读的 `runtimeChildIDs` 与 `noSuchID`（**不**走 `useradd`） |
+| `internal/runner/preflight_linux.go` | `checkDisplay` 降为 `Warning: true`；`Detail` 携带 `blocked` 原文；注释重写 |
+| `internal/runner/vcredist_linux.go` | 「走到这里说明用了 `--ignore-preflight`」的注释作废，改为「这是常规路径」 |
+| `internal/runner/runner.go` | `Configure` 注释写明整体覆盖的契约 |
+| `internal/actions/setup.go`、`internal/gui/gui.go` | `runner.Configure` 补齐 display/xvfb/runtime-user 全部字段 |
+| `internal/runner/display_linux_test.go` | `…IsBlocking` → `…IsAdvisory`；新增 Detail 带原因、三种原因可区分、拒绝必带原因三组 |
+| `internal/runner/xvfb_linux_test.go` | 新增 6 组：属主位/属组位优先级、`x11SocketDirMode` 含 sticky、`ensureX11SocketDir` 非 root 空操作、`runtimeChildIDs` 无副作用 |
+| `docs/LINUX_DEPLOYMENT.md` | 依赖表标注「只有 ArkApi 才需要」；阻断级 → 建议级；解析表第 2 条的前提改写；排障表新增 0755 那一行 |
+
+`go build ./...`（Windows）、`go vet ./...`、`CGO_ENABLED=0 GOOS=linux go vet ./...`、
+`go test ./internal/runner/... ./internal/appconfig/... ./internal/actions/...` 均通过。
+
+### 11.6 这一节的教训
+
+§10 说「判据应该落在能力上」，而 §11.1 表明**这句话在同一个函数里就没贯彻到底**：
+`Xvfb` 的存在性改成了按能力判，紧接着的 socket 目录却仍然在按权限位的形状判。
+按形状判断的代价还不止判错——它**判错的方向恰好与自己造成的副作用相反**：
+第一次成功运行留下的那个 0755 目录，正是后续每一次失败的原因。
+
+三条可复用的检查项：
+
+1. **拿权限位当权限判**：想知道「某个身份能不能写」，要么真的按 uid/gid 算
+   （`statWritableBy`），要么让它自己去写；`&0o002` 这种单位判据一定漏掉属主与属组。
+2. **能修就别只判**：`euid == 0` 的时候，「目录权限不对」不是一个结论，是一件待办事项。
+3. **算出来的原因不许扔**：`if _, blocked := f(); blocked == ""` 这种写法要警惕 ——
+   把诊断信息算出来又丢掉，等于让用户自己去猜你已经知道的答案。
+
+---
+
+## 12. 关掉 Xalia（`PROTON_USE_XALIA=0`）
+
+§11 修复之后的同一台真机上，`setup` 的日志里出现了这一段：
+
+```
+正在写入 11 条 VC++ DLL override（native,builtin）
+...
+Proton: /opt/asa-server/basedir/umu-prefix/drive_c/windows/regedit.exe
+fsync: up and running.
+System.PlatformNotSupportedException: Video driver  not supported
+  at Xalia.Sdl.WindowingSystem.Create () ...
+  at Xalia.Ui.UiMain..ctor () ...
+```
+
+### 12.1 它不是故障
+
+Xalia 是 GE-Proton 附带的**无障碍 / 手柄 UI 覆盖层**，是与被启动的程序**并行**的
+另一个进程。它初始化 SDL 的窗口系统失败就抛这个异常然后自己退出，被启动的程序
+不受影响。同一次运行的结果可以证明：
+
+```
+✔ DLL override: 11/11 条已写入 prefix 注册表（native,builtin）
+✔ system32 里的 vcruntime140.dll 是微软原生版本
+```
+
+（`vcamp140.dll` / `vcomp140.dll` 在 system32 里也变成了「原生」，而它们在游戏目录里
+是缺失的 —— 只可能来自微软安装器，即 §11 之后 Xvfb 真的起来了、第二步真的跑完了。）
+
+注意报错里 `Video driver  not supported` 是**两个空格**：驱动名是空的，也就是 SDL
+压根没有可用的 video driver ——「这次运行没有 DISPLAY」的直接体现，而不是
+「Xvfb 起了但坏了」。`docs/ARKAPI_LINUX_VCREDIST_PLAN.md` §9 记过同一条 trace，
+但那次真正失败的是 `AsaApiLoader.exe`（它需要窗口），不是 Xalia 自己。
+
+出现的位置也符合设计：这条出自 `ensureVCRedist` 的**第一步**（写 DLL override），
+而第一步**故意不带显示**跑 —— override 是承重项，必须在完全没有显示的机器上也能
+写进去，给它绑上 Xvfb 等于把唯一无条件可用的那一项也变成有条件的。
+
+### 12.2 但它值得关掉，理由不是「难看」
+
+一台专用服务器没有屏幕、也没有人坐在屏幕前，这个覆盖层在**任何**一次启动里都
+无事可做。而没有显示时它不是闲着，是**必崩**：
+
+- `ensureVCRedist` 第一步：每次 `setup` 都在「正在写入 11 条 VC++ DLL override」
+  **正下方**留一段 .NET 栈，看着像 override 失败了，其实 11/11 全写进去了；
+- **普通实例启动**（最常见的那条路）：`ArkAscendedServer.exe` 的 `NeedsDisplay`
+  是 false，从不给 DISPLAY，于是**每一次启动**都往 `launcher.log` 里塞同一段栈。
+
+**一个模仿故障的诊断噪音，比它所属的那个进程更贵。** 排障的人要先花时间确认它
+不是问题，才能继续找真正的问题——而这件事每次启动都要重来一遍。
+
+### 12.3 做法
+
+GE-Proton 的 proton 脚本默认 `PROTON_USE_XALIA=1`，但**尊重外部传入的值**：
+
+```python
+if "PROTON_USE_XALIA" not in self.env:      # GE-Proton10-34 proton, L2093
+    ...
+    self.env["PROTON_USE_XALIA"] = "1"
+```
+
+（L2246 处 winewayland 那条分支自己就是这么关的，属于上游认可的用法。）
+
+于是在**三处**拼 umu/Proton 命令行的地方各加一个 `protonNoXalia` 常量：
+
+| 文件 | 位置 | 覆盖的场景 |
+|---|---|---|
+| `internal/runner/runner_linux.go` | `umuCommandLine` 的 env | 所有实例启动（含 ArkApi 与安装校验，两者都走 `runner.Run`） |
+| `internal/runner/umu_linux.go` | `warmPrefix` 的 `wineboot --init` | 首次建 prefix |
+| `internal/runner/vcredist_linux.go` | `runInPrefix` 的 env | regedit 写 override、vc_redist 安装、`verify-arkapi` |
+
+常量与全部理由集中在 `umu_linux.go` 的 `protonNoXalia`，三处只引用不复述。
+排在 env 末尾：`launchEnvAllowed` 放行 `PROTON_*`，而 exec 取同名变量的**最后一个**,
+所以外面导出的 `PROTON_USE_XALIA=1` 压不过我们这一份 —— 与 `PROTON_VERB=run` 同一个
+处理方式，测试 `TestUmuCommandLine_DisablesXalia` 钉的正是这条（导出 `1` 仍须得 `0`）。
+
+### 12.4 不做的事
+
+- **不做成配置项。** 服务端不存在「想要无障碍覆盖层」的场景，加个开关只是把一个
+  没有用户的决定推给用户。真要排障，`PROTON_USE_XALIA` 是 GE-Proton 自己的变量，
+  从 systemd unit 或 shell 里导出即可（我们的值在 env 末尾，会赢；要让外部值赢
+  需要先删掉这一行——排障时改代码是可以接受的代价）。
+- **不借此声称显示不再必要。** ArkApi 仍然需要真显示（§11.3），关掉 Xalia 只是
+  少了一个和显示无关的旁路进程。
+
+---
+
+## 13. `verify-arkapi` 失败时报了**别的命令**的日志
+
+§12 落地后，真机上跑完整的 `verify-arkapi`（不带 `--check-only`）仍然看到那段
+Xalia 栈。原因有两个，第二个才是需要改代码的那个。
+
+### 13.1 现象里的自相矛盾
+
+```
+启动输出: /opt/asa-server/basedir/logs/verify-arkapi-launch.log      ← 这次写的是它
+...
+--- last lines of /opt/asa-server/basedir/logs/verify-launch.log --- ← 打印的却是它
+Proton: /opt/.../ShooterGame/Binaries/Win64/ArkAscendedServer.exe    ← 而且是另一个 exe
+08/31 14:59:50 ...                                                   ← 时间也对不上
+```
+
+三条线索互相矛盾：这条命令**明说**自己用 `AsaApiLoader.exe` 启动，输出写进
+`verify-arkapi-launch.log`；而被打印出来的那份日志里跑的是 `ArkAscendedServer.exe`，
+落在 `verify-launch.log`，时间戳还早了好几分钟。
+
+### 13.2 原因：失败报告的日志路径是写死的
+
+```go
+func reportVerificationFailure(logsDir string, emit func(string)) {
+	if tail := tailLines(verifyLaunchLogPath(), 20); tail != "" {   // ← 写死
+```
+
+`verifyLaunchLogPath()` 是 `VerifyServerInstallation`（`asa-server verify`）的日志。
+`VerifyArkApiInstallation` 复用了这个函数，于是**它失败时打印的是另一条命令留下的、
+可能是几小时前的文件**。§34 那句注释「两条命令诊断的是不同的东西，互相覆盖会让
+『刚才那次到底是谁的输出』变成一个需要猜的问题」——路径分开了，报告却没跟上。
+
+这类缺陷最难发现的地方在于：**每一行都是真的**，只是拼在一起指向了错误的结论。
+用户据此以为 Xalia 让 ArkApi 起不来，而那段栈根本来自另一次、早已结束的运行。
+
+### 13.3 修法
+
+`reportVerificationFailure(launchLog, logsDir, emit, extraLogDirs...)`：
+
+- `launchLog` 改为参数，由调用方传**这次**写下的那个文件；
+- 新增 `extraLogDirs`，`verify-arkapi` 传 `Win64/logs/`——ArkApi 的业务日志不走控制台，
+  只写 `ArkApi_*.log`（每次启动换名），而被验证的就是加载器，那才是第一手证据。
+
+于是失败报告现在是三份：本次启动输出 → ArkApi 自己的日志 → ShooterGame.log。
+
+### 13.4 顺带澄清：Xalia 与 ArkApi 起不来无关
+
+§12 已经证明它对被启动的程序无害（同一次运行里 override 11/11、vc_redist 装成功）。
+它在这里再次出现，只说明**那份被误报的旧日志**是在 §12 的
+`PROTON_USE_XALIA=0` 之前产生的。ArkApi 到底为什么没起来，要看 §13.3 新加的那两份。
