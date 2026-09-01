@@ -230,11 +230,29 @@ WINEPREFIX=<prefixDir> GAMEID=<gameid> PROTONPATH=<GE-Proton> \
 - 放在 `EnsureRuntime` 而不是实例启动路径：`setup` 本来就是「下载一堆东西」的地方，
   已经有进度流、失败了当场就能看见并重试；把一次 24 MB 下载 + 一次 MSI 安装塞进
   `startServerInternal`，等于让一次定时重启可能多花几分钟，还要和启动超时打架。
-- **`prefix_mode: per-instance` 暂不覆盖**：核对代码后确认，`server.go` 调
+- ~~**`prefix_mode: per-instance` 暂不覆盖**：核对代码后确认，`server.go` 调
   `runner.Run` 时并没有传 `Options.PrefixKey`，所以今天**所有实例都跑在共享 prefix 上**，
   per-instance 模式实际从未被走到（这是既有缺口，见 `LINUX_COMPATIBILITY_PLAN.md`
   §6 风险 6，不在本方案范围内）。API 设计成按 prefixKey 取，将来补上 PrefixKey 时
-  不用再改签名。
+  不用再改签名。~~
+
+  > **2026-09-01 更新：这条备注已过期，缺口已补。** per-instance 早已接线
+  > （`server.go` 现在传 `runner.PrefixKeyFor(instanceName)`），于是上面那句
+  > 「实际从未被走到」不再成立，而**两条路只补上了一条**：
+  >
+  > - `ensurePrefix` **新建** per-instance prefix 时会调 `ensureVCRedist`（已有）；
+  > - 但**先于那段代码创建的 prefix** 走的是快路径，永远补不上 —— 表现为切到
+  >   per-instance 后闸门放行、实例起来、ArkApi 加载不了，每次启动只有一条
+  >   「没检测到 VC++ 运行时」的告警。
+  >
+  > 现在快路径上加了一次 `prefixHasVCRedistOverrides(prefix)` 判断（只读 `user.reg`
+  > 一个文件），缺了就补跑 `ensureVCRedist`，失败只记录。
+  >
+  > **判据特意不用 `prefixHasVCRedist`**：那个看的是 system32 里有没有微软原生 DLL，
+  > 也就是「安装器跑成功过」——而安装器在没有图形显示的机器上**永远**装不上
+  > （退出码 203）。拿它当「要不要再试一次」的判据，会让无头机每次启动都重跑一遍
+  > `ensureVCRedist`，里面有一次 regedit 容器启动，好几秒。override 才是承重的、
+  > 也是无头可用的那一环，所以由它当判据：写过一次之后就是一次文件读。
 
 实例启动侧**只校验、不安装、不阻断**（§3.6）：ArkApi 起不来是用户自己要承担的实验，
 程序的责任是把「缺 VC++ 运行时」这条线索明确打出来，而不是替他决定。
@@ -849,7 +867,7 @@ func runVCRedistInstaller(ctx context.Context, cfg Config, prefix, exePath strin
 | 4 | 注册表判据（§2.3）在 Wine 的 `system.reg` 里转义形式与预期不同 | 后置校验永远不过 → 每次 setup 重装一遍 | 兜底判据（`vcruntime140.dll` 体积，**不是** `msvcp140`，见风险 1b）+ §7 必须实测确认，把真实的那一行贴回本文档 |
 | 5 | 微软改掉下载 URL 的形状（哈希段消失） | 退化为不校验下载 | 打告警 + `vcredist_sha256` 可手工兜底；退化不阻断 |
 | 6 | 24 MB 下载给不用 ArkApi 的用户 | 多花十几秒 | `install_vcredist: false` |
-| 7 | `prefix_mode: per-instance` 下每个 prefix 都要装 | 目前走不到（无人传 `PrefixKey`），API 已按 key 设计 | 记在 §2.2，随 per-instance 缺口一起补 |
+| 7 | `prefix_mode: per-instance` 下每个 prefix 都要装 | ~~目前走不到（无人传 `PrefixKey`）~~ —— **已走到，且已补**（2026-09-01） | `ensurePrefix` 新建时装；快路径上按 `prefixHasVCRedistOverrides` 补装历史遗留的 prefix。详见 §2.2 的更新框 |
 | 8 | 只装 x64，未装 x86 | 若某个 ArkApi 插件带 32 位组件会缺 | ASA 服务端与 AsaApiLoader 都是 x64；真出现再说，不预先复杂化 |
 
 ---
@@ -1106,6 +1124,11 @@ Xvfb 的输出丢进 `/dev/null`（`-e` 的默认值）—— 所以从退出码
 > 这正是不该赌的理由。
 
 **修正后的解析顺序**（`resolveDisplay`），三条路，每条都验证过而不是猜的：
+
+> ⚠️ 这张表已两次被取代：第 2 条的 `xvfb-run` 换成了自管 `Xvfb`
+> （`docs/XVFB_CROSS_DISTRO_DISPLAY_PLAN.md`），顺序又改成了「点名的 > 自己管的 >
+> 捡来的 > 扫出来的」四档并返回候选链
+> （`docs/ALWAYS_MANAGED_XVFB_DISPLAY_PLAN.md`，2026-09-01）。以那两份为准。
 
 | # | 路径 | 前提 |
 |---|---|---|

@@ -4,6 +4,10 @@
 > 前置阅读：`docs/UMU_PREFIX_PER_INSTANCE_PLAN.md`（两道闸的定位与实测记录），
 > 尤其是它的 §2.2（ArkApi 撞 Wine 会话）与 §11.4（可用组合表）。
 > 关联：`docs/LINUX_COMPATIBILITY_PLAN.md` §6 风险 6、`docs/ACL_PERMISSION_HARDENING_PLAN.md`。
+>
+> **§10 是 2026-09-01 的回填**：显示解析已改为「自管 Xvfb 优先」
+> （`docs/ALWAYS_MANAGED_XVFB_DISPLAY_PLAN.md`）。本方案的设计不受影响，
+> 但 §4 方案 B 多了一个独立的否决理由，§9 的验收项要顺手多看两个数字。
 
 ---
 
@@ -342,6 +346,9 @@ overlay 目录属于独占目录，不进 `sharedSubtrees`，但要进 `rwSubtre
    **首启耗时应在秒级**（对照 per-instance 的约一分钟）。
 3. **A 运行中起 B（两者都开 ArkApi）→ 两个都正常在线，`pgrep -x wineserver` 是
    两个，且它们的 `WINEPREFIX` 分别指向各自的 `merged`。** 这是本方案的核心验收。
+   顺手把 §10.4 的缺口一起补上：`pgrep -x Xvfb` 应当**只有一个**，两个实例的
+   `DISPLAY`（`/proc/<pid>/environ`）应当**相同** —— 这就验证了"多个独立 Wine 会话
+   共用一个 X 服务"这个至今没被真机测过的组合。
 4. B 不排队（`SharesWinePrefix()` 为假 → 闸门短路），日志里**不出现**"正在等待实例 A"。
 5. `du -sh` 对比：底层一份 vs 各实例 upper。**把真实数字填回 §0 的表**
    （现在写的是估计）。同时把 per-instance 单个 prefix 的占用一并测了，
@@ -356,7 +363,71 @@ overlay 目录属于独占目录，不进 `sharedSubtrees`，但要进 `rwSubtre
 
 ---
 
-## 10. 未决问题
+## 10. 显示解析改为「Xvfb 优先」之后（2026-09-01 回填）
+
+`docs/ALWAYS_MANAGED_XVFB_DISPLAY_PLAN.md` 已落地：显示解析顺序改成
+**点名的 > 自己管的 > 捡来的 > 扫出来的**，`planDisplay` 返回候选链，
+只读挂载的 `/tmp/.X11-unix`（WSL）在 root 下会被 remount 成可写。
+
+**结论：本方案的设计一条都不用改。** 但有四处交互值得记下来，其中第 2 条给 §4 的
+方案 B 增加了一个独立的否决理由。
+
+### 10.1 验收结果的可迁移性变好了（正面）
+
+改序之前，在**有宿主显示的机器上**（开发机、WSL）跑 §9 的验收，实例拿到的是宿主的
+`:0`；到了无头生产机上却是自管 Xvfb。同一份验收结论在两种显示拓扑下未必等价。
+改序之后两边都走自管 Xvfb，§9 的第 3 项（两个 ArkApi 实例 + 两个 wineserver）
+**在开发机上测出来的结果可以直接搬到生产**。
+
+### 10.2 §4 方案 B（每实例私有 `/tmp`）现在有了第二个否决理由
+
+原来的理由是 Wine 侧的：两个 wineserver 服务同一个 prefix 目录 = 注册表互相覆盖。
+现在还有一条与 prefix 完全无关的：
+
+> **X 的 socket 就在 `/tmp/.X11-unix` 下，而那个路径写死在 xtrans 里。**
+> 给实例一个私有 `/tmp` 会把它与自管 Xvfb 的 socket 切断——ArkApi 实例当场
+> 变成"没有显示"，也就是那个退出码 3、零输出的失败模式。
+
+两个理由互相独立：就算将来有人解决了注册表覆盖问题，方案 B 仍然不成立。
+一并记下，免得下次再评估到它时只想起一半。
+
+### 10.3 并发启动与 Xvfb 单例：没有新问题
+
+overlay 的核心收益之一是 `SharesWinePrefix()` 为假 ⇒ **启动不再串行**（§5.2）。
+于是多个实例会**并发**走到 `acquireDisplay`。这一条已经是安全的，不需要额外设计：
+
+- `ensureXvfb` 全程持 `xvfbMu`，`/tmp/.X11-unix` 的扶正与 remount 都在这把锁**之内**
+  （`ensureX11SocketDir` 由 `ensureXvfb` 调用）；
+- 后到的启动看到 `xvfbCurrent` 已就绪、握手能过，直接复用，不会起第二个 X 服务端。
+
+落地时**顺手加一条并发单测**即可（N 个 goroutine 同时 `ensureXvfb`，断言只起一个）——
+这是 §7 P3 之外的一个小项，不值得单列步骤。
+
+### 10.4 唯一的新开放项：多个独立 Wine 会话共用**一个** X 服务
+
+这不是改序引入的（自管 Xvfb 单例从 2026-08-31 就是如此），但 overlay 会**放大**它：
+本方案的卖点正是"多个 ArkApi 实例同时跑"，而它们现在共用一个 Xvfb。
+
+值得注意的是：`per-instance` 那次已验证的两 ArkApi 实例（`UMU_PREFIX_PER_INSTANCE_PLAN.md`
+§11.1 第 6 项，2026-08-31 上午）跑在**旧的 `xvfb-run -a` 代码**上，
+也就是**两个实例各有一个私有 Xvfb**。所以"N 个独立 Wine 会话 + 一个共享 X 服务"
+这个组合**至今没有被真机验证过**。
+
+风险不高——X 服务端本来就是为多客户端设计的，而这些会话之间没有共享的 Wine 状态
+（这正是 overlay 与 `shared` 的区别）。但它是个事实缺口，不该默认它成立。
+它与 `XVFB_CROSS_DISTRO_DISPLAY_PLAN.md` §7.3 用例 6 / §9 风险 5 是同一件事，
+**§9 的第 3 项顺手就能覆盖**：那一步本来就要数 wineserver 个数，同时确认
+`pgrep -x Xvfb` **只有一个**、两个实例的 `DISPLAY` 相同即可。
+
+> 万一它不成立（两个会话共用一个 X 服务出问题），退路是 XVFB 方案 §9 风险 5 写过的
+> "每 prefix 一个 Xvfb"，键与 `PrefixKeyFor` 同源。overlay 模式下这条退路**天然可行**
+> （每实例本来就有自己的 key），代价是每实例多一个 X 服务端进程。
+> 但那会让 `SHARED_PREFIX_MULTI_ARKAPI_PLAN.md` §6.1 的前提 2 变成恒假 ——
+> 两件事要一起决定。
+
+---
+
+## 11. 未决问题
 
 1. **默认值。** 如果 §9 全绿，`overlay` 在磁盘、时间、隔离三个维度上都不劣于 `shared`，
    逻辑上应当成为 Linux 默认。但它依赖 root + overlayfs，而 `shared` 不依赖任何东西。

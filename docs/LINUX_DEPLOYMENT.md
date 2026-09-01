@@ -48,17 +48,28 @@ failed to start.`），任何要开窗口的 Windows 程序都会在打出第一
 asa-server 按下面的顺序取显示，**每一条都会真的连一次 X 服务验证**（不是看变量、
 也不是看文件在不在）：
 
+一句话记法：**点名的 > 自己管的 > 捡来的 > 扫出来的**。
+
 | # | 用什么 | 前提 |
 |---|---|---|
-| 1 | 显式点名的显示：`config.yaml` 的 `linux.display`，其次 `DISPLAY` 环境变量 | 非空、socket 在、且不需要 xauth cookie 就能握手 |
-| 2 | **asa-server 自己拉起的 `Xvfb`** | 装了 Xvfb **且 `/tmp/.X11-unix` 写得进去**（判据是 `access(2)`，不是权限位长什么样；以 root 运行时还会在起 Xvfb 前把这个目录按 X 的约定扶正到 `1777`）。这是无头服务器的正路 |
-| 3 | 系统里已在运行的 X 服务 | 扫 `/tmp/.X11-unix/X<n>` 逐个握手，取第一个能连的 |
+| 1 | `config.yaml` 的 `linux.display` **点名**的显示 | 非空、socket 在、且不需要 xauth cookie 就能握手 |
+| 2 | **asa-server 自己拉起的 `Xvfb`**（默认走这条） | 装了 Xvfb **且 `/tmp/.X11-unix` 写得进去**（判据是 `access(2)`，不是权限位长什么样；以 root 运行时还会在起 Xvfb 前把这个目录按 X 的约定扶正到 `1777`，只读挂载时还会尝试重新挂载为可写，见下面的 WSL 一节） |
+| 3 | `DISPLAY` 环境变量**捡来**的显示 | 同第 1 条 |
+| 4 | 系统里已在运行的 X 服务 | 扫 `/tmp/.X11-unix/X<n>` 逐个握手，取第一个能连的 |
 
-第 3 条是给**服务/后台进程**兜底的：它们通常没有 `DISPLAY` 环境变量（`/proc/<pid>/environ`
-里往往只有 `HOME`），但机器上可能确实有一个能用的 X 服务。自检也认第 3 条，
-但**不认**光有 `DISPLAY` 变量 —— 那个变量在 `setup` 的交互 shell 里有、在服务里没有，
-认它只会让检查恰好在会出问题的机器上通过。机器上有现成的 X 服务而你想明确指定，
-用 `linux.display: ":0"`。
+**第 2 条排在环境变量前面是有意的**：自管的那个 Xvfb 是这条链上唯一由 asa-server
+启动、监控、随之退出的显示。它不依赖任何桌面会话（用户注销、桌面重启、WSLg 重启
+都不会把游戏带走），也不会把游戏窗口弹到你的桌面上。而 `DISPLAY` 环境变量是**捡来**
+的：从桌面终端启动、`su -` 继承、WSLg 自动导出都会带上它，谁都没表达过「请用这个显示」
+的意思，它的生命周期也不归 asa-server 管。
+
+第 3、4 条保留是为了不把任何一台机器变成跑不了：没装 `Xvfb`、或 `/tmp/.X11-unix`
+死活写不了的机器，仍然能用现成的 X 服务跑起 ArkApi。**若第 2 条本该成立却失败了
+（例如 Xvfb 缺字体），启动不会直接失败，而是回退到后面的候选并在日志与
+`verify-arkapi` 的 `[3]` 里写明「已回退：……」** —— 回退永远是可见的。
+
+反过来，**想用宿主现成的 X 服务**（调试时想亲眼看见游戏窗口，或本机 Xvfb 用不了），
+就用 `linux.display: ":0"` 点名它：那是第 1 条，赢过一切。
 
 > **判据是 `Xvfb`，不是 `xvfb-run`。** `xvfb-run` 是 Debian 打包时自带的一个 shell
 > 脚本，Fedora / RHEL / Arch **不提供**它，只给 `Xvfb` 服务端本身。asa-server 因此
@@ -80,14 +91,29 @@ asa-server 按下面的顺序取显示，**每一条都会真的连一次 X 服�
 而不是再起一个 —— 认来的不归它杀。
 
 > **WSL / WSLg 注意**：WSLg 把 `/tmp/.X11-unix` 挂成**只读** tmpfs
-> （`mount | grep X11` 可见 `ro,relatime`）。该路径写死在 X 的 xtrans 里、改不了，
-> 所以 `Xvfb` 在 WSL 上**建不出 socket**，第 2 条走不通 —— 会自动落到第 3 条，
-> 用 WSLg 自己的 `:0`。此时装不装 Xvfb 都一样。
+> （`mount | grep X11` 可见 `ro,relatime`），而该路径写死在 X 的 xtrans 里、改不了 ——
+> 所以在 WSL 上 `Xvfb` 建不出 socket，第 2 条本来是走不通的。
+>
+> asa-server 以 **root** 运行时会为此做一件事：发现这个目录是只读挂载（`access(2)`
+> 返回 `EROFS`）就把它**重新挂载为可写**，然后照常拉起自管 Xvfb。这一步
+> ①只改挂载点的读写属性，**不遮挡 WSLg 自己的 `:0`**（两个显示并存）；②会在日志里
+> 写明；③asa-server 退出时还原为只读。不想让它碰宿主的挂载表就设
+> `linux.allow_x11_remount: false`，或者干脆用 `linux.display: ":0"` 直接点名 WSLg 的显示。
+>
+> 重新挂载失败（非 root、内核拒绝、被 LSM 策略拦下）时**不会导致启动失败**：
+> 候选链会落到第 3/4 条，用 WSLg 的 `:0`，与此前的行为完全一致，日志里会写明原因。
+>
+> 重新挂载这一步**已在 WSL2 上实测成功**（2026-09-01：
+> `mount -o remount,rw /tmp/.X11-unix && touch /tmp/.X11-unix/probe` → OK）。
+> ⚠️ 但**整条链路还没验完**：目录可写之后 Xvfb 的 socket 能不能被 pressure-vessel
+> 带进容器、ArkApi 能不能真的加载，要跑一次实例启动才知道。届时若 `launcher.log` 里
+> 仍有 `X11 socket ... does not exist in filesystem`，那是容器那一侧的问题，不是这一步。
+> 见 `docs/ALWAYS_MANAGED_XVFB_DISPLAY_PLAN.md` §4.5。
 
 **不会**把 `XAUTHORITY` 传给游戏进程：它常指向 `/run/user/0` 下的路径，而
 pressure-vessel 会去 bind 环境变量点名的每个路径，降权后那次 bind 会让整个容器起不来。
 自管的 Xvfb 因此也**不带 `-auth`**（无认证 + `-nolisten tcp`，只经本机 unix socket
-暴露）—— 「不需要 cookie 就能握手」正是上面三条路共用的那个判据。
+暴露）—— 「不需要 cookie 就能握手」正是上面四条路共用的那个判据。
 
 ### 共享写权限与 `acl`
 
@@ -266,7 +292,7 @@ sudo ./asa-server service remove    # 同时联动清理已安装的本地 CA（
 | UE 报内存分配失败 / mmap 相关崩溃 | `vm.max_map_count` 太低 | `sysctl -w vm.max_map_count=262144` |
 | 第二个实例启动后一直不出现游戏进程，3 分钟后报「游戏进程在 3m0s 内没有出现」，`ps` 里能看到一个 `wineserver -w` 挂着 | **旧版本的缺陷**：没有设置 `PROTON_VERB=run`，umu 默认的 `waitforexitandrun` 会先等同 prefix 的上一个游戏退出——共享 prefix 下第二个实例因此永远排队 | 升级到已修复的版本即可（见 `docs/UMU_PREFIX_PER_INSTANCE_PLAN.md`）。修复后共享模式下多实例可以同时在线，只是**启动过程**仍按顺序进行 |
 | 共享模式下点了启动没立刻动，日志说「正在等待实例 X 初始化完成后再启动」 | 这是**预期行为**：共享 prefix 只有一个 wineserver，启动阶段必须串行 | 等上一台到达 `start_initialization_successful` 会自动放行；不想等就把 `linux.prefix_mode` 改成 `per-instance`（每实例独立 prefix，可并发启动） |
-| 启动第二个 ArkApi 实例时报「同时只能有一个 ArkApi 实例」 | **共享 prefix = 共享 Wine 会话，而 Wine 的显示子系统每会话只初始化一次**，第二个 `AsaApiLoader.exe` 会卡在启动加载器之前（2026-08-31 实测确认） | 把 `linux.prefix_mode` 改成 `per-instance`——这是**同时用 ArkApi 跑多实例的唯一办法**。不用 ArkApi 的实例不受影响，共享模式下可以照常多开 |
+| 启动第二个 ArkApi 实例时报「同时只能有一个 ArkApi 实例」 | **共享 prefix = 共享 Wine 会话**，第二个 `AsaApiLoader.exe` 会卡在启动加载器之前直到超时（2026-08-31 实测；2026-09-01 在全实例同一显示下复测三轮、两次对调先后顺序，结论不变。具体机制尚未定位） | 把 `linux.prefix_mode` 改成 `per-instance`——这是**同时用 ArkApi 跑多实例的唯一办法**。不用 ArkApi 的实例不受影响，共享模式下可以照常多开 |
 | 多实例共享 prefix 时偶发互相影响（注册表、崩溃波及） | 同一个 prefix 意味着同一个 wineserver，实例之间在这一层无法隔离 | 把 `linux.prefix_mode` 改成 `per-instance`。每实例首次启动会多花约一分钟创建自己的 prefix，之后正常；占盘用 `asa-server prefix status` 查看 |
 | 切回 `shared` 后盘上还留着一堆 `umu-prefix-<实例名>` | per-instance 时期创建的目录不会自动清理 | `asa-server prefix gc` 预演，确认后 `asa-server prefix gc --apply` |
 | ArkApi 插件的数据（如 Permissions 库）没有按实例隔离，感觉「每次重启被重置」 | `pluginsRelPath` 硬编码大小写 `ShooterGame/Binaries/Win64/ArkApi/Plugins`，若磁盘上实际大小写不同会静默失效 | 看启动日志里有没有「检测到 ArkApi 插件目录大小写与预期不符」的告警（P6 新增的诊断）；有的话按日志里给出的实际路径重命名，或反馈上游调整 |

@@ -168,6 +168,12 @@ func (p displayPlan) acquire(cfg Config) (displayTarget, error)
 
 ### 3.2 修正后的解析顺序
 
+> ⚠️ **这张表的顺序已被 `docs/ALWAYS_MANAGED_XVFB_DISPLAY_PLAN.md` 取代**（2026-09-01）：
+> 第 1 档拆成了「`linux.display` 点名的」与「`DISPLAY` 环境变量捡来的」两档，
+> 后者降到自管 Xvfb **之后**，`planDisplay` 也从返回一个答案改成返回**候选链**。
+> 下文保留原貌 —— 本节末尾那句「自管的那个显示不依赖任何桌面会话」正是取代它的理由，
+> 当时只把它用在了第 3 档上。
+
 | # | 路径 | 前提 | 变化 |
 |---|---|---|---|
 | 1 | 显式显示 | `linux.display` 配置项 **或** 环境变量 `DISPLAY`，且握手能过 | **新增配置项**（服务进程没有 `DISPLAY` 环境变量，见 §5.7） |

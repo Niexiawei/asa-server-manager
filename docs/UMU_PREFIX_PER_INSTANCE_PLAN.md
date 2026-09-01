@@ -134,19 +134,38 @@ Proton: Executable a unix path, launching with /unix option.
 | 关掉 ArkApi 就好了 | `ArkAscendedServer.exe` 根本不碰显示 |
 | 参考脚本共享运行一直没事 | 它**完全不支持 ArkApi**，只跑 `ArkAscendedServer.exe` |
 
-**机制**（推断，与全部观测一致，但未直接观测 winex11.drv 内部）：
+~~**机制**（推断，与全部观测一致，但未直接观测 winex11.drv 内部）：
 一个 prefix = 一个 wineserver = **一个 Wine 会话**，而 Wine 的显示子系统
 （`winex11.drv` / explorer 桌面）**每个会话只初始化一次**。第一个
 `AsaApiLoader.exe` 起来时，会话已经绑定在它那个 X 显示上；第二个加载器带着
 自己的 `DISPLAY` 加入同一个会话，
-在创建窗口这一步静默挂住 —— 不报错、不退出、什么都不打。
+在创建窗口这一步静默挂住 —— 不报错、不退出、什么都不打。~~
+
+> **2026-09-01 更正：上面这段机制已被实测否掉，划掉但保留原文。**
+> 带 `WINEDEBUG=+x11drv,+win,+explorer` 复测，卡住那条链的 `launcher.log` 显示
+> 它**每一句都说反了**：
+>
+> - 它不"绑定自己的显示"，而是**加入了先来那条链的 desktop**（窗口父级就是对方
+>   explorer 建的桌面窗口 / Message 窗口，日志里没有 `started explorer`）；
+> - 它的 x11drv **完整初始化了两次，零错误**；
+> - 它没有"在创建窗口这一步挂住"——它一路走到 **Wine conhost 把控制台窗口建出来**
+>   （`WineConsoleClass` + 对应 X 窗口），**建成功了**；
+> - 它也不"静默"：41KB 日志且还在涨，只是没人接过它的 stderr 看。
+>
+> 真正的形状是：**控制台建好之后、exec 目标 exe 之前**，`umu.exe` 停在
+> `futex_waitv` 不动了。**结论（闸真实存在）成立，但它在等谁至今未知**，
+> 详见 `docs/SHARED_PREFIX_MULTI_ARKAPI_PLAN.md` §12。别再拿一个听起来合理的
+> 解释把这个洞填上 —— 这份文档已经因此被挖开过一次了。
 
 `AsaApiLoader.exe` 是本项目里**唯一**对 X 显示有硬性要求的东西
 （`Options.NeedsDisplay` 只给它设），所以只有它会撞。
 
 > 注：显示改成「每个 asa-server 进程一个自管 Xvfb、所有实例共用」之后，这条结论
-> **不变** —— 卡点是 Wine 会话，不是显示本身。两个实例带着同一个 `DISPLAY` 进同一个
-> 会话，与各带各的一样撞。
+> **不变**。~~（推断）~~ —— **2026-09-01 已复测，这句话现在是观测**：三轮、
+> 两次对调先后顺序，全程 `DISPLAY=:0`，后起的那个每次都止步于 `umu.exe`、
+> 每次都跑满 3 分钟被清。统一显示解决不了这个问题。
+> 复测过程与全部采证见 `docs/SHARED_PREFIX_MULTI_ARKAPI_PLAN.md`
+> （那份文档就是专门为了检验这条注而写的）。
 
 **结论：`per-instance` 是「同时用 ArkApi 跑多实例」的唯一办法。**
 这条以前被记在 §7 残余风险 2 里、标着"未知"，现在证实成立。
