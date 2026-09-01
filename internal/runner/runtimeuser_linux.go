@@ -52,6 +52,38 @@ func runtimeHomeDir(cfg Config) string {
 	return filepath.Join(cfg.BaseDir, "runtime-home")
 }
 
+// noSuchID is a uid/gid that matches nothing on any Linux system (it is
+// (uid_t)-1, the "no change" sentinel of setuid/chown, never a real account).
+// runtimeChildIDs hands it back when the runtime user doesn't exist yet, so a
+// permission judgement built on it lands on the conservative branch instead of
+// silently assuming ownership.
+const noSuchID = ^uint32(0)
+
+// runtimeChildIDs is the **read-only** counterpart of resolveRuntimeCredential:
+// the uid/gid the game child — and the Xvfb we start for it — will run as.
+// managed is false when there is no drop at all, i.e. the child runs as this
+// very process.
+//
+// The split matters: resolveRuntimeCredential *creates* the account (useradd,
+// via lookupOrCreateRuntimeUser), so anything that only needs to judge must
+// not call it. Creating a system user as a side effect of a permission check
+// is the same class of mistake planDisplay/acquire exists to prevent.
+func runtimeChildIDs(cfg Config) (uid, gid uint32, managed bool) {
+	if !runtimeUserManaged(cfg) {
+		return 0, 0, false
+	}
+	u, err := user.Lookup(runtimeUserName(cfg))
+	if err != nil {
+		return noSuchID, noSuchID, true
+	}
+	n, errUID := strconv.Atoi(u.Uid)
+	g, errGID := strconv.Atoi(u.Gid)
+	if errUID != nil || errGID != nil {
+		return noSuchID, noSuchID, true
+	}
+	return uint32(n), uint32(g), true
+}
+
 // --- credential resolution ---------------------------------------------------
 
 // resolveRuntimeCredential returns the Credential to drop the child to, plus

@@ -358,3 +358,115 @@ func TestWatchXvfbIgnoresReplaced(t *testing.T) {
 		t.Fatal("watchXvfb 对一个已经被换掉的 Xvfb 仍在尝试重启")
 	}
 }
+
+// --- socket 目录权限 -------------------------------------------------------------
+
+// TestStatWritableByHonoursOwnerBit 是 2026-08-31 那次真机故障的回归测试。
+//
+// 现场：
+//
+//	drwxr-xr-x. 2 asa-umu-runtime asa-umu-runtime /tmp/.X11-unix
+//
+// 目录是**上一轮那个降权 Xvfb 自己建的**（非 root 的 X 服务端建不出 1777，落到
+// umask 022 就是 0755，属主正是它）。那个用户是属主、写得进去，而旧代码只看 o+w，
+// 于是判它写不进去，preflight 报「本机没有可用的 X 显示」—— Xvfb 明明装在
+// /usr/bin/Xvfb。属主位必须优先于 other 位，这正是内核的判法。
+func TestStatWritableByHonoursOwnerBit(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+	fi, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok {
+		t.Skip("no syscall.Stat_t on this platform")
+	}
+
+	// 属主：0755 的 u+w 是有的 —— 真机上那个 asa-umu-runtime 就是这一档。
+	if !statWritableBy(fi, st.Uid, st.Gid) {
+		t.Error("owner of a 0755 dir judged unwritable — 这正是旧的 o+w 判据犯的错")
+	}
+	// 既不是属主也不是属组：0755 没有 o+w，写不进去。
+	if statWritableBy(fi, noSuchID, noSuchID) {
+		t.Error("a stranger judged writable on a 0755 dir")
+	}
+	// 属主匹配时属组位不参与，哪怕属组更宽松也一样（内核的顺序）。
+	if err := os.Chmod(dir, 0o477); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+	fi, _ = os.Stat(dir)
+	if statWritableBy(fi, st.Uid, st.Gid) {
+		t.Error("owner bit must win even when the group bits are more permissive")
+	}
+}
+
+// TestStatWritableByGroupBit: 属组这一档也要真的算，不能退回 o+w。
+func TestStatWritableByGroupBit(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o070); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+	fi, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok {
+		t.Skip("no syscall.Stat_t on this platform")
+	}
+	if !statWritableBy(fi, noSuchID, st.Gid) {
+		t.Error("group member judged unwritable on a 0070 dir")
+	}
+	if statWritableBy(fi, noSuchID, noSuchID) {
+		t.Error("a stranger judged writable on a 0070 dir")
+	}
+}
+
+// TestX11SocketDirModeIsSticky1777: 必须是 os.ModeSticky|0777，不是字面量 0o1777 ——
+// os.FileMode 的 sticky 位是 1<<20，写成八进制的 01000 会落进权限位以外的空档，
+// 建出来的目录没有 sticky，别人就能删掉我们的 socket。
+func TestX11SocketDirModeIsSticky1777(t *testing.T) {
+	if x11SocketDirMode.Perm() != 0o777 {
+		t.Errorf("x11SocketDirMode.Perm() = %04o, want 0777", x11SocketDirMode.Perm())
+	}
+	if x11SocketDirMode&os.ModeSticky == 0 {
+		t.Error("x11SocketDirMode 少了 sticky 位：谁的 socket 就该只有谁删得掉")
+	}
+}
+
+// TestEnsureX11SocketDirIsRootOnly: 非 root 时它必须什么都不做 —— 既建不出 1777
+// 也 chmod 不动别人的目录，硬试只会拿一个误导性的错误去挡住启动。
+func TestEnsureX11SocketDirIsRootOnly(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("以 root 运行，这条断言的前提不成立")
+	}
+	if err := ensureX11SocketDir(Config{}); err != nil {
+		t.Errorf("ensureX11SocketDir 在非 root 下返回了错误: %v", err)
+	}
+}
+
+// TestRuntimeChildIDsNeverCreatesUser: 只读身份查询绝不能创建用户。
+// resolveRuntimeCredential 会 useradd，而权限判断这类「只是问一句」的路径上
+// 长出一个系统用户，与 planDisplay 顺手起一个 X 服务是同一类错误。
+func TestRuntimeChildIDsNeverCreatesUser(t *testing.T) {
+	cfg := Config{RuntimeUser: "asa-no-such-user-for-test"}
+	uid, gid, managed := runtimeChildIDs(cfg)
+	if os.Geteuid() != 0 {
+		if managed {
+			t.Error("非 root 时不该有降权身份")
+		}
+		return
+	}
+	if !managed {
+		t.Fatal("root 且未开 run_as_root 时应报告 managed")
+	}
+	if uid != noSuchID || gid != noSuchID {
+		t.Errorf("runtimeChildIDs = (%d, %d)，用户不存在时必须给出不匹配任何人的 id", uid, gid)
+	}
+	if _, err := exec.Command("id", "asa-no-such-user-for-test").CombinedOutput(); err == nil {
+		t.Error("runtimeChildIDs created the user — 只读查询不许有副作用")
+	}
+}

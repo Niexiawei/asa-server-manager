@@ -140,40 +140,63 @@ const xvfbInstallHint = "安装 Xvfb（Debian/Ubuntu: sudo apt install xvfb  |  
 const xvfbFontHint = "Xvfb 缺少基础字体，装上即可（Debian/Ubuntu: sudo apt install xfonts-base  |  " +
 	"Fedora/RHEL: sudo dnf install xorg-x11-fonts-misc  |  Arch: sudo pacman -S xorg-fonts-misc）"
 
-// checkDisplay requires that this host can hand a Wine process an X display,
-// and does so as a **blocker**, not an advisory.
+// checkDisplay reports whether this host can hand a Wine process an X display.
 //
 // Wine's winex11.drv failing to connect makes every CreateWindow call fail —
 // which kills, before it prints a single line, both AsaApiLoader.exe (ArkApi:
 // measured exit 3 after 5s, empty log) and Microsoft's vc_redist installer
 // (exit 203). Neither has a headless mode to fall back to.
 //
-// Why this one is allowed to be a blocker when "the acl package isn't
-// installed" was explicitly demoted to an advisory
-// (docs/ACL_PERMISSION_HARDENING_PLAN.md §1): missing ACLs degrade to a
-// working chown fallback, a missing display degrades to nothing at all. There
-// is no second path. --ignore-preflight remains the escape hatch.
+// # Why this is an advisory and not a blocker (it used to be one)
 //
-// It asks planDisplay rather than looking for a binary, because "some xvfb
-// package is installed" turned out not to imply "a display is obtainable" —
-// twice. On WSLg /tmp/.X11-unix is a read-only mount, so Xvfb cannot publish a
-// socket pressure-vessel can bind; and on Fedora/RHEL/Arch the xvfb-run script
-// this check used to look for doesn't exist at all even though Xvfb does
-// (docs/XVFB_CROSS_DISTRO_DISPLAY_PLAN.md §1). Sharing the resolver means this
-// check answers exactly the question the launch will ask.
+// The blocker was justified with "missing ACLs degrade to a working chown
+// fallback, a missing display degrades to nothing at all"
+// (docs/ACL_PERMISSION_HARDENING_PLAN.md §1). That is true *for ArkApi*, and
+// only for ArkApi — which is opt-in per instance. A display is a **feature**
+// dependency, and preflight was treating it as an **install** dependency:
+//
+//   - ArkAscendedServer.exe itself never needs a display (same host, listening
+//     in 42 seconds) — see display_linux.go's header;
+//   - the vc_redist step already degrades on its own (vcredist_linux.go: no
+//     display means skip the install, keep the DLL overrides, don't fail);
+//   - a launch that really needs one fails loudly at runner.Run with the same
+//     message, so nothing gets to fail silently.
+//
+// So blocking here made a machine that will never run ArkApi impossible to
+// even install onto — the exact shape of mistake this file's package comment
+// warns about, one layer up: judging the *severity* by the check's own subject
+// rather than by what actually breaks. Whoever needs ArkApi still sees the
+// advisory during setup, in `asa-server verify-arkapi`, and at launch.
+//
+// # Why it asks planDisplay
+//
+// "Some xvfb package is installed" turned out not to imply "a display is
+// obtainable" — twice. On WSLg /tmp/.X11-unix is a read-only mount, so Xvfb
+// cannot publish a socket pressure-vessel can bind; and on Fedora/RHEL/Arch
+// the xvfb-run script this check used to look for doesn't exist at all even
+// though Xvfb does (docs/XVFB_CROSS_DISTRO_DISPLAY_PLAN.md §1). Sharing the
+// resolver means this check answers exactly the question the launch will ask.
 //
 // planDisplay, not acquire: a self-check must not start an X server as a side
 // effect of being asked.
+//
+// Detail carries planDisplay's own reason string. It used to be a fixed
+// sentence, which meant a host with Xvfb installed and a permission problem on
+// /tmp/.X11-unix was told, and told only, to go install Xvfb
+// (docs/XVFB_CROSS_DISTRO_DISPLAY_PLAN.md §11).
 func checkDisplay() *Problem {
-	if _, blocked := planDisplay(getConfig()); blocked == "" {
+	_, blocked := planDisplay(getConfig())
+	if blocked == "" {
 		return nil
 	}
 	return &Problem{
-		Name: "x11-display",
-		Detail: "no usable X display: ArkApi's AsaApiLoader.exe and Microsoft's VC++ redist installer " +
-			"both create Win32 windows, and under Wine that fails outright without one " +
-			"(the loader dies with exit code 3 before writing any log)",
-		Fix: xvfbInstallHint + "。若 /tmp/.X11-unix 是只读挂载（WSLg），" +
+		Name:    "x11-display",
+		Warning: true,
+		Detail: blocked + "。ArkApi 的 AsaApiLoader.exe 与微软的 VC++ 安装器都会创建 Win32 窗口，" +
+			"Wine 下没有显示时它们直接失败（加载器 5 秒后以退出码 3 退出，一行日志都不写）。" +
+			"**不启用 ArkApi 的实例不受影响** —— ArkAscendedServer.exe 本身不需要显示，" +
+			"所以这一项不阻断安装",
+		Fix: xvfbInstallHint + "。若 " + x11SocketDir + " 是只读挂载（WSLg），" +
 			"Xvfb 用不了，需要系统里有一个不需要 xauth cookie 就能连的 X 服务，" +
 			"并可用 config.yaml 的 linux.display 指定它",
 	}

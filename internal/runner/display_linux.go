@@ -121,7 +121,8 @@ func planDisplay(cfg Config) (displayPlan, string) {
 	}
 
 	xvfbBin, xvfbErr := xvfbBinary(cfg)
-	if xvfbErr == nil && x11SocketDirWritable() {
+	dirOK, dirWhy := x11SocketDirWritable()
+	if xvfbErr == nil && dirOK {
 		return displayPlan{Kind: displayManaged, XvfbBin: xvfbBin, How: "自管 Xvfb 虚拟显示"}, ""
 	}
 
@@ -129,17 +130,13 @@ func planDisplay(cfg Config) (displayPlan, string) {
 		return displayPlan{
 			Kind:    displayExisting,
 			Display: d,
-			How:     "系统里已在运行的 X 显示 " + d + xvfbUnavailableNote(xvfbErr),
+			How:     "系统里已在运行的 X 显示 " + d + xvfbUnavailableNote(xvfbErr, dirWhy),
 		}, ""
 	}
 
-	if xvfbErr != nil {
-		return displayPlan{}, "本机没有可用的 X 显示，也没有 Xvfb —— 请" + xvfbInstallHint
-	}
-	return displayPlan{}, fmt.Sprintf(
-		"本机没有可用的 X 显示：%s 不可写（只读挂载？WSLg 就是这么挂的），"+
-			"Xvfb 无法在那里发布 socket，pressure-vessel 也就没法把显示带进容器；"+
-			"而系统里也没有现成的、不需要 cookie 就能连的 X 服务", x11SocketDir)
+	return displayPlan{}, "本机没有可用的 X 显示：" +
+		xvfbUnavailableReason(xvfbErr, dirWhy) +
+		"；系统里也没有现成的、不需要 cookie 就能连的 X 服务"
 }
 
 // configuredDisplay 取显式点名的显示：配置优先于环境变量。
@@ -153,11 +150,34 @@ func configuredDisplay(cfg Config) (display, source string) {
 	return "", ""
 }
 
-func xvfbUnavailableNote(xvfbErr error) string {
-	if xvfbErr != nil {
-		return "（本机没有 Xvfb）"
+// xvfbUnavailableReason 说明「自管 Xvfb」这一档为什么走不通。
+//
+// 三种原因必须分清楚。以前不管哪一种都归到同一句「本机没有可用的 X 显示，也没有
+// Xvfb —— 请安装 Xvfb」，于是 2026-08-31 那台 AlmaLinux（Xvfb 装在 /usr/bin/Xvfb、
+// 真正的问题是 /tmp/.X11-unix 权限不对）得到的唯一指引，是去装一个它早就装好了的包。
+// 判断得对却说不清，等于没判断。
+func xvfbUnavailableReason(xvfbErr error, dirWhy string) string {
+	switch {
+	case errors.Is(xvfbErr, errNoXvfb):
+		return "本机没有 Xvfb —— 请" + xvfbInstallHint
+	case xvfbErr != nil:
+		// linux.xvfb_bin 指错了。原文（哪个路径、不存在还是不可执行）比任何转述都有用。
+		return xvfbErr.Error()
+	default:
+		return dirWhy
 	}
-	return "（本机 " + x11SocketDir + " 只读，起不了 Xvfb）"
+}
+
+// xvfbUnavailableNote 是同一件事的短版本，挂在「用了现成显示」的说明后面当尾注。
+func xvfbUnavailableNote(xvfbErr error, dirWhy string) string {
+	switch {
+	case errors.Is(xvfbErr, errNoXvfb):
+		return "（本机没有 Xvfb）"
+	case xvfbErr != nil:
+		return "（Xvfb 不可用：" + xvfbErr.Error() + "）"
+	default:
+		return "（起不了 Xvfb：" + dirWhy + "）"
+	}
 }
 
 // acquire 把计划变成一个真的能用的显示，必要时**拉起 Xvfb**。只有启动路径该调它。
@@ -301,26 +321,50 @@ func firstUsableX11Display() string {
 	return ""
 }
 
-// x11SocketDirWritable 报告 Xvfb 能不能在 /tmp/.X11-unix 里发布一个**文件** socket。
+// x11SocketDirWritable 报告 Xvfb 能不能在 /tmp/.X11-unix 里发布一个**文件** socket，
+// 不能时第二个返回值说明原因（会原样出现在用户看到的文案里，所以要具体）。
 //
-// 目录不存在时 X 服务器会自己建（需要 /tmp 可写）。存在时有两道关，缺一不可：
+// # 这里曾经有一条 o+w 判据，它把自己毒死了
 //
-//   - syscall.Access 的 W_OK —— root 会绕过权限位，但**绕不过只读挂载**
-//     （返回 EROFS），而只读挂载正是 WSLg 那个坑；
-//   - 权限位里的 o+w —— 我们会降权到非 root 用户去跑 Xvfb，root 能写不代表它能写。
-//     X 的约定就是 1777。
-func x11SocketDirWritable() bool {
+// 原来的最后一行是 `fi.Mode().Perm()&0o002 != 0`，想用「目录是不是 world-writable」
+// 模拟「降权之后的 Xvfb 写不写得进去」。2026-08-31 真机（AlmaLinux）上翻车：
+//
+//	drwxr-xr-x. 2 asa-umu-runtime asa-umu-runtime /tmp/.X11-unix
+//
+// 这个目录是**上一轮那个降权 Xvfb 自己建的** —— 非 root 的 X 服务端建不出 1777
+// （chmod 不动），落到 umask 022 就是 0755，属主正是它。于是：
+//
+//   - 那个用户明明是属主、rwx 俱全、写得进去，o+w 这一条却判它不行；
+//   - 更糟的是目录**不存在**时这个函数只看 /tmp，返回 true。第一次启动因此成功，
+//     而它一成功就把目录建成了 0755 —— **第一次成功把后续每一次都毒死了**。
+//     Xvfb 装在 /usr/bin/Xvfb，preflight 却一口咬定「本机没有可用的 X 显示」。
+//
+// # 现在的判据：本进程的写入能力，加上「我们改不改得动它」
+//
+//   - access(2) 的 W_OK。root 绕得过权限位，但绕不过**只读挂载**（返回 EROFS），
+//     而只读挂载正是 WSLg 那个坑；asa-server 不以 root 运行时，它就是完整答案。
+//   - 目录不存在时看 /tmp —— X 服务端会自己建，我们也会先替它建好。
+//
+// 降权那一档不在这里猜了。runtimeUserManaged 蕴含 euid == 0，也就是说凡是要降权的
+// 场合，**这个目录的权限我们都改得动**：真要起 Xvfb 之前由 ensureX11SocketDir 把它
+// 扶正到 X 的约定 1777。判断与动作因此各归各位 —— planDisplay 只读，acquire 才动手。
+func x11SocketDirWritable() (bool, string) {
 	fi, err := os.Stat(x11SocketDir)
 	if err != nil {
-		return syscall.Access("/tmp", writeOK) == nil
+		if aerr := syscall.Access("/tmp", writeOK); aerr != nil {
+			return false, fmt.Sprintf("/tmp 不可写（%v），Xvfb 建不出 %s", aerr, x11SocketDir)
+		}
+		return true, ""
 	}
 	if !fi.IsDir() {
-		return false
+		return false, x11SocketDir + " 存在但不是目录"
 	}
-	if err := syscall.Access(x11SocketDir, writeOK); err != nil {
-		return false
+	if aerr := syscall.Access(x11SocketDir, writeOK); aerr != nil {
+		return false, fmt.Sprintf("%s 不可写（%v；当前权限 %04o）—— 只读挂载（WSLg 就是这么挂的）"+
+			"或本进程身份没有写权限，Xvfb 无法在那里发布 socket，"+
+			"pressure-vessel 也就没法把显示带进容器", x11SocketDir, aerr, fi.Mode().Perm())
 	}
-	return fi.Mode().Perm()&0o002 != 0
+	return true, ""
 }
 
 // writeOK is access(2)'s W_OK. Spelled out rather than pulled from x/sys/unix

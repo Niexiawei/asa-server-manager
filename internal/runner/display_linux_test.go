@@ -3,6 +3,7 @@
 package runner
 
 import (
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -133,19 +134,69 @@ func TestDisplayStatusStartsNothing(t *testing.T) {
 	}
 }
 
-// TestDisplayProblemIsBlocking: 显示是阻断级依赖，不是建议级。没有它 ArkApi 与
-// vc_redist 安装器都彻底没有第二条路可走（对比 posix-acl 有 chown 兜底，
-// 见 docs/ACL_PERMISSION_HARDENING_PLAN.md §1）。
-func TestDisplayProblemIsBlocking(t *testing.T) {
+// TestDisplayProblemIsAdvisory: 显示是**建议级**，不是阻断级。它只对 ArkApi 实例
+// 是硬依赖，而 ArkApi 是每实例可选的；ArkAscendedServer.exe 本身不需要显示。
+// 曾经把它做成阻断级，结果一台永远用不到 ArkApi 的无头机连 setup 都跑不完
+// （2026-08-31 AlmaLinux 真机，见 docs/XVFB_CROSS_DISTRO_DISPLAY_PLAN.md §11）。
+func TestDisplayProblemIsAdvisory(t *testing.T) {
 	p := checkDisplay()
 	if p == nil {
 		return // 这台机器能拿到显示，没有可断言的问题对象
 	}
-	if p.Warning {
-		t.Error("checkDisplay returned an advisory; it must be a blocker")
+	if !p.Warning {
+		t.Error("checkDisplay returned a blocker; it must be an advisory — 缺显示只影响 ArkApi，不该拦住安装")
 	}
 	if p.Name != "x11-display" || p.Fix == "" {
 		t.Errorf("checkDisplay problem = %+v, want name \"x11-display\" and a non-empty Fix", p)
+	}
+}
+
+// TestDisplayProblemDetailCarriesRealReason: Detail 必须带上 planDisplay 算出来的
+// 那句原因。以前它是一句写死的话，于是一台**装好了** Xvfb、只是 /tmp/.X11-unix
+// 权限不对的机器，得到的唯一指引是「请安装 Xvfb」——判断得对却说不清，等于没判断。
+func TestDisplayProblemDetailCarriesRealReason(t *testing.T) {
+	_, blocked := planDisplay(getConfig())
+	p := checkDisplay()
+	if p == nil {
+		return
+	}
+	if !strings.Contains(p.Detail, blocked) {
+		t.Errorf("checkDisplay Detail = %q, want it to contain planDisplay's reason %q", p.Detail, blocked)
+	}
+}
+
+// TestXvfbUnavailableReasonDistinguishesCauses: 「没装 Xvfb」「xvfb_bin 指错了」
+// 「socket 目录不可写」是三件不同的事，指引也不同。只有第一种才该让用户去装包。
+func TestXvfbUnavailableReasonDistinguishesCauses(t *testing.T) {
+	if got := xvfbUnavailableReason(errNoXvfb, ""); !strings.Contains(got, "sudo apt install xvfb") {
+		t.Errorf("errNoXvfb → %q, want the install hint", got)
+	}
+	badBin := errors.New("linux.xvfb_bin 指向的 /nope/Xvfb 不存在或不可执行")
+	if got := xvfbUnavailableReason(badBin, ""); !strings.Contains(got, "/nope/Xvfb") {
+		t.Errorf("bad xvfb_bin → %q, want the original error text", got)
+	}
+	if got := xvfbUnavailableReason(badBin, ""); strings.Contains(got, "sudo apt install") {
+		t.Errorf("bad xvfb_bin → %q, must NOT tell the user to install a package they already have", got)
+	}
+	dirWhy := "/tmp/.X11-unix 不可写（当前权限 0755）"
+	if got := xvfbUnavailableReason(nil, dirWhy); got != dirWhy {
+		t.Errorf("dir problem → %q, want %q verbatim", got, dirWhy)
+	}
+	if got := xvfbUnavailableReason(nil, dirWhy); strings.Contains(got, "sudo apt install") {
+		t.Errorf("dir problem → %q, must NOT be reported as a missing package", got)
+	}
+}
+
+// TestX11SocketDirWritableExplainsRefusal: 拒绝时必须给出可执行的原因，
+// 而且不能再拿 o+w 当判据 —— 那条判据会把「属主是运行时用户的 0755 目录」判成
+// 不可写，而目录恰恰是上一轮那个降权 Xvfb 自己建的（第一次成功毒死后续每一次）。
+func TestX11SocketDirWritableExplainsRefusal(t *testing.T) {
+	ok, why := x11SocketDirWritable()
+	if ok != (why == "") {
+		t.Errorf("x11SocketDirWritable = (%v, %q); 拒绝必须带原因，通过必须不带", ok, why)
+	}
+	if !ok && !strings.Contains(why, x11SocketDir) && !strings.Contains(why, "/tmp") {
+		t.Errorf("refusal reason %q names neither %s nor /tmp", why, x11SocketDir)
 	}
 }
 

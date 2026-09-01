@@ -235,6 +235,12 @@ func ensureXvfb(cfg Config, bin string) (*managedXvfb, error) {
 		}
 	}
 
+	// 起 Xvfb 之前先把 /tmp/.X11-unix 备齐 —— 这是 acquire 这一侧的动作，
+	// 判断那一侧（planDisplay）碰不得，见 ensureX11SocketDir。
+	if err := ensureX11SocketDir(cfg); err != nil {
+		return nil, err
+	}
+
 	x, err := startXvfb(cfg, bin)
 	if err != nil {
 		return nil, err
@@ -313,6 +319,81 @@ func (x *managedXvfb) waitExit() {
 // currentManagedXvfb 报告当前已经起来的自管显示，没有则返回 nil。
 // 只读、不等锁——诊断视图（DisplayStatus / preflight）用它，绝不因为被问一句就拉起进程。
 func currentManagedXvfb() *managedXvfb { return xvfbCurrent.Load() }
+
+// --- socket 目录 ----------------------------------------------------------------
+
+// x11SocketDirMode 是 X 的约定：1777 —— 全局可写，加 sticky 位保证谁的 socket 只有
+// 谁删得掉。root 起的 X 服务端建出来就是这个。
+const x11SocketDirMode = os.ModeSticky | 0o777
+
+// ensureX11SocketDir 保证 /tmp/.X11-unix 存在，且**将要跑 Xvfb 的那个身份**写得进去。
+//
+// 为什么需要它：非 root 的 X 服务端建不出 1777（chmod 那一步会失败），落到 umask 022
+// 就是 0755，属主是那个降权用户。于是「降权 Xvfb 第一次启动」会留下一个只有它自己
+// 写得进去的目录 —— 换个 umu_runtime_user、或者把 umu_run_as_root 打开，下一次就建
+// 不出 socket 了；而 x11SocketDirWritable 那条已经删掉的 o+w 判据，更是被这个目录
+// 直接判成「本机没有显示」（见它的注释）。这里就是替 X 服务端把约定补上。
+//
+// **只在需要时动手**：目录缺了才建，存在但那个身份写不进去才 chmod，并留一条日志 ——
+// /tmp/.X11-unix 是系统共享路径，放宽它的权限不该是悄悄发生的事。非 root 时直接返回：
+// 我们既建不出 1777 也 chmod 不动别人的目录，x11SocketDirWritable 的 access(2) 已经
+// 先给出了答案。
+//
+// 归属：它属于 acquire 那一侧（会改文件系统），只由 ensureXvfb 在真要拉起 Xvfb 之前
+// 调用。planDisplay / DisplayStatus / preflight 一律碰不到它。
+func ensureX11SocketDir(cfg Config) error {
+	if os.Geteuid() != 0 {
+		return nil
+	}
+	fi, err := os.Stat(x11SocketDir)
+	switch {
+	case os.IsNotExist(err):
+		if mkErr := os.Mkdir(x11SocketDir, x11SocketDirMode); mkErr != nil && !os.IsExist(mkErr) {
+			return fmt.Errorf("创建 %s 失败: %w", x11SocketDir, mkErr)
+		}
+		// Mkdir 的 mode 会被 umask 削掉，sticky 位也未必留得住，显式再来一次。
+		if chErr := os.Chmod(x11SocketDir, x11SocketDirMode); chErr != nil {
+			return fmt.Errorf("把 %s 设为 1777 失败: %w", x11SocketDir, chErr)
+		}
+		logger.Infof("runner: 已按 X 的约定创建 %s（1777）", x11SocketDir)
+		return nil
+	case err != nil:
+		return fmt.Errorf("检查 %s 失败: %w", x11SocketDir, err)
+	case !fi.IsDir():
+		return fmt.Errorf("%s 存在但不是目录", x11SocketDir)
+	}
+
+	uid, gid, managed := runtimeChildIDs(cfg)
+	if !managed || statWritableBy(fi, uid, gid) {
+		return nil // Xvfb 以本进程身份跑，或者那个身份本来就写得进去
+	}
+	logger.Infof("runner: %s 的权限是 %04o，运行时用户（uid %d）写不进去，"+
+		"按 X 的约定改为 1777", x11SocketDir, fi.Mode().Perm(), uid)
+	if err := os.Chmod(x11SocketDir, x11SocketDirMode); err != nil {
+		return fmt.Errorf("把 %s 改为 1777 失败: %w", x11SocketDir, err)
+	}
+	return nil
+}
+
+// statWritableBy 按 POSIX 的顺序算某个 uid/gid 对这个目录的写权限：属主位优先，
+// 其次属组位，都不沾边才看 other 位。**属主匹配时属组位不参与**，哪怕它更宽松 ——
+// 内核就是这么判的，用 o+w 一位当近似正是上一版翻车的地方。
+//
+// 不考虑附加组：resolveRuntimeCredential 给子进程设的 Groups 只有主组一个。
+func statWritableBy(fi os.FileInfo, uid, gid uint32) bool {
+	perm := fi.Mode().Perm()
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok {
+		return perm&0o002 != 0
+	}
+	switch {
+	case st.Uid == uid:
+		return perm&0o200 != 0
+	case st.Gid == gid:
+		return perm&0o020 != 0
+	}
+	return perm&0o002 != 0
+}
 
 // --- 启动 -----------------------------------------------------------------------
 
@@ -404,8 +485,8 @@ func spawnXvfb(cfg Config, bin string, args []string, extra *os.File) (*managedX
 	logStart, _ := logFile.Seek(0, io.SeekEnd)
 
 	// 与游戏进程同一个身份：socket 与 lock 文件的属主才对得上，也没理由让一个常驻的、
-	// 无认证的 X 服务端跑在 root 下。降权用户能不能在 /tmp/.X11-unix 里写，
-	// x11SocketDirWritable() 的 o+w 那一条已经先判过了。
+	// 无认证的 X 服务端跑在 root 下。它能不能在 /tmp/.X11-unix 里写，由
+	// ensureX11SocketDir 在上一步实际保证（而不是靠猜权限位）。
 	cred, _, err := resolveRuntimeCredential(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("解析运行时用户失败: %w", err)
