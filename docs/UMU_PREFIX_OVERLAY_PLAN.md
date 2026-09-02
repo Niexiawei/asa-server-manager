@@ -1,6 +1,13 @@
 # `prefix_mode: overlay` —— 共享 prefix 底层 + 每实例独立 wineserver
 
-> 状态：**规划中**，未实施。
+> 状态：**已实施并通过核心真机验收（2026-09-01）**。§9 的第 3、5 项与 §12.7 的
+> 第 12 项已在目标机上跑过并回填（§13.6）。
+>
+> 📋 **还差什么、已知哪里不对，一律看 `docs/UMU_PREFIX_OVERLAY_TODO.md`。**
+> 那份是会被反复勾掉重写的工作台；本文是只增不改的档案，记「为什么这么设计」
+> 与「真机观测到了什么」。新缺陷加到 TODO，结论回填到本文。代码落点与设计的偏差、以及
+> 实施过程中发现的三件本文没写的事，都在 §13。`prefix_mode` 默认仍是 `shared`
+> —— 按 §11.1 的结论，overlay 先作为可选模式发布。
 > 前置阅读：`docs/UMU_PREFIX_PER_INSTANCE_PLAN.md`（两道闸的定位与实测记录），
 > 尤其是它的 §2.2（ArkApi 撞 Wine 会话）与 §11.4（可用组合表）。
 > 关联：`docs/LINUX_COMPATIBILITY_PLAN.md` §6 风险 6、`docs/ACL_PERMISSION_HARDENING_PLAN.md`。
@@ -8,6 +15,11 @@
 > **§10 是 2026-09-01 的回填**：显示解析已改为「自管 Xvfb 优先」
 > （`docs/ALWAYS_MANAGED_XVFB_DISPLAY_PLAN.md`）。本方案的设计不受影响，
 > 但 §4 方案 B 多了一个独立的否决理由，§9 的验收项要顺手多看两个数字。
+>
+> **§12 是 2026-09-01 动工前对着代码的复核**：设计仍然成立，但有六件事本文原来没写，
+> 其中 §12.1 是**唯一一个会让整套方案静默退化成 `shared` 而表面看不出来**的失败模式，
+> 必须并进 P0；§12.2 是复核时顺带查出的一个**既有 bug**，overlay 会正面踩到它。
+> 开工前请先读 §12。
 
 ---
 
@@ -21,9 +33,12 @@
 
 | 模式 | 磁盘 | 新实例首启 | wineserver | ArkApi 多实例 |
 |---|---|---|---|---|
-| `shared` | 一份 | 0 | **共用一个** | ❌ |
-| `per-instance` | 每实例一份（数百 MB，待实测） | 一次 wineboot + VC++（实测 ≈1 分钟） | 各自独立 | ✅ |
-| **`overlay`（本方案）** | **一份 + 每实例一个可写层（估计数十 MB）** | **一次 mount（毫秒级）** | **各自独立** | ✅（待验证） |
+| `shared` | 一份（实测 **690.9 MiB**） | 0 | **共用一个** | ❌ |
+| `per-instance` | 每实例一份（实测 **≈690 MiB**） | 一次 wineboot + VC++（实测 ≈1 分钟） | 各自独立 | ✅ |
+| **`overlay`（本方案）** | **一份 + 每实例一个可写层（实测 63.1 MiB，约 1/11）** | **一次 mount（毫秒级）** | **各自独立** | ✅ **已实测** |
+
+> 数字来自 2026-09-01 的真机（两个实例，均启用 ArkApi），见 §13.6。
+> 两实例合计：overlay 690.9 + 2×63.1 = **817 MiB**，per-instance 690.9 + 2×690 = **2.07 GiB**。
 
 如果验收通过，`overlay` 在三个维度上都不劣于 `shared`，**应当成为 Linux 默认**，
 `shared` 退化为「overlayfs 不可用时的兼容选项」。
@@ -440,3 +455,463 @@ overlay 的核心收益之一是 `SharesWinePrefix()` 为假 ⇒ **启动不再�
 4. `linux.prefix_dir` 被显式指定时，overlay 的三个子目录放哪。
    倾向：底层仍用 `prefix_dir`，overlay 结构固定放 `{BaseDir}/umu-prefix-overlay/`，
    并在文档里写明——让一个配置项同时控制两个布局只会更难解释。
+
+---
+
+## 12. 动工前的代码复核（2026-09-01）——本文原来漏掉的六件事
+
+§0–§11 的设计经复核仍然成立，下面六条都是**落点层面**的补充：五条是本文原来没写的
+前提或坑，一条（§12.2）是复核时顺带查出来的既有 bug。
+
+| # | 事项 | 性质 | 并入 |
+|---|---|---|---|
+| 12.1 | umu 的 `pfx` 软链是**绝对路径** | 🔴 会让方案静默退化成 `shared` | **P0** |
+| 12.2 | `wineserverHoldsPrefix` 用字符串前缀比路径 | 🟠 既有 bug —— **已单独修掉** | ✅ 2026-09-01 |
+| 12.3 | `dirSize(merged)` 把底层也算进去 | 🟡 status 会谎报省盘效果 | P4/P7 |
+| 12.4 | 写底层的不止 `EnsureRuntime`，还有两条 `PrefixKey=""` 的 verify 路径 | 🟠 底层被写 = 未定义行为 | P5 |
+| 12.5 | 挂载必须发生在**宿主 mount namespace** | 🟠 装错单元 = CLI 看不见挂载 | P8 + 文档 |
+| 12.6 | 文件系统与 LSM 前提（xfs `ftype=1` / SELinux / 不能嵌套） | 🟡 决定降级路径触发频率 | P6/P7 |
+
+### 12.1 🔴 `pfx` 那条软链是绝对路径，它可能把 `WINEPREFIX` 指回底层
+
+§2 的注里写着「umu 实际导出的 `WINEPREFIX` 是 `<prefix>/pfx/`（一个指回自身的软链），
+`stat` 跟随软链，所以最终落在 prefix 目录本身上，**结论不变**」。
+
+**在 overlay 下，「prefix 目录本身」这句话有两个候选**：`merged` 和底层。而 umu 建这条
+软链用的是 `pfx.symlink_to(Path(path).resolve(strict=True))` —— **一个解析过的绝对路径**。
+底层是 setup 时预热出来的，它里面那条 `pfx` 因此写死指向 `{BaseDir}/umu-prefix`。
+挂上 overlay 之后，`merged/pfx` 如果还是底层那条（尚未被 copy-up 覆写），那么：
+
+```
+WINEPREFIX=…/merged/pfx/  --readlink-->  {BaseDir}/umu-prefix  --stat-->  底层的 dev/ino
+```
+
+**所有实例又回到同一个 wineserver**，也就是本方案要消灭的那件事 —— 而且
+`mount` 成功、目录看着对、日志里一个字的异常都没有。这是整套方案里唯一一个
+**表面完全正常的失败模式**。
+
+好消息是它大概率会自愈：umu 每次启动都会重跑 `setup_pfx()`，把这条软链按本次
+传入的 `WINEPREFIX` 重新 `symlink_to`，于是它被 copy-up 成 `merged/pfx → …/merged`。
+**但这句话是从 umu 源码读出来的推断，不是观测** —— 本仓库在这上面栽过一次
+（`launchgate.go` 里那段「听起来合理的推断被抄进四个地方当事实用了三个月」），
+所以它只能作为「预期」，不能作为前提。
+
+**P0 因此多两条命令**（在挂载完、起第一个实例之后立刻跑）：
+
+```bash
+# 1) merged 与底层的 dev/ino 必须不同
+stat -c '%d %i' {BaseDir}/umu-prefix {BaseDir}/umu-prefix-overlay/A/merged
+
+# 2) 🔴 决定性的一条：merged/pfx 到底指向谁
+readlink -f {BaseDir}/umu-prefix-overlay/A/merged/pfx
+#    期望 …/umu-prefix-overlay/A/merged
+#    若是 …/umu-prefix，方案在这一步就已经失效
+
+# 3) 反过来验：wineserver 自己认的是哪个 dev/ino
+ls -d /tmp/.wine-$(id -u asa-umu-runtime)/*/socket   # 带 socket 的才是活的
+pgrep -ax wineserver
+tr '\0' '\n' < /proc/$(pgrep -x wineserver | head -1)/environ | grep WINEPREFIX
+```
+
+第 3 条是**独立于推理的判据**：带 `socket` 的 `server-*` 目录数就是活着的 Wine 会话数。
+两个实例跑着却只有一个，无论 §2 的机制解释得多好，方案都没成立。
+
+> ⚠️ **不能只数目录**：wineserver 退出后 `server-<dev>-<ino>/` 目录常常留着
+> （2026-09-01 的真机上一次就看到三个，见 §12.8），把目录数当会话数会得到一个
+> 好看但假的结论。判据是 `socket` 文件在不在，或者直接数 `wineserver` 进程。
+
+> 如果自愈不发生，补救是现成的且很小：`mountOverlay` 挂完之后，
+> **主动把 `merged/pfx` 重写成指向 `merged` 自己**（`os.Remove` + `os.Symlink`，
+> 落在 upper 里）。代价是一个 copy-up，收益是不再依赖 umu 的内部行为。
+> 倾向：**不管 P0 结果如何都写上这一步**，并在注释里说明它防的是什么 ——
+> 它是幂等的，而少了它的失败形式是静默的。
+
+### 12.2 🟠 `wineserverHoldsPrefix` 是字符串前缀比较（既有 bug，✅ 已修）
+
+> **2026-09-01 已修**，与 overlay 无关，先行单独落地。判据抽成 `prefix.go` 里的
+> `wineprefixValueUnder(value, prefix)`（无平台约束，纯路径比较，可跨平台单测），
+> 下表三行连同「反向」「尾斜杠」「空值」都钉进了 `prefix_test.go`。
+> 本节保留原文，因为它解释的是**为什么**这个比较必须落在路径边界上。
+> **仍然开着的是本节末尾那半条**：`prefixStatus()` 的 `filepath.Glob(shared + "-*")`
+> 会把 `umu-prefix-overlay` 当成一个名为 overlay 的实例前缀 —— 那个目录今天还不存在，
+> 所以留在 P4 与 `rwSubtrees` 的 glob 一起改。
+
+原来的判据是：
+
+```go
+if strings.HasPrefix(strings.TrimRight(v, "/"), want) { return true }
+```
+
+`want` 是 prefix 路径，`v` 是某个 wineserver 的 `WINEPREFIX`。问题在于这是**字符串**
+前缀而不是**路径**前缀：
+
+| `want` | 活着的 `WINEPREFIX` | 现在的结果 | 应该 |
+|---|---|---|---|
+| `…/umu-prefix` | `…/umu-prefix-jibian/pfx/` | ✅ 命中 | ❌ 不该命中 |
+| `…/umu-prefix-A` | `…/umu-prefix-AB/pfx/` | ✅ 命中 | ❌ 不该命中 |
+| `…/umu-prefix` | `…/umu-prefix-overlay/A/merged/pfx/` | ✅ 命中 | ❌ 不该命中 |
+
+也就是说**今天在 `per-instance` 模式下就已经错了**：只要任意一个实例在跑，
+`prefix status` 里共享前缀那一行的 `InUse` 就是 `true`，`prefix gc` 也会因此
+拒绝清理本来可以清理的东西。症状轻，所以一直没被发现。
+
+到了 overlay 下它会变重：§6.1 打算用「底层是否被占用」来决定
+**`EnsureRuntime` 要不要拒绝动底层**，而这个判据在 overlay 模式下**恒为真**
+（每个实例的 merged 路径都以底层路径开头，这是 §3.1 的目录布局决定的）。
+拿一个恒真的信号做守卫，等于把 setup 永久锁死。
+
+修法是一行（已落地为 `wineprefixValueUnder`）：
+
+```go
+v := strings.TrimRight(value, "/")
+want := strings.TrimRight(prefix, "/")
+return v == want || strings.HasPrefix(v, want+"/")
+```
+
+四个调用点全部受益，其中两个是本来就在错的：`waitForWineserverDrain` 在
+per-instance 实例跑着时预热共享前缀，会白等满 90 秒；`removeInstancePrefix`
+会拒绝删除一个没人持有的前缀。**顺带**：`prefixStatus()` 里 `filepath.Glob(shared + "-*")`
+同样是字符串拼接，它会把 `umu-prefix-overlay` 整个目录当成一个「名为 overlay 的
+实例前缀」列出来 —— §6.5 提到过 `rwSubtrees` 那条 glob 要改，`prefixStatus` 这条
+是同一个问题的第二处，别只改一处。
+
+### 12.3 🟡 `dirSize(merged)` 量的是底层 + upper
+
+`PrefixInfo.SizeBytes` 现在是 `dirSize(p)`，`p` 在 overlay 下是 `merged` ——
+而 merged 里看得见的是合并视图，`WalkDir` 会把底层那几百 MB 一并算进去。
+于是 `prefix status` 会报「每个实例数百 MB」，正好把本方案的卖点报成了反面。
+
+`PrefixInfo` 需要区分两个数：**独占占用**（overlay 下是 `upper` 的实际占用，
+其他模式下就是 prefix 本身）与**共享底层**（只在底层那一行报一次）。§5.5 说的
+"增量" 就是前者，这里只是把它落到具体字段上：报告口径错了比没有报告更糟。
+
+### 12.4 🟠 会写底层的不止 `EnsureRuntime`
+
+§6.1 只点了 `EnsureRuntime`。但复核代码后：**`Options.PrefixKey` 全仓库只有
+`instance.startServerInternal` 一处设值**，其余所有经 `runner.Run()` 的路径都用空值，
+也就是**直接跑在底层 prefix 上**：
+
+- `installer.VerifyServerInstallation()`（`asa-server verify`）
+- `installer.VerifyArkApiInstallation()`（`asa-server verify-arkapi`）
+
+这两条都会在底层里起一个真正的 wineserver、写注册表、写 `drive_c`。而它们恰恰是
+**出问题时管理员最可能在实例还跑着的时候敲的两条命令**。overlayfs 对
+「lowerdir 在被挂载期间被修改」的表述是明确的：未定义行为，且症状随机
+（overlay 侧读到的可能是新内容、旧内容，或者一个不存在的 inode）。
+
+因此 P5 的守卫要覆盖的是「**任何对底层的写**」而不只是 setup：
+
+1. `EnsureRuntime` / `verify` / `verify-arkapi` 在动底层之前先问一句
+   「现在有没有 overlay 挂在它上面」（`reconcileOverlays` 那套 mountinfo 解析
+   顺手就能答），有就**拒绝并说明要先停哪些实例**；
+2. 或者让这两条 verify 命令也走一个**临时 overlay**（挂 → 跑 → 卸 → 删 upper），
+   这样它们既不碰底层，又比今天更干净。**倾向 2**：verify 的语义本来就是
+   「不影响现场地验一次」，今天它污染底层其实一直是个隐患，只是 `shared` 模式下
+   底层就是大家共用的那个，看不出来。
+
+### 12.5 🟠 挂载必须在宿主 mount namespace 里
+
+两个方向都要成立：
+
+- **对外可见**：`asa-server prefix status|gc` 是**另一个进程**。asa-server 服务
+  在自己的 mount namespace 里挂的东西，CLI 读 `/proc/self/mountinfo` 是看不见的，
+  于是 status 报「未挂载」、gc 直接把正在用的 upper 删掉。
+- **能被卸载/对账**：崩溃残留要能被下一次启动的 `reconcileOverlays` 看到。
+
+现状是**满足的**：`internal/svcmgr/systemd_script_linux.go` 那份单元模板里没有
+`PrivateTmp` / `PrivateMounts` / `ProtectSystem` / `ProtectHome` 中的任何一个，
+服务跑在宿主 namespace 里。但这是个**沉默的前提**，必须写下来：
+
+> ⚠️ 那份单元模板里**永远不要**加 `PrivateTmp=yes`、`PrivateMounts=yes`、
+> `ProtectSystem=strict`、`ProtectHome=yes`。前两个会让 overlay 挂载对外不可见，
+> 而 `PrivateTmp` 还会同时切断 `/tmp/.X11-unix`（自管 Xvfb 的 socket 就在那里，
+> 见 §10.2 —— 这与 §4 方案 B 被否决的第二个理由是同一件事）。
+> 那份模板本来就带着「DRIFT: 与 kardianos 上游逐字对拍」的维护说明，
+> 这条禁令写在它旁边。
+
+顺带两条落在同一处的事实：
+
+- 挂载**跨越服务重启存活**（宿主 namespace 里的挂载不随进程走）。所以 §3.3 的
+  「实例停止不卸载」在服务重启后依然成立，`reconcileOverlays` 面对的是
+  「挂载还在、upper 还在、但实例已经不在了」这种正常局面，**不能见到就删**；
+  判据只能是 §5.2 写的「upper 已不存在却仍挂着」。
+- 挂载需要 `CAP_SYS_ADMIN`。asa-server 服务本身是 root（降权只发生在游戏进程树上，
+  见 `UMU_RUNTIME_USER_PLAN.md`），所以这一条天然满足；但 `linux.umu_run_as_root`
+  与它无关，别把两件事混在一起解释。
+
+### 12.6 🟡 文件系统与 LSM 的前提
+
+§6.3 只写了「overlayfs 不可用」这一个笼统的原因。落到 P6 要能判别的具体条件：
+
+| 前提 | 不满足时 | 怎么判 |
+|---|---|---|
+| 内核有 overlay 模块 | `mount` 返回 `ENODEV` | `/proc/filesystems` 含 `nodev\toverlay` |
+| upper 与 work 同一文件系统 | `EINVAL` | §3.1 的布局天然满足，不必检测 |
+| upper 所在 fs 支持 xattr 与 `d_type` | `EINVAL`，或运行期怪异 | **xfs 必须 `ftype=1`**（`xfs_info` 看；老的 `mkfs.xfs` 默认是 0，RHEL7 时代格式化的盘常见）。ext4/btrfs 默认可用 |
+| upper 不在 NFS / 另一层 overlay 上 | `EINVAL` | 容器里跑 asa-server 时 `{BaseDir}` 很可能已经在 overlay 上 —— 这不是假设场景，**降级路径要能干净地接住它** |
+| SELinux 不拦 | 挂上了但访问被拒 | enforcing 下 overlay 需要 `context=`/正确标签。判据只能是**挂完真读一次**，不能只看 `mount` 的返回值 |
+
+**这些都不改变 §6.3 选的方案 b（降级到 `cp -a` 种子 + 响亮告警）**，只是让降级触发得
+有理有据、日志里说得出是哪一条不满足。preflight 那项（§5.4）也照这张表出提示。
+
+另有一条**对我们有利**的 overlayfs 语义，值得写下来免得将来有人重新担心一遍：
+**copy-up 保留原文件的属主与权限位**。底层是 `warmPrefix` 里 chown 给运行时用户的，
+所以从底层 copy-up 上来的文件天然还是运行时用户所有 —— overlay 不会像
+`writePrefixMarker` 那个老坑（§6.2）一样凭空造出 root 属主的文件。需要 chown 的
+只有我们自己创建的 `upper` / `work` / `merged` 三个目录本身。
+
+### 12.7 §9 验收清单的增补（汇总）
+
+在 §9 现有 11 项之外加四条，都是上面几节的直接产物：
+
+12. **`readlink -f merged/pfx` 指向 merged**（§12.1）；且带 `socket` 的
+    `server-*` 目录数等于在跑的实例数（**数 socket，不数目录** —— 残留目录会留着，
+    见 §12.8）。这两条比「数 wineserver 进程」更早、更直接地判死或判活整个方案，
+    应当排在 §9 第 3 项**之前**做。
+13. 两个实例在跑时，`prefix status` 里**底层那一行的 `InUse` 不因此变成 true**
+    （§12.2 修完的回归）。
+14. `prefix status` 报的每实例占用是 **upper 的占用**，不是 merged 的（§12.3）。
+15. 有实例挂着 overlay 时执行 `asa-server verify` / `verify-arkapi` —— 按 §12.4
+    选定的方案，要么被明确拒绝并说清停哪台，要么走临时 overlay 且**事后底层的
+    `.created-by-proton` 与 mtime 都没变**。
+
+### 12.8 P0 真机结果（2026-09-01，逐步回填）
+
+| 检查 | 结果 |
+|---|---|
+| §2 的机制：`WINEPREFIX` 的 dev/ino 决定用哪个 wineserver | ✅ **成立**。共享 prefix `stat -c '%d %i'` = `2080 2091352`，换成十六进制是 `820` / `1fe958`，而 `/tmp/.wine-999/` 下确有 `server-820-1fe958` |
+| §12.1 `merged` 与底层的 dev/ino 不同 | ✅ **成立**，见下面的实测 |
+| §12.1 🔴 `merged/pfx` 指向谁 | 🔴 **指向底层 —— 预判的静默失败模式确实存在**，见下面的实测 |
+| §12.6 upper 所在文件系统能否承载 overlay | ⏳ 仍需在目标机上测（实测是在 WSL2 的 ext4 上做的） |
+
+顺带记两条现场事实：
+
+- **`/tmp/.wine-<uid>/` 下会有多于当前会话数的目录。** 那台机器上一次就看到三个
+  `server-820-*`：`1fe958` 已确认是共享 prefix，另两个（`201232`、`20648e`）的 inode
+  **还没对回具体是哪个目录**——可能是 per-instance 前缀，也可能是已退出会话的残留，
+  两者都会留下目录。三个都在 `dev=820`（major 8 / minor 32）这同一个文件系统上。
+  结论与是哪一种无关：验收只能数 `socket` 或数 `wineserver` 进程，不能数目录 ——
+  §12.1 与 §12.7 第 12 条已按此订正。
+- **overlay 的 `st_dev` 主设备号恒为 0**（匿名块设备，内核的 `get_anon_bdev`）。
+  于是 merged 的 `stat -c '%d'` 会是个两位数级别的小数字，它的 server 目录名形如
+  `server-2f-…`，与底层的 `server-820-…` **一眼可分**。这让 §12.1 第 ① 条不用换算
+  也能判读，是个免费的好判据。
+
+#### 12.8.1 🔴 `pfx` 软链实测（2026-09-01，WSL2 内核 6.18 / ext4）
+
+不需要等目标机：这条问的是 **overlayfs 与软链的语义**，任何一台有 overlay 的
+Linux 都能给出答案。造一个与真 prefix 同形状的底层（`system.reg` +
+`drive_c/windows/system32` + umu 那条 `pfx -> <绝对路径>` 软链），挂上 overlay，
+然后 `stat -L`（跟随软链，与 Wine 调的 `stat(2)` 一致）：
+
+```
+lower                                    dev=2080 ino=44213  → server-820-acb5
+merged                                   dev=106  ino=44359  → server-6a-ad47
+merged/pfx   ← umu 导出的 WINEPREFIX     dev=2080 ino=44213  → server-820-acb5   ← 🔴
+merged/pfx/  （带尾斜杠，umu 就是这么写的） dev=2080 ino=44213  → server-820-acb5   ← 🔴
+```
+
+**§12.1 的预判成立，而且比预判更糟：不是"可能"，是必然。** 挂载完全成功、目录内容
+完全正确、日志一个字都没有，但 `WINEPREFIX` 解析出来的 dev/ino **与底层逐位相同** ——
+所有实例会拿到同一个 `server-820-acb5`，也就是同一个 wineserver。整套方案在这一步
+静默退化成 `shared`。
+
+执行 `fixPfxSymlink`（`os.Remove` + `os.Symlink` 指向 merged 自己）之后：
+
+```
+merged/pfx                               dev=106  ino=44359  → server-6a-ad47   ✅
+merged/pfx/                              dev=106  ino=44359  → server-6a-ad47   ✅
+底层的 pfx                                仍是 /…/umu-prefix，没被动过           ✅
+```
+
+最后一行同样重要：重写发生在 upper 里（`ls -A upper` 只有 `pfx` 一项），底层那条
+软链**没有被修改** —— 这正是 copy-up 该有的行为，也说明这个修正不会污染共享底层。
+
+两个可写层同时挂着时 dev 各不相同（`0:106` 与 `0:108`），`server-6a-…` /
+`server-6c-…`，与 §12.8 记的「overlay 的主设备号恒为 0」一致。
+
+> **结论：`fixPfxSymlink` 不是保险，是承重件。** 本文 §12.1 原来写的是
+> 「umu 大概率会自愈，所以这条是防御性的」。实测把因果关系倒过来了：**在 umu 跑起来
+> 之前，WINEPREFIX 就已经指向底层了**。umu 会不会在启动时重写这条软链仍然未知，
+> 但那已经不重要 —— 我们在挂载后立刻改，就不依赖它。
+
+---
+
+## 13. 实施记录（2026-09-01）
+
+§7 的 P1–P9 全部落地。下面只记**与本文设计不一致的地方**和**本文没写、写代码时才
+发现的事**；一致的部分不重复。
+
+### 13.1 与设计不同的四处
+
+| # | 本文原来写的 | 实际实现 | 为什么 |
+|---|---|---|---|
+| 1 | `SharesWinePrefix()` 改成**白名单**（只有 `shared`/空值为真） | 改成**问 `prefixDir` 本人**：`prefixDir(cfg,"a") == prefixDir(cfg,"b")` | 白名单和黑名单都要靠人记得同步。而这个函数问的本来就是「两个实例会不会落到同一个目录」，那正是 `prefixDir` 的定义。派生出来就不可能漂移，而且**失败方向是安全的那一侧**：未知模式在 `prefixDir` 里回落到共享前缀，于是这里返回 true，多排一次队；反过来漏判会换来三分钟静默挂死 |
+| 2 | 降级路径（§6.3 方案 b）是「降级到 per-instance 语义」 | 降级后**占用同一个 `merged` 路径**，只是从挂载点变成一个真目录 | 路径不变意味着 `prefixDir`、`runner.Run`、`wineserverHoldsPrefix`、`prefix status` 一个都不用知道这次拿到的是哪一种。`overlayMounted()` 是唯一需要区分的地方，而它只服务于报告与卸载 |
+| 3 | §6.1「`EnsureRuntime` 在有挂载时拒绝执行」 | 两处收紧：①只在「底层确实还有事要做」时才可能拒绝（`lowerNeedsWork`）；②真要动底层时**先卸载所有空闲的可写层**，只有被 wineserver 持有的才构成拒绝（`prepareSharedPrefixWrite`） | ① 无条件拒绝会**炸掉每一次重启**：`EnsureRuntime` 每次 API 启动都后台跑一遍，而挂载是刻意跨重启存活的。② 更糟的是，光拒绝会**死锁**：挂载在实例停止后仍然留着（§3.3 有意为之），所以「停掉实例」并不能解除拒绝 —— 第一次装 VC++ 或升 Proton 就会被永久挡住，只能人工 `umount`。卸载空闲层不丢任何东西：upper 还在，下次启动重新挂；底层真变了的话 `.lower-stamp` 会让它重建，那本来就该发生 |
+| 4 | §3.3「`prefix gc` 拒绝删除仍处于挂载状态的」 | 拒绝条件仍是 **wineserver 占用**，挂载本身不算 | 同上：挂载是**静息状态**，不是「正在用」。按挂载拒绝的话，一个实例被手工删掉后留下的孤儿层永远清不掉，只能人工 `umount`。`removeOverlayPrefix` 会先查 wineserver、再卸载、再删 |
+
+§12.4 的两条 verify 路径按**方案 1（守卫）**而不是倾向的方案 2（临时 overlay）落地：
+`runner.PrepareSharedPrefixWrite()` 在 `EnsureRuntime` / `verify` / `verify-arkapi`
+三处先卸空闲层、再拦下真正在跑的那些，并报出是哪几个实例。方案 2 需要一个保留的 prefix key，而实例名
+几乎不受限（`ValidateInstanceName` 只挡 `..` 和路径分隔符），要么冒名字冲突的险、要么
+再开一个目录命名空间；而方案 1 已经把**危险**（写被引用的 lowerdir）完全消掉了，方案 2
+多消的只是**不便**（得先停实例）。方案 2 仍然值得做，留作开放项。
+
+### 13.2 本文没写、实现时才发现的四件事
+
+**a) 整个 overlay 层都不该进属主对账清单（挂载形态下）。**
+§6.5 只说了那条 glob 匹配不到新布局、要一起改。真正的坑在改法上：
+`reconcileRuntimeOwnership` 对每个 rwSubtree 做 `chownTree`，而
+**chown 是元数据写，元数据写会触发 copy-up** —— 走一遍挂载着的 `merged`
+就等于把整个共享底层复制进那个实例的私有层，每次启动对账一次，每个实例一份。
+这会把本模式唯一的卖点原地抹掉，而且不报任何错。
+**初版据此只登记了 `upper` 与 `work` —— 那是错的，而且第一次上真机就被挡住了**，
+详见 §13.5。最终 `overlayRWSubtrees` 只登记**没挂载的** `merged`（降级复制形态，
+里面是真文件），挂载形态下一个目录都不登记：
+
+| 目录 | 为什么不登记 |
+|---|---|
+| `merged`（已挂载） | chown 会 copy-up，等于把整个底层复制进私有层 |
+| `upper` | 挂载期间从旁边直接改 upper 是 overlayfs 明确不支持的；而且它不需要 —— copy-up 保留底层属主（本来就是运行时用户的），新文件由游戏进程自己创建 |
+| `work` | 内核的私有暂存区，它在里面建的 `work/work` 是 **root 所有、mode 000**，userspace 不该碰其中任何东西 |
+
+**b) `prefixStatus` 与 `rwSubtrees` 的那条 glob 会把 `umu-prefix-overlay` 整个目录
+当成一个「名为 overlay 的实例前缀」。** §12.2 末尾提过半句，落地时确认两处都要按
+**精确路径**排除 —— 不排除的话 `prefix status` 会多出一行假前缀，而 `prefix gc`
+会把它当孤儿，`--apply` 一下就是所有实例的可写层。
+
+**c) 降级形态的占用要量 `merged` 而不是 `upper`。** §12.3 只说了「量 merged 会把
+共享底层按实例数重复计」，那是**挂载**形态的结论。降级复制形态下 `upper` 是空的，
+而 `merged` 里躺着真的一整份拷贝 —— 继续量 upper 会报出 `0 B`，正好在唯一能看出
+「这台机器上 overlay 到底有没有在省盘」的那一栏上给出反向结论。
+
+**d) 挂载参数里的逗号和冒号。** overlayfs 的 `-o lowerdir=A,upperdir=B,workdir=C`
+按逗号切，冒号又是多层 lower 的分隔符，而**实例名会进这三个路径**
+（`ValidateInstanceName` 不挡逗号冒号）。带这两个字符的路径拼进去不会报错，只会
+**表示成别的意思**。`mountOptionsSafe` 先判一次，命中就走降级复制并说明原因。
+
+### 13.3 落点清单
+
+| 文件 | 内容 |
+|---|---|
+| `internal/runner/overlay.go` | 目录布局、`/proc/self/mountinfo` 解析、`overlayKeyFromMerged`、`mountOptionsSafe`（无平台约束，可跨平台单测） |
+| `internal/runner/overlay_linux.go` | `ensureOverlayPrefix` / `mountOverlay` / `seedFromLower` / **`fixPfxSymlink`** / `unmountOverlay` / `reconcileOverlays` / `removeOverlayPrefix` / `lowerNeedsWork` / `prepareSharedPrefixWrite` |
+| `internal/runner/umu_linux.go` | `prefixDir` 认识 overlay；`ensureRuntime` 在动底层前过守卫 |
+| `internal/runner/runner_linux.go` | `sharesWinePrefix` 改为派生自 `prefixDir` |
+| `internal/runner/prefix_linux.go` | `prefixKeyFor`/`ensurePrefix`/`removeInstancePrefix`/`prefixStatus` + `overlayStatus` |
+| `internal/runner/prefix.go` | `PrefixInfo` 增 `Overlay`/`Mounted`，`SizeBytes` 语义改为**独占占用**；新增 `PrepareSharedPrefixWrite`、`ReconcilePrefixes` |
+| `internal/runner/runtimeuser_linux.go` | `overlayRWSubtrees`（见 13.2a） |
+| `internal/runner/preflight_linux.go` | `checkOverlayfs`（建议级，只在 `prefix_mode: overlay` 时出现） |
+| `internal/installer/{installer,verify_arkapi}.go` | 两条 verify 路径过守卫 |
+| `internal/webapi/actions.go` | 启动时 `runner.ReconcilePrefixes()` |
+| `internal/appconfig/{config,validate,template}.go` | 接受 `overlay`，三种模式的说明 |
+| 测试 | `overlay_test.go`（mountinfo 解析/键映射/挂载参数安全）、`prefix_linux_test.go`（`SharesWinePrefix` 五种取值、`prefixDir` 三模式、`prefix_dir` 只搬底层） |
+
+### 13.4 还没做的
+
+**清单已移到 `docs/UMU_PREFIX_OVERLAY_TODO.md`**，本节不再维护副本 —— 两份待办
+互相抄的下场是它们会分叉，然后没人知道哪份是准的。
+
+写这一节时它是「§9 的 11 项一项都没跑」；现在第 3、5 项已过（§13.6），
+剩下的按 P0/P1/P2 分好了级。其中最要紧的一条**不是**验收项而是覆盖缺口：
+**`seedFromLower` 降级路径一次都没被真正执行过**（目标机上 overlayfs 好使），
+而一条从没跑过的错误处理路径等价于没有错误处理。
+
+### 13.5 第一次真机启动就翻车：`work/work`（2026-09-01，已修）
+
+部署后第一次启动实例，拿到的是：
+
+```
+Server 'meijue-pve' failed to start: 无法启动实例：降权运行时环境自检未通过：
+  - [umu-runtime-owner-drift] …/umu-prefix-overlay/meijue-pve/work 下存在非
+    asa-umu-runtime 拥有的条目（例：…/meijue-pve/work/work）
+      修复：重启 asa-server 会自动 chown 修复；修不回来多半是 SELinux / 只读挂载 / NFS root_squash
+```
+
+挂载本身是成功的（`work/work` 存在就是证据 —— 它是内核在 `mount` 时建的）。
+翻车的是 13.2a 那条改法：`overlayRWSubtrees` 把 `work` 登记成了「我们拥有、要保持
+属主正确」的目录，于是 `verifyRuntimeAccess` 的属主漂移抽样走进去，看见内核自己的
+`work/work`，判定漂移并**阻断启动**。而它给出的修复建议（"重启 asa-server 会自动
+chown 修复"）**永远不可能生效**：那个目录不归我们管，chown 它既没意义、还可能干扰
+overlayfs。本地复现确认：
+
+```
+$ ls -la <workdir>
+d--------- 2 root root 4096  work        ← 内核建的，mode 000
+```
+
+修法：`work` 与 `upper` 都退出清单（理由见上表），并且**创建时也不再 chown `work`**。
+回归测试 `TestOverlayRWSubtrees_NeverListsUpperOrWork` 直接造出 `work/work` 来钉这条。
+
+顺带修掉一个更早就存在、被 overlay 放大的问题：`chownTree` 原来对每个条目
+**无条件** `lchown`，即便属主已经正确 —— 那也是一次元数据写。这棵树在 overlay 模式下
+就是若干可写层的 lowerdir，而挂载期间修改 lower 是未定义行为；何况每次启动对一个
+上 GB 的前缀做整棵写本身就是浪费。现在先比对属主，已经对了就跳过。
+
+> 教训与本文 §12 的基调一致：**"这个目录是我们的"是个需要检查的假设，不是默认。**
+> `upper`/`work`/`merged` 三个目录是我们创建的，但只有 `upper` 的**内容**归我们，
+> `work` 的内容归内核，`merged` 的内容归 overlayfs。
+
+### 13.6 真机验收（2026-09-01，AlmaLinux，两个实例均启用 ArkApi）
+
+修掉 §13.5 之后一次通过。**§9 的核心验收项（第 3 项）成立。**
+
+| §9 验收项 | 结果 |
+|---|---|
+| 3. 两个 ArkApi 实例同时在线，`pgrep -x wineserver` 是两个 | ✅ `137320` / `137722` |
+| 3.（顺带）`pgrep -x Xvfb` 只有一个 | ✅ `137214` —— 见下面 13.6.2 |
+| 5. 可写层实际占用 | ✅ **63.1 MiB / 实例**，底层 690.9 MiB，per-instance 前缀 ≈690 MiB |
+| 12.7-12. `merged/pfx` 指向 merged | ✅ 但形式与预期不同，见 13.6.1 |
+
+```
+前缀                    归属                    Proton          独占占用   状态
+umu-prefix            共享（全部实例）          GE-Proton10-34  690.9 MiB  就绪
+umu-prefix-jibian-pve 实例 jibian-pve         GE-Proton10-34  690.0 MiB  就绪
+umu-prefix-meijue-pve 实例 meijue-pve         GE-Proton10-34  689.8 MiB  就绪
+jibian-pve/merged     实例 jibian-pve · 可写层  GE-Proton10-34   63.1 MiB  已挂载、使用中
+meijue-pve/merged     实例 meijue-pve · 可写层  GE-Proton10-34   63.1 MiB  已挂载、使用中
+```
+
+#### 13.6.1 umu **确实**会重写 `pfx`，但写的是 `.`
+
+真机上 `readlink merged/pfx` 返回的是 **`.`**，不是 `fixPfxSymlink` 写进去的绝对路径。
+也就是说 umu 在启动时把它重写了一遍，而且用的是**相对**形式（相对于软链所在目录
+= merged，解析结果正确）。
+
+两条结论：
+
+1. §12.8.1 那个「静默退化」的窗口是**真实存在但短暂**的：从挂载到 umu 跑起来之间，
+   `merged/pfx` 指向底层。`fixPfxSymlink` 现在的定位从"承重件"回落到"不依赖 umu 的
+   内部行为"—— 但仍然保留，因为那个窗口内任何 `stat` 都会拿到错的答案，而且我们
+   无法保证未来的 umu 版本还会重写它。
+2. **顺手修掉一个自己造的缺陷**：`fixPfxSymlink` 原本比对的是"链接文本是否等于
+   merged"，而 umu 写的是 `.` —— 于是每次启动都判定不符、删掉重建，跟 umu 来回打架，
+   每次都在 upper 里制造一次无谓改动。判据改成 `os.SameFile`（解析后是不是同一个
+   目录），那也正是 Wine 关心的语义。
+
+#### 13.6.2 「N 个独立 Wine 会话共用一个 X 服务」—— 成立
+
+这是 §10.4 记的唯一开放项，也是 `XVFB_CROSS_DISTRO_DISPLAY_PLAN.md` §9 风险 5 /
+§7.3 用例 6 的同一件事：`per-instance` 那次验证跑在旧的 `xvfb-run -a` 代码上，
+两个实例各有一个私有 Xvfb，所以这个组合从没被真机测过。
+
+现在测到了：**两个独立 wineserver + 一个 Xvfb，两个 ArkApi 实例都正常在线。**
+§10.4 那条退路（每 prefix 一个 Xvfb）不需要了。
+
+#### 13.6.3 报表暴露的两个既有缺陷（已修）
+
+真机的 `prefix status` 里，两个 per-instance 时期留下的前缀（合计 **1.38 GiB**）
+显示为「就绪」，而 `prefix gc` **不肯回收它们** —— 它的判据是"实例还存不存在"，
+而实例当然还在。判据本身就错了：该问的是「**当前模式**还会不会用到这个目录」。
+
+- `PrefixInfo.Current`（= `prefixDir(cfg, key) == path`）成为 gc 的新判据，
+  `status` 里对应显示「旧模式残留，可回收」。定义直接派生自 `prefixDir`，
+  与 `sharesWinePrefix` 同一个手法，不会随模式增加而漂移。
+- 顺带查出**版本备份目录从来就没被列出来过**：`prefixStatus` 只 glob 了
+  `<shared>-*`，而备份是 `<shared>.bak-<版本>`，两者匹配不上。于是
+  `actions/prefix.go` 那段"`umu-prefix.bak-*` 同样归这里管"的注释描述的是一条
+  **走不到的代码路径**，一个 Proton 版本升级留下的 ~700 MiB 就那么静静躺着。
+  现在 glob 两个模式，Key 的剥前缀也一并修正（原来剥出来是 `.bak-X`，
+  调用方的 `HasPrefix(Key, "bak-")` 永远不成立，即使能列出来也会去删一个
+  不存在的路径然后报「完成」）。

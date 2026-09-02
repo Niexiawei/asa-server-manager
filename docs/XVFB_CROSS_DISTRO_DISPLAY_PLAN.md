@@ -568,7 +568,7 @@ Xvfb :101 -screen 0 1280x1024x24 -nolisten tcp -noreset -ac & sleep 1; \
 | 3 | **Arch 无头** | 同 1、2 | 同上 |
 | 4 | **Ubuntu 无头**（回归） | 同 1、2 | 与 §9.6 的 44 秒那次等价，不因删掉 `xvfb-run` 而回归 |
 | 5 | **WSL2 + WSLg**（回归） | `env -u DISPLAY` 完整启动 | `/tmp/.X11-unix` 只读 ⇒ 落到第 3 条，用 `:0`，与 §9.6 的 52 秒那次一致 |
-| 6 | 任意 + `prefix_mode: per-instance` | 两个 ArkApi 实例并发启动 | 共用**同一个** Xvfb 显示，两个都能加载 ArkApi；`ps` 里只有一个 Xvfb |
+| 6 | 任意 + `prefix_mode: per-instance` | 两个 ArkApi 实例并发启动 | 共用**同一个** Xvfb 显示，两个都能加载 ArkApi；`ps` 里只有一个 Xvfb —— ✅ **2026-09-01 在 `prefix_mode: overlay` 下验证通过**（同样是两个独立 wineserver 共用一个 Xvfb，与 per-instance 在这一点上等价） |
 | 7 | 故意制造失败 | `chmod -x $(command -v Xvfb)` 或删字体 | 启动被**拒绝**并给出 `xvfb.log` 末尾与针对性提示；**不出现**「实例假装启动成功」 |
 | 8 | 生命周期（正常退出） | 实例跑起来后 `systemctl restart asa-server` | Xvfb 与 ArkApi 实例**一起消失**（后者本来就挂在 PTY 上跟着走）；重启后 `ps` 里没有残留的 Xvfb，再启动实例时新起一个 |
 | 8b | 生命周期（硬杀） | `kill -9 $(pidof asa-server)` | Pdeathsig 生效：Xvfb 在同一瞬间消失，`/tmp/.X11-unix/X<n>` 与 `/tmp/.X<n>-lock` 都被清掉（用 SIGTERM 而非 SIGKILL 就是为了这个） |
@@ -602,7 +602,7 @@ Xvfb :101 -screen 0 1280x1024x24 -nolisten tcp -noreset -ac & sleep 1; \
 | 3 | **常驻一个无认证 X 服务** | 同机其他本地用户可以连上它（截屏/发假输入） | ① `-nolisten tcp`，只走 unix socket；② 显示上只有 Wine 的隐形窗口，无剪贴板、无用户输入；③ 这与之前 `xvfb-run` 的差别只是「有没有 cookie」，而我们本来就不传 `XAUTHORITY`（§3.3）。**若将来要收紧**：改为带 `-auth`，同时把 `XAUTHORITY` 加进 `runtimeEnv` 与 `launchEnvAllowed` 白名单，并把探测改成读 cookie 后握手 —— 三处一起改，不能只改一处 |
 | 4 | **孤儿 Xvfb 累积** | 进程/内存泄漏 | §4.3 的三层：显式停 + Pdeathsig + 认领。真机要专门验 8/8b/8c 三条 |
 | 4b | **Pdeathsig 误杀**（Go 的 M 退出把 Xvfb 带走） | 正在跑的 ArkApi 实例突然没显示 | `xvfbSpawnLoop` 那个 LockOSThread 且永不返回的 goroutine 是唯一的 fork 入口。**别给它加退出条件**，也别在别处直接 `cmd.Start()` 一个带 Pdeathsig 的进程。用例 8c 盯这条 |
-| 5 | **单例显示被多个 ArkApi 实例共用是否可靠**【待实测】 | `per-instance` 模式下第二个实例可能出问题 | §7.3 用例 6 专门验。若不行，退回「每 prefix 一个 Xvfb」，键与 `PrefixKeyFor` 同源（注意：`shared` 模式下本来就只允许一个 ArkApi 实例，所以这个风险只在 `per-instance` 模式存在） |
+| 5 | ~~**单例显示被多个 ArkApi 实例共用是否可靠**【待实测】~~ → ✅ **2026-09-01 已验证成立**：overlay 模式下两个 ArkApi 实例、两个独立 wineserver、**一个** Xvfb，都正常在线（`docs/UMU_PREFIX_OVERLAY_PLAN.md` §13.6.2）。下面那条「每 prefix 一个 Xvfb」的退路不需要了 | `per-instance` 模式下第二个实例可能出问题 | §7.3 用例 6 专门验。若不行，退回「每 prefix 一个 Xvfb」，键与 `PrefixKeyFor` 同源（注意：`shared` 模式下本来就只允许一个 ArkApi 实例，所以这个风险只在 `per-instance` 模式存在） |
 | 6 | **删掉 `xvfb-run` 造成 Debian 侧回归** | 已验证过的路径变了 | §7.3 用例 4 是专门的回归项。底层跑的是同一个 `Xvfb` 二进制，参数还更明确 |
 | 7 | Xvfb 在 pressure-vessel 容器外，显示要经 `/tmp/.X11-unix` 被 bind 进容器 | 与现状相同的约束 | `x11SocketDirWritable()` 保持不变，WSLg 只读挂载那条路仍然靠第 3 条兜底 |
 

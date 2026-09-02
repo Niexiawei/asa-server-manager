@@ -499,9 +499,9 @@ func SharedLaunchGate() bool
 |---|---|---|
 | 1 | 有实例在跑时 `asa-server verify-arkapi --check-only` 不再挂死 | F1-2（`runInPrefix` 的 `PROTON_VERB=run`）的专项验证 |
 | 2 | `start-all` 拉起 3 个以上实例 | 回归确认，批量串行本来就是既有行为 |
-| 3 | 单个 per-instance prefix 的占盘（`du -sh`） | §9.2 的数字仍是估计，**未实测** |
+| 3 | ~~单个 per-instance prefix 的占盘~~ | ✅ **2026-09-01 实测：约 690 MiB/实例**（共享底层 690.9 MiB，两个 per-instance 前缀 690.0 / 689.8 MiB）。对照 overlay 可写层 63.1 MiB |
 | 4 | 删除 / 重命名实例时 prefix 被清理 | F2-4 |
-| 5 | `asa-server prefix status \| gc` 的实际输出 | F2-4 |
+| 5 | `asa-server prefix status \| gc` 的实际输出 | ⚠️ 2026-09-01 真机跑过 `status`，并因此查出两个既有缺陷：`gc` 用"实例还存不存在"当判据，回收不了换模式后的残留（真机上 1.38 GiB）；版本备份目录 `umu-prefix.bak-*` **从来没被列出来过**（glob 匹配不上）。均已修，见 `docs/UMU_PREFIX_OVERLAY_PLAN.md` §13.6.3 |
 | 6 | 改回 `shared` 后的行为与残留清理 | F2-5 |
 | 7 | Windows 上"A 初始化中点 B"的人工回归 | 单测已覆盖闸门短路，人工路径未走 |
 
@@ -513,11 +513,19 @@ func SharedLaunchGate() bool
 |---|---|---|
 | 单实例（用不用 ArkApi 都一样） | `shared` | ✅ 可用，省盘 |
 | 多实例 + 纯 `ArkAscendedServer.exe` | `shared` | ✅ 已实测可用（启动自动串行） |
-| **多实例 + ArkApi** | **`per-instance`** | ✅ 已实测可用，**且是唯一办法** |
+| **多实例 + ArkApi** | **`per-instance`** | ✅ 已实测可用 |
 | 多实例 + ArkApi | `shared` | ❌ 不可行，已做成启动时阻断并给出改法 |
+| 多实例 + ArkApi，且不想为此多占几百 MB | `overlay` | ✅ 2026-09-01 实现并通过核心真机验收：两个 ArkApi 实例 + 两个独立 wineserver，每实例只多占 **63.1 MiB**（`docs/UMU_PREFIX_OVERLAY_PLAN.md` §13.6） |
+
+> ⚠️ 上表第三行原来写的是「**且是唯一办法**」。那句话在 2026-09-01 之前是对的，
+> 现在**不对了**：`overlay` 用一份只读底层 + 每实例一个 overlayfs 可写层拿到了
+> 同样的独立 wineserver，磁盘与首启开销却接近 `shared`。原文保留在这里，是因为
+> 它记录了当时的判断依据；要改配置请看 `UMU_PREFIX_OVERLAY_PLAN.md` 的验收状态。
 
 默认值维持 `shared`：单实例与纯 ARK 多实例都没问题，而需要 ArkApi 多开的用户会在
-第一次尝试时就拿到一条指名道姓的错误信息，而不是三分钟的静默超时。
+第一次尝试时就拿到一条指名道姓的错误信息，而不是三分钟的静默超时。`overlay` 虽然
+在三个维度上都不劣于 `shared`，但它依赖 root 与内核 overlayfs，而 `shared`
+不依赖任何东西 —— 先作为可选模式发布，跑一段时间再考虑改默认（overlay 方案 §11.1）。
 
 ---
 

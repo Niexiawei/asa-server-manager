@@ -589,3 +589,86 @@ desktop，治的是一个**已被证明不存在**的病，代价（改 argv = �
 - `xvfb.log` 里有 `_XSERVTransmkdir: Mode of /tmp/.X11-unix should be set to 1777`
   （实际 755）。X 只是警告，不影响自管 Xvfb 启动。
 - `/tmp/.X11-unix/probe` 是显示握手探测留下的 root 空文件，没有清理。
+
+---
+
+## 13. 阻断有了，提醒没有（2026-09-01，已修）
+
+§12 把结论钉死在「`shared` 下同时只能有一个 ArkApi 实例」之后，
+`instance.startServerInternal` 里的阻断按 §7.3 落地了，措辞也是可操作的
+（改 `prefix_mode`，或先停另一台）。**但用户在面板上根本看不到它。**
+
+真机上的形状：点「启动」→ 弹出「实例 X 正在启动」的成功提示 →
+过几秒卡片回到「已停止」→ **没有任何解释**。那段写得很仔细的错误信息只出现在
+`asaServer.log` 里：
+
+```
+failed to start server 'jibian-pve': 无法启动实例 jibian-pve：它与正在运行的实例 meijue-pve 都启用了 ArkApi，……
+```
+
+### 13.1 为什么会这样：接口是异步的，错误没有回程
+
+`GET /api/server/:name/start` 的形状是「CAS 成功 → 立刻 200『正在启动』→
+`go runStartServerTask()`」。后台那条协程里的失败只落三个地方：
+
+| 落点 | 用户看得见吗 |
+|---|---|
+| `logger.Errorf("failed to start server …")` | 要 SSH 或翻系统日志页 |
+| 一条 `start_failed` 状态事件（带 `data.error`） | **会被紧随其后的 `stopped` 盖掉** —— `StartServer` 在失败返回前会写一次 `StatusStopped`，前端卡片于是显示「已停止」 |
+| 铃铛（`WSEventNotification.vue`）里的一行 | 要主动点开才看得到 |
+
+所以不是"没报错"，是**报了三次、三次都不在用户眼前**。这一点与 ArkApi 冲突本身
+无关：任何后台启动失败（缺显示、Wine 运行时没装、游戏进程三分钟没出现）都是同一个
+形状，ArkApi 冲突只是最容易复现的那个。
+
+### 13.2 修法：两层，一层治本一层兜底
+
+**① 同步前置检查（治这一类）。** ArkApi 冲突的判据是三个**当下就能查完**的确定事实
+（共享模式 / 对方在跑 / 对方也开了 ArkApi），完全不需要等到启动路径里才知道。
+新增 `instance.PrecheckStart(name) error`，由 `serverapi.startServer` 在 **CAS 之前**
+同步调用，命中就 `409 + success:false + 原因`。前端两个调用点
+（`ServerManager.vue` / `InstanceDetail.vue`）本来就对 `success:false` 走
+`NotifyPlugin.error`，所以不用改前端就有了弹窗。
+
+三条纪律写在 `PrecheckStart` 的注释里，这类"提前检查"最容易长歪：
+
+- **确定性**：不含启发式。会误判的检查（例如 VC++ 那个 PE 标记）不许进来 ——
+  提前拦一个本来能跑的实例，比晚几秒给出原因糟得多。
+- **无副作用**：不起进程、不建目录。特别是**不许碰 `acquireDisplay`**，
+  与 `DisplayStatus` / preflight 同一条纪律（`display_linux.go` 的注释）。
+- **不是权威**：`startServerInternal` 里那份检查一个字都不删。`PrecheckStart` 读的是
+  `server-files` 里的 `AsaApiLoader.exe`（此刻镜像可能还没同步出来），启动路径读的是
+  镜像里的那份 —— 后者才是真正要被执行的文件。两份判据允许不一致，
+  **放行归提示、阻断归启动路径**。
+
+冲突文案抽成 `arkApiConflictError(self, other)`，两个调用点共用：同一个原因在弹窗里
+和日志里长得不一样，只会让人以为遇上了两个问题。
+
+**② 失败事件弹窗（兜底其余所有）。** `WSEventNotification.vue` 本来就订阅了全部
+`server_*` 事件（它是那个铃铛），在 `addEvent` 前面加一道：
+`server_start_failed` / `server_stop_failed` / `server_restart_failed` 直接
+`NotifyPlugin.error`，内容取 `data.error`（后端 `state_dispatcher.go` 已经在推了），
+`duration: 0` 不自动关闭 —— 这类消息带着一段要照着做的长文，几秒钟读不完。
+
+这一层不挑失败原因，所以「缺显示」「Wine 运行时没装」「游戏进程没出现」这些
+今天同样静默的失败，一并有了提示。
+
+### 13.3 没有动的地方，以及为什么
+
+**`StartServer` 失败后写 `StatusStopped` 这一笔没有改。** 它盖掉了刚写下的
+`start_failed`，是"卡片上什么都不剩"的直接原因；但它同时也是状态机的收尾
+（`stopped` 与 `start_failed` 都在 CAS 的允许入口里，行为上等价），
+而 `start_failed` 那条记录在**状态历史**里是留着的（`InstanceStatusHistory.vue` 读的是
+BadgerDB 里的记录，不是最后一条状态）。改它属于状态机口径调整，影响面比本次问题大，
+**留作单独一项**：真要改，方向是失败后停在 `start_failed` 而不是 `stopped`，
+让卡片自己红着，而不是靠一个弹窗去追一个已经消失的状态。
+
+### 13.4 落点
+
+| 文件 | 改动 |
+|---|---|
+| `internal/instance/launchgate.go` | 新增 `arkApiConflictError()` 与 `PrecheckStart()` |
+| `internal/instance/server.go` | 冲突分支改调 `arkApiConflictError()`，注释说明「这份是权威、Precheck 那份是提示」 |
+| `internal/webapi/serverapi/serverapi.go` | `startServer` 在 CAS 前调 `PrecheckStart`，命中返回 409 |
+| `internal/instance/precheck_test.go` | 读不到实例配置时必须放行；冲突文案必须同时点到两台实例与出路 |
+| `app/src/components/WSEventNotification.vue` | 三个 `*_failed` 事件弹 `NotifyPlugin.error` |
