@@ -151,16 +151,22 @@ linux:
   # 必须是具体版本号，不能是 "latest"——通过 GitHub API 解析别名会撞限流，见文档。
   umu_version: "1.4.4"
   proton_version: "GE-Proton10-34"
-  # prefix 模式：
+  # prefix 模式：一个 prefix 目录 = 一个 wineserver = 一个 Wine 会话。
   #   shared       默认。全部实例共用一个 Wine prefix，省盘。同一个 prefix 只有一个
-  #                wineserver，所以实例**启动会自动串行**（等上一台初始化成功再起下一台）。
-  #   per-instance 每实例一个 umu-prefix-<实例名>，实例之间完全隔离、启动可并发。
-  #                代价：每实例多占一个 prefix，首次启动多花约一分钟创建
-  #                （GE-Proton 与 Steam Linux Runtime 仍全局共享，不重复下载）。
+  #                wineserver，所以实例**启动会自动串行**（等上一台初始化成功再起下一台），
+  #                而且**同时只能有一个启用 ArkApi 的实例**（第二个会卡住直到超时）。
+  #   per-instance 每实例一个 umu-prefix-<实例名>，实例之间完全隔离、启动可并发，
+  #                ArkApi 想开几个开几个。代价：每实例多占一个完整 prefix，
+  #                首次启动多花约一分钟创建（GE-Proton 与 Steam Linux Runtime
+  #                仍全局共享，不重复下载）。
+  #   overlay      共用只读底层 + 每实例一个 overlayfs 可写层（umu-prefix-overlay/<实例名>/）。
+  #                隔离性同 per-instance，磁盘与首启开销接近 shared。需要 root 与内核
+  #                overlayfs；挂不上会自动降级成「从底层复制一份」并告警，实例照常启动。
   # 切回 shared 后旧目录不会自动消失，用 "asa-server prefix status" / "asa-server prefix gc" 查看与清理。
   prefix_mode: shared
   # 留空 = {程序目录}/umu-prefix
   # per-instance 模式下这是**前缀**而非目录本身，实际路径为 "<prefix_dir>-<实例名>"
+  # overlay 模式下它只决定底层在哪，每实例可写层固定在 {程序目录}/umu-prefix-overlay/
   prefix_dir: ""
   # umu-launcher（zipapp）用哪个 Python 解释器执行。
   #   留空  : 自动探测系统解释器，扫 python3 / python3.10 … python3.20，多个取最高版本

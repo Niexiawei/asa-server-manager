@@ -18,3 +18,7 @@ func ensurePrefix(context.Context, string, io.Writer) error { return nil }
 func removeInstancePrefix(string) error { return nil }
 
 func prefixStatus() []PrefixInfo { return nil }
+
+func prepareSharedPrefixWrite() error { return nil }
+
+func reconcilePrefixes() {}

@@ -150,25 +150,37 @@ type LinuxConfig struct {
 	// 通过 api.github.com 解析 latest/别名正是本项目要绕开的限流坑，见 §4.3。
 	UmuVersion    string `mapstructure:"umu_version"`
 	ProtonVersion string `mapstructure:"proton_version"`
-	// PrefixMode："shared"（默认，全部实例共用一个 Wine prefix）或
-	// "per-instance"（每实例一个 {BaseDir}/umu-prefix-<实例名>）。
+	// PrefixMode：实例之间怎么分 Wine prefix。默认 "shared"。
 	//
-	// 两者的实际差别：
-	//   shared       省盘；但一个 prefix 只有一个 wineserver，实例之间因此在
-	//                注册表、命名内核对象上互相可见，且**启动必须串行**
-	//                （internal/instance/launchgate.go 会自动排队，等上一台
-	//                到达 start_initialization_successful 再放行下一台）。
-	//   per-instance 实例之间完全隔离，启动可并发（与 Windows 一致）；代价是
-	//                每个实例多占一个 prefix，且该实例首次启动会多花约一分钟
-	//                创建它（GE-Proton 与 Steam Linux Runtime 仍是全局共享的，
-	//                不会重复下载）。
+	// 一个 prefix 目录 = 一个 wineserver = 一个 Wine 会话，这条 Wine 实现细节
+	// 是三种模式全部差异的来源（wineserver 是按 WINEPREFIX 目录的 dev/ino 选的）。
 	//
-	// 切回 shared 后，per-instance 时期留下的目录不会自动消失，
+	//   shared       全部实例共用 {BaseDir}/umu-prefix。省盘；但实例之间在注册表、
+	//                命名内核对象上互相可见，**启动必须串行**
+	//                （internal/instance/launchgate.go 会自动排队，等上一台到达
+	//                start_initialization_successful 再放行下一台），而且
+	//                **同时只能有一个启用 ArkApi 的实例**（第二个会卡在加载器
+	//                启动前直到超时，见 docs/SHARED_PREFIX_MULTI_ARKAPI_PLAN.md）。
+	//   per-instance 每实例一个 {BaseDir}/umu-prefix-<实例名>。完全隔离，启动可并发
+	//                （与 Windows 一致），ArkApi 想开几个开几个；代价是每实例多占
+	//                一个完整 prefix，且该实例首次启动会多花约一分钟创建它
+	//                （GE-Proton 与 Steam Linux Runtime 仍全局共享，不重复下载）。
+	//   overlay      共用一份只读底层 prefix + 每实例一个 overlayfs 可写层，落在
+	//                {BaseDir}/umu-prefix-overlay/<实例名>/。隔离性与 per-instance
+	//                逐条等价（各自独立的 wineserver），磁盘与首启开销接近 shared。
+	//                需要 root 与内核 overlayfs；挂不上时自动降级成「从底层复制一份」
+	//                （功能正确，只是多占盘）并响亮告警。
+	//                见 docs/UMU_PREFIX_OVERLAY_PLAN.md。
+	//
+	// 切回 shared 后，另两种模式留下的目录不会自动消失，
 	// 用 `asa-server prefix status | gc` 查看与清理。
 	PrefixMode string `mapstructure:"prefix_mode"`
 	// PrefixDir 留空 = {BaseDir}/umu-prefix。
 	// 注意：per-instance 模式下这个值是**前缀**而不是目录本身，
 	// 实际路径为 "<prefix_dir>-<实例名>"。
+	// overlay 模式下它只决定**底层**在哪；每实例的可写层固定落在
+	// {BaseDir}/umu-prefix-overlay/ 下，不跟着这个值走 —— 让一个配置项同时
+	// 控制两套布局只会更难解释（docs/UMU_PREFIX_OVERLAY_PLAN.md §11.4）。
 	PrefixDir string `mapstructure:"prefix_dir"`
 	// UmuPythonBin：执行 umu-launcher zipapp 的 Python 解释器。
 	// 留空 = 自动探测系统 python3 / python3.10…python3.N，多个取最高版本（不动系统默认 python3，

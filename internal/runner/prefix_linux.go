@@ -13,11 +13,14 @@ import (
 	"sync"
 )
 
+// prefixKeyFor: both isolating modes key the prefix by instance name; only
+// "shared" (and anything unrecognized) collapses every instance onto one.
 func prefixKeyFor(instanceName string) string {
-	if getConfig().PrefixMode != "per-instance" {
-		return ""
+	switch getConfig().PrefixMode {
+	case "per-instance", "overlay":
+		return instanceName
 	}
-	return instanceName
+	return ""
 }
 
 // instancePrefixDir is prefixDir's per-instance branch with the mode check
@@ -60,7 +63,7 @@ func ensurePrefix(ctx context.Context, prefixKey string, progress io.Writer) err
 	// The shared prefix belongs to EnsureRuntime: it's created during setup,
 	// alongside the umu/GE-Proton downloads it depends on. Verifying is in
 	// scope here; rebuilding it behind a server start is not.
-	if prefixKey == "" || cfg.PrefixMode != "per-instance" {
+	if prefixKey == "" || (cfg.PrefixMode != "per-instance" && cfg.PrefixMode != "overlay") {
 		return checkRuntime()
 	}
 
@@ -69,6 +72,13 @@ func ensurePrefix(ctx context.Context, prefixKey string, progress io.Writer) err
 	// install. Fail with checkRuntime's end-user wording.
 	if err := checkRuntime(); err != nil {
 		return err
+	}
+
+	// overlay builds its private layer on top of that same shared prefix
+	// instead of running a wineboot of its own — milliseconds instead of a
+	// minute, and no second copy of the runtime on disk.
+	if cfg.PrefixMode == "overlay" {
+		return ensureOverlayPrefix(ctx, cfg, prefixKey, progressLogger(progress))
 	}
 
 	prefix := instancePrefixDir(cfg, prefixKey)
@@ -124,11 +134,22 @@ func ensurePrefix(ctx context.Context, prefixKey string, progress io.Writer) err
 	return nil
 }
 
+// removeInstancePrefix deletes everything this instance owns, in both shapes.
+//
+// Mode-independent on purpose (see the exported doc comment): an instance that
+// ran under per-instance and then under overlay has left a directory of each,
+// and deleting the instance has to take both. Each half is a no-op when its
+// directory isn't there.
 func removeInstancePrefix(instanceName string) error {
 	if instanceName == "" {
 		return nil
 	}
 	cfg := getConfig()
+
+	if err := removeOverlayPrefix(cfg, instanceName); err != nil {
+		return err
+	}
+
 	prefix := instancePrefixDir(cfg, instanceName)
 	if prefix == prefixDir(cfg, "") {
 		// Belt and braces: never let a bad key delete the shared prefix.
@@ -152,11 +173,28 @@ func prefixStatus() []PrefixInfo {
 	shared := prefixDir(cfg, "")
 
 	paths := []string{shared}
-	// Per-instance prefixes are "<shared>-<key>". The glob also catches the
-	// ".bak-<version>" directories reconcilePrefixVersion leaves behind, which
-	// is wanted: they occupy disk and nothing else reports them.
-	if m, _ := filepath.Glob(shared + "-*"); len(m) > 0 {
-		paths = append(paths, m...)
+	// Two shapes to find, and they need two patterns:
+	//   "<shared>-<key>"        per-instance prefixes
+	//   "<shared>.bak-<版本>"   what reconcilePrefixVersion moves aside on a
+	//                           Proton bump — a full ~700MB prefix that nothing
+	//                           will ever open again
+	// The second one used to be missing while this function's callers claimed
+	// to manage it, so `prefix status` never showed those directories and
+	// `prefix gc` never offered to reclaim them. They just sat there.
+	//
+	// "<shared>-*" also catches "umu-prefix-overlay", which is NOT a prefix but
+	// the directory holding every instance's writable layer — reporting it as
+	// an instance named "overlay" would be wrong twice over: a bogus row, and a
+	// gc candidate pointing at everyone's data. Excluded by exact path.
+	overlays := overlayRoot(cfg)
+	for _, pattern := range []string{shared + "-*", shared + ".bak-*"} {
+		m, _ := filepath.Glob(pattern)
+		for _, p := range m {
+			if p == overlays {
+				continue
+			}
+			paths = append(paths, p)
+		}
 	}
 
 	out := make([]PrefixInfo, 0, len(paths))
@@ -164,13 +202,70 @@ func prefixStatus() []PrefixInfo {
 		if !dirExists(p) {
 			continue
 		}
+		// per-instance 前缀是 "<shared>-<key>"，版本备份是 "<shared>.bak-<版本>" ——
+		// 两种后缀都要剥掉。只剥 "-" 的话备份目录的 Key 会带上那个点，于是
+		// 调用方的 HasPrefix(Key, "bak-") 永远不成立：报表把它当成一个名叫
+		// ".bak-<版本>" 的实例，而 gc 会去删一个根本不存在的路径然后报「完成」。
+		key := strings.TrimPrefix(p, shared)
+		key = strings.TrimPrefix(key, "-")
+		key = strings.TrimPrefix(key, ".")
+
 		out = append(out, PrefixInfo{
-			Key:           strings.TrimPrefix(strings.TrimPrefix(p, shared), "-"),
+			Key:           key,
 			Path:          p,
 			Initialized:   prefixInitialized(p),
 			ProtonVersion: prefixMarker(p),
 			InUse:         wineserverHoldsPrefix(p),
 			SizeBytes:     dirSize(p),
+			Current:       prefixDir(cfg, key) == p,
+		})
+	}
+	return append(out, overlayStatus(cfg)...)
+}
+
+// overlayStatus reports one row per writable layer under umu-prefix-overlay/,
+// independent of the mode currently configured (layers outlive a switch back
+// to shared, exactly like per-instance prefixes do).
+//
+// SizeBytes is the **upper** layer, never the mount point: walking merged
+// would count the shared lower once per instance and report hundreds of MB
+// each, turning this mode's entire selling point upside down in the one place
+// meant to demonstrate it. See docs/UMU_PREFIX_OVERLAY_PLAN.md §12.3.
+func overlayStatus(cfg Config) []PrefixInfo {
+	entries, err := os.ReadDir(overlayRoot(cfg))
+	if err != nil {
+		return nil
+	}
+	mounts := listOverlayMounts()
+
+	var out []PrefixInfo
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		key := e.Name()
+		merged := overlayMergedDir(cfg, key)
+		mounted := mounts[merged]
+
+		// 独占占用：挂载时是 upper（底层是共享的，量 merged 会把它按实例数重复计），
+		// 没挂载时 merged 里就是**真的一整份拷贝**（降级路径），那才是它的占用。
+		// 这一栏正是用来看「这台机器上 overlay 到底有没有在省盘」的，报错方向
+		// 会让人得出完全相反的结论。
+		measured := overlayUpperDir(cfg, key)
+		if !mounted {
+			measured = merged
+		}
+
+		out = append(out, PrefixInfo{
+			Key:           key,
+			Path:          merged,
+			Initialized:   prefixInitialized(merged),
+			ProtonVersion: readOverlayStamp(cfg, key),
+			InUse:         wineserverHoldsPrefix(merged),
+			SizeBytes:     dirSize(measured),
+			Overlay:       true,
+			Mounted:       mounted,
+			Current:       prefixDir(cfg, key) == merged,
 		})
 	}
 	return out

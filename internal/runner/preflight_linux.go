@@ -39,7 +39,48 @@ func preflight() []Problem {
 	if p := checkACLSupport(); p != nil {
 		problems = append(problems, *p)
 	}
+	if p := checkOverlayfs(); p != nil {
+		problems = append(problems, *p)
+	}
 	return problems
+}
+
+// checkOverlayfs reports whether prefix_mode "overlay" can actually mount.
+//
+// Advisory, never a blocker, and on two counts. Nobody who left prefix_mode at
+// its default needs overlayfs at all, so a hard stop would punish the majority
+// for a feature they don't use — the same mistake "missing acl blocks setup"
+// was (docs/ACL_PERMISSION_HARDENING_PLAN.md §1). And even with overlay
+// configured, an unmountable layer degrades to a copy of the lower rather than
+// failing the start, so "you will use more disk than you asked for" is exactly
+// an advisory.
+//
+// Only the two conditions that can be decided from a file read are checked
+// here. Whether the specific filesystem under BaseDir can hold an upperdir
+// (xfs without ftype=1, NFS, an already-overlaid directory) can only be
+// learned by trying to mount, which is not something a read-only preflight
+// gets to do — that one surfaces as the fallback's warning at first launch.
+func checkOverlayfs() *Problem {
+	if getConfig().PrefixMode != "overlay" {
+		return nil
+	}
+	if b, err := os.ReadFile("/proc/filesystems"); err != nil || !strings.Contains(string(b), "\toverlay\n") {
+		return &Problem{
+			Name:    "overlayfs",
+			Detail:  "linux.prefix_mode 配置为 overlay，但当前内核没有报告 overlay 文件系统支持；每个实例会改用「从底层前缀复制一份」，功能相同但更占磁盘",
+			Fix:     "确认 /proc/filesystems 里有一行 \"nodev\toverlay\"（必要时 modprobe overlay），或把 linux.prefix_mode 改回 shared / per-instance",
+			Warning: true,
+		}
+	}
+	if os.Geteuid() != 0 {
+		return &Problem{
+			Name:    "overlayfs",
+			Detail:  "linux.prefix_mode 配置为 overlay，但当前不是以 root 运行，mount(2) 会被拒绝；每个实例会改用「从底层前缀复制一份」，功能相同但更占磁盘",
+			Fix:     "以 root 运行 asa-server 服务本体（游戏进程仍会降权到专用用户），或把 linux.prefix_mode 改回 shared / per-instance",
+			Warning: true,
+		}
+	}
+	return nil
 }
 
 // runtimeUserProblems is verifyRuntimeAccess exposed for the preflight API

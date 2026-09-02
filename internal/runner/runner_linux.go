@@ -148,11 +148,25 @@ func checkRuntime() error {
 	return nil
 }
 
-// sharesWinePrefix: every mode except "per-instance" puts all instances in one
-// prefix. Tested that way round on purpose — an unconfigured (zero-value)
-// Config must still be treated as sharing, since that's the riskier default
-// and prefixDir treats anything that isn't "per-instance" as shared too.
-func sharesWinePrefix() bool { return getConfig().PrefixMode != "per-instance" }
+// sharesWinePrefix asks prefixDir the question directly: would two different
+// instances land in the same prefix directory?
+//
+// It used to be a hand-written mode check (`PrefixMode != "per-instance"`),
+// which was correct with exactly two modes and silently wrong the moment a
+// third arrived — "overlay" isolates prefixes too, and a stale check would
+// have serialized its launches and rejected its second ArkApi instance, with
+// no error anywhere to explain either. Deriving the answer from prefixDir
+// makes drift impossible: whatever prefixDir decides IS the sharing model.
+//
+// The failure direction is also the safe one. An unconfigured (zero-value)
+// Config, or an unrecognized mode string, falls through prefixDir to the one
+// shared prefix — so this returns true, and the caller gets the launch gate
+// and the ArkApi exclusion. Over-serializing costs time; under-serializing
+// costs a three-minute hang and an orphaned process tree.
+func sharesWinePrefix() bool {
+	cfg := getConfig()
+	return prefixDir(cfg, "instance-a") == prefixDir(cfg, "instance-b")
+}
 
 // umuCommandLine builds the umu-run invocation for exePath/args, matching
 // scripts/ark_instance_manager.sh's proven env var set exactly — including

@@ -60,15 +60,29 @@ const protonNoXalia = "PROTON_USE_XALIA=0"
 
 // prefixDir resolves the Wine prefix directory for one launch. key is
 // opt.PrefixKey; empty means the default shared prefix regardless of
-// PrefixMode (per-instance callers must supply a key to actually get
-// isolation — see docs/LINUX_COMPATIBILITY_PLAN.md §6 risk 6).
+// PrefixMode (isolating callers must supply a key to actually get isolation —
+// see docs/LINUX_COMPATIBILITY_PLAN.md §6 risk 6).
+//
+// This is also where "does the whole program serialize launches" is decided:
+// sharesWinePrefix asks this function whether two different keys land in the
+// same directory, rather than repeating the mode table. Anything unrecognized
+// therefore falls through to the shared prefix on purpose.
 func prefixDir(cfg Config, key string) string {
 	base := cfg.PrefixDir
 	if base == "" {
 		base = filepath.Join(cfg.BaseDir, "umu-prefix")
 	}
-	if cfg.PrefixMode == "per-instance" && key != "" {
+	if key == "" {
+		return base
+	}
+	switch cfg.PrefixMode {
+	case "per-instance":
 		return base + "-" + key
+	case "overlay":
+		// The mount point, not the lower: that directory sits on its own
+		// overlay superblock, which is what gives the instance its own
+		// wineserver. cfg.PrefixDir moves the lower only — see overlay.go.
+		return overlayMergedDir(cfg, key)
 	}
 	return base
 }
@@ -124,6 +138,20 @@ func ensureRuntime(ctx context.Context, progress io.Writer) error {
 	prefetched, err := prefetchSteamRuntime(ctx, cfg, logf)
 	if err != nil {
 		logf("Steam Linux Runtime 预下载失败（%v），改由 umu 自行下载", err)
+	}
+
+	// 从这里往下才开始动共享前缀本身。overlay 模式下它可能正被若干实例的可写层
+	// 当 lowerdir 引用着 —— 这时改它是未定义行为。
+	//
+	// 判据是「还有没有事要做」而不是「有没有挂载」：本函数在每次 API 启动时都会
+	// 后台跑一遍，而挂载是**故意**跨重启存活的（停实例不卸载），一见挂载就报错
+	// 等于第一个实例起过之后永远起不来。见 lowerNeedsWork。
+	if err := prepareSharedPrefixWrite(); err != nil {
+		if lowerNeedsWork(cfg) {
+			return err
+		}
+		logf("共享 Wine 前缀已是最新，跳过重建（当前有实例的可写层挂在它上面）")
+		return nil
 	}
 
 	if err := warmPrefix(ctx, cfg, "", logf, prefetched.Variant != ""); err != nil {
@@ -539,8 +567,11 @@ func waitForWineserverDrain(prefix string) {
 //	environ: WINEPREFIX=/opt/.../umu-prefix/pfx/
 //
 // Note the value umu actually exports is "<prefix>/pfx/" — one level deeper
-// than the configured prefix, with a trailing slash — so this compares on a
-// prefix-of-the-value basis rather than for equality.
+// than the configured prefix, with a trailing slash — so this asks "is that
+// value inside prefix" rather than comparing for equality. That containment
+// test is wineprefixValueUnder, and it must stay a **path**-boundary test:
+// our prefixes are name-stem siblings, so a plain strings.HasPrefix reports
+// the shared prefix as held whenever any per-instance one is. See its comment.
 func wineserverHoldsPrefix(prefix string) bool {
 	procs, err := procx.QueryProcess("wineserver", "")
 	if err != nil {
@@ -560,7 +591,7 @@ func wineserverHoldsPrefix(prefix string) bool {
 			if !ok {
 				continue
 			}
-			if strings.HasPrefix(strings.TrimRight(v, "/"), want) {
+			if wineprefixValueUnder(v, want) {
 				return true
 			}
 		}

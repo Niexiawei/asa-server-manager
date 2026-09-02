@@ -162,8 +162,8 @@ func (l *LinuxConfig) validate() error {
 		return fmt.Errorf("linux.runtime: 只能是 umu / custom，当前为 %q", l.Runtime)
 	}
 	l.PrefixMode = strings.ToLower(strings.TrimSpace(l.PrefixMode))
-	if !slices.Contains([]string{"shared", "per-instance"}, l.PrefixMode) {
-		return fmt.Errorf("linux.prefix_mode: 只能是 shared / per-instance，当前为 %q", l.PrefixMode)
+	if !slices.Contains([]string{"shared", "per-instance", "overlay"}, l.PrefixMode) {
+		return fmt.Errorf("linux.prefix_mode: 只能是 shared / per-instance / overlay，当前为 %q", l.PrefixMode)
 	}
 	if l.Runtime == "umu" {
 		if l.UmuVersion == "" {
