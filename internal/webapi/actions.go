@@ -419,6 +419,10 @@ func InitializationBasicComponents() {
 		}
 		logger.Warnf("Linux runtime preflight: %s — %s (fix: %s)", p.Name, p.Detail, p.Fix)
 	}
+	// 崩溃残留对账：卸载 upper 已经不在、却还挂着的 Wine 可写层（overlay 模式）。
+	// 同步跑：只有一次 /proc 读，而且必须在任何实例启动之前完成。
+	runner.ReconcilePrefixes()
+
 	// Warm the Linux Wine/Proton runtime (no-op on Windows). Backgrounded and
 	// best-effort like syncthingmanage.Initialize above: GE-Proton alone is a
 	// ~450MB download, so this must not block server startup, and a fresh

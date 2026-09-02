@@ -16,10 +16,11 @@ import (
 
 // PrefixCommand 管理 Linux 上的 Wine 前缀目录。
 //
-// 只有 `linux.prefix_mode: per-instance` 会产生每实例前缀；`shared` 下永远只有
-// 一个 `{BaseDir}/umu-prefix`。但清理必须与当前模式无关 —— 用过一阵子
-// per-instance 再切回 shared 的用户，盘上仍留着一堆 `umu-prefix-<实例名>`，
-// 除了这条命令没有别的东西会报告它们。
+// 三种 `linux.prefix_mode` 留下三种形态：`shared` 只有一个
+// `{BaseDir}/umu-prefix`；`per-instance` 每实例一个 `umu-prefix-<实例名>`；
+// `overlay` 每实例一个 `umu-prefix-overlay/<实例名>/`（可写层）。但清理必须与
+// 当前模式无关 —— 换过模式的用户盘上会同时留着好几种，除了这条命令没有别的
+// 东西会报告它们。
 //
 // `reconcilePrefixVersion` 在 Proton 版本变化时留下的 `umu-prefix.bak-<版本>`
 // 同样归这里管：它们同样占盘，同样没人会主动去看。
@@ -61,9 +62,12 @@ func actionPrefixStatus(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	instances := existingInstances()
-	var total int64
+	var (
+		total      int64
+		hasOverlay bool
+	)
 
-	fmt.Printf("%-28s %-16s %-10s %-8s %s\n", "前缀", "归属", "Proton", "占用", "状态")
+	fmt.Printf("%-28s %-20s %-10s %-8s %s\n", "前缀", "归属", "Proton", "独占占用", "状态")
 	for _, p := range prefixes {
 		total += p.SizeBytes
 
@@ -76,10 +80,29 @@ func actionPrefixStatus(ctx context.Context, cmd *cli.Command) error {
 		case p.Key != "":
 			owner = "实例 " + p.Key + "（已不存在）"
 		}
+		if p.Overlay {
+			owner += " · 可写层"
+			hasOverlay = true
+		}
 
 		var state []string
 		if !p.Initialized {
 			state = append(state, "未初始化")
+		}
+		// 换过 prefix_mode 之后，上一个模式的目录还在，而且它的实例也还在 ——
+		// 光看这张表完全看不出它已经再也不会被打开了，几百 MiB 就这么留着。
+		if !p.Current && p.Key != "" && instances[p.Key] {
+			state = append(state, "旧模式残留，可回收")
+		}
+		if p.Overlay {
+			// 两种形态占同一个路径，必须报出来是哪一种：挂载是正常形态，
+			// 「已复制」说明当初 overlayfs 没挂上、走了降级路径 ——
+			// 那台机器上这个模式并没有在省盘，而只看占用数字是看不出来的。
+			if p.Mounted {
+				state = append(state, "已挂载")
+			} else if p.Initialized {
+				state = append(state, "已复制（overlayfs 未生效）")
+			}
 		}
 		if p.InUse {
 			state = append(state, "使用中")
@@ -88,12 +111,21 @@ func actionPrefixStatus(ctx context.Context, cmd *cli.Command) error {
 			state = append(state, "就绪")
 		}
 
-		fmt.Printf("%-28s %-16s %-10s %-8s %s\n",
-			filepath.Base(p.Path), owner, orDash(p.ProtonVersion),
+		// overlay 的行显示 <实例名>/merged 而不是光秃秃的 "merged" ——
+		// 后者每一行都长得一样，等于没显示。
+		name := filepath.Base(p.Path)
+		if p.Overlay {
+			name = filepath.Join(p.Key, filepath.Base(p.Path))
+		}
+		fmt.Printf("%-28s %-20s %-10s %-8s %s\n",
+			name, owner, orDash(p.ProtonVersion),
 			humanSize(p.SizeBytes), strings.Join(state, "、"))
 	}
 
 	fmt.Printf("\n合计占用：%s\n", humanSize(total))
+	if hasOverlay {
+		fmt.Println("（可写层一栏是**独占**占用：与它们共享的底层前缀只在上面计过一次。）")
+	}
 	if n := len(gcCandidates(prefixes, instances)); n > 0 {
 		fmt.Printf("其中 %d 个可回收，执行 asa-server prefix gc 查看详情。\n", n)
 	}
@@ -153,16 +185,22 @@ func actionPrefixGC(ctx context.Context, cmd *cli.Command) error {
 	return nil
 }
 
-// gcCandidates：没有对应实例、且没有 wineserver 占用的前缀。
-// 共享前缀（Key 为空）永远不是候选 —— 它是 setup 建的运行时基线，
-// 与实例是否存在无关。
+// gcCandidates：当前模式用不到、且没有 wineserver 占用的前缀。
+//
+// 判据是「**当前模式**还会不会用到这个目录」，不是「实例还存不存在」。后者漏掉
+// 了最大的一类垃圾：换过 prefix_mode 的机器上，上一个模式给**仍然存在的实例**留下
+// 的目录 —— 真机上就是两个各 690 MiB 的 umu-prefix-<实例名>，实例活得好好的，
+// 所以按旧判据永远不是候选，而它们已经再也不会被打开。
+//
+// 共享前缀（Key 为空）永远不是候选：它是 setup 建的运行时基线，overlay 模式下
+// 更是所有可写层的底层。
 func gcCandidates(prefixes []runner.PrefixInfo, instances map[string]bool) []runner.PrefixInfo {
 	var out []runner.PrefixInfo
 	for _, p := range prefixes {
 		if p.Key == "" || p.InUse {
 			continue
 		}
-		if !strings.HasPrefix(p.Key, "bak-") && instances[p.Key] {
+		if p.Current && instances[p.Key] {
 			continue
 		}
 		out = append(out, p)

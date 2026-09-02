@@ -376,6 +376,14 @@ func VerifyServerInstallation(ctx context.Context, force bool, outputCallback ..
 	}
 	defer endServerFilesUpdate()
 
+	// overlay 模式下这次启动会在**共享底层前缀**里跑一个真的 wineserver（本函数
+	// 不传 Options.PrefixKey）。而实例的可写层正把它当 lowerdir 引用着 ——
+	// 停实例并不会卸载可写层（那是刻意的，见 UMU_PREFIX_OVERLAY_PLAN §3.3），
+	// 所以上面那把 server-files 锁挡不住这一条。
+	if err := runner.PrepareSharedPrefixWrite(); err != nil {
+		return err
+	}
+
 	configDir := filepath.Join(cfgpkg.ServerFilesDir, "ShooterGame/Saved/Config/WindowsServer")
 
 	// Check if configuration directory already exists
