@@ -6,16 +6,21 @@ import (
 	"asa-server/internal/actions"
 	"asa-server/internal/webapi"
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/urfave/cli/v3"
 )
 
-// actionGUI has no Linux equivalent — the desktop GUI is Fyne-based and
-// stays Windows-only (docs/LINUX_COMPATIBILITY_PLAN.md §5.9).
-func actionGUI(ctx context.Context, cmd *cli.Command) error {
-	return errors.New("GUI 仅在 Windows 上可用，请使用 asa-server api")
+var platformCommands = []*cli.Command{
+	actions.PermsCommand(),
+	actions.PrefixCommand(),
+}
+
+func Commands() []*cli.Command {
+	return append(
+		commonCommands,
+		platformCommands...,
+	)
 }
 
 // runDefaultAction is what a no-argument invocation does on Linux: there's

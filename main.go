@@ -33,6 +33,81 @@ func isRunningAsService() (bool, error) {
 	return !isInteractive, nil
 }
 
+var commonCommands = []*cli.Command{
+	{
+		Name:  "update",
+		Usage: "Install or update the base server",
+		Flags: []cli.Flag{
+			&cli.BoolFlag{
+				Name:  "force-server",
+				Usage: "Force re-run server verification even if config exists",
+			},
+		},
+		Action: actions.ActionUpdate,
+	},
+	{
+		Name:  "api",
+		Usage: "Start HTTP API server",
+		Flags: []cli.Flag{
+			&cli.BoolFlag{
+				Name:  "skip-env-check",
+				Usage: "跳过基础环境（运行时 / SteamCMD / ARK 本体）就绪检查后仍启动",
+			},
+		},
+		Action: gatedActionAPI,
+	},
+
+	{
+		Name:  "service",
+		Usage: "Manage the OS service (Windows service / systemd on Linux)",
+		Commands: []*cli.Command{
+			{
+				Name:  "install",
+				Usage: "Install as an OS service",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{
+						Name:  "force",
+						Usage: "基础环境未初始化时仍安装服务（默认会拒绝并指向 asa-server setup）",
+					},
+				},
+				Action: svcmgr.ActionServiceInstall,
+			},
+			{
+				Name:   "remove",
+				Usage:  "Remove the OS service",
+				Action: svcmgr.ActionServiceRemove,
+			},
+			{
+				Name:   "start",
+				Usage:  "Start the OS service",
+				Action: svcmgr.ActionServiceStart,
+			},
+			{
+				Name:   "stop",
+				Usage:  "Stop the OS service",
+				Action: svcmgr.ActionServiceStop,
+			},
+		},
+	},
+	actions.SetupCommand(),
+	actions.VerifyCommand(),
+	actions.VerifyArkApiCommand(),
+	certmgr.Command(),
+	actions.AuthDBCommand(),
+	actions.AuthUserCommand(),
+	{
+		Name:  "state",
+		Usage: "State database management",
+		Commands: []*cli.Command{
+			{
+				Name:   "clear",
+				Usage:  "Clear all state history data (required after key format change)",
+				Action: actions.ActionStateClear,
+			},
+		},
+	},
+}
+
 func main() {
 	// Check if running as an OS service and run service
 	isService, err := isRunningAsService()
@@ -106,87 +181,7 @@ func main() {
 				Destination: &webapi.TrustedProxies,
 			},
 		},
-		Commands: []*cli.Command{
-			{
-				Name:  "update",
-				Usage: "Install or update the base server",
-				Flags: []cli.Flag{
-					&cli.BoolFlag{
-						Name:  "force-server",
-						Usage: "Force re-run server verification even if config exists",
-					},
-				},
-				Action: actions.ActionUpdate,
-			},
-			{
-				Name:  "api",
-				Usage: "Start HTTP API server",
-				Flags: []cli.Flag{
-					&cli.BoolFlag{
-						Name:  "skip-env-check",
-						Usage: "跳过基础环境（运行时 / SteamCMD / ARK 本体）就绪检查后仍启动",
-					},
-				},
-				Action: gatedActionAPI,
-			},
-
-			{
-				Name:  "service",
-				Usage: "Manage the OS service (Windows service / systemd on Linux)",
-				Commands: []*cli.Command{
-					{
-						Name:  "install",
-						Usage: "Install as an OS service",
-						Flags: []cli.Flag{
-							&cli.BoolFlag{
-								Name:  "force",
-								Usage: "基础环境未初始化时仍安装服务（默认会拒绝并指向 asa-server setup）",
-							},
-						},
-						Action: svcmgr.ActionServiceInstall,
-					},
-					{
-						Name:   "remove",
-						Usage:  "Remove the OS service",
-						Action: svcmgr.ActionServiceRemove,
-					},
-					{
-						Name:   "start",
-						Usage:  "Start the OS service",
-						Action: svcmgr.ActionServiceStart,
-					},
-					{
-						Name:   "stop",
-						Usage:  "Stop the OS service",
-						Action: svcmgr.ActionServiceStop,
-					},
-				},
-			},
-			{
-				Name:   "gui",
-				Usage:  "Start GUI mode",
-				Action: actionGUI,
-			},
-			actions.SetupCommand(),
-			actions.VerifyCommand(),
-			actions.VerifyArkApiCommand(),
-			actions.PermsCommand(),
-			actions.PrefixCommand(),
-			certmgr.Command(),
-			actions.AuthDBCommand(),
-			actions.AuthUserCommand(),
-			{
-				Name:  "state",
-				Usage: "State database management",
-				Commands: []*cli.Command{
-					{
-						Name:   "clear",
-						Usage:  "Clear all state history data (required after key format change)",
-						Action: actions.ActionStateClear,
-					},
-				},
-			},
-		},
+		Commands: Commands(),
 	}
 
 	// Check if running as an OS service and run service
