@@ -53,6 +53,7 @@
 import {onMounted, onUnmounted, ref} from 'vue';
 import {onAnyServerEvent} from '@/utils/wsManager.js';
 import {ClearIcon, NotificationIcon} from 'tdesign-icons-vue-next';
+import {NotifyPlugin} from 'tdesign-vue-next';
 import dayjs from "dayjs";
 import Time from "tdesign-icons-vue-next/lib/components/time.js";
 
@@ -89,12 +90,44 @@ function saveEventsToStorage() {
   }
 }
 
+// 失败事件的中文动作名。后端的 message 里已经带了实例名与原因，
+// 这里只负责给弹窗一个能一眼分类的标题。
+const FAILED_EVENT_TITLES = {
+  server_start_failed: '启动失败',
+  server_stop_failed: '停止失败',
+  server_restart_failed: '重启失败',
+}
+
+// notifyFailure 把「后台异步失败」这件事推到用户眼前。
+//
+// 为什么必须在这里做：start/stop/restart 三个接口都是 CAS 成功就立刻 200 返回，
+// 真正的失败发生在后台协程里。它只落三个地方——系统日志、这个铃铛里的一条记录，
+// 以及一条 start_failed 状态事件；而最后那条紧接着就被收尾时写的 stopped 盖掉，
+// 卡片上什么也留不下。用户看到的是「正在启动」，然后实例悄悄回到已停止。
+//
+// duration 给 0（不自动关闭）：这类消息通常带着一段可操作的长文
+// （例如共享 Wine prefix 下的 ArkApi 冲突要告诉用户改哪个配置项），
+// 几秒钟读不完，得让用户自己关。
+function notifyFailure(event) {
+  const title = FAILED_EVENT_TITLES[event.event_type]
+  if (!title) return
+
+  NotifyPlugin.error({
+    title: `${event.instance_name || '实例'} ${title}`,
+    content: event.data?.error || event.message || title,
+    duration: 0,
+    closeBtn: true,
+  })
+}
+
 // 添加事件
 function addEvent(event) {
   // 过滤掉 ping 事件和非服务器事件
   if (event?.event_type === 'pong' || !event?.event_type?.startsWith('server_')) {
     return
   }
+
+  notifyFailure(event)
 
   let color = getEventColor(event.event_type)
 

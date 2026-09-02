@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	cfgpkg "asa-server/internal/config"
+	"asa-server/internal/installer"
 	procpkg "asa-server/internal/process"
 	"asa-server/internal/runner"
 	"asa-server/pkg/logger"
@@ -153,4 +154,44 @@ func conflictingArkApiInstance(self string) string {
 		return name
 	}
 	return ""
+}
+
+// arkApiConflictError 是那条冲突的唯一措辞。两个调用点（HTTP 层的 PrecheckStart
+// 与启动路径里的 startServerInternal）必须给出逐字相同的话：同一个原因在弹窗里
+// 和日志里长得不一样，只会让人以为遇上了两个问题。
+func arkApiConflictError(self, other string) error {
+	return fmt.Errorf("无法启动实例 %s：它与正在运行的实例 %s 都启用了 ArkApi，"+
+		"而当前 linux.prefix_mode=shared 让所有实例共用同一个 Wine 会话——"+
+		"该模式下同时只能有一个 ArkApi 实例（第二个会卡在加载器启动前，直到超时）。"+
+		"把 config.yaml 的 linux.prefix_mode 改成 per-instance 即可同时运行"+
+		"（每实例独立 Wine 前缀，首次启动多花约一分钟创建）；"+
+		"或者先停掉实例 %s", self, other, other)
+}
+
+// PrecheckStart 在真正开始启动**之前**跑一遍那些「不试也知道会失败」的检查，
+// 让 HTTP 层能把原因直接写进应答里。返回 nil 不代表启动会成功。
+//
+// 为什么需要它：`POST /api/server/:name/start` 是异步的 —— CAS 一成功就
+// 200「正在启动」，真正的失败发生在后台协程里。那条失败只落两个地方：系统日志，
+// 以及一条转瞬即逝的 start_failed 状态事件（StartServer 收尾时紧跟着写
+// stopped，把它盖掉）。于是用户点了启动、收到「正在启动」，然后**什么提示也
+// 没有**，实例悄悄回到已停止。共享 prefix 下起第二个 ArkApi 实例正是这个场景：
+// 原因是完全确定的、也是可操作的（改 prefix_mode 或先停另一台），却只有翻日志
+// 才看得到。
+//
+// 只收三类都满足的检查：**确定性**（不含启发式，不会误拦）、**无副作用**
+// （不起进程、不建目录——所以这里不问 DisplayStatus 之外的任何东西，也不碰
+// acquireDisplay）、**启动路径上同样会拦**（这里放行、那里拦下，才是权威顺序）。
+func PrecheckStart(instanceName string) error {
+	// 自己不跑 ArkApi 就与这条冲突无关。判据取 server-files 里的加载器而不是
+	// 镜像里的那份：此刻镜像可能还没同步出来（首次启动），而镜像本来就是从
+	// server-files 复制的。启动路径上那份判据（镜像里的 exe）仍然是权威的。
+	cfg, err := cfgpkg.LoadInstanceConfig(instanceName)
+	if err != nil || cfg == nil || !cfg.EnableAsaPlugin || !installer.ArkApiInstalled() {
+		return nil
+	}
+	if other := conflictingArkApiInstance(instanceName); other != "" {
+		return arkApiConflictError(instanceName, other)
+	}
+	return nil
 }

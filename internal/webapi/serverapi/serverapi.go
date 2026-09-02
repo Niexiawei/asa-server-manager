@@ -58,6 +58,17 @@ func (h *Handler) startServer(c *gin.Context) {
 		return
 	}
 
+	// 「不试也知道会失败」的前置检查，必须在 CAS 之前同步跑完 —— 本接口在 CAS
+	// 成功后就立刻 200 返回，之后的失败只写日志，用户在面板上是看不见的。
+	// 这里返回的话，前端拿到 success:false 会直接把原因弹出来。
+	if err := instancepkg.PrecheckStart(instanceName); err != nil {
+		c.JSON(http.StatusConflict, apiresp.StatusResponse{
+			Success: false,
+			Error:   err.Error(),
+		})
+		return
+	}
+
 	// 同步 CAS：原子检查并设置状态，立即返回 409 如果不允许
 	ok, err := statepkg.CompareAndSwapInstanceState(instanceName,
 		[]statepkg.InstanceStatus{

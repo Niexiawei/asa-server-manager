@@ -431,13 +431,13 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 		// 不含任何启发式，所以这里可以、也应该拦下来：不拦的话失败形式是
 		// 「静默挂满 3 分钟再报游戏进程没出现」，还会留下一整棵孤儿进程树。
 		// 机制与实测见 conflictingArkApiInstance 的注释。
+		//
+		// 同样的判断在 PrecheckStart 里还有一次（HTTP 层同步跑，好让用户在点下
+		// 「启动」时就看见原因）。那一份是**提示**，这一份是**权威**：只有走到
+		// 这里才知道镜像里到底有没有 AsaApiLoader.exe，也只有这里的时刻才是真正
+		// 要进 Wine 会话的时刻。
 		if other := conflictingArkApiInstance(instanceName); other != "" {
-			startErr = fmt.Errorf("无法启动实例 %s：它与正在运行的实例 %s 都启用了 ArkApi，"+
-				"而当前 linux.prefix_mode=shared 让所有实例共用同一个 Wine 会话——"+
-				"该模式下同时只能有一个 ArkApi 实例（第二个会卡在加载器启动前，直到超时）。"+
-				"把 config.yaml 的 linux.prefix_mode 改成 per-instance 即可同时运行"+
-				"（每实例独立 Wine 前缀，首次启动多花约一分钟创建）；"+
-				"或者先停掉实例 %s", instanceName, other, other)
+			startErr = arkApiConflictError(instanceName, other)
 			return startErr
 		}
 
