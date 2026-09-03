@@ -121,17 +121,6 @@ export function getGameUserSettings(instanceName) {
     return apiClient.get(`/api/config/${instanceName}/game-user-settings`)
 }
 
-// 获取服务器基础配置文件（Game.ini 和 GameUserSettings.ini）
-export function getServerConfigs() {
-    return apiClient.get('/api/config/server/configs')
-}
-
-// 获取实例配置文件（Game.ini 和 GameUserSettings.ini）
-export function getInstanceConfigs(instanceName) {
-    return apiClient.get(`/api/config/${instanceName}/configs`)
-}
-
-
 // 更新 Game.ini 配置文件内容（直接通过文本）
 export function updateGameIni(instanceName, content) {
     return apiClient.put(`/api/config/${instanceName}/game-ini`, {content})
@@ -140,20 +129,6 @@ export function updateGameIni(instanceName, content) {
 // 更新 GameUserSettings.ini 配置文件内容（直接通过文本）
 export function updateGameUserSettings(instanceName, content) {
     return apiClient.put(`/api/config/${instanceName}/game-user-settings`, {content})
-}
-
-// 上传 Game.ini 文件（FormData 方式）
-export function uploadGameIniFile(instanceName, file) {
-    const formData = new FormData()
-    formData.append('file', file)
-    return apiClient.post(`/api/config/${instanceName}/game-ini`, formData)
-}
-
-// 上传 GameUserSettings.ini 文件（FormData 方式）
-export function uploadGameUserSettingsFile(instanceName, file) {
-    const formData = new FormData()
-    formData.append('file', file)
-    return apiClient.post(`/api/config/${instanceName}/game-user-settings`, formData)
 }
 
 // 同步实例配置

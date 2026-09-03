@@ -125,8 +125,6 @@ watch(() => props.interval, (v) => {
   snapshotInterval.value = v
 })
 
-watch(() => props.instanceName, () => load(), {immediate: true})
-
 const columns = [
   {colKey: 'name', title: '插件', width: 200},
   {colKey: 'isolated', title: '状态', width: 130},
@@ -149,6 +147,8 @@ const load = async () => {
     loading.value = false
   }
 }
+
+watch(() => props.instanceName, () => load(), {immediate: true})
 
 const openConfig = async (row) => {
   openingPlugin.value = row.name

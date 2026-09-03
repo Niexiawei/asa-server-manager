@@ -1,6 +1,6 @@
 import {createRouter, createWebHashHistory} from 'vue-router'
 import ServerManager from '@/views/ServerManager.vue'
-import InstanceDetail from '@/views/InstanceDetail.vue'
+import InstanceDetail from '@/views/InstanceDetail/index.vue'
 import SystemLogs from '@/views/SystemLogs.vue'
 import FRPManager from '@/views/FRPManager.vue'
 import {authState, isAdmin, recheck} from '@/store/authStore.js'
