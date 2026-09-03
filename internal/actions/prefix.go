@@ -86,7 +86,9 @@ func actionPrefixStatus(ctx context.Context, cmd *cli.Command) error {
 		}
 
 		var state []string
-		if !p.Initialized {
+		// 可写层的三种形态在下面单独说，"未初始化" 对它们只会误导：重启后
+		// 「没挂载」是常态，而 merged 那时本来就是个空挂载点。
+		if !p.Initialized && !p.Overlay {
 			state = append(state, "未初始化")
 		}
 		// 换过 prefix_mode 之后，上一个模式的目录还在，而且它的实例也还在 ——
@@ -95,13 +97,19 @@ func actionPrefixStatus(ctx context.Context, cmd *cli.Command) error {
 			state = append(state, "旧模式残留，可回收")
 		}
 		if p.Overlay {
-			// 两种形态占同一个路径，必须报出来是哪一种：挂载是正常形态，
-			// 「已复制」说明当初 overlayfs 没挂上、走了降级路径 ——
-			// 那台机器上这个模式并没有在省盘，而只看占用数字是看不出来的。
-			if p.Mounted {
+			// 三种形态占同一个路径，必须报出来是哪一种：挂载是正常形态，
+			// 「已复制」说明当初 overlayfs 没挂上、走了降级路径（那台机器上这个
+			// 模式并没有在省盘，只看占用数字是看不出来的），而「未挂载」是宿主机
+			// 重启之后的常态 —— 挂载不跨重启存活，内容还在 upper 里。
+			switch {
+			case p.Mounted:
 				state = append(state, "已挂载")
-			} else if p.Initialized {
+			case p.Initialized:
 				state = append(state, "已复制（overlayfs 未生效）")
+			default:
+				// 挂载活在宿主机的 mount namespace 里，不跨重启存活。
+				// 内容还在 upper 里，下次启动实例时自动重新挂上。
+				state = append(state, "未挂载，下次启动时自动挂载")
 			}
 		}
 		if p.InUse {

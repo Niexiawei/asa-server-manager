@@ -247,12 +247,15 @@ func overlayStatus(cfg Config) []PrefixInfo {
 		merged := overlayMergedDir(cfg, key)
 		mounted := mounts[merged]
 
-		// 独占占用：挂载时是 upper（底层是共享的，量 merged 会把它按实例数重复计），
-		// 没挂载时 merged 里就是**真的一整份拷贝**（降级路径），那才是它的占用。
-		// 这一栏正是用来看「这台机器上 overlay 到底有没有在省盘」的，报错方向
-		// 会让人得出完全相反的结论。
+		// 独占占用：默认量 upper（底层是共享的，量 merged 会把它按实例数重复计）。
+		// 只有**降级复制**形态例外 —— 那时 merged 里是真的一整份拷贝，upper 是空的。
+		// 判据必须是「merged 里有没有一个能用的前缀」，不能是「挂没挂载」：挂载不跨
+		// 宿主机重启存活，所以「没挂载但 upper 里有 64 MiB」才是重启后的常态，
+		// 按挂载状态判会把这种机器报成「0 B、未初始化」。这一栏正是用来看
+		// 「这台机器上 overlay 到底有没有在省盘」的，报错方向会让人得出相反的结论。
+		seeded := !mounted && prefixInitialized(merged)
 		measured := overlayUpperDir(cfg, key)
-		if !mounted {
+		if seeded {
 			measured = merged
 		}
 
