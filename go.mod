@@ -4,7 +4,7 @@ go 1.27
 
 require (
 	fyne.io/fyne/v2 v2.8.1
-	github.com/Niexiawei/go-arkparser v0.0.0-20260830125213-6c25c368aa34
+	github.com/Niexiawei/go-arkparser v0.0.0-20260902030924-4ac01788244a
 	github.com/aymanbagabas/go-pty v0.2.3
 	github.com/dgraph-io/badger/v4 v4.9.6
 	github.com/fatedier/frp v0.71.0
@@ -18,9 +18,9 @@ require (
 	github.com/jinzhu/copier v0.4.0
 	github.com/kardianos/service v1.3.0
 	github.com/klauspost/compress v1.19.2
-	github.com/mattn/go-runewidth v0.0.28
+	github.com/mattn/go-runewidth v0.0.29
 	github.com/pquerna/otp v1.5.0
-	github.com/shirou/gopsutil/v4 v4.26.7
+	github.com/shirou/gopsutil/v4 v4.26.8
 	github.com/spf13/viper v1.21.0
 	github.com/urfave/cli/v3 v3.11.0
 	github.com/yusufpapurcu/wmi v1.2.4
@@ -48,11 +48,11 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
 	github.com/cloudwego/base64x v0.1.7 // indirect
-	github.com/coreos/go-oidc/v3 v3.20.0 // indirect
+	github.com/coreos/go-oidc/v3 v3.21.0 // indirect
 	github.com/creack/pty v1.1.24 // indirect
 	github.com/dgraph-io/ristretto/v2 v2.4.2 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
-	github.com/ebitengine/purego v0.10.2 // indirect
+	github.com/ebitengine/purego v0.11.0 // indirect
 	github.com/edsrzf/mmap-go v1.2.0 // indirect
 	github.com/fredbi/uri v1.1.1 // indirect
 	github.com/fyne-io/gl-js v0.2.1-0.20260315212741-029c47fd27e8 // indirect
