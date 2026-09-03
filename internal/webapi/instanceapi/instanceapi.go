@@ -3,6 +3,7 @@ package instanceapi
 import (
 	cfgpkg "asa-server/internal/config"
 	instancepkg "asa-server/internal/instance"
+	"asa-server/internal/mirror"
 	procpkg "asa-server/internal/process"
 	"asa-server/internal/runner"
 	statepkg "asa-server/internal/state"
@@ -256,6 +257,17 @@ func (h *Handler) deleteInstance(c *gin.Context) {
 		}
 	}
 
+	// 镜像目录（server-files-tmp-<name>）不归 StopServer 管：正常停止**故意保留**它
+	// 以便下次秒起，只有 ForceStopServer 才清。所以删除实例时必须自己清一次，否则
+	// 盘上会永远留着一个几百 MB 的真实文件拷贝，外加一堆指向已删实例目录的链接 ——
+	// 而且没有任何东西会报告或回收它（`prefix gc` 只管 Wine 前缀）。
+	//
+	// 必须在删除实例目录**之前**：CleanupInstanceMirror 内部会把镜像里的插件数据
+	// 抢救回 instances/<name>/，删完再调只会把那个目录重新建出来。
+	if err := mirror.CleanupInstanceMirror(name); err != nil {
+		logger.Warnf("清理实例 %s 的镜像目录失败: %v", name, err)
+	}
+
 	// Delete instance directory
 	instanceDir := filepath.Join(cfgpkg.InstancesDir, name)
 	if err := os.RemoveAll(instanceDir); err != nil {
@@ -316,6 +328,14 @@ func (h *Handler) renameInstance(c *gin.Context) {
 			})
 			return
 		}
+	}
+
+	// 旧名字的镜像目录同样得清，理由同 deleteInstance；改名后它再也不会被任何
+	// 实例使用。也必须在 os.Rename **之前**：抢救插件数据的目的地是
+	// instances/<oldName>/，改完名再调会凭空造出一个旧名字的实例目录。
+	// 镜像本身没有独有数据，新名字下次启动会重新同步出来。
+	if err := mirror.CleanupInstanceMirror(oldName); err != nil {
+		logger.Warnf("清理实例 %s 的旧镜像目录失败: %v", oldName, err)
 	}
 
 	// Rename instance directory
