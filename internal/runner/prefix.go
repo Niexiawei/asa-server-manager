@@ -110,7 +110,12 @@ func PrefixStatus() []PrefixInfo { return prefixStatus() }
 // those mounts outlive their instances by design and "stop the instances"
 // would otherwise never be enough to clear them. See
 // prepareSharedPrefixWrite.
-func PrepareSharedPrefixWrite() error { return prepareSharedPrefixWrite() }
+//
+// op names the operation for the log ("asa-server verify" and friends); the
+// returned closure marks the end of the window in which the shared prefix may
+// be written, and must be called (defer is the natural shape). It is never nil
+// when err is nil, and it is a no-op outside prefix_mode "overlay".
+func PrepareSharedPrefixWrite(op string) (func(), error) { return prepareSharedPrefixWrite(op) }
 
 // ReconcilePrefixes cleans up prefix state a crash could have left behind.
 // Cheap (one /proc read plus a stat per layer), read-only unless something is

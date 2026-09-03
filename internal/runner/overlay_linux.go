@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"syscall"
+	"time"
 
 	"asa-server/pkg/logger"
 )
@@ -402,7 +403,15 @@ func lowerNeedsWork(cfg Config) bool {
 // they hold the server-files lock, which instance start checks — and for
 // EnsureRuntime the window is a few milliseconds on a machine whose lower is
 // being built or upgraded. Not worth a lock spanning the whole operation.
-func prepareSharedPrefixWrite() error {
+//
+// It IS worth being able to see the window afterwards, which is what op and
+// the returned closure are for: the symptoms of losing that race land on an
+// *instance*, minutes later and at random, so the only way to tie one back to
+// its cause is a timestamped pair of "window opened / window closed" lines to
+// compare an instance's mount time against. Deliberately just logging — a lock
+// spanning the whole operation is a bigger change than the evidence so far
+// justifies. See docs/UMU_PREFIX_OVERLAY_TODO.md §1.4.
+func prepareSharedPrefixWrite(op string) (func(), error) {
 	cfg := getConfig()
 
 	var live, freed []string
@@ -428,12 +437,33 @@ func prepareSharedPrefixWrite() error {
 			len(freed), strings.Join(freed, "、"))
 	}
 	if len(live) == 0 {
-		return nil
+		return openLowerWriteWindow(cfg, op), nil
 	}
 
 	sort.Strings(live)
-	return fmt.Errorf("底层 Wine 前缀 %s 现在不能被修改：实例 %s 还在运行，它们的可写层正挂在它上面"+
+	return nil, fmt.Errorf("底层 Wine 前缀 %s 现在不能被修改：实例 %s 还在运行，它们的可写层正挂在它上面"+
 		"（linux.prefix_mode=overlay）。修改被挂载引用的 lowerdir 是 overlayfs 明确的未定义行为，"+
 		"请先停止这些实例后重试",
 		prefixDir(cfg, ""), strings.Join(live, "、"))
+}
+
+// openLowerWriteWindow marks the span during which the shared lower prefix may
+// be modified, and returns the closer.
+//
+// Only under prefix_mode "overlay" is there anything to correlate: elsewhere
+// nothing references the shared prefix as a lowerdir, so the pair would be two
+// lines of noise on every API server start.
+func openLowerWriteWindow(cfg Config, op string) func() {
+	if cfg.PrefixMode != "overlay" {
+		return func() {}
+	}
+
+	lower := prefixDir(cfg, "")
+	start := time.Now()
+	logger.Infof("共享 Wine 前缀 %s 的修改窗口已打开（%s）；此刻起到窗口关闭之间启动的实例，"+
+		"其可写层会把一个正在被修改的底层当 lowerdir —— 实例事后出现莫名其妙的症状时，"+
+		"先拿它的「已挂载」时刻和这一对时间戳对一下", lower, op)
+	return func() {
+		logger.Infof("共享 Wine 前缀的修改窗口已关闭（%s），持续 %s", op, time.Since(start).Round(time.Millisecond))
+	}
 }

@@ -19,6 +19,6 @@ func removeInstancePrefix(string) error { return nil }
 
 func prefixStatus() []PrefixInfo { return nil }
 
-func prepareSharedPrefixWrite() error { return nil }
+func prepareSharedPrefixWrite(string) (func(), error) { return func() {}, nil }
 
 func reconcilePrefixes() {}

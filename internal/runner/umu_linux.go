@@ -146,13 +146,15 @@ func ensureRuntime(ctx context.Context, progress io.Writer) error {
 	// 判据是「还有没有事要做」而不是「有没有挂载」：本函数在每次 API 启动时都会
 	// 后台跑一遍，而挂载是**故意**跨重启存活的（停实例不卸载），一见挂载就报错
 	// 等于第一个实例起过之后永远起不来。见 lowerNeedsWork。
-	if err := prepareSharedPrefixWrite(); err != nil {
+	doneWrite, err := prepareSharedPrefixWrite("环境准备 EnsureRuntime")
+	if err != nil {
 		if lowerNeedsWork(cfg) {
 			return err
 		}
 		logf("共享 Wine 前缀已是最新，跳过重建（当前有实例的可写层挂在它上面）")
 		return nil
 	}
+	defer doneWrite()
 
 	if err := warmPrefix(ctx, cfg, "", logf, prefetched.Variant != ""); err != nil {
 		return fmt.Errorf("failed to prepare Wine prefix: %w", err)

@@ -71,9 +71,11 @@ func VerifyArkApiInstallation(ctx context.Context, outputCallback ...io.Writer) 
 	// 不传 Options.PrefixKey）。而实例的可写层正把它当 lowerdir 引用着 ——
 	// 停实例并不会卸载可写层（那是刻意的，见 UMU_PREFIX_OVERLAY_PLAN §3.3），
 	// 所以上面那把 server-files 锁挡不住这一条。
-	if err := runner.PrepareSharedPrefixWrite(); err != nil {
+	doneWrite, err := runner.PrepareSharedPrefixWrite("asa-server verify-arkapi 启动验证")
+	if err != nil {
 		return err
 	}
+	defer doneWrite()
 
 	asaApiExe := AsaApiLoaderPath()
 	if !ArkApiInstalled() {
