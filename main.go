@@ -133,8 +133,8 @@ func main() {
 
 	app := &cli.Command{
 		Name:    "asa-manager",
-		Usage:   "ARK Server Ascended Instance Management Tool",
-		Version: "1.0.0",
+		Usage:   "ARK Server Ascended Management",
+		Version: "1.0.8",
 		Flags: []cli.Flag{
 			&cli.IntFlag{
 				Name:        "api-port",
