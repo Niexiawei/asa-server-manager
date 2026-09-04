@@ -170,7 +170,71 @@ data: {"cpu_usage": 35.0, "memory_total": 17179869184, "memory_used": 8589934592
 
 ### `GET /api/server/all-info`  *(SSE)*
 
-实时流式推送所有运行中实例的 CPU/内存信息（每 2 秒）。
+实时流式推送宿主机整机指标与所有运行中实例的资源信息（每 2 秒）。
+
+数据全部来自 `pkg/serverinfo` 的进程内单例采样器，不随连接数重复采样。
+
+**SSE 事件格式**（`disk_io` / `net_io` 采不到时为 `null`，与「速率为 0」区分）:
+```jsonc
+{
+  "timestamp": 1730000000,
+  "cpu_cores": 16,
+  "running_count": 1,
+  "host": {
+    "cpu":     { "used_percent": 8.56, "core_count": 16 },
+    "memory":  { "used": 12884901888, "total": 34359738368, "used_percent": 37.5 },
+    "disk_io": { "read_bytes_per_sec": 0, "write_bytes_per_sec": 5242880,
+                 "read_iops": 0, "write_iops": 487 },
+    "net_io":  { "recv_bytes_per_sec": 1048576, "sent_bytes_per_sec": 262144 }
+  },
+  "memory": { "total": 34359738368, "total_gb": 32 },   // 兼容字段，旧前端仍在读
+  "instances": [
+    {
+      "instance": "server1", "running": true, "pid": 12345,
+      "cpu_percent": 42.1,            // 单核 100% 口径，多核可 >100
+      "cpu_total_percent": 2.6,       // 整机占比 = cpu_percent / 核数
+      "memory_used": 6442450944, "memory_percent": 18.7,
+      "process_name": "ArkAscendedServer.exe",
+      "memory_used_mb": 6144, "memory_used_gb": 6,
+      "disk_io": { "read_bytes_per_sec": 131072, "write_bytes_per_sec": 65536,
+                   "read_iops": 12, "write_iops": 6 },
+      "net_io": null                  // Windows 恒 null；Linux 需 eBPF 可用
+    }
+  ]
+}
+```
+
+### `GET /api/server/metrics/history`
+
+回填接口：返回最近一段时间的采样历史，供趋势图在挂载时一次性灌满缓冲。
+后端保留 **30 分钟**（内存环形缓冲，每 5 分钟落一次 Badger，重启后自动恢复）。
+
+**查询参数**:
+
+| 参数 | 说明 |
+|---|---|
+| `window` | 秒，缺省 900（15 分钟），上限 1800 |
+| `instance` | 可选；不传只回 host，传了额外返回该实例的列 |
+
+**响应**（列存，`null` 表示该点采不到）:
+```jsonc
+{
+  "timestamps": [1730000000, 1730000002],
+  "host": {
+    "cpu_used_percent": [8.5, 9.1], "mem_used_percent": [37.5, 37.6],
+    "disk_read_bytes_per_sec": [0, 0], "disk_write_bytes_per_sec": [5242880, 4194304],
+    "disk_read_iops": [0, 0], "disk_write_iops": [487, 402],
+    "net_recv_bytes_per_sec": [1048576, 999424], "net_sent_bytes_per_sec": [262144, 251904]
+  },
+  "instance": {                                  // 仅当传了 instance
+    "cpu_percent": [42.1, 40.0], "cpu_total_percent": [2.6, 2.5],
+    "memory_percent": [18.7, 18.7], "memory_used": [6442450944, 6442450944],
+    "disk_read_bytes_per_sec": [131072, null], "disk_write_bytes_per_sec": [65536, null],
+    "disk_read_iops": [12, null], "disk_write_iops": [6, null],
+    "net_recv_bytes_per_sec": [null, null], "net_sent_bytes_per_sec": [null, null]
+  }
+}
+```
 
 ---
 
