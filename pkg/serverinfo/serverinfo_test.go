@@ -1,6 +1,7 @@
 package serverinfo
 
 import (
+	"os"
 	"testing"
 )
 
@@ -63,8 +64,9 @@ func TestFormatBytes(t *testing.T) {
 }
 
 func TestGetProcessInfo(t *testing.T) {
-	// 使用当前进程PID进行测试
-	currentPID := int32(60124)
+	// 使用当前进程PID进行测试（原先这里硬编码了作者机器上的某个 PID，
+	// 换台机器必然失败，与注释本身也对不上）
+	currentPID := int32(os.Getpid())
 
 	info, err := GetProcessInfo(currentPID)
 	if err != nil {
