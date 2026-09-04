@@ -99,6 +99,12 @@
           </template>
           <resource-monitor :show-title-div="false" :instance-name="instanceName"/>
         </t-card>
+        <t-card class="config-section resource-trend-card" headerBordered>
+          <template #title>
+            <div class="config-card-title"><span>资源趋势</span></div>
+          </template>
+          <resource-trend-panel scope="instance" :instance-name="instanceName"/>
+        </t-card>
         <t-card class="config-section status-history-card" headerBordered>
           <template #title>
             <div class="config-card-title"><span>实例历史状态</span></div>
@@ -122,6 +128,7 @@ import {FileCopyIcon, BrowseIcon, BrowseOffIcon} from 'tdesign-icons-vue-next'
 import {MessagePlugin} from 'tdesign-vue-next'
 import {useClipboard} from '@vueuse/core'
 import ResourceMonitor from '@/components/ResourceMonitor.vue'
+import ResourceTrendPanel from '@/components/ResourceTrendPanel.vue'
 import InstanceStatusHistory from '@/components/InstanceStatusHistory.vue'
 
 const props = defineProps({
@@ -211,6 +218,10 @@ const copyAllModIds = async (modIds) => {
     flex: 0 0 auto;
   }
 
+  .resource-trend-card {
+    flex: 0 0 auto;
+  }
+
   .status-history-card {
     flex: 1 1 0;
     min-height: 0;
@@ -239,6 +250,13 @@ const copyAllModIds = async (modIds) => {
 }
 
 .resource-monitor-card {
+  :deep(.t-card__body) {
+    box-sizing: border-box;
+    padding: 15px !important;
+  }
+}
+
+.resource-trend-card {
   :deep(.t-card__body) {
     box-sizing: border-box;
     padding: 15px !important;

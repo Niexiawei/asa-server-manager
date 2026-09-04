@@ -25,6 +25,12 @@ function nextReconnectDelay() {
 const ports = new Set();
 // Store subscribers by instance ID: instanceId -> Set<port>
 const subscribers = new Map();
+// 订阅宿主机整机指标的端口。
+//
+// 顶栏弹窗与「服务器资源监控」页都从这里取数，而不是各自再开一条 SSE：
+// 内网常以明文 HTTP 访问（HTTP/1.1），浏览器对同一 origin 只给 6 条并发连接，
+// 而 SSE 是长连接、一条占一个名额不放。合并后整个浏览器只剩这一条 all-info。
+const hostSubscribers = new Set();
 // Single SSE connection
 let eventSource = null;
 // 完整 SSE URL 由主线程用 buildEventSourceUrl() 拼好后传进来，
@@ -59,6 +65,15 @@ self.onconnect = (event) => {
 
       case 'UNSUBSCRIBE':
         handleUnsubscribe(port, instanceId);
+        break;
+
+      case 'SUBSCRIBE_HOST':
+        hostSubscribers.add(port);
+        port.postMessage({type: 'HOST_SUBSCRIBED'});
+        break;
+
+      case 'UNSUBSCRIBE_HOST':
+        hostSubscribers.delete(port);
         break;
 
       // 主线程确认过鉴权状态后告诉 Worker 该停还是该继续。
@@ -117,7 +132,7 @@ function handleUnsubscribe(port, instanceId) {
   }
 
   // Remove port from all connections if no subscribers
-  if (Array.from(subscribers.values()).every(set => !set.has(port))) {
+  if (!hostSubscribers.has(port) && Array.from(subscribers.values()).every(set => !set.has(port))) {
     ports.delete(port);
     console.log(`[SharedWorker] Port disconnected. Remaining ports: ${ports.size}`);
   }
@@ -148,6 +163,20 @@ function startSSEConnection() {
     eventSource.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
+
+        // 宿主机指标：每 tick 都发，不做变化门限 —— 趋势图要求「每个 tick 都有点」，
+        // 丢帧会让时间轴停住
+        if (data.host && hostSubscribers.size > 0) {
+          const hostPayload = {
+            timestamp: data.timestamp,
+            cpu_cores: data.cpu_cores,
+            running_count: data.running_count,
+            host: data.host,
+          };
+          hostSubscribers.forEach(port => {
+            port.postMessage({type: 'HOST_UPDATE', data: hostPayload});
+          });
+        }
 
         // Distribute data to subscribers
         if (data.instances && Array.isArray(data.instances)) {
@@ -263,6 +292,9 @@ function formatInstanceData(instanceData, fullData) {
       memory_used_gb: instanceData.memory_used_gb,
       memory_percent: instanceData.memory_percent
     },
+    // 趋势图用的速率字段，采不到时后端给 null（与「速率为 0」是两回事），原样透传
+    disk_io: instanceData.disk_io ?? null,
+    net_io: instanceData.net_io ?? null,
     render: {
       cpu_percent_value: instanceData.cpu_percent.toFixed(1),
       cpu_percent_normalized: instanceData.cpu_percent / 100,
@@ -378,6 +410,7 @@ function closeAllConnections() {
   closeSSEConnection();
   ports.clear();
   subscribers.clear();
+  hostSubscribers.clear();
 }
 
 // Cleanup on worker termination

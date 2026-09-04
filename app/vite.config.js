@@ -34,6 +34,11 @@ export default ({mode}) => {
                         if (id.includes('axios')) {
                             return 'axios'
                         }
+
+                        // 趋势图：只有资源监控相关页面用得到，别混进主包
+                        if (id.includes('uplot')) {
+                            return 'uplot'
+                        }
                         // 4️⃣ 其他第三方
                         if (
                             id.includes('dayjs')
@@ -46,6 +51,15 @@ export default ({mode}) => {
                 },
             },
             sourcemap: false,
+        },
+        css: {
+            preprocessorOptions: {
+                less: {
+                    additionalData: `
+                        @import "@/app.less";
+                    `
+                }
+            }
         },
         server: {
             host: '0.0.0.0',

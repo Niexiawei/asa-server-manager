@@ -136,3 +136,116 @@
     padding: var(--td-comp-paddingTB-l) var(--td-comp-paddingTB-l);
   }
 }
+
+.custom-scrollbar-style() {
+  overflow-y: auto;
+  scrollbar-width: thin; // Firefox
+  scrollbar-color: #c8c8c8 transparent;
+  scrollbar-gutter: stable;
+
+  // Chrome / Edge / Safari
+  &::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+
+  // 滚动轨道
+  &::-webkit-scrollbar-track {
+    background: transparent;
+    border-radius: 10px;
+  }
+
+
+  // 滚动滑块
+  &::-webkit-scrollbar-thumb {
+    background: rgba(160, 160, 160, 0.55);
+    border-radius: 10px;
+
+    // 留出左右间距
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+
+
+  // hover
+  &::-webkit-scrollbar-thumb:hover {
+    background: rgba(120, 120, 120, 0.75);
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+
+
+  // 隐藏上下按钮
+  &::-webkit-scrollbar-button {
+    display: none;
+  }
+
+  &::-webkit-scrollbar-button,
+  &::-webkit-scrollbar-button:single-button,
+  &::-webkit-scrollbar-button:vertical:start:decrement,
+  &::-webkit-scrollbar-button:vertical:end:increment,
+  &::-webkit-scrollbar-button:horizontal:start:decrement,
+  &::-webkit-scrollbar-button:horizontal:end:increment {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+}
+
+
+.custom-scrollbar {
+  overflow-y: auto;
+  scrollbar-width: thin; // Firefox
+  scrollbar-color: #c8c8c8 transparent;
+  scrollbar-gutter: stable;
+
+  // Chrome / Edge / Safari
+  &::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+
+  // 滚动轨道
+  &::-webkit-scrollbar-track {
+    background: transparent;
+    border-radius: 10px;
+  }
+
+
+  // 滚动滑块
+  &::-webkit-scrollbar-thumb {
+    background: rgba(160, 160, 160, 0.55);
+    border-radius: 10px;
+
+    // 留出左右间距
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+
+
+  // hover
+  &::-webkit-scrollbar-thumb:hover {
+    background: rgba(120, 120, 120, 0.75);
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+
+
+  // 隐藏上下按钮
+  &::-webkit-scrollbar-button {
+    display: none;
+  }
+
+  &::-webkit-scrollbar-button,
+  &::-webkit-scrollbar-button:single-button,
+  &::-webkit-scrollbar-button:vertical:start:decrement,
+  &::-webkit-scrollbar-button:vertical:end:increment,
+  &::-webkit-scrollbar-button:horizontal:start:decrement,
+  &::-webkit-scrollbar-button:horizontal:end:increment {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+}

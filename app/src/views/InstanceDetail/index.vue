@@ -3,9 +3,9 @@
     <t-card class="detail-card" ref="detailCardRef" :bordered="false" headerBordered>
       <template #title>
         <div class="detail-header">
-          <t-button variant="text" size="large" @click="backMainPage">
+          <t-button variant="text" @click="backMainPage">
             <template #icon>
-              <chevron-left-icon/>
+              <chevron-left-icon size="18px"/>
             </template>
           </t-button>
           <span class="instance-name">{{ instanceName }}</span>

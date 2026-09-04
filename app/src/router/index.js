@@ -2,6 +2,7 @@ import {createRouter, createWebHashHistory} from 'vue-router'
 import ServerManager from '@/views/ServerManager.vue'
 import InstanceDetail from '@/views/InstanceDetail/index.vue'
 import SystemLogs from '@/views/SystemLogs.vue'
+import ServerResourceMonitor from '@/views/ServerResourceMonitor/index.vue'
 import FRPManager from '@/views/FRPManager.vue'
 import {authState, isAdmin, recheck} from '@/store/authStore.js'
 
@@ -15,6 +16,11 @@ const routes = [
         path: '/instance/:name',
         name: 'InstanceDetail',
         component: InstanceDetail
+    },
+    {
+        path: '/server-resource',
+        name: 'ServerResourceMonitor',
+        component: ServerResourceMonitor
     },
     {
         path: '/system-logs',

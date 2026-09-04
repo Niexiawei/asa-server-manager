@@ -369,3 +369,13 @@ export function getPluginConfig(name, plugin) {
 export function updatePluginConfig(name, plugin, content) {
     return apiClient.put(`/api/plugins/${name}/${plugin}/config`, {content})
 }
+
+// ==================== 资源指标历史 ====================
+// 趋势图挂载时先拉这个把缓冲灌满，再订阅实时流（SharedWorker 只有一条长连接，
+// 中途挂载的面板收不到"首帧"，所以回填只能走独立接口）。
+// window 单位为秒，缺省 900（15 分钟），上限 1800；不传 instance 只回 host。
+export function getMetricsHistory(windowSeconds, instance) {
+    return apiClient.get('/api/server/metrics/history', {
+        params: {window: windowSeconds, instance: instance || undefined}
+    })
+}

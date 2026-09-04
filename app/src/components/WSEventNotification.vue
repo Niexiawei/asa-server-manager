@@ -241,6 +241,7 @@ onUnmounted(() => {
   flex-direction: column;
   overflow-y: auto;
   overflow-x: hidden;
+  .custom-scrollbar-style();
 
   .event-list {
     flex: 1;

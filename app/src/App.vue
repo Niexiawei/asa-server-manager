@@ -24,6 +24,9 @@
               <t-menu-item value="schedule-manager">
                 <span>定时任务</span>
               </t-menu-item>
+              <t-menu-item value="server-resource">
+                <span>资源监控</span>
+              </t-menu-item>
               <t-menu-item value="system-logs">
                 <span>系统日志</span>
               </t-menu-item>
@@ -54,9 +57,12 @@
            ref="contentWrapperRef"
       >
         <router-view v-slot="{Component,route}">
+          <!-- include 匹配的是组件名。ServerResourceMonitor 是 index.vue，
+               靠它自己的 defineOptions({name}) 才能对上，别改名。 -->
           <KeepAlive :include="[
                   'SystemLogs',
-                  'ServerManager'
+                  'ServerManager',
+                  'ServerResourceMonitor'
               ]">
             <component class="layout-card-wrapper" :is="Component"
                        :key="route.name === 'InstanceDetail' ? route.fullPath : route.name">
@@ -131,6 +137,8 @@ watch(() => route.path, (newPath) => {
     currentRoute.value = 'syncthing-manager';
   } else if (newPath === '/schedule-manager') {
     currentRoute.value = 'schedule-manager';
+  } else if (newPath === '/server-resource') {
+    currentRoute.value = 'server-resource';
   } else {
     currentRoute.value = "";
   }
@@ -162,6 +170,11 @@ const handleMenuClick = (value) => {
     case "schedule-manager":
       router.push({
         path: '/schedule-manager'
+      })
+      break
+    case "server-resource":
+      router.push({
+        path: '/server-resource'
       })
       break
   }
