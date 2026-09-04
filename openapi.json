@@ -328,6 +328,21 @@
         }
       }
     },
+    "/api/server/metrics/history": {
+      "get": {
+        "summary": "Resource sampling history for trend charts",
+        "description": "Returns up to 30 minutes of columnar resource samples so a freshly mounted chart is not empty. Held in an in-memory ring buffer and flushed to Badger every 5 minutes, so it survives a restart.",
+        "tags": ["Server Management"],
+        "operationId": "getMetricsHistory",
+        "parameters": [
+          { "name": "window", "in": "query", "required": false, "description": "Window length in seconds, default 900, capped at 1800", "schema": { "type": "integer", "default": 900, "maximum": 1800 } },
+          { "name": "instance", "in": "query", "required": false, "description": "Instance name. Omit to get host columns only", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Columnar sample history", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MetricsHistoryResponse" } } } }
+        }
+      }
+    },
     "/api/server/batch/start": {
       "post": {
         "summary": "Batch-start multiple instances",
@@ -1523,6 +1538,23 @@
           "error": { "summary": "Error retrieving server info", "value": "data: {\"error\":\"Failed to get memory info: connection error\"}\n\n" }
         }
       },
+      "MetricsHistoryResponse": {
+        "type": "object",
+        "description": "Columnar resource sample history. The backend keeps 30 minutes; charts use it to backfill on mount",
+        "properties": {
+          "timestamps": { "type": "array", "description": "Unix seconds (with a fractional part), strictly increasing", "items": { "type": "number", "format": "double" } },
+          "host": {
+            "type": "object",
+            "description": "Keys: cpu_used_percent, mem_used_percent, disk_read_bytes_per_sec, disk_write_bytes_per_sec, disk_read_iops, disk_write_iops, net_recv_bytes_per_sec, net_sent_bytes_per_sec",
+            "additionalProperties": { "type": "array", "description": "null marks a point that could not be sampled", "items": { "type": "number", "format": "double", "nullable": true } }
+          },
+          "instance": {
+            "type": "object",
+            "description": "Only present when the instance query parameter was given. Keys: cpu_percent, cpu_total_percent, memory_percent, memory_used, disk_*, net_*",
+            "additionalProperties": { "type": "array", "description": "null marks a point that could not be sampled", "items": { "type": "number", "format": "double", "nullable": true } }
+          }
+        }
+      },
       "AllInstancesInfoSSEStream": {
         "type": "object",
         "description": "SSE stream for all running instances' resource information, sent immediately on connect and then every 2s",
@@ -1533,7 +1565,33 @@
               "timestamp": { "type": "integer", "format": "int64" },
               "cpu_cores": { "type": "integer" },
               "running_count": { "type": "integer" },
-              "memory": { "type": "object", "properties": { "total": { "type": "integer", "format": "int64" }, "total_gb": { "type": "number", "format": "float" } } },
+              "host": {
+                "type": "object",
+                "description": "Host-wide metrics, the data source for the server-level trend charts",
+                "properties": {
+                  "cpu": { "type": "object", "properties": { "used_percent": { "type": "number", "format": "float" }, "core_count": { "type": "integer" } } },
+                  "memory": { "type": "object", "properties": { "used": { "type": "integer", "format": "int64" }, "total": { "type": "integer", "format": "int64" }, "used_percent": { "type": "number", "format": "float" } } },
+                  "disk_io": {
+                    "type": "object",
+                    "description": "Sum over whole disks only (Linux excludes partitions/dm-*/loop*; on Windows gopsutil already returns fixed volumes)",
+                    "properties": {
+                      "read_bytes_per_sec": { "type": "number", "format": "float" },
+                      "write_bytes_per_sec": { "type": "number", "format": "float" },
+                      "read_iops": { "type": "number", "format": "float" },
+                      "write_iops": { "type": "number", "format": "float" }
+                    }
+                  },
+                  "net_io": {
+                    "type": "object",
+                    "description": "Sum over physical NICs (loopback and virtual interfaces excluded)",
+                    "properties": {
+                      "recv_bytes_per_sec": { "type": "number", "format": "float" },
+                      "sent_bytes_per_sec": { "type": "number", "format": "float" }
+                    }
+                  }
+                }
+              },
+              "memory": { "type": "object", "description": "Legacy field kept for the existing progress-bar components; new code reads host.memory", "properties": { "total": { "type": "integer", "format": "int64" }, "total_gb": { "type": "number", "format": "float" } } },
               "instances": {
                 "type": "array",
                 "items": {
@@ -1542,13 +1600,33 @@
                     "instance": { "type": "string" },
                     "running": { "type": "boolean" },
                     "pid": { "type": "integer" },
-                    "cpu_percent": { "type": "number", "format": "float" },
+                    "cpu_percent": { "type": "number", "format": "float", "description": "single-core 100% scale, can exceed 100 on multi-core" },
                     "cpu_total_percent": { "type": "number", "format": "float", "description": "instance CPU% normalized by core count" },
                     "memory_used": { "type": "integer", "format": "int64" },
                     "memory_percent": { "type": "number", "format": "float" },
                     "process_name": { "type": "string" },
                     "memory_used_mb": { "type": "number", "format": "float" },
-                    "memory_used_gb": { "type": "number", "format": "float" }
+                    "memory_used_gb": { "type": "number", "format": "float" },
+                    "disk_io": {
+                      "type": "object",
+                      "nullable": true,
+                      "description": "Per-process I/O rates (on Windows this counts all I/O, not just physical disk). Null as a whole when unavailable",
+                      "properties": {
+                        "read_bytes_per_sec": { "type": "number", "format": "float" },
+                        "write_bytes_per_sec": { "type": "number", "format": "float" },
+                        "read_iops": { "type": "number", "format": "float" },
+                        "write_iops": { "type": "number", "format": "float" }
+                      }
+                    },
+                    "net_io": {
+                      "type": "object",
+                      "nullable": true,
+                      "description": "Per-process network rates. Always null on Windows; on Linux only when the eBPF probe is available",
+                      "properties": {
+                        "recv_bytes_per_sec": { "type": "number", "format": "float" },
+                        "sent_bytes_per_sec": { "type": "number", "format": "float" }
+                      }
+                    }
                   }
                 }
               }

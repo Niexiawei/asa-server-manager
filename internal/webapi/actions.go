@@ -27,6 +27,7 @@ import (
 	"asa-server/internal/webapi/serverapi"
 	"asa-server/internal/webapi/systemapi"
 	"asa-server/pkg/logger"
+	"asa-server/pkg/serverinfo"
 	"context"
 	"errors"
 	"fmt"
@@ -150,6 +151,11 @@ func (s *APIServer) Start() error {
 	if err := statepkg.InitStateManager(cfgpkg.BaseDir); err != nil {
 		panic(err)
 	}
+
+	// 资源采样器必须排在状态管理器之后：历史数据借的就是那个 Badger 实例。
+	// 它是 all-info / metrics 接口的唯一数据源，SSE handler 不再自己采样。
+	serverinfo.StartSampler(s.serverCtx, serverinfo.Options{History: statepkg.MetricsStore()})
+
 	s.startStateChangeDispatcher(s.serverCtx)
 	startAuthHousekeeping(s.serverCtx)
 
@@ -261,6 +267,11 @@ func (s *APIServer) Stop() error {
 	}
 
 	log.Println("saveDataManager stopped")
+
+	// 指标历史补刷一次，**必须排在 CloseStateManager 之前**：刷盘用的就是那个 Badger 实例。
+	// 正常退出因此几乎无缝，崩溃才会在曲线上留下最多 5 分钟的空洞。
+	serverinfo.StopSampler()
+
 	if err := statepkg.CloseStateManager(); err != nil {
 		logger.Warnf("Error closing state manager: %v", err)
 	}

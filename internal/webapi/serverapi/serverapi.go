@@ -4,12 +4,10 @@ import (
 	cfgpkg "asa-server/internal/config"
 	"asa-server/internal/countdown"
 	instancepkg "asa-server/internal/instance"
-	procpkg "asa-server/internal/process"
 	statepkg "asa-server/internal/state"
 	"asa-server/internal/updatemanage"
 	"asa-server/internal/webapi/apiresp"
 	"asa-server/pkg/logger"
-	"asa-server/pkg/procx"
 	"asa-server/pkg/serverinfo"
 	"context"
 	"encoding/json"
@@ -43,6 +41,7 @@ func (h *Handler) RegisterRouter(r *gin.Engine) {
 		server.POST("/update/cancel", h.cancelUpdate)
 		server.GET("/info", h.streamServerInfo)
 		server.GET("/all-info", h.streamAllInstancesInfo)
+		server.GET("/metrics/history", h.getMetricsHistory)
 	}
 }
 
@@ -373,83 +372,10 @@ func (h *Handler) streamAllInstancesInfo(c *gin.Context) {
 	// Stream all instances info
 	c.Stream(func(w io.Writer) bool {
 		sendMsg := func(w io.Writer) bool {
-			// Get all available instances
-			instances, err := cfgpkg.GetAvailableInstances()
+			data, err := buildAllInstancesPayload()
 			if err != nil {
-				fmt.Fprintf(w, "data: {\"error\":\"Failed to get instances: %v\"}\n\n", err)
+				fmt.Fprintf(w, "data: {\"error\":\"%v\"}\n\n", err)
 				return true
-			}
-
-			// Get CPU and memory info once for all instances
-			cpuInfo, err := serverinfo.GetCPUInfo()
-			if err != nil {
-				fmt.Fprintf(w, "data: {\"error\":\"Failed to get CPU info: %v\"}\n\n", err)
-				return true
-			}
-
-			memInfo, err := serverinfo.GetMemoryInfo()
-			if err != nil {
-				fmt.Fprintf(w, "data: {\"error\":\"Failed to get memory info: %v\"}\n\n", err)
-				return true
-			}
-
-			// Collect data for all running instances
-			instancesData := make([]interface{}, 0)
-
-			for _, instanceName := range instances {
-
-				// Get PID for the instance
-				pid, err := procpkg.GetInstancePID(instanceName)
-				if err != nil {
-					continue
-				}
-
-				exited, err := procx.IsProcessExited(uint32(pid))
-				if err != nil {
-					continue
-				}
-
-				// If process has exited, it's not running
-				if exited {
-					continue
-				}
-
-				// Get process info
-				processInfo, err := serverinfo.GetProcessInfo(int32(pid))
-				if err != nil {
-					continue
-				}
-
-				// Calculate total CPU usage: instance CPU% / 100% * core count
-				totalCPUUsage := (processInfo.CPUPercent / float64(cpuInfo.CoreCount*100)) * 100
-
-				// Build instance data
-				instanceData := map[string]interface{}{
-					"instance":          instanceName,
-					"running":           true,
-					"pid":               pid,
-					"cpu_percent":       processInfo.CPUPercent,
-					"cpu_total_percent": totalCPUUsage,
-					"memory_used":       processInfo.MemoryUsed,
-					"memory_percent":    processInfo.MemoryPercent,
-					"process_name":      processInfo.Name,
-					"memory_used_mb":    float64(processInfo.MemoryUsed) / (1024 * 1024),
-					"memory_used_gb":    float64(processInfo.MemoryUsed) / (1024 * 1024 * 1024),
-				}
-
-				instancesData = append(instancesData, instanceData)
-			}
-
-			// Build response data
-			data := map[string]interface{}{
-				"timestamp":     time.Now().Unix(),
-				"cpu_cores":     cpuInfo.CoreCount,
-				"running_count": len(instancesData),
-				"memory": map[string]interface{}{
-					"total":    memInfo.Total,
-					"total_gb": float64(memInfo.Total) / (1024 * 1024 * 1024),
-				},
-				"instances": instancesData,
 			}
 
 			// Convert to JSON
