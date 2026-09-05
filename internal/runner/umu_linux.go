@@ -21,6 +21,7 @@ import (
 	"asa-server/pkg/download"
 	"asa-server/pkg/logger"
 	"asa-server/pkg/procx"
+	"asa-server/pkg/steamrt"
 )
 
 // Directory layout, all rooted at Config.BaseDir — see
@@ -30,6 +31,39 @@ func umuRunPath(cfg Config) string    { return filepath.Join(umuDir(cfg), "umu-r
 func protonBaseDir(cfg Config) string { return filepath.Join(cfg.BaseDir, "proton") }
 func protonPath(cfg Config) string {
 	return filepath.Join(protonBaseDir(cfg), cfg.ProtonVersion)
+}
+
+// umuCacheDir 是 umu 的下载中转目录 UMU_CACHE。
+//
+// umu_consts.py: UMU_CACHE = XDG_CACHE_HOME/umu，XDG_CACHE_HOME 缺省为 ~/.cache。
+// 在我们的进程树里 XDG_* 恒为空 —— inheritedEnv 的白名单根本没有 XDG_*，runtimeEnv
+// 还会再剥一道 —— 所以它恒等于 {runtimeHomeDir}/.cache/umu。
+func umuCacheDir(cfg Config) string {
+	return filepath.Join(runtimeHomeDir(cfg), ".cache", "umu")
+}
+
+// prefetchSteamRuntime 预取 Steam Linux Runtime 归档：本函数只解决"这次该不该
+// 预取、预取到哪、预取完交给谁"这几件 ASA 特有的事，机制本身（下载、校验、截尾、
+// 变体判定）在 asa-server/pkg/steamrt。
+//
+// 返回命中的变体（零值表示"本次不需要预取"，不是错误）。调用方必须把错误当成
+// 「降级」而不是「失败」：这个优化的全部价值是省时间，为省时间制造一个新的安装
+// 失败点是净亏。
+func prefetchSteamRuntime(ctx context.Context, cfg Config, logf func(string, ...any)) (steamrt.Variant, error) {
+	if cfg.Runtime != "umu" || !cfg.AutoDownload || !cfg.SteamRTPrefetch {
+		return steamrt.Variant{}, nil
+	}
+	if _, ok := steamrt.ForProton(protonPath(cfg), cfg.ProtonVersion); !ok {
+		logf("跳过 Steam Linux Runtime 预下载：认不出 %s 需要哪个运行时变体，交给 umu 自行判断", cfg.ProtonVersion)
+		return steamrt.Variant{}, nil
+	}
+	if steamLinuxRuntimeReady(cfg) {
+		return steamrt.Variant{}, nil
+	}
+	if runtimeHomeDir(cfg) == "" {
+		return steamrt.Variant{}, fmt.Errorf("无法确定 umu 缓存所在的家目录")
+	}
+	return steamrt.Prefetch(ctx, protonPath(cfg), cfg.ProtonVersion, umuCacheDir(cfg), chownPathForRuntime, logf)
 }
 
 // protonNoXalia turns off Xalia, the accessibility / gamepad UI overlay
@@ -535,7 +569,7 @@ func steamLinuxRuntimeReady(cfg Config) bool {
 		return false
 	}
 	glob := "steamrt*"
-	if v, ok := steamrtForProton(protonPath(cfg), cfg.ProtonVersion); ok {
+	if v, ok := steamrt.ForProton(protonPath(cfg), cfg.ProtonVersion); ok {
 		glob = v.Variant
 	}
 	matches, _ := filepath.Glob(filepath.Join(home, ".local/share/umu", glob, "toolmanifest.vdf"))

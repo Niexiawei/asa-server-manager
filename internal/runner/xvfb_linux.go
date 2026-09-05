@@ -135,8 +135,9 @@ var (
 
 // --- 发现 -----------------------------------------------------------------------
 
-// xvfbExtraPaths 是 PATH 之外再兜的一层，与 glibc32LoaderPaths / libzstdPaths 同一个
-// 套路：systemd 服务的 PATH 可能被裁剪过，而 Xvfb 的位置在各发行版是固定的几个。
+// xvfbExtraPaths 是 PATH 之外再兜的一层，与 pkg/linuxdeps 里 glibc32/libzstd 的
+// 固定路径表同一个套路：systemd 服务的 PATH 可能被裁剪过，而 Xvfb 的位置在各发行版
+// 是固定的几个。
 var xvfbExtraPaths = []string{
 	"/usr/bin/Xvfb",
 	"/usr/X11R6/bin/Xvfb",

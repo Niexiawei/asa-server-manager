@@ -1,24 +1,16 @@
 //go:build linux
 
-package runner
+package pyfinder
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
 	"testing"
 )
 
-func resetPyCache() {
-	pyCache.mu.Lock()
-	pyCache.key = ""
-	pyCache.got = nil
-	pyCache.mu.Unlock()
-}
-
-// fakePython writes an executable stub that prints "<major> <minor>" (what the
-// version probe parses) regardless of its arguments.
+// fakePython writes an executable stub that prints "<major> <minor>" (what
+// the version probe parses) regardless of its arguments.
 func fakePython(t *testing.T, dir, name string, major, minor int) string {
 	t.Helper()
 
@@ -43,33 +35,28 @@ func fakeBrokenPython(t *testing.T, dir, name string) string {
 	return p
 }
 
-// isolate points PATH at dir only and resets config + cache around the test.
+// isolate points PATH at dir only.
 func isolate(t *testing.T, dir string) {
 	t.Helper()
 	t.Setenv("PATH", dir)
-	resetPyCache()
-	Configure(Config{})
-	t.Cleanup(func() {
-		Configure(Config{})
-		resetPyCache()
-	})
 }
 
-func TestResolvePythonAuto_PicksNewest(t *testing.T) {
+func TestResolveAuto_PicksNewest(t *testing.T) {
 	dir := t.TempDir()
 	isolate(t, dir)
+	r := New()
 
 	fakePython(t, dir, "python3.11", 3, 11)
 	fakePython(t, dir, "python3.14", 3, 14)
 	fakePython(t, dir, "python3", 3, 9)
 
-	got, err := resolvePython()
+	got, err := r.Resolve("")
 	if err != nil {
-		t.Fatalf("resolvePython: %v", err)
+		t.Fatalf("Resolve: %v", err)
 	}
 
 	if got.Minor != 14 || got.Major != 3 {
-		t.Fatalf("got %s, want 3.14", got.version())
+		t.Fatalf("got %s, want 3.14", got.Version())
 	}
 
 	if got.Source != "auto" {
@@ -81,17 +68,18 @@ func TestResolvePythonAuto_PicksNewest(t *testing.T) {
 	}
 }
 
-func TestResolvePythonAuto_VersionTiePrefersVersionedName(t *testing.T) {
+func TestResolveAuto_VersionTiePrefersVersionedName(t *testing.T) {
 	dir := t.TempDir()
 	isolate(t, dir)
+	r := New()
 
 	// Two distinct real binaries, same version — versioned name is probed first.
 	fakePython(t, dir, "python3", 3, 12)
 	fakePython(t, dir, "python3.12", 3, 12)
 
-	got, err := resolvePython()
+	got, err := r.Resolve("")
 	if err != nil {
-		t.Fatalf("resolvePython: %v", err)
+		t.Fatalf("Resolve: %v", err)
 	}
 
 	if filepath.Base(got.Path) != "python3.12" {
@@ -99,9 +87,10 @@ func TestResolvePythonAuto_VersionTiePrefersVersionedName(t *testing.T) {
 	}
 }
 
-func TestResolvePythonAuto_DedupesSymlink(t *testing.T) {
+func TestResolveAuto_DedupesSymlink(t *testing.T) {
 	dir := t.TempDir()
 	isolate(t, dir)
+	r := New()
 
 	real := fakePython(t, dir, "python3.11", 3, 11)
 	if err := os.Symlink(real, filepath.Join(dir, "python3")); err != nil {
@@ -109,64 +98,68 @@ func TestResolvePythonAuto_DedupesSymlink(t *testing.T) {
 	}
 
 	// Just needs to resolve without error; both names collapse to one entry.
-	if _, err := resolvePython(); err != nil {
-		t.Fatalf("resolvePython: %v", err)
+	if _, err := r.Resolve(""); err != nil {
+		t.Fatalf("Resolve: %v", err)
 	}
 }
 
-func TestResolvePythonAuto_SkipsBroken(t *testing.T) {
+func TestResolveAuto_SkipsBroken(t *testing.T) {
 	dir := t.TempDir()
 	isolate(t, dir)
+	r := New()
 
 	fakeBrokenPython(t, dir, "python3.13")
 	fakePython(t, dir, "python3.10", 3, 10)
 
-	got, err := resolvePython()
+	got, err := r.Resolve("")
 	if err != nil {
-		t.Fatalf("resolvePython: %v", err)
+		t.Fatalf("Resolve: %v", err)
 	}
 
 	if got.Minor != 10 {
-		t.Fatalf("got %s, want 3.10", got.version())
+		t.Fatalf("got %s, want 3.10", got.Version())
 	}
 }
 
-func TestResolvePythonAuto_AllTooOld(t *testing.T) {
+func TestResolveAuto_AllTooOld(t *testing.T) {
 	dir := t.TempDir()
 	isolate(t, dir)
+	r := New()
 
 	fakePython(t, dir, "python3", 3, 9)
 	fakePython(t, dir, "python", 2, 7)
 
-	_, err := resolvePython()
+	_, err := r.Resolve("")
 	if err == nil {
 		t.Fatal("want error, got nil")
 	}
 
-	var pe *pythonError
-	if !errors.As(err, &pe) || pe.name != "python3-version" {
-		t.Fatalf("want *pythonError{name:python3-version}, got %v", err)
+	pe, ok := AsError(err)
+	if !ok || pe.Name != "python3-version" {
+		t.Fatalf("want *Error{Name:python3-version}, got %v", err)
 	}
 }
 
-func TestResolvePythonAuto_NoneFound(t *testing.T) {
+func TestResolveAuto_NoneFound(t *testing.T) {
 	dir := t.TempDir()
 	isolate(t, dir)
+	r := New()
 
-	_, err := resolvePython()
+	_, err := r.Resolve("")
 	if err == nil {
 		t.Fatal("want error, got nil")
 	}
 
-	var pe *pythonError
-	if !errors.As(err, &pe) || pe.name != "python3" {
-		t.Fatalf("want *pythonError{name:python3}, got %v", err)
+	pe, ok := AsError(err)
+	if !ok || pe.Name != "python3" {
+		t.Fatalf("want *Error{Name:python3}, got %v", err)
 	}
 }
 
-func TestResolvePythonExplicit_AbsolutePathVenvStyle(t *testing.T) {
+func TestResolveExplicit_AbsolutePathVenvStyle(t *testing.T) {
 	dir := t.TempDir()
 	isolate(t, dir)
+	r := New()
 
 	// Only an old python3 on PATH — the override must win regardless.
 	fakePython(t, dir, "python3", 3, 9)
@@ -178,12 +171,9 @@ func TestResolvePythonExplicit_AbsolutePathVenvStyle(t *testing.T) {
 
 	bin := fakePython(t, venv, "python", 3, 12) // venv interpreters are just "python"
 
-	Configure(Config{PythonBin: bin})
-	resetPyCache()
-
-	got, err := resolvePython()
+	got, err := r.Resolve(bin)
 	if err != nil {
-		t.Fatalf("resolvePython: %v", err)
+		t.Fatalf("Resolve: %v", err)
 	}
 
 	if got.Source != "config" || got.Path != bin || got.Minor != 12 {
@@ -191,11 +181,12 @@ func TestResolvePythonExplicit_AbsolutePathVenvStyle(t *testing.T) {
 	}
 }
 
-func TestResolvePythonExplicit_TildeExpanded(t *testing.T) {
+func TestResolveExplicit_TildeExpanded(t *testing.T) {
 	home := t.TempDir()
 	dir := t.TempDir()
 	isolate(t, dir)
 	t.Setenv("HOME", home)
+	r := New()
 
 	binDir := filepath.Join(home, "venv", "bin")
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
@@ -204,12 +195,9 @@ func TestResolvePythonExplicit_TildeExpanded(t *testing.T) {
 
 	fakePython(t, binDir, "python", 3, 13)
 
-	Configure(Config{PythonBin: "~/venv/bin/python"})
-	resetPyCache()
-
-	got, err := resolvePython()
+	got, err := r.Resolve("~/venv/bin/python")
 	if err != nil {
-		t.Fatalf("resolvePython: %v", err)
+		t.Fatalf("Resolve: %v", err)
 	}
 
 	if got.Path != filepath.Join(binDir, "python") {
@@ -217,74 +205,67 @@ func TestResolvePythonExplicit_TildeExpanded(t *testing.T) {
 	}
 }
 
-func TestResolvePythonExplicit_NoFallbackWhenMissing(t *testing.T) {
+func TestResolveExplicit_NoFallbackWhenMissing(t *testing.T) {
 	dir := t.TempDir()
 	isolate(t, dir)
+	r := New()
 
 	// A perfectly good auto candidate exists; explicit-but-missing must still fail.
 	fakePython(t, dir, "python3.14", 3, 14)
 
-	Configure(Config{PythonBin: "/nonexistent/python"})
-	resetPyCache()
-
-	_, err := resolvePython()
+	_, err := r.Resolve("/nonexistent/python")
 	if err == nil {
 		t.Fatal("want error, got nil")
 	}
 
-	var pe *pythonError
-	if !errors.As(err, &pe) || pe.name != "python3-config" {
-		t.Fatalf("want *pythonError{name:python3-config}, got %v", err)
+	pe, ok := AsError(err)
+	if !ok || pe.Name != "python3-config" {
+		t.Fatalf("want *Error{Name:python3-config}, got %v", err)
 	}
 }
 
-func TestResolvePythonExplicit_RejectsTooOld(t *testing.T) {
+func TestResolveExplicit_RejectsTooOld(t *testing.T) {
 	dir := t.TempDir()
 	isolate(t, dir)
+	r := New()
 
 	bin := fakePython(t, dir, "oldpy", 3, 9)
 
-	Configure(Config{PythonBin: bin})
-	resetPyCache()
+	_, err := r.Resolve(bin)
 
-	_, err := resolvePython()
-
-	var pe *pythonError
-	if !errors.As(err, &pe) || pe.name != "python3-config" {
-		t.Fatalf("want *pythonError{name:python3-config}, got %v", err)
+	pe, ok := AsError(err)
+	if !ok || pe.Name != "python3-config" {
+		t.Fatalf("want *Error{Name:python3-config}, got %v", err)
 	}
 }
 
-func TestResolvePython_CacheInvalidatesOnOverrideChange(t *testing.T) {
+func TestResolve_CacheInvalidatesOnOverrideChange(t *testing.T) {
 	dir := t.TempDir()
 	isolate(t, dir)
+	r := New()
 
 	fakePython(t, dir, "python3.14", 3, 14)
 
-	first, err := resolvePython()
+	first, err := r.Resolve("")
 	if err != nil || first.Minor != 14 {
 		t.Fatalf("first resolve: %+v %v", first, err)
 	}
 
 	// Override changes -> must re-resolve, not hand back the cached auto result.
-	Configure(Config{PythonBin: "/nonexistent/python"})
-
-	if _, err := resolvePython(); err == nil {
+	if _, err := r.Resolve("/nonexistent/python"); err == nil {
 		t.Fatal("want error after override change, got cached success")
 	}
 
 	// Back to auto -> succeeds again.
-	Configure(Config{})
-
-	if again, err := resolvePython(); err != nil || again.Minor != 14 {
+	if again, err := r.Resolve(""); err != nil || again.Minor != 14 {
 		t.Fatalf("re-resolve auto: %+v %v", again, err)
 	}
 }
 
-func TestPythonCandidateNames_Order(t *testing.T) {
-	names := pythonCandidateNames()
+func TestCandidateNames_Order(t *testing.T) {
+	names := CandidateNames()
 
-	if names[0] != "python3."+strconv.Itoa(pythonMaxMinorProbe) {
+	if names[0] != "python3."+strconv.Itoa(MaxMinorProbe) {
 		t.Fatalf("names[0] = %q, want highest versioned", names[0])
 	}
 
