@@ -4,16 +4,18 @@ import {handleSSECheckAuth, registerSSEWorker} from '@/utils/sseAuthGate.js'
 /**
  * 资源数据流的唯一入口。
  *
- * 全应用（乃至跨标签页）只有一条 `/api/server/all-info` SSE：SharedWorker 按脚本 URL
- * 去重，这里再把「建 worker + 发 INIT + 登记鉴权闸门」收成模块级单例，端口也只有一个。
+ * 每个标签页一条 `/api/server/all-info` SSE：这里把「建 Worker + 发 INIT + 登记鉴权闸门」
+ * 收成模块级单例，所有资源相关组件（实例面板、趋势图、顶栏弹窗、资源监控页）都从这里订阅，
+ * 不要再新开 EventSource。
  *
- * 为什么要这么抠连接数：本服务默认 HTTPS + HTTP/2 时多路复用没这个问题，但内网常以
- * 明文 HTTP 访问，那就是 HTTP/1.1 —— 浏览器对同一 origin 只给 6 条并发连接，而 SSE 是
- * 长连接、一条占一个名额不放。日志流、系统日志、FRP/Syncthing 状态流已经占了几条，
- * 资源监控再按面板数开就会把请求饿死（表现是后续请求挂起而不是报错）。
+ * 为什么用专用 Worker 而不是 SharedWorker：SharedWorker 的 console 不进页面 devtools、
+ * 实例跨刷新存活且首个 SSE_URL 会被钉死、少数浏览器不支持且无降级路径 —— 排障代价过高。
+ * 默认部署是 HTTPS + HTTP/2，6 连接上限不适用；明文 HTTP 多标签页每页一条 all-info 的
+ * 轻微回归可以接受。结构与 `utils/wsManager.js` + `workers/wsWorker.js` 对齐。
+ * 详见 docs/RESOURCE_RATE_CHART_PLAN.md §10。
  */
 
-let port = null
+let worker = null
 let initialized = false
 
 // instanceId -> Set<callback>
@@ -21,14 +23,13 @@ const instanceHandlers = new Map()
 const hostHandlers = new Set()
 const statusHandlers = new Set()
 
-function ensurePort() {
-    if (port) return port
+function ensureWorker() {
+    if (worker) return worker
     try {
-        const worker = new SharedWorker(new URL('@/workers/sharedResourceWorker.js', import.meta.url))
-        port = worker.port
-        registerSSEWorker(port)
+        worker = new Worker(new URL('@/workers/resourceWorker.js', import.meta.url))
+        registerSSEWorker(worker)
 
-        port.onmessage = ({data}) => {
+        worker.onmessage = ({data}) => {
             const {type, instanceId, data: payload, error} = data || {}
             switch (type) {
                 case 'RESOURCE_UPDATE': {
@@ -40,31 +41,38 @@ function ensurePort() {
                     hostHandlers.forEach(fn => fn(payload))
                     break
                 case 'SSE_CONNECTED':
+                    console.log('[ResourceStream] SSE 已连接')
                     statusHandlers.forEach(fn => fn({connected: true}))
                     break
                 case 'ERROR':
+                    console.warn('[ResourceStream] SSE 异常:', error)
                     statusHandlers.forEach(fn => fn({connected: false, error: error || '资源数据流异常'}))
                     break
                 case 'SSE_CHECK_AUTH':
                     // Worker 看不到 HTTP 状态码，由主线程确认是不是会话失效
-                    handleSSECheckAuth(port)
+                    handleSSECheckAuth(worker)
                     break
             }
         }
 
-        port.onmessageerror = (err) => {
-            console.error('[ResourceStream] 端口通信错误:', err)
+        worker.onerror = (err) => {
+            console.error('[ResourceStream] Worker 运行错误:', err && (err.message || err))
+        }
+        worker.onmessageerror = (err) => {
+            console.error('[ResourceStream] Worker 通信错误:', err)
         }
 
         if (!initialized) {
-            port.postMessage({type: 'INIT', payload: {sseUrl: buildEventSourceUrl('/api/server/all-info')}})
+            const sseUrl = buildEventSourceUrl('/api/server/all-info')
+            console.log('[ResourceStream] 启动 Worker，SSE URL =', sseUrl)
+            worker.postMessage({type: 'INIT', payload: {sseUrl}})
             initialized = true
         }
     } catch (err) {
-        console.error('[ResourceStream] SharedWorker 创建失败:', err)
-        port = null
+        console.error('[ResourceStream] Worker 创建失败:', err)
+        worker = null
     }
-    return port
+    return worker
 }
 
 /**
@@ -74,15 +82,15 @@ function ensurePort() {
 export function subscribeInstance(instanceId, handler) {
     if (!instanceId || typeof handler !== 'function') return () => {
     }
-    const p = ensurePort()
-    if (!p) return () => {
+    const w = ensureWorker()
+    if (!w) return () => {
     }
 
     let set = instanceHandlers.get(instanceId)
     if (!set) {
         set = new Set()
         instanceHandlers.set(instanceId, set)
-        p.postMessage({type: 'SUBSCRIBE', instanceId})
+        w.postMessage({type: 'SUBSCRIBE', instanceId})
     }
     set.add(handler)
 
@@ -93,7 +101,7 @@ export function subscribeInstance(instanceId, handler) {
         // 最后一个订阅者走了才真正退订，否则会把同页面的其它面板一起断掉
         if (cur.size === 0) {
             instanceHandlers.delete(instanceId)
-            p.postMessage({type: 'UNSUBSCRIBE', instanceId})
+            w.postMessage({type: 'UNSUBSCRIBE', instanceId})
         }
     }
 }
@@ -105,18 +113,18 @@ export function subscribeInstance(instanceId, handler) {
 export function subscribeHost(handler) {
     if (typeof handler !== 'function') return () => {
     }
-    const p = ensurePort()
-    if (!p) return () => {
+    const w = ensureWorker()
+    if (!w) return () => {
     }
 
     const first = hostHandlers.size === 0
     hostHandlers.add(handler)
-    if (first) p.postMessage({type: 'SUBSCRIBE_HOST'})
+    if (first) w.postMessage({type: 'SUBSCRIBE_HOST'})
 
     return () => {
         hostHandlers.delete(handler)
         if (hostHandlers.size === 0) {
-            p.postMessage({type: 'UNSUBSCRIBE_HOST'})
+            w.postMessage({type: 'UNSUBSCRIBE_HOST'})
         }
     }
 }
@@ -125,7 +133,7 @@ export function subscribeHost(handler) {
 export function subscribeStatus(handler) {
     if (typeof handler !== 'function') return () => {
     }
-    ensurePort()
+    ensureWorker()
     statusHandlers.add(handler)
     return () => statusHandlers.delete(handler)
 }
