@@ -49,9 +49,9 @@ func TestSharedAccessInfoModel(t *testing.T) {
 // Not dropping privileges means there is nothing to share: no trees, and a
 // zero-valued report. Windows always lands here.
 func TestSharedAccessStatusUnmanaged(t *testing.T) {
-	// getConfig() has no BaseDir in tests, and on Windows runtimeUserManaged
-	// is false unconditionally, so this exercises the unmanaged path on both
-	// platforms (on Linux CI it also needs euid != 0, which is the norm).
+	// getConfig() has no BaseDir in tests, and on Windows sharedAccessStatus
+	// is a no-op returning the zero value, so this exercises the unmanaged
+	// path on both platforms (on Linux CI it also needs euid != 0, the norm).
 	if info := SharedAccessStatus(); !info.Managed {
 		if info.Model() != "n/a" {
 			t.Errorf("Model() = %q for an unmanaged report, want %q", info.Model(), "n/a")

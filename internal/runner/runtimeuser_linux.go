@@ -53,8 +53,6 @@ func sysUserFor(cfg Config) *sysuser.Manager {
 	})
 }
 
-func runtimeUserManaged(cfg Config) bool { return sysUserFor(cfg).Managed() }
-
 func runtimeUserName(cfg Config) string { return sysUserFor(cfg).UserName() }
 
 // RuntimeUserName is the same thing without a Config in hand. Linux-only,

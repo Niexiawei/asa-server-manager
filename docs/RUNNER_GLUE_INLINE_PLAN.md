@@ -128,6 +128,8 @@ wp := wineprefixMgrFor(cfg)
 建议**与 Tier 1 分开一个 commit**，或干脆不做：收益是少一个名字，代价是动到测试文件。
 按 PLAN §7「不在同一次提交里顺手改别的」的既有约定，倾向于单独一个小 commit。
 
+**已于 2026-09-05 执行**（Tier 0/1 与 §10 之后的第三个 commit），落地见 §11。
+
 ---
 
 ## 4. 明确不动的部分，以及原因
@@ -309,3 +311,37 @@ wp := wineprefixMgrFor(cfg)
 
 `go build`/`go vet` 双平台通过；`go test ./internal/actions/` 通过（`prefix_test.go`
 仍在 Windows 上跑，正是 §10.3 保住的那部分）。净 -2 行，少 4 个包级名字。
+
+---
+
+## 11. Tier 1b 落地记录（2026-09-05）
+
+`runtimeUserManaged` 已删除，三个调用点改为直接问 `sysuser.Manager`。
+
+### 11.1 实际改动
+
+- `sharedaccess_linux.go`：`sharedTrees` 直接写 `sysUserFor(cfg).Managed()`；
+  `sharedAccessStatus` 与 `checkACLSupport` 这两个函数**同时**要 `Managed` 和用户名，
+  所以按 Tier 1 的同一条规则把持有对象提出来（`su := sysUserFor(cfg)`），
+  用 `su.Managed()` + `su.UserName()`。这里的副作用不是 `Reconfigure` 而是
+  **每次 `sysUserFor` 都现 `New` 一个 `*sysuser.Manager`**（见该函数注释：它不持有
+  跨调用状态，所以刻意不做单例）——提取变量后每个函数各建一个，而不是两三个。
+- `runtimeuser_linux_test.go`：3 处引用改为 `sysUserFor(getConfig()).Managed()`，
+  测试语义不变。
+- `sharedaccess_test.go`：一句注释写着「Windows 上 `runtimeUserManaged` 恒为 false」——
+  `runtimeUserManaged` **从来就没有 Windows 版本**（它一直是 linux-only），Windows 上
+  走的是 `sharedAccessStatus` 的空实现。注释在删除之前就已经指错了对象，一并改正。
+
+### 11.2 同一判据会命中、但本次有意不动的：`runtimeUserName`
+
+`runtimeUserName(cfg)` = `sysUserFor(cfg).UserName()`，形状与 `runtimeUserManaged`
+完全一样，按 §2 的判据同样该删。本次**没删**，因为它还有三个调用点手里没有现成的 `su`：
+导出的 `RuntimeUserName()`、`runner_linux.go:37`、`umu_linux.go` 的 `UserName` 回调
+字面量。删了要在这三处写 `sysUserFor(getConfig()).UserName()`，不比现在更清楚。
+方案里 Tier 1b 的范围就只写了 `runtimeUserManaged`，这里不扩。记在这里，供日后取舍。
+
+### 11.3 验证
+
+`go build`/`go vet` 双平台通过；`go test ./internal/runner/` 通过（Windows 上跑的那部分）。
+`GOOS=linux go vet` 覆盖了改到的两个 `*_test.go`。净 0 行（删 2 行、提取变量加 2 行），
+少 1 个包级名字。

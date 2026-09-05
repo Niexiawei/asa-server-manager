@@ -58,7 +58,7 @@ func sharedSubtrees(cfg Config) []string {
 // actually exists on disk.
 func sharedTrees() []string {
 	cfg := getConfig()
-	if !runtimeUserManaged(cfg) {
+	if !sysUserFor(cfg).Managed() {
 		return nil
 	}
 	var out []string
@@ -76,12 +76,13 @@ func sharedTrees() []string {
 // throwaway directory (shareacl.Supported).
 func sharedAccessStatus() SharedAccessInfo {
 	cfg := getConfig()
-	info := SharedAccessInfo{Managed: runtimeUserManaged(cfg)}
+	su := sysUserFor(cfg)
+	info := SharedAccessInfo{Managed: su.Managed()}
 	if !info.Managed {
 		return info
 	}
 
-	info.User = runtimeUserName(cfg)
+	info.User = su.UserName()
 	u, err := user.Lookup(info.User)
 	if err != nil {
 		info.ACLError = fmt.Sprintf("运行时用户 %s 不存在: %v", info.User, err)
@@ -169,7 +170,8 @@ func findAdminTool(name string) string {
 // result makes asa-server refuse to start.
 func checkACLSupport() *Problem {
 	cfg := getConfig()
-	if !runtimeUserManaged(cfg) || cfg.BaseDir == "" {
+	su := sysUserFor(cfg)
+	if !su.Managed() || cfg.BaseDir == "" {
 		return nil
 	}
 	if !pathExists(cfg.BaseDir) {
@@ -178,7 +180,7 @@ func checkACLSupport() *Problem {
 	// Probe against the runtime user's primary group when it exists, and fall
 	// back to this process's own gid so `setup` can still answer before the
 	// account is created.
-	group := runtimeUserName(cfg)
+	group := su.UserName()
 	if u, err := user.Lookup(group); err == nil {
 		group = shareacl.GroupName(u.Gid)
 	} else {

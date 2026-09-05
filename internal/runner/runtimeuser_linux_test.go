@@ -43,12 +43,12 @@ func TestRuntimeUser_NoopWhenNotRoot(t *testing.T) {
 
 func TestRuntimeUser_ManagedOnlyWhenRootAndNotOptedOut(t *testing.T) {
 	Configure(Config{BaseDir: t.TempDir(), RunAsRoot: true})
-	if runtimeUserManaged(getConfig()) {
+	if sysUserFor(getConfig()).Managed() {
 		t.Fatal("RunAsRoot=true must disable management even as root")
 	}
 	Configure(Config{BaseDir: t.TempDir()})
-	if got, want := runtimeUserManaged(getConfig()), os.Geteuid() == 0; got != want {
-		t.Fatalf("runtimeUserManaged: got %v, want %v (euid=%d)", got, want, os.Geteuid())
+	if got, want := sysUserFor(getConfig()).Managed(), os.Geteuid() == 0; got != want {
+		t.Fatalf("sysuser.Manager.Managed: got %v, want %v (euid=%d)", got, want, os.Geteuid())
 	}
 }
 
