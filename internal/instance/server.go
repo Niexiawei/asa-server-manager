@@ -12,6 +12,7 @@ import (
 	"asa-server/pkg/fsutil"
 	"asa-server/pkg/logger"
 	"asa-server/pkg/netutil"
+	"asa-server/pkg/procmatch"
 	"asa-server/pkg/procx"
 	"context"
 	"errors"
@@ -26,6 +27,13 @@ import (
 
 // ErrOperationNotAllowed is returned when an operation is not allowed in the current instance state
 var ErrOperationNotAllowed = fmt.Errorf("operation not allowed in current state")
+
+// gameProcMatcher 是本进程唯一一份「哪个 PID 才是游戏进程」判定器：Windows 查镜像名，
+// Linux 查 comm+cmdline（见 asa-server/pkg/procmatch 包注释）。exeNames[0]
+// （arkExeName）是 Windows 镜像名过滤器，也是 Linux 侧没有加载器时的回退匹配目标；
+// asaApiLoaderExeName 只在 Linux 的第一层候选扫描里额外算数——见
+// docs/ARKAPI_LINUX_LOGGING_AND_PID_PLAN.md §2。
+var gameProcMatcher = procmatch.New([]string{arkExeName, asaApiLoaderExeName}, "GameThread")
 
 // GetGameLogFilePath returns the full path to the log file for a given instance
 // v2: uses per-instance log directory under InstancesDir

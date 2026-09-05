@@ -6,23 +6,20 @@ import (
 	procpkg "asa-server/internal/process"
 	"asa-server/internal/rconx"
 	statepkg "asa-server/internal/state"
+	"asa-server/pkg/asaversion"
 	"asa-server/pkg/logger"
 	"asa-server/pkg/procx"
 	"asa-server/pkg/tail"
-	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
-	"unicode/utf8"
 )
 
 // arkExeName 是游戏服务端可执行文件名，进程查找按平台各自的规则匹配它 ——
@@ -173,7 +170,7 @@ func waitForGamePID(ctx context.Context, saveDir string, timeout time.Duration, 
 			if ctx.Err() != nil {
 				return
 			}
-			process, err := queryGameProcesses(marker)
+			proc, ok, err := gameProcMatcher.Find(marker)
 			if err != nil {
 				select {
 				case processErr <- err:
@@ -181,9 +178,9 @@ func waitForGamePID(ctx context.Context, saveDir string, timeout time.Duration, 
 				}
 				return
 			}
-			if len(process) > 0 {
+			if ok {
 				select {
-				case processPid <- process[0].ProcessId:
+				case processPid <- proc.ProcessId:
 				default:
 				}
 				return
@@ -204,8 +201,8 @@ func waitForGamePID(ctx context.Context, saveDir string, timeout time.Duration, 
 	case <-launcherExited:
 		// 最后再查一次：轮询间隔是 200ms，「游戏进程刚出现、启动器恰好同时退出」
 		// 这个窗口真实存在，直接判失败会误杀一次本来成功的启动。
-		if process, err := queryGameProcesses(marker); err == nil && len(process) > 0 {
-			return process[0].ProcessId, nil
+		if proc, ok, err := gameProcMatcher.Find(marker); err == nil && ok {
+			return proc.ProcessId, nil
 		}
 		return 0, ErrLauncherExited
 	case <-ctx.Done():
@@ -520,131 +517,29 @@ func waitServerStartup(pid int, gameLogPath string, callback waitServerStartupFu
 // findServerPIDBySaveDir 通过进程命令行中的 AltSaveDirectoryName 查找 ArkAscendedServer.exe 的 PID。
 // 不依赖端口是否被监听，适用于启动中等过渡状态（匹配规则按平台拆分，见 gameproc_*.go）。
 func findServerPIDBySaveDir(saveDir string) (int, error) {
-	processes, err := queryGameProcesses(fmt.Sprintf("AltSaveDirectoryName=%s", saveDir))
+	proc, ok, err := gameProcMatcher.Find(fmt.Sprintf("AltSaveDirectoryName=%s", saveDir))
 	if err != nil {
 		return 0, fmt.Errorf("process query failed: %w", err)
 	}
-	if len(processes) == 0 {
+	if !ok {
 		return 0, fmt.Errorf("no ArkAscendedServer process found with AltSaveDirectoryName=%s", saveDir)
 	}
-	return int(processes[0].ProcessId), nil
+	return int(proc.ProcessId), nil
 }
 
-// asaVersionTarget "ArkVersion" 的 UTF-16LE 编码 + 结尾 0x0000
-var asaVersionTarget = []byte{
-	0x41, 0x00, 0x72, 0x00, 0x6B, 0x00, 0x56, 0x00, 0x65, 0x00, 0x72, 0x00, 0x73, 0x00, 0x69,
-	0x00, 0x6F, 0x00, 0x6E, 0x00, 0x00, 0x00,
-}
-
-// GetAsaVersion 从 ArkAscendedServer.exe 中提取 ASA 版本号
-// 通过搜索 UTF-16LE 编码的 "ArkVersion\0" 标记，读取其后的 UTF-16 版本字符串
-func GetAsaVersion(exePath string) (string, error) {
-	// 只读打开，不影响正在运行的服务器进程
-	file, err := os.Open(exePath)
-	if err != nil {
-		return "", err
-	}
-	defer file.Close()
-
-	buffer := make([]byte, 1024*1024)
-	overlap := len(asaVersionTarget) - 1
-
-	// 分块扫描，块间保留 overlap 字节重叠，避免目标串跨块被漏掉
-	var fileOffset int64
-	var foundOffset int64 = -1
-	validLen, err := io.ReadFull(file, buffer)
-	if err != nil && err != io.ErrUnexpectedEOF && err != io.EOF {
-		return "", err
-	}
-
-	for {
-		if idx := bytes.Index(buffer[:validLen], asaVersionTarget); idx >= 0 {
-			foundOffset = fileOffset + int64(idx)
-			break
-		}
-
-		if validLen < len(buffer) {
-			break // EOF
-		}
-
-		copy(buffer, buffer[validLen-overlap:validLen])
-		fileOffset += int64(validLen - overlap)
-
-		n, err := io.ReadFull(file, buffer[overlap:])
-		if err != nil && err != io.ErrUnexpectedEOF && err != io.EOF {
-			return "", err
-		}
-		validLen = overlap + n
-	}
-
-	if foundOffset < 0 {
-		return "", fmt.Errorf("failed to find ArkVersion string in the executable")
-	}
-
-	// 读取标记后紧跟的 UTF-16LE 字符串，直到 0x0000 结束
-	if _, err := file.Seek(foundOffset+int64(len(asaVersionTarget)), io.SeekStart); err != nil {
-		return "", err
-	}
-
-	reader := bufio.NewReader(file)
-	var version strings.Builder
-	buf := make([]byte, 2)
-	for {
-		if _, err := io.ReadFull(reader, buf); err != nil {
-			break
-		}
-		unicodeVal := uint16(buf[0]) | uint16(buf[1])<<8
-		if unicodeVal == 0 {
-			break
-		}
-		r := rune(unicodeVal)
-		if !utf8.ValidRune(r) {
-			return "", fmt.Errorf("failed to convert UTF-16 code unit while reading version: %#06X", unicodeVal)
-		}
-		version.WriteRune(r)
-	}
-	return version.String(), nil
-}
-
-type asaVersionCacheEntry struct {
-	modTime time.Time
-	size    int64
-	version string
-}
-
-// asaVersionCache key: exe 路径 -> asaVersionCacheEntry
-var asaVersionCache sync.Map
+// asaVersionResolver 是本进程唯一一份 ASA 版本解析器，内部按 exe 的 modTime+size
+// 做缓存，服务器更新后自动失效。见 asa-server/pkg/asaversion。
+var asaVersionResolver = asaversion.New()
 
 // GetInstanceAsaVersion 获取实例的 ASA 版本号
 // 优先读取实例镜像目录的 exe；镜像不存在（实例从未启动）时回退到基础安装目录
-// 内置基于 modTime+size 的缓存，服务器更新后自动失效
 func GetInstanceAsaVersion(instanceName string) (string, error) {
 	arkExe := filepath.Join(mirror.InstanceMirrorDir(instanceName), "ShooterGame/Binaries/Win64/ArkAscendedServer.exe")
-	stat, err := os.Stat(arkExe)
-	if err != nil {
+	if _, err := os.Stat(arkExe); err != nil {
 		arkExe = filepath.Join(cfgpkg.ServerFilesDir, "ShooterGame/Binaries/Win64/ArkAscendedServer.exe")
-		stat, err = os.Stat(arkExe)
-		if err != nil {
+		if _, err := os.Stat(arkExe); err != nil {
 			return "", fmt.Errorf("ArkAscendedServer.exe not found")
 		}
 	}
-
-	// 缓存命中：modTime 和 size 均未变化
-	if v, ok := asaVersionCache.Load(arkExe); ok {
-		entry := v.(asaVersionCacheEntry)
-		if entry.modTime.Equal(stat.ModTime()) && entry.size == stat.Size() {
-			return entry.version, nil
-		}
-	}
-
-	version, err := GetAsaVersion(arkExe)
-	if err != nil {
-		return "", err
-	}
-	asaVersionCache.Store(arkExe, asaVersionCacheEntry{
-		modTime: stat.ModTime(),
-		size:    stat.Size(),
-		version: version,
-	})
-	return version, nil
+	return asaVersionResolver.Get(arkExe)
 }
