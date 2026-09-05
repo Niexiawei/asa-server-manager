@@ -1,10 +1,10 @@
 # 资源使用趋势图（uPlot）方案
 
 > 状态：**P1–P6 已落地并验证（2026-09-04）**，P7（eBPF）未开始 ｜ 实现记录见 §9
-> ｜ 实现前审查订正见 §7.1
+> ｜ 实现前审查订正见 §7.1 ｜ **SharedWorker → 专用 Worker 的返工见 §10（2026-09-06）**
 > 关联文件：
 > - 前端：`app/src/components/ResourceMonitor.vue`、`app/src/components/ServerResourceMonitor.vue`（顶栏弹窗）、
->   `app/src/workers/sharedResourceWorker.js`（加 `SUBSCRIBE_HOST`）、
+>   `app/src/workers/resourceWorker.js`（原 `sharedResourceWorker.js`，改专用 Worker，见 §10）、
 >   `app/src/workers/serverResourceWorker.js`（**删除**，见决策 20）、
 >   `app/src/views/InstanceDetail/components/InstanceOverviewTab.vue`、`app/src/router/index.js`、`app/src/App.vue`
 > - 新增前端：`app/src/components/UPlotChart.vue`、`app/src/components/ResourceTrendPanel.vue`、
@@ -699,11 +699,11 @@ P1–P2（后端）与 P3（前端封装）可并行。P4 只依赖 CPU/内存�
 |---|---|
 | `components/UPlotChart.vue` | uPlot 薄封装：`setData` 更新、`ResizeObserver` 跟随、自绘图例、`spanGaps:false` |
 | `components/ResourceTrendPanel.vue` | 趋势面板（scope=host/instance）+ 3/6/15 分钟分段控件 + `localStorage` 记忆 |
-| `composables/useResourceStream.js` | SharedWorker 端口单例，`subscribeInstance` / `subscribeHost` / `subscribeStatus` |
+| `composables/useResourceStream.js` | Worker 单例，`subscribeInstance` / `subscribeHost` / `subscribeStatus`（原 SharedWorker 端口单例，§10 改专用 Worker） |
 | `composables/useResourceTrend.js` | 缓冲：先回填后订阅、单调性守卫、断档补空点、按时间切窗 |
 | `views/ServerResourceMonitor/index.vue` | 新页面（摘要 + 整机趋势），`defineOptions` 显式命名 |
 | `components/ServerResourceMonitor.vue` | 顶栏弹窗改为迷你 sparkline + 跳转入口，数据源换成共享流 |
-| `workers/sharedResourceWorker.js` | 新增 `SUBSCRIBE_HOST`/`HOST_UPDATE`，透传 `disk_io`/`net_io` |
+| `workers/sharedResourceWorker.js` | 新增 `SUBSCRIBE_HOST`/`HOST_UPDATE`，透传 `disk_io`/`net_io`；**2026-09-06 改名 `resourceWorker.js` 并从 SharedWorker 改专用 Worker，见 §10** |
 | `workers/serverResourceWorker.js` | **已删除**（决策 20） |
 
 ### 9.2 与方案的偏差（都是实现期发现的更优解，已在代码里注释）
@@ -740,3 +740,66 @@ P1–P2（后端）与 P3（前端封装）可并行。P4 只依赖 CPU/内存�
   若走这条路，决策 10/14 的 `linux.ebpf_btf_path` 与 btfhub 支持都可以不做。
 - **P8 的深色适配**：项目当前只有浅色主题，`UPlotChart` 的轴线/网格色暂时写死，留了
   `palette` 的位置但没做主题切换。
+
+---
+
+## 10. 返工：SharedWorker → 专用 Worker（2026-09-06）
+
+### 10.1 背景：SharedWorker 方案的实际问题
+
+§4.6-5 / 决策 20 当时选了 `SharedWorker`，目标是「**整个浏览器**只有一条
+`/api/server/all-info` SSE」。真机使用中暴露三个问题，合起来弊大于利：
+
+1. **排障时看不到任何日志。** SharedWorker 运行在独立的共享上下文里，它的
+   `console.log` / `console.error` **不进页面 devtools 控制台**，必须单独打开
+   `chrome://inspect/#workers`（或 `about:debugging`）挂上去才看得到。表现为
+   「`/api/server/all-info` 连不上，可前端控制台一条 `[ResourceStream]` 都没有」——
+   排查方向完全被带偏。生产构建 `drop_console` 之后更是彻底无声。
+2. **实例跨页面刷新存活，`SSE_URL` 被首个 `INIT` 钉死。** 只要还有一个标签页
+   持有它，SharedWorker 就不随刷新重建；`startSSEConnection` 里 `if (!SSE_URL)`
+   的幂等守卫意味着第一次拿到的 URL 永久不变。切了部署地址 / 子路径 / dev↔真机
+   之后，后续所有页面都复用那个连不上的旧 URL，**刷新救不回来，只能关掉所有标签页**。
+3. **少数浏览器不支持且无降级路径。** 部分移动端、某些隔离 / 策略环境没有
+   `SharedWorker` 构造器，`useResourceStream.js` 里只有一句 `catch` 打日志然后
+   `port = null`，资源监控直接静默失效。
+
+跨标签页去重的收益是次要的：**默认部署是 HTTPS + HTTP/2**，多路复用下
+「同 origin 6 条并发连接」的上限根本不适用；只有明文 HTTP + 多标签页才有意义，
+而那是可以接受的轻微回归。
+
+### 10.2 改动
+
+把 `sharedResourceWorker.js` 改成与 `workers/wsWorker.js` 完全同构的**专用
+（dedicated）Worker** `workers/resourceWorker.js`，`useResourceStream.js` 相应改用
+`new Worker(...)`：
+
+| 维度 | 改动 |
+|---|---|
+| 生命周期 | `self.onconnect` + `ports: Set` + `port.postMessage` → `self.onmessage` + `postMessage`；每标签页一个 Worker、一条 SSE |
+| 订阅登记 | `subscribers: Map<instanceId, Set<port>>` / `hostSubscribers: Set<port>` → `subscribedInstances: Set<instanceId>` + `hostSubscribed: boolean`（单页面单消费者，只用来过滤要不要 `postMessage`） |
+| `INIT` | 不再「只认第一次」：`payload.sseUrl` 与当前 `SSE_URL` 不同就**关旧连接、清退避、重连** —— 根治 10.1-2 的 URL 钉死 |
+| `AUTH_RESUMED` | 收到后若当前无连接且未在重连，**主动拉起一次**（原实现只清标志，等下一次 CLOSED 才重连） |
+| 日志 | `[ResourceWorker]` / `[ResourceStream]` 前缀的 `console.*` 现在直接进页面 devtools（Worker 线程下）；dev 可见，生产仍被 `drop_console` 去掉 |
+| 协议 | `INIT` / `SUBSCRIBE` / `UNSUBSCRIBE` / `SUBSCRIBE_HOST` / `UNSUBSCRIBE_HOST` / `RESOURCE_UPDATE` / `HOST_UPDATE` / `SSE_CONNECTED` / `ERROR` / `SSE_CHECK_AUTH` / `AUTH_BLOCKED` / `AUTH_RESUMED` **保持不变**，组件侧 `subscribeInstance` / `subscribeHost` / `subscribeStatus` 签名不变 |
+
+保留不动：指数退避 + 全抖动重连、`sseAuthGate` 鉴权闸门（`registerSSEWorker` 对
+`Worker` 与 `MessagePort` 都通过 `target.postMessage` 工作）、`formatInstanceData` /
+`formatMemory` / `getProgressColor`（原样搬运）、`disk_io`/`net_io` 透传。
+
+### 10.3 顺带修掉的绕过点
+
+`components/ResourceMonitor.vue` 此前**没走** `useResourceStream.js`，自带一份
+`getSharedWorker()`（自建 SharedWorker、自发 `INIT`、自 `registerSSEWorker`），
+且 `onUnmounted` 只发 `UNSUBSCRIBE`、从不 `close()`。首页 masonry 列表下每个实例
+卡片一个，累积几十个僵尸 port。已改为 `subscribeInstance` / `subscribeStatus`，
+`onUnmounted` 调退订函数（引用计数，最后一个订阅者走了才 `UNSUBSCRIBE`）。
+顺手删掉 watch 里每 tick 打印的调试 `console.log`。
+
+现在全部资源消费方（实例面板 `ResourceMonitor.vue`、趋势图 `ResourceTrendPanel.vue`、
+顶栏弹窗 `ServerResourceMonitor.vue`、资源监控页 `views/ServerResourceMonitor/`）
+统一从 `composables/useResourceStream.js` 订阅，每标签页只有一条 all-info。
+
+### 10.4 验证
+
+- `npm run build` 通过；`dist/assets/resourceWorker-*.js` 与 `wsWorker-*.js` 并列产出（同一打包路径）。
+- 决策 20（host 数据走同一条流的 `SUBSCRIBE_HOST`、`serverResourceWorker.js` 删除）**继续有效**，本次只换了承载 Worker 的类型。
