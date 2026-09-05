@@ -42,7 +42,7 @@
           <div class="header-tools">
             <WSStatusIndicator/>
             <ServerResourceMonitor/>
-            <WSEventNotification/>
+            <WSEventNotification class="ws-header-notification"/>
             <!-- 没开鉴权时整块隐藏，界面和引入鉴权之前一模一样 -->
             <t-dropdown v-if="authState.authEnabled" :options="userMenuOptions" @click="onUserMenu">
               <t-button variant="text" class="user-name-button">
@@ -289,7 +289,13 @@ const handleTabChange = (tab) => {
       flex-shrink: 0;
       padding-right: 8px;
 
-      .user-name-button{
+      &:not(:has(.user-name-button)) {
+        .ws-header-notification {
+          padding-right: 16px;
+        }
+      }
+
+      .user-name-button {
         padding: 0 8px !important;
       }
 
