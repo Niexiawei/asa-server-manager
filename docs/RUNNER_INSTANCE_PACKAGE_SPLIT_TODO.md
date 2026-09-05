@@ -7,8 +7,10 @@
 > **Gap A（`pkg/shareacl`）与 Gap B（vcredist 零散机制）均已于 2026-09-05 执行完成**——
 > 见 §1、§2 末尾的落地说明。
 >
-> **2026-09-05 复评新增 Gap C/D/E 与结论 F**（§3–§6），**C/D/E 均已于同日执行完成**：起因是评估「vcredist 编排能否整体下沉」，
-> 核对下来 PLAN 阶段 H 的否决理由已失效 3/4，并顺带发现三件更该先做的事，以及 §0 表格里一处记错。
+> **2026-09-05 复评新增 Gap C/D/E/F**（§3–§6），**四项均已于同日执行完成**：起因是评估
+> 「vcredist 编排能否整体下沉」，核对下来 PLAN 阶段 H 的否决理由已失效 3/4，并顺带发现三件
+> 更该先做的事，以及 §0 表格里一处记错。**Gap F 的结论被推翻过一次**（先判「有意不做」，
+> 理由是文案耦合；被指出后推翻——那是接口切错了，不是包边界问题），推翻过程保留在 §6.1。
 
 ---
 
@@ -31,9 +33,9 @@
 | `prefix_windows.go` | 24 | 六个入口在 Windows 上的空实现 |
 | `runtimeuser_linux.go` | 248 | 见 §1（已执行，原 315 行） |
 | `sharedaccess_linux.go` | 209 | 见 §1（已执行，原 385 行） |
-| `vcredist_linux.go` | 310 | 见 §2/§4/§5（均已执行，原 486→419→310 行）、§6（核心编排有意保留） |
+| `vcredist_linux.go` | 141 | 见 §2/§4/§5/§6（均已执行，486→419→377→310→141 行） |
 
-写这一节时认为真正的缺口只有 §1、§2 两项；2026-09-05 复评后增加 §3–§5 三项，其中 §3 是把
+写这一节时认为真正的缺口只有 §1、§2 两项；2026-09-05 复评后增加 §3–§6 四项，其中 §3 是把
 上表里记错的一行改正过来。
 
 ---
@@ -289,36 +291,115 @@ func Inspect(prefix, gameDir string) Info  // 原 vcRedistStatus 的只读部分
 
 ---
 
-## 6. 结论 F（有意不做）：vcredist 编排整体下沉的再评估
+## 6. Gap F：vcredist 编排整体下沉（已执行）
+
+> 本节记录了一次**结论被推翻**的过程，故意保留原始理由与推翻它的论证 ——
+> 后来者要能看出「文案耦合」为什么不构成包边界，而不是只看到最终结果。
+
+### 6.1 原结论与它的两次修订
 
 PLAN 阶段 H 把 `ensureVCRedist`/`ensureVCRedistInstaller`/`applyVCRedistOverrides` 留在
 `internal/runner`，理由是「深度依赖 `prefixDir`/`protonPath`/`umuInterpreter`/`acquireDisplay`，
-这些全是还留在 internal 的概念」。2026-09-05 复评：**这四条已失效三条**——阶段 I 之后
+这些全是还留在 internal 的概念」。
+
+**第一次修订（2026-09-05 复评）**：这四条已失效三条 —— 阶段 I 之后
 `prefixDir`/`protonPath`/`umuRunPath`/`umuInterpreter` 都只是 `umu_linux.go` 里的一行转发；
 只剩 `acquireDisplay` 是真业务规则，而它本来就设计成回调注入（PLAN §2：「显示获取以回调注入，
 vcredist 包不 import display 包，两个机制包保持平级」）。Gap D 落地后，
-`Credential`/`UserName`/`HomeDir`/`ChownPath`/`Interpreter` 也全归 `umu.Config`，
-`vcredist.Config` 只需要 `{Dir, URL, SHA256, AutoDownload, Managed, *umu.Runtime, AcquireDisplay}`。
+`Credential`/`UserName`/`HomeDir`/`ChownPath`/`Interpreter` 也全归 `umu.Config`。
+当时给出的新反对理由是：
 
-**但仍不执行**，理由换了一个，且这个理由搬不走：
+> 这段编排里的 ASA 领域知识**全部集中在文案上**——「override 已经写好…但 **ArkApi 实例
+> 同样起不来**」、「请…，然后重跑 `asa-server setup`」、「或设 `linux.install_vcredist: false`」。
+> 一个 `pkg/` 包不该知道本程序叫 `asa-server`、有个 `setup` 子命令、配置键叫
+> `linux.install_vcredist`。把这些也做成注入的字符串，是为了过准入线而把可读性交出去。
 
-> 这段编排里的 ASA 领域知识**全部集中在文案上**——「override 已经写好，普通实例不受影响；
-> 但 **ArkApi 实例同样起不来**」、「请…，然后重跑 `asa-server setup`」、
-> 「或设 `linux.install_vcredist: false`」。一个 `pkg/` 包不该知道本程序叫 `asa-server`、
-> 有个 `setup` 子命令、配置键叫 `linux.install_vcredist`。把这些也做成注入的字符串，是为了过
-> 准入线而把可读性交出去，属于 PLAN §7 警告的「看起来通用、实际上硬编码了领域字符串的假 pkg 包」
-> 的变体。
+**第二次修订（同日，被指出后推翻）**：这条理由站不住。Go 的类型化错误存在的意义正是这个 ——
+「这段代码里唯一的领域知识是给用户看的句子」不说明它不可拆，只说明**接口切错了**：
+`ensureVCRedist` 把「发生了什么」和「怎么跟用户讲」揉进了同一个 `logf`。
 
-次要风险两条，将来若执行需一并处理：把签名从 `prefixKey` 改成 `prefix` 路径本身是好事
-（key→dir 的唯一转换点仍在 `wineprefix.Manager.Dir`），但 `CLAUDE.md` 明确写了 start 路径的
-`EnsurePrefix`/`PrefixHasVCRedist`/`Options.PrefixKey` **三处必须同源**；以及 `vcredist.Info`
-是 `runner.VCRedistInfo` 的类型别名、直接被 HTTP API 消费，改字段等于改接口契约。
+而且拆完比原状**更好**，不只是打平：「VC++ 没装成，因为这台机器没有显示」这个事实原先
+只活在一行日志文本里，诊断接口拿不到；做成 `Result.Skip` 之后它是可检视的结构化结果。
 
-**结论**：Gap D + Gap E 落地后，`vcredist_linux.go` 剩下的就是「两级安装的业务决策 + 面向用户的
-中文文案」——那正是该留在 `internal/runner` 的东西。本条**不列入待办**，只作为「已评估、有意不做」
-的记录，避免下次再从头评估一遍。
+### 6.2 落地形态
+
+**`pkg/vcredist/install_linux.go`（387 行，新增）** —— 全部编排。三类跨界信息都类型化：
+
+| 情形 | 以前 | 现在 |
+|---|---|---|
+| 本机没有显示能力 | `logf("跳过…：%s。", blocked)` + 三行 ArkApi 指引 | `Result{Skip: SkipNoDisplay, SkipCause: err}` |
+| 有能力但这次没拿到 | 另外两行文案 | `Result{Skip: SkipDisplayUnavailable, SkipCause: err}` |
+| 已经装好了 | 静默 `return nil` | `Result{Skip: SkipAlreadyInstalled, Installed: true}` |
+| auto_download 关了 | 一句带 `linux.install_vcredist` 的错误 | `*AutoDownloadDisabledError{Dest, URL}` |
+| 下载没有校验值 | 一句带 `linux.vcredist_sha256` 的警告 | `Config.OnUnverifiedDownload(url)` 钩子 |
+
+方向相反的那一条也是类型：`Config.AcquireDisplay` 返回的 error 若
+`errors.Is(err, vcredist.ErrNoDisplay)` 即「本机压根没有显示能力」，否则是「有能力但没拿到」。
+**哪种算哪种是调用方的判断**（`checkDisplay` 把缺显示定为建议项，所以一台没装 Xvfb 的机器
+走到 blocked 是常规路径），本包只负责分开这两档 —— `classifySkip` 一个函数，单测钉住。
+
+`Config` 最终形状：`{Dir, URL, SHA256, AutoDownload, Umu *umu.Runtime, AcquireDisplay,
+ChownPath, OnUnverifiedDownload}` —— 3 个回调 + 1 个运行时指针 + 4 个标量，与
+`umu.Config`（5 回调）、`xvfb.Config`（3 回调）同量级。
+
+**`internal/runner/vcredist_linux.go`（310 → 141 行）** —— 只剩三样：
+`vcRedistInstallerFor`（组合根，把回调接上）、`ensureVCRedist`（把 `Result.Skip` 与
+`*AutoDownloadDisabledError` 翻成人话）、`prefixHasVCRedist`/`vcRedistStatus`（诊断）。
+`asa-server` / `setup` / `linux.install_vcredist` / `linux.vcredist_sha256` 四个本程序自己的
+名字**只出现在这个文件里**。
+
+### 6.3 三个执行时的判断
+
+1. **`OnUnverifiedDownload` 做成钩子而不是 `Result` 里的字段**：顺序有意义 ——
+   放进 `Result` 就变成事后才说，那时 24 MiB 已经无校验地下完了。也没有采用
+   「`Config.SHA256Key string` 把配置键名传进去让 pkg 拼句子」的写法：那还是 pkg 在写
+   面向本程序用户的话，只是短了点。
+2. **`Installer` 每次现 New，不做包级单例**：它不持有任何跨调用状态，同
+   `sysUserFor`/`pkg/sysuser.Manager`；与必须 `Reconfigure` 的 `umuRuntime`/`xvfbMgr` 相反
+   （那两个持有活进程）。
+3. **`pkg/vcredist` 从此有了一个带 build tag 的文件**：`install_linux.go` 依赖 `pkg/umu`，
+   而 umu/Wine/Proton 没有 Windows 对应物。`vcredist.go` 与 `inspect.go` 仍无 tag、
+   全平台可单测。`pkg/vcredist → pkg/umu` 无环 —— `pkg/umu` 与 `pkg/wineprefix` 对
+   vcredist 都是**回调注入**，没有编译期依赖。
+
+### 6.4 新增测试
+
+`pkg/vcredist/install_linux_test.go`（117 行）。真跑一次安装需要 umu-run + GE-Proton +
+已初始化的前缀，不适合单测；钉住的是**类型化契约**那一层，也正是本次唯一改了形状的东西：
+
+- `TestClassifySkipSeparatesTheTwoCauses` —— 两种「没显示」不许混成一档；
+- `TestAcquireDisplayDefaultsToNoDisplay` —— 没接回调 = 没有显示，不是 panic 也不是「有」；
+- `TestAutoDownloadDisabledCarriesBothPaths` —— `Dest`/`URL` 都要带出来，否则文案又被锁死；
+- `TestEnsureRequiresUmu` / `TestEnsureRejectsUninitializedPrefix` —— 这两种是 **error 不是
+  Skip**：调用方编排顺序搞反了，不是环境不具备；
+- `TestRunOptionsDifferFromWarmPrefix` —— 与 `umu.WarmPrefix` 的三处刻意差异，
+  其中 `Verb: "run"` 与 `NoRuntimeUpdate` 是正确性而非偏好（见 §4）。
+
+### 6.5 仍然留在 internal 的两条，以及为什么
+
+- `cfg.InstallVCRedist` / `cfg.Runtime != "umu"` 两个前置开关：本程序的策略，不是 VC++ 的
+  机制。调用方不想装就别调 `Ensure`。
+- `vcRedistStatus` 里补的 `Managed` 与 `InstallerDisplay`/`InstallerBlocked`：同 §5 的理由。
+
+### 6.6 一处行为变化
+
+新增一行日志：拿到显示后打 `VC++ 运行时安装将使用 <How>`。以前 `disp.How` 在这条路径上被
+丢掉了，而启动路径（`runner_linux.go`）一直是打的 —— 排障时「这次用的是自管 Xvfb 还是
+宿主的 :0」是第一个要知道的事。除此之外没有行为改变。
+
+### 6.7 顺手发现的一致性问题（本轮未改）
+
+把「pkg 不得出现本程序自己的名字」这条规则应用到 vcredist 之后，`grep` 一遍发现
+**`pkg/umu` 与 `pkg/wineprefix` 里还有四处面向用户的错误文本写着「请运行 `asa-server setup`
+完成环境准备」**（`umu_linux.go` 两处、`wineprefix_linux.go` 两处）。按同一条标准，它们同样
+应当是哨兵错误（如 `umu.ErrRuntimeMissing`）由 `internal/runner` 翻成指引。
+
+本轮**没改** —— PLAN §7：不在拆包的同一次提交里「顺手」改别的。且它与 Gap F 不同：那四句
+都是**阻断性错误**的文本，不像 vcredist 那两个 Skip 分支那样携带「该给用户看哪一条指引」的
+分歧信息，收益小得多。记在这里供日后取舍。
 
 ---
+
 
 ## 7. 建议执行顺序
 
@@ -326,13 +407,17 @@ vcredist 包不 import display 包，两个机制包保持平级」）。Gap D �
    （见 §4 的两处刻意差异），值得单独一个 commit。✅ 已执行
 2. **Gap C（`pkg/display`）**——阶段 G 的补作业，性质同 Gap A。不依赖 Gap D。✅ 已执行
 3. **Gap E（vcredist DLL 判定）**——零风险、零回调，可与 Gap C 合并进同一个 commit。✅ 已执行
-4. 结论 F 不执行。
+4. **Gap F（vcredist 编排整体下沉）**——原判「有意不做」，被推翻后执行；依赖 Gap D
+   （`umu.RunInPrefix` 把注入面从 5 个降到 3 个回调）。✅ 已执行，且是**在 D/C/E 通过
+   WSL2 真机验证之后**才动的 —— 这条路径在 Windows 上完全无法验证，不该让两层未验证的
+   重构叠在一起，出问题二分不出是哪层。
 
 **执行后的净结果**（2026-09-05）：`internal/runner` 从 2828 行降到 2370 行（不含测试），
-其中 `display_linux.go` 375→45、`vcredist_linux.go` 419→310；新增 `pkg/display`（432 行）
-与 `pkg/vcredist/inspect.go`（97 行）。新增可在 **Windows 上运行**的单测 197 行
-（`pkg/display/display_test.go` 42 + `pkg/vcredist/inspect_test.go` 155 —— 原先这些判据
-只在 Linux 上有覆盖）。`go build`/`go vet` 双平台通过，
+其中 `display_linux.go` 375→45、`vcredist_linux.go` 419→141；新增 `pkg/display`（432 行）、
+`pkg/vcredist/inspect.go`（97 行）与 `pkg/vcredist/install_linux.go`（387 行）。
+新增可在 **Windows 上运行**的单测 197 行（`pkg/display/display_test.go` 42 +
+`pkg/vcredist/inspect_test.go` 155 —— 原先这些判据只在 Linux 上有覆盖），
+另有 Linux 侧新单测 187 行（`install_linux_test.go` 117 + `umu_linux_test.go` 新增 67 + 3）。`go build`/`go vet` 双平台通过，
 `go test ./pkg/... ./internal/runner/ ./internal/instance/`（除 `pkg/tail`）全绿。
 
 > Gap C 与 Gap D/E 正交：显示在 Gap D 里只以 `RunOptions.ExtraEnv` 的形式出现，Gap E 根本不碰显示。
@@ -351,4 +436,8 @@ vcredist 包不 import display 包，两个机制包保持平级」）。Gap D �
 - Gap C 落地后，`pkg/display` 的测试要保住「`Plan()` 无副作用」那一条（原
   `TestDisplayStatusHasNoSideEffects`）；Gap D 落地后，需在 WSL2 真机跑一次 `asa-server setup`
   （覆盖 `WarmPrefix` 的 wineboot 路径）+ 一次 `asa-server verify-arkapi`
-  （覆盖 `runInPrefix` 的两条路径）。
+  （覆盖 `runInPrefix` 的两条路径）。**D/C/E 已于 2026-09-05 真机验证：实例可正常启动。**
+- **Gap F 的真机验证尚未进行**，需要覆盖的是三条从未在 Windows 上跑过的路径：
+  ①无显示机器上 `asa-server setup` 打出的是 `SkipNoDisplay` 那三行（而不是另一档）；
+  ②`linux.auto_download: false` + 本地无安装包时报的是带 `linux.install_vcredist` 的那句；
+  ③有显示机器上安装成功且新增的「将使用 <How>」一行内容正确。
