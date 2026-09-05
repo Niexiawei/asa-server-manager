@@ -92,6 +92,7 @@ var commonCommands = []*cli.Command{
 	actions.SetupCommand(),
 	actions.VerifyCommand(),
 	actions.VerifyArkApiCommand(),
+	actions.ArkApiCacheCommand(),
 	certmgr.Command(),
 	actions.AuthDBCommand(),
 	actions.AuthUserCommand(),

@@ -7,6 +7,7 @@ package updatemanage
 
 import (
 	"asa-server/internal/installer"
+	"asa-server/internal/instance"
 	procpkg "asa-server/internal/process"
 	"asa-server/internal/realtime"
 	"asa-server/pkg/logger"
@@ -223,6 +224,13 @@ func (m *UpdateManager) run(ctx context.Context, done chan struct{}) {
 		}
 		fail("Server verification failed: %w", err)
 		return
+	}
+
+	// exe 换了，ArkApi offsets cache 的哈希也就换了。趁这条 SSE 还开着把新缓存备好，
+	// 否则那笔下载会挪到更新后第一次启动，用户看到的是一个像卡住的实例。永不致命。
+	if !checkCancelled() {
+		m.broadcaster.SendMessage("Prefetching ArkApi offsets cache...")
+		instance.PrefetchArkApiCacheAfterUpdate(ctx, writer)
 	}
 
 	// Update completed

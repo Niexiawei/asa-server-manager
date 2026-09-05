@@ -2,6 +2,7 @@ package actions
 
 import (
 	"asa-server/internal/installer"
+	"asa-server/internal/instance"
 	statepkg "asa-server/internal/state"
 	"context"
 	"fmt"
@@ -31,6 +32,10 @@ func ActionUpdate(ctx context.Context, cmd *cli.Command) error {
 	if err := installer.VerifyServerInstallation(ctx, forceServer, stdoutFmt); err != nil {
 		return err
 	}
+
+	// 更新必然换掉 exe，也就换掉 ArkApi offsets cache 的哈希。趁用户还在等，把新
+	// 版本的缓存备好，省掉「更新后第一次启动」那一次看起来像卡住的等待。永不致命。
+	instance.PrefetchArkApiCacheAfterUpdate(ctx, stdoutFmt)
 
 	fmt.Println("Base server installation/update completed.")
 	return nil

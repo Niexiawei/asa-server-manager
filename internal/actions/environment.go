@@ -2,6 +2,7 @@ package actions
 
 import (
 	"asa-server/internal/installer"
+	"asa-server/internal/instance"
 	"asa-server/internal/runner"
 	"context"
 	"fmt"
@@ -59,5 +60,7 @@ func InstallBaseEnvironment(ctx context.Context, w io.Writer) error {
 	if err := installer.VerifyServerInstallation(ctx, false, w); err != nil {
 		return fmt.Errorf("生成首次配置失败: %w", err)
 	}
+	// 装完就把 ArkApi offsets cache 也备好（未装 ArkApi 时是空操作）。永不致命。
+	instance.PrefetchArkApiCacheAfterUpdate(ctx, w)
 	return nil
 }
