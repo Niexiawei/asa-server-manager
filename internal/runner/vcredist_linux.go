@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"asa-server/pkg/download"
+	"asa-server/pkg/vcredist"
 	"asa-server/pkg/xvfb"
 )
 
@@ -26,11 +27,11 @@ const vcRedistInstallTimeout = 15 * time.Minute
 func vcRedistDir(cfg Config) string { return filepath.Join(cfg.BaseDir, "vcredist") }
 
 func vcRedistExePath(cfg Config) string {
-	return filepath.Join(vcRedistDir(cfg), vcRedistInstallerName)
+	return filepath.Join(vcRedistDir(cfg), vcredist.InstallerName)
 }
 
 func vcRedistOverrideRegPath(cfg Config) string {
-	return filepath.Join(vcRedistDir(cfg), vcRedistOverrideRegName)
+	return filepath.Join(vcRedistDir(cfg), vcredist.OverrideRegName)
 }
 
 // ensurePrefixVCRedist 是 runner.EnsurePrefixVCRedist 的实现。
@@ -107,14 +108,14 @@ func ensureVCRedist(ctx context.Context, cfg Config, prefixKey string, logf func
 
 	waitForWineserverDrain(prefix)
 
-	// 后置条件才是判决。退出码只进错误文本 —— 见 msInstallerExitNote 的注释。
+	// 后置条件才是判决。退出码只进错误文本 —— 见 vcredist.ExitNote 的注释。
 	if !prefixHasVCRedistCfg(cfg, prefixKey) {
 		return fmt.Errorf("VC++ 运行时安装后校验未通过：%s 仍是 Wine 自带的（DOS stub 里还有 Wine 标记）。"+
 			"安装器%s，最后的输出：\n%s",
-			prefixSystem32(cfg, prefixKey, nativeProbeDLL), msInstallerExitNote(code), tail)
+			prefixSystem32(cfg, prefixKey, vcredist.ProbeDLL), vcredist.ExitNote(code), tail)
 	}
-	if !msInstallerExitOK(code) {
-		logf("注意：VC++ 运行时校验已通过，但%s", msInstallerExitNote(code))
+	if !vcredist.ExitOK(code) {
+		logf("注意：VC++ 运行时校验已通过，但%s", vcredist.ExitNote(code))
 	}
 
 	if err := writeVCRedistMarker(prefix, exePath, checksum); err != nil {
@@ -137,7 +138,7 @@ func prefixHasVCRedist(prefixKey string) bool {
 // 注册表那个「标准检测键」**不能用** —— GE-Proton 在全新 prefix 里就把它伪造好了，
 // 见 vcRuntimeRegSection 的注释。
 func prefixHasVCRedistCfg(cfg Config, prefixKey string) bool {
-	return nativeDLLPresent(prefixSystem32(cfg, prefixKey, nativeProbeDLL))
+	return nativeDLLPresent(prefixSystem32(cfg, prefixKey, vcredist.ProbeDLL))
 }
 
 // prefixSystem32 拼出 prefix 里 64 位 system32 下某个文件的路径。
@@ -151,7 +152,7 @@ func nativeDLLPresent(path string) bool {
 	return classifyDLL(path) == DLLNative
 }
 
-// classifyDLL 判定一个 DLL 文件的出身。
+// classifyDLL 判定一个 DLL 文件的出身：读头部字节，交给 pkg/vcredist 分类。
 func classifyDLL(path string) DLLOrigin {
 	f, err := os.Open(path)
 	if err != nil {
@@ -159,16 +160,13 @@ func classifyDLL(path string) DLLOrigin {
 	}
 	defer f.Close()
 
-	buf := make([]byte, wineDLLHeaderScan)
+	buf := make([]byte, vcredist.HeaderScanBytes)
 	n, err := io.ReadFull(f, buf)
-	// 文件比 wineDLLHeaderScan 短时 ReadFull 返回 ErrUnexpectedEOF，但 n 是有效的。
+	// 文件比 HeaderScanBytes 短时 ReadFull 返回 ErrUnexpectedEOF，但 n 是有效的。
 	if n == 0 && err != nil {
 		return DLLMissing
 	}
-	if isWineOwnDLL(buf[:n]) {
-		return DLLWine
-	}
-	return DLLNative
+	return vcredist.ClassifyHeader(buf[:n])
 }
 
 // --- 诊断 ---------------------------------------------------------------------
@@ -182,15 +180,15 @@ func vcRedistStatus(prefixKey, gameDir string) VCRedistInfo {
 		Prefix:  prefixDir(cfg, prefixKey),
 	}
 	info.Installed = prefixHasVCRedistCfg(cfg, prefixKey)
-	info.ProbeDLL = nativeProbeDLL
+	info.ProbeDLL = vcredist.ProbeDLL
 
 	if data, err := os.ReadFile(filepath.Join(info.Prefix, "system.reg")); err == nil {
-		info.RegistryVersion = vcRuntimeRegistryVersion(data)
+		info.RegistryVersion = vcredist.RegistryVersion(data)
 	}
 	if data, err := os.ReadFile(filepath.Join(info.Prefix, "user.reg")); err == nil {
-		info.OverridesSet = countVCRedistOverrides(data)
+		info.OverridesSet = vcredist.CountOverrides(data)
 	}
-	info.WantOverrides = len(vcRedistOverrideDLLs)
+	info.WantOverrides = len(vcredist.OverrideDLLs)
 
 	// 诊断视图，只问计划不动手 —— `verify-arkapi --check-only` 不该顺手起个 X 服务。
 	// 报候选链的头一档：安装真跑起来时先试的就是它。
@@ -200,7 +198,7 @@ func vcRedistStatus(prefixKey, gameDir string) VCRedistInfo {
 		info.InstallerDisplay = plans[0].How
 	}
 
-	for _, name := range vcRedistOverrideDLLs {
+	for _, name := range vcredist.OverrideDLLs {
 		d := VCRedistDLLInfo{Name: name + ".dll"}
 		d.InSystem32 = classifyDLL(prefixSystem32(cfg, prefixKey, d.Name))
 		if gameDir != "" {
@@ -224,20 +222,7 @@ func prefixHasVCRedistOverrides(prefix string) bool {
 	if err != nil {
 		return false
 	}
-	return countVCRedistOverrides(data) >= len(vcRedistOverrideDLLs)
-}
-
-// countVCRedistOverrides 数 user.reg 的 DllOverrides 段里有几条是我们写的
-// "*<dll>"="native,builtin"。
-func countVCRedistOverrides(userReg []byte) int {
-	text := string(userReg)
-	n := 0
-	for _, dll := range vcRedistOverrideDLLs {
-		if strings.Contains(text, fmt.Sprintf("\"*%s\"=\"%s\"", dll, vcRedistOverrideMode)) {
-			n++
-		}
-	}
-	return n
+	return vcredist.CountOverrides(data) >= len(vcredist.OverrideDLLs)
 }
 
 // --- 安装包 -----------------------------------------------------------------
@@ -253,7 +238,7 @@ func ensureVCRedistInstaller(ctx context.Context, cfg Config, logf func(string, 
 
 	srcURL := cfg.VCRedistURL
 	if srcURL == "" {
-		srcURL = defaultVCRedistURL
+		srcURL = vcredist.DefaultURL
 	}
 	if !cfg.AutoDownload {
 		return "", "", fmt.Errorf("auto_download 已关闭且本地没有 %s；"+
@@ -272,7 +257,7 @@ func ensureVCRedistInstaller(ctx context.Context, cfg Config, logf func(string, 
 	case cfg.VCRedistSHA256 != "":
 		checksum = "sha256:" + strings.ToLower(strings.TrimSpace(cfg.VCRedistSHA256))
 	default:
-		if h, ok := sha256FromMSDownloadURL(finalURL); ok {
+		if h, ok := vcredist.SHA256FromDownloadURL(finalURL); ok {
 			checksum = "sha256:" + h
 		} else {
 			logf("警告：%s 的地址里没有可用的 SHA256（自定义镜像？），本次下载不做校验；"+
@@ -338,7 +323,7 @@ func applyVCRedistOverrides(ctx context.Context, cfg Config, prefix string, logf
 	if err := os.MkdirAll(filepath.Dir(regPath), 0o755); err != nil {
 		return err
 	}
-	if err := os.WriteFile(regPath, []byte(buildVCRedistOverrideReg()), 0o644); err != nil {
+	if err := os.WriteFile(regPath, []byte(vcredist.BuildOverrideReg()), 0o644); err != nil {
 		return err
 	}
 
@@ -347,13 +332,13 @@ func applyVCRedistOverrides(ctx context.Context, cfg Config, prefix string, logf
 		return err
 	}
 
-	logf("正在写入 %d 条 VC++ DLL override（%s）", len(vcRedistOverrideDLLs), vcRedistOverrideMode)
+	logf("正在写入 %d 条 VC++ DLL override（%s）", len(vcredist.OverrideDLLs), vcredist.OverrideMode)
 	// regedit.exe 传宿主路径（umu 对普通 exe 走 resolve(strict=True)）；
 	// 它的**参数**是 Windows 路径，所以过 gamePath。
 	tail, err := runInPrefix(ctx, cfg, prefix, regedit,
 		[]string{"/S", gamePath(regPath)}, time.Minute, logf)
 	if err != nil {
-		return fmt.Errorf("regedit 导入失败%s：\n%s", msInstallerExitNote(exitCodeOf(err)), tail)
+		return fmt.Errorf("regedit 导入失败%s：\n%s", vcredist.ExitNote(exitCodeOf(err)), tail)
 	}
 	return nil
 }
@@ -460,7 +445,7 @@ func exitCodeOf(err error) int {
 func writeVCRedistMarker(prefix, exePath, checksum string) error {
 	body := fmt.Sprintf("installer=%s\nchecksum=%s\ninstalled_at=%s\n",
 		exePath, checksum, time.Now().Format(time.RFC3339))
-	path := filepath.Join(prefix, vcRedistMarker)
+	path := filepath.Join(prefix, vcredist.MarkerFileName)
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		return err
 	}

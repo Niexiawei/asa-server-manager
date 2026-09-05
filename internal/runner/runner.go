@@ -22,6 +22,7 @@ import (
 	"github.com/aymanbagabas/go-pty"
 
 	"asa-server/pkg/problem"
+	"asa-server/pkg/vcredist"
 )
 
 // Options describes a single exe launch, platform-agnostic.
@@ -185,13 +186,14 @@ func PrefixHasVCRedist(prefixKey string) bool {
 	return prefixHasVCRedist(prefixKey)
 }
 
-// DLLOrigin says where a DLL in a Wine prefix came from.
-type DLLOrigin string
+// DLLOrigin says where a DLL in a Wine prefix came from. Alias of
+// pkg/vcredist.DLLOrigin — see docs/RUNNER_INSTANCE_PACKAGE_SPLIT_PLAN.md 阶段 H.
+type DLLOrigin = vcredist.DLLOrigin
 
 const (
-	DLLMissing DLLOrigin = "missing"
-	DLLWine    DLLOrigin = "wine"   // Wine 自己的占位/内建 PE
-	DLLNative  DLLOrigin = "native" // 微软原生
+	DLLMissing = vcredist.DLLMissing
+	DLLWine    = vcredist.DLLWine   // Wine 自己的占位/内建 PE
+	DLLNative  = vcredist.DLLNative // 微软原生
 )
 
 // VCRedistDLLInfo is one runtime DLL's origin, in the prefix and next to the game.
@@ -200,38 +202,26 @@ const (
 // first**, and ARK ships native copies of most of the VC++ runtime right next
 // to ArkAscendedServer.exe — so what Wine ends up loading is decided by the
 // DllOverrides setting, not only by what is in system32.
-type VCRedistDLLInfo struct {
-	Name       string
-	InSystem32 DLLOrigin
-	InGameDir  DLLOrigin // empty when no game dir was supplied
-}
+type VCRedistDLLInfo = vcredist.DLLInfo
 
 // VCRedistInfo is the read-only view of a prefix's VC++ runtime state, for
 // `asa-server verify-arkapi`.
-type VCRedistInfo struct {
-	Managed  bool // Linux && runtime == "umu"
-	Prefix   string
-	ProbeDLL string
-	// Installed is the single judgement "the native runtime is in system32",
-	// decided by ProbeDLL's PE header. RegistryVersion is NOT part of it —
-	// GE-Proton pre-fakes the standard detection key in a brand-new prefix
-	// (see internal/runner/vcredist.go), so it is diagnostic text only.
-	Installed       bool
-	RegistryVersion string
-	// OverridesSet/WantOverrides describe the DllOverrides entries in the
-	// prefix — the load-bearing half of this whole thing. ARK ships native
-	// copies of most of the runtime next to its exe, and the override is what
-	// makes Wine prefer them over its own builtins.
-	OverridesSet  int
-	WantOverrides int
-	// InstallerDisplay / InstallerBlocked: Microsoft's redist installer refuses
-	// to run under Wine without a reachable X display (exit 203), even with
-	// /quiet. On a headless host — this project's main deployment shape —
-	// Installed stays false by design and only the overrides apply.
-	InstallerDisplay string
-	InstallerBlocked string
-	DLLs             []VCRedistDLLInfo
-}
+//
+// Installed is the single judgement "the native runtime is in system32",
+// decided by ProbeDLL's PE header. RegistryVersion is NOT part of it —
+// GE-Proton pre-fakes the standard detection key in a brand-new prefix (see
+// pkg/vcredist), so it is diagnostic text only.
+//
+// OverridesSet/WantOverrides describe the DllOverrides entries in the
+// prefix — the load-bearing half of this whole thing. ARK ships native
+// copies of most of the runtime next to its exe, and the override is what
+// makes Wine prefer them over its own builtins.
+//
+// InstallerDisplay / InstallerBlocked: Microsoft's redist installer refuses
+// to run under Wine without a reachable X display (exit 203), even with
+// /quiet. On a headless host — this project's main deployment shape —
+// Installed stays false by design and only the overrides apply.
+type VCRedistInfo = vcredist.Info
 
 // VCRedistStatus summarises a prefix's VC++ runtime state. Read-only, offline.
 // gameDir is the directory holding the game exe (empty skips that column).
