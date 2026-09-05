@@ -130,6 +130,12 @@ const (
 	// 游戏进程出现在 20 多秒 —— 离 30 秒只差几秒，CDN 慢一点就必然超时。
 	// 放宽到 3 分钟不是无脑加大：真正起不来的情形由 launcherExited 提前失败兜住
 	// （见 waitForGamePID），不会真的等满。
+	//
+	// 多数情况下现在已经不走那次下载了：pkg/arkcache 会在启动前把缓存备好，加载器
+	// 只做一次 HEAD 比对就直接采用（docs/ARKAPI_CACHE_PREFETCH_PLAN.md）。但这一档
+	// **不收紧** —— 预取失败时的降级路径就是让 ArkApi 自己去下，那条路仍然需要
+	// 这 3 分钟；而且断网机器上即使缓存有效，ArkApi 也要先耗掉 60~120 秒的 HEAD
+	// 重试才肯用它。
 	gamePIDWaitTimeoutArkApi = 3 * time.Minute
 )
 

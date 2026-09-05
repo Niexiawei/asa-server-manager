@@ -250,6 +250,21 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 
 	logger.Infof("Starting server for instance: %s", instanceName)
 
+	// 把 ArkApi 的 offsets cache 备进**源目录**，交给紧接着的镜像同步分发。
+	//
+	// 位置的三条理由都不能挪（docs/ARKAPI_CACHE_PREFETCH_PLAN.md §6.1）：
+	//   · 必须在 SyncInstanceMirror **之前** —— 整个方案靠同步来分发，放在它之后
+	//     就要等下一次启动才生效；
+	//   · 必须在 IsUpdatingServerFiles() 检查**之后** —— 更新期间 server-files 正在
+	//     被增删，此时往里写缓存、算 exe 哈希都是对着一个中间态在做；
+	//   · 必须在 acquireLaunchGate **之前** —— 共享 prefix 下闸门是全局串行点，把一次
+	//     可能几分钟的下载放进去，所有实例都会排在它后面。
+	//
+	// 永不致命：失败就退回「ArkApi 自己去下」，也就是今天的行为。
+	if config.EnableAsaPlugin {
+		PrepareArkApiCache(ctx)
+	}
+
 	// 同步实例镜像目录（增量）
 	mirrorDir, err = mirror.SyncInstanceMirror(instanceName, config)
 	if err != nil {
