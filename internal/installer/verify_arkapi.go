@@ -165,7 +165,8 @@ func VerifyArkApiInstallation(ctx context.Context, outputCallback ...io.Writer) 
 		// logPath，不是 verifyLaunchLogPath()：要报的是**这次**写下的那个文件。
 		// 另外把 ArkApi 自己的日志也一并 tail 出来 —— 被验证的就是加载器，
 		// 它的日志不走控制台、只写 Win64/logs/ArkApi_*.log（每次启动换名），
-		// 而那正是「加载器起没起来」的第一手证据。见 internal/instance/arkapilog.go。
+		// 而那正是「加载器起没起来」的第一手证据。命名规则见
+		// internal/instance/asaapilog_linux.go（机制在 pkg/tail.WaitNewest）。
 		arkApiLogDir := filepath.Join(filepath.Dir(asaApiExe), "logs")
 		reportVerificationFailure(logPath,
 			filepath.Join(cfgpkg.ServerFilesDir, "ShooterGame/Saved/Logs"), emit, arkApiLogDir)
