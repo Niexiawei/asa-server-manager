@@ -10,6 +10,7 @@ import (
 
 	cfgpkg "asa-server/internal/config"
 	"asa-server/internal/plugindata"
+	"asa-server/pkg/arkcache"
 	"asa-server/pkg/fsutil"
 	"asa-server/pkg/logger"
 
@@ -54,6 +55,36 @@ const arkApiCacheRelPath = arkApiRelPath + "/Cache"
 // isUnderArkApiCache 判断相对路径是否位于 ArkApi 运行期缓存目录内（含目录本身）。
 func isUnderArkApiCache(relPath string) bool {
 	return relPath == arkApiCacheRelPath || strings.HasPrefix(relPath, arkApiCacheRelPath+"/")
+}
+
+// arkApiGenerationsRelPath 是 offsets cache 的 generation 目录。
+const arkApiGenerationsRelPath = arkApiCacheRelPath + "/generations"
+
+// isUnderArkApiGenerations 判断相对路径是否位于 generation 目录内（含目录本身）。
+func isUnderArkApiGenerations(relPath string) bool {
+	return relPath == arkApiGenerationsRelPath || strings.HasPrefix(relPath, arkApiGenerationsRelPath+"/")
+}
+
+// sourceCacheManaged 报告源目录里的 ArkApi/Cache 是不是**我们备的**那一份
+// （对当前 exe 有效）。见 docs/ARKAPI_CACHE_PREFETCH_PLAN.md §7。
+//
+// 这个判断决定守卫的方向，两种情形的正确行为正好相反：
+//
+//	我们没接管 → Cache 里全是 ArkApi 运行期自己下的东西，源目录对它一无所知，
+//	             一律不删不比对（守卫生效，也就是这个函数出现之前的唯一行为）；
+//	我们接管了 → 源目录是权威。此时还照旧放行会造成两个静默故障：ARK 更新后镜像里
+//	             那份 cached_key.cache **永远不会被更新**（Match 分支被跳过），
+//	             于是它还指向旧哈希的 generation，ArkApi 判定失效、照样去下，预取
+//	             白做；旧 generation 也**永远不会被删**（Insert 分支被跳过），每次
+//	             ARK 更新每个实例多留几百 MB。
+func sourceCacheManaged() bool {
+	exePath := filepath.Join(cfgpkg.ServerFilesDir, filepath.FromSlash(win64RelPath), "ArkAscendedServer.exe")
+	hash, err := arkcache.ExeHash(exePath)
+	if err != nil {
+		return false
+	}
+	res, err := arkcache.Inspect(filepath.Join(cfgpkg.ServerFilesDir, filepath.FromSlash(arkApiCacheRelPath)), hash)
+	return err == nil && res.Ready
 }
 
 // isLogFile 判断是否为日志文件（.log，大小写不敏感）。
@@ -613,8 +644,10 @@ func syncMirrorEntries(mirrorDir string, exceptionTargets map[string]string) err
 
 	logger.Infof("Syncing mirror: %d source entries, %d mirror entries", len(sourceEntries), len(mirrorEntries))
 
-	// 仅当源端安装了 ArkApi 时，才对其 Cache 目录启用运行期缓存保护
-	arkApiCache := arkApiInstalled()
+	// 仅当源端安装了 ArkApi、且源里那份 Cache **不是**我们备的时候，才对 Cache
+	// 目录启用运行期缓存保护——我们接管之后，源目录才是权威（见 sourceCacheManaged）。
+	arkApiManaged := arkApiInstalled() && sourceCacheManaged()
+	arkApiCache := arkApiInstalled() && !arkApiManaged
 
 	// 使用 diff 对比
 	edits := diff.EditsFunc(sourceEntries, mirrorEntries,
@@ -688,6 +721,14 @@ func syncMirrorEntries(mirrorDir string, exceptionTargets map[string]string) err
 			// ArkApi Cache 内文件内容不一致是 hook 运行期缓存造成的，属正常现象，不回写覆盖
 			if arkApiCache && isUnderArkApiCache(edit.X.RelPath) {
 				logger.Debugf("Skipping reconcile for ArkApi runtime cache entry: %s", edit.X.RelPath)
+				continue
+			}
+			// 我们接管之后，generation 里的文件仍然跳过 MD5 比对：generation 目录名的
+			// 第一段就是 exe 的 SHA256，内容由 CDN 上同一个 ZIP 决定，是**内容寻址**的
+			// ——名字相同即内容相同，没必要每次启动 MD5 几百 MB。
+			// cached_key.cache 不在此列：它是可变的指针文件，必须逐次对账（正是上面
+			// 那两个静默故障之一）。
+			if arkApiManaged && isUnderArkApiGenerations(edit.X.RelPath) {
 				continue
 			}
 			// 同理不回写：把源版本的主库拷进来，会与镜像里保留的旧 -wal 拼成
