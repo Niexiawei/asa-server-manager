@@ -150,63 +150,31 @@ func rwSubtrees(cfg Config, includeMirrors bool) []string {
 		prefixDir(cfg, ""),
 		filepath.Join(cfg.BaseDir, "clusters"),
 	}
-	overlays := overlayRoot(cfg)
+	overlays := wineprefixMgrFor(cfg).OverlayRoot()
 	if m, _ := filepath.Glob(prefixDir(cfg, "") + "-*"); len(m) > 0 {
 		for _, p := range m {
 			// The overlay root is not a prefix, and walking it here would be
-			// actively harmful — see overlayRWSubtrees.
+			// actively harmful — see wineprefix.Manager.UnmountedOverlayDirs.
 			if p == overlays {
 				continue
 			}
 			out = append(out, p)
 		}
 	}
-	out = append(out, overlayRWSubtrees(cfg)...)
+	// wineprefix.Manager.UnmountedOverlayDirs lists only the parts of
+	// prefix_mode "overlay" that are ours to chown: a `merged` that is NOT
+	// mounted (the copy fallback, an ordinary directory of real files). A
+	// mounted layer contributes nothing — chown is a metadata write, and a
+	// metadata write through an overlay **copies the file up**, silently
+	// duplicating the shared lower into every instance's private layer on
+	// every startup reconcile. `upper` and `work` are excluded for their own
+	// reasons (see that method's doc) — `work` in particular is the
+	// kernel's private scratch area (root-owned, mode 000), and listing it
+	// is what made the very first real-hardware launch fail.
+	out = append(out, wineprefixMgrFor(cfg).UnmountedOverlayDirs()...)
 	if includeMirrors {
 		if m, _ := filepath.Glob(filepath.Join(cfg.BaseDir, "server-files-tmp-*")); len(m) > 0 {
 			out = append(out, m...)
-		}
-	}
-	return out
-}
-
-// overlayRWSubtrees lists the parts of prefix_mode "overlay" that this program
-// owns and must keep chowned to the runtime user.
-//
-// The answer is: only a `merged` that is NOT mounted — i.e. the copy fallback
-// (§6.3), an ordinary directory of real files. A mounted layer contributes
-// nothing to this list, and all three of its directories are excluded for
-// different reasons:
-//
-//   - `merged` (mounted): chown is a metadata write, and a metadata write
-//     through an overlay **copies the file up**. Walking it would copy the
-//     entire shared lower into that instance's private layer, on every startup
-//     reconcile, for every instance — silently undoing the one thing this mode
-//     exists to do.
-//   - `upper`: modifying the upper layer from the side while the overlay is
-//     mounted is explicitly unsupported by overlayfs. It also needs no pass:
-//     copy-ups preserve the lower's ownership (already the runtime user's) and
-//     anything new is created by the game process itself.
-//   - `work`: the kernel's private scratch area. It creates `work/work` inside
-//     it at mount time, owned by root with mode 000, and userspace is not
-//     supposed to touch any of it. Listing `work` here is what made the very
-//     first real-hardware launch fail — the ownership-drift sampler found
-//     `work/work`, reported it as drift, and blocked the start with a "restart
-//     asa-server to fix" that could never have fixed it.
-func overlayRWSubtrees(cfg Config) []string {
-	entries, err := os.ReadDir(overlayRoot(cfg))
-	if err != nil {
-		return nil
-	}
-	mounts := listOverlayMounts()
-
-	var out []string
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		if merged := overlayMergedDir(cfg, e.Name()); !mounts[merged] {
-			out = append(out, merged)
 		}
 	}
 	return out
@@ -333,6 +301,11 @@ func runtimeUserInfo() RuntimeUserInfo {
 func pathExists(p string) bool {
 	_, err := os.Stat(p)
 	return err == nil
+}
+
+func fileExists(path string) bool {
+	fi, err := os.Stat(path)
+	return err == nil && !fi.IsDir()
 }
 
 // runtimeEnv rewrites HOME/USER/LOGNAME to the dropped user and strips

@@ -8,10 +8,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"syscall"
 
 	"asa-server/pkg/logger"
+	"asa-server/pkg/umu"
 
 	"github.com/aymanbagabas/go-pty"
 )
@@ -228,8 +228,8 @@ func umuCommandLine(exePath string, args []string, opt Options) (bin string, lau
 		// the launch command line and missing the export above it.
 		// See docs/UMU_PREFIX_PER_INSTANCE_PLAN.md §2-§4.
 		"PROTON_VERB=run",
-		// No accessibility overlay on a headless server — see protonNoXalia.
-		protonNoXalia,
+		// No accessibility overlay on a headless server — see umu.ProtonNoXalia.
+		umu.ProtonNoXalia,
 	)
 	// Operator escape hatch. The VC++ override set ArkApi needs is already
 	// written into the prefix registry at install time (see
@@ -242,68 +242,12 @@ func umuCommandLine(exePath string, args []string, opt Options) (bin string, lau
 	return bin, launchArgs, env, nil
 }
 
-// inheritedEnv is os.Environ() filtered down to the variables a launched game
-// process has any business seeing.
-//
-// It is a whitelist on purpose. The child is normally re-credentialed to a
-// dedicated non-root user, while asa-server is often started from a root login
-// shell — and such a shell exports a pile of variables naming root-private
-// sockets under /run/user/0. pressure-vessel dutifully tries to bind whatever
-// they name into the container, so a single leaked variable kills the launch
-// before Wine ever starts:
-//
-//	bwrap: Can't find source path /run/user/0/bus: Permission denied
-//
-// That one came from DBUS_SESSION_BUS_ADDRESS. A denylist cannot win this
-// game — XDG_* was already being stripped (see runtimeEnv) and D-Bus still got
-// through, costing an entire evening of "setup says it succeeded but nothing
-// works". See docs/UMU_PREFIX_INIT_TROUBLESHOOTING.md.
-func inheritedEnv() []string {
-	src := os.Environ()
-	out := make([]string, 0, len(src))
-	for _, kv := range src {
-		if k, _, ok := strings.Cut(kv, "="); ok && launchEnvAllowed(k) {
-			out = append(out, kv)
-		}
-	}
-	return out
-}
-
-func launchEnvAllowed(key string) bool {
-	switch key {
-	// HOME/USER/LOGNAME are rewritten by runtimeEnv when dropping privileges,
-	// but must survive when we aren't (umu keeps its runtime cache under HOME).
-	case "PATH", "TERM", "TZ", "HOME", "USER", "LOGNAME":
-		return true
-	case "LANG":
-		return true
-	}
-	switch {
-	case strings.HasPrefix(key, "LC_"):
-		return true
-	// umu-launcher downloads the Steam Linux Runtime with its own HTTP client
-	// (urllib3), which honours these and nothing else — config.yaml's
-	// download.http_proxy does not reach it.
-	case strings.HasSuffix(key, "_PROXY"), strings.HasSuffix(key, "_proxy"):
-		return true
-	// Deliberate operator tuning of the Wine/Proton/umu stack (UMU_LOG,
-	// PROTON_LOG, WINEDEBUG, ...). The ones we set ourselves are appended
-	// after this and win, since exec keeps the last occurrence of a key.
-	case strings.HasPrefix(key, "UMU_"), strings.HasPrefix(key, "PROTON_"), strings.HasPrefix(key, "WINE"):
-		return true
-	}
-	return false
-}
-
-// gamePath: Wine maps its Z: drive to /, so a host path such as
-// /home/x/asa becomes Z:\home\x\asa on the launched exe's command line.
-func gamePath(hostPath string) string {
-	abs, err := filepath.Abs(hostPath)
-	if err != nil {
-		abs = hostPath
-	}
-	return "Z:" + strings.ReplaceAll(abs, "/", `\`)
-}
+// inheritedEnv/gamePath are thin wrappers over asa-server/pkg/umu — kept as
+// local names so umuCommandLine/runInPrefix below (and vcredist_linux.go)
+// don't need to change, and so this file has exactly one place that knows
+// the mechanism moved.
+func inheritedEnv() []string        { return umu.InheritedEnv() }
+func gamePath(hostPath string) string { return umu.GamePath(hostPath) }
 
 // launcherIsDirect: umu-run is an OS-level wrapper — Handle.LauncherPID is
 // umu-run's own PID, not the Windows exe's, which is Wine's problem to

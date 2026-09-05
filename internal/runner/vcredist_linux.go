@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"asa-server/pkg/download"
+	"asa-server/pkg/umu"
 	"asa-server/pkg/vcredist"
 	"asa-server/pkg/xvfb"
 )
@@ -51,7 +52,7 @@ func ensureVCRedist(ctx context.Context, cfg Config, prefixKey string, logf func
 	}
 
 	prefix := prefixDir(cfg, prefixKey)
-	if !prefixInitialized(prefix) {
+	if !umu.PrefixInitialized(prefix) {
 		return fmt.Errorf("Wine 前缀 %s 尚未初始化，无法安装 VC++ 运行时", prefix)
 	}
 	// ---- 第一步：DLL override。这才是承重的那一环 ----
@@ -226,6 +227,37 @@ func prefixHasVCRedistOverrides(prefix string) bool {
 }
 
 // --- 安装包 -----------------------------------------------------------------
+
+// downloadProgress 把 pkg/download 的字节级回调节流成人能看的进度行：每 5% 或每 2 秒
+// 一行，外加收尾那一行。回调在 io.Copy 的单个 goroutine 里串行调用，无需加锁。
+//
+// 总长未知（total <= 0）时只按时间节流 —— 否则百分比恒为 0，「涨够 5%」永远不成立，
+// 每读一个块就会打一行。
+func downloadProgress(label string, logf func(string, ...any)) func(done, total int64) {
+	var (
+		lastAt  time.Time
+		lastPct = -1
+	)
+	return func(done, total int64) {
+		pct := 0
+		if total > 0 {
+			pct = int(done * 100 / total)
+		}
+		final := total > 0 && done >= total
+		now := time.Now()
+		if !final && pct < lastPct+5 && now.Sub(lastAt) < 2*time.Second {
+			return
+		}
+		lastAt, lastPct = now, pct
+		if total > 0 {
+			logf("  %s: %d%% (%.1f/%.1f MiB)", label, pct, mib(done), mib(total))
+		} else {
+			logf("  %s: %.1f MiB", label, mib(done))
+		}
+	}
+}
+
+func mib(n int64) float64 { return float64(n) / (1 << 20) }
 
 // ensureVCRedistInstaller 保证安装包在本地，返回其路径与实际使用的校验值
 // （校验值仅用于写进标记文件，便于日后复现）。
@@ -402,7 +434,7 @@ func runInPrefix(ctx context.Context, cfg Config, prefix, exePath string, args [
 		// （见 ensureVCRedist 第一步），于是 Xalia 每次必崩一次，在
 		// 「正在写入 11 条 VC++ DLL override」正下方留一段 .NET 栈 ——
 		// 看着像 override 失败了，其实 11/11 全写进去了。见 protonNoXalia。
-		protonNoXalia,
+		umu.ProtonNoXalia,
 	)
 	// 用与游戏进程相同的身份运行：装出来的文件属主才对，降权后的 AsaApiLoader
 	// 才读得到。同 warmPrefix。
@@ -422,10 +454,10 @@ func runInPrefix(ctx context.Context, cfg Config, prefix, exePath string, args [
 		cmd.SysProcAttr = &syscall.SysProcAttr{Credential: cred}
 	}
 
-	out := &progressWriter{logf: logf}
+	out := umu.NewOutputCapture(logf)
 	cmd.Stdout, cmd.Stderr = out, out
 	runErr := cmd.Run()
-	return out.tail(), runErr
+	return out.Tail(), runErr
 }
 
 // exitCodeOf 取进程退出码；-1 表示没有正常结束（被信号杀掉，含超时）。
