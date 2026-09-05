@@ -92,11 +92,10 @@
 </template>
 
 <script setup>
-import {ref, watch, onUnmounted, onMounted} from 'vue'
+import {ref, watch, onUnmounted} from 'vue'
 import {ErrorCircleFilledIcon} from 'tdesign-icons-vue-next'
 import {getInstanceStatus} from '@/store/serverStore.js'
-import {handleSSECheckAuth, registerSSEWorker, unregisterSSEWorker} from '@/utils/sseAuthGate.js'
-import {buildEventSourceUrl} from "@/utils/utils.js";
+import {subscribeInstance, subscribeStatus} from '@/composables/useResourceStream.js'
 
 const props = defineProps({
   instanceName: {
@@ -112,109 +111,35 @@ const props = defineProps({
 const isMonitoring = ref(false)
 const resourceData = ref(null)
 
-// SharedWorker 实例和端口
-let sharedWorker = null
-let workerPort = null
-let workerInitialized = false
+// 资源数据统一走 useResourceStream —— 全浏览器只有一条 /api/server/all-info SSE
+// （SharedWorker 单例）。这里不再自建 worker/port，否则会多一条 SSE 争抢
+// 明文 HTTP 下每个 origin 仅有的 6 条并发连接。
+let unsubscribe = null
+let unsubscribeStatus = null
 
-// 获取或创建 SharedWorker
-const getSharedWorker = () => {
-  if (!sharedWorker) {
-    try {
-      const url = buildEventSourceUrl('/api/server/all-info')
-      console.log('[ResourceMonitor] Creating SharedWorker')
-      sharedWorker = new SharedWorker(new URL('@/workers/sharedResourceWorker.js', import.meta.url))
-      workerPort = sharedWorker.port
-      registerSSEWorker(workerPort)
-
-      // 设置消息处理
-      workerPort.onmessage = (event) => {
-        const {type, instanceId, data, error} = event.data
-
-        switch (type) {
-          case 'RESOURCE_UPDATE':
-            if (instanceId === props.instanceName) {
-              resourceData.value = data
-            }
-            break
-          case 'ERROR':
-            console.error(`[ResourceMonitor] Error for ${props.instanceName}:`, error)
-            resourceData.value = {error: '获取资源信息失败'}
-            break
-          case 'SSE_CONNECTED':
-            console.log('[ResourceMonitor] SharedWorker SSE connected')
-            break
-          case 'SSE_CHECK_AUTH':
-            // Worker 看不到 HTTP 状态码，由主线程确认是不是会话失效
-            handleSSECheckAuth(workerPort)
-            break
-        }
-      }
-
-      workerPort.onmessageerror = (error) => {
-        console.error('[ResourceMonitor] Worker port error:', error)
-        resourceData.value = {error: 'Worker 通信错误'}
-      }
-
-      // 初始化 SharedWorker
-      workerPort.postMessage({
-        type: 'INIT',
-        payload: {sseUrl: url}
-      })
-
-      workerInitialized = true
-    } catch (error) {
-      console.error('[ResourceMonitor] Failed to create SharedWorker:', error)
-      sharedWorker = null
-      workerPort = null
-      workerInitialized = false
-    }
-  }
-  return sharedWorker
-}
-
-// 开始资源监控
 const startMonitoring = () => {
   if (!props.instanceName || isMonitoring.value) return
-
-  try {
-    console.log(`[ResourceMonitor] Starting resource monitoring for ${props.instanceName}`)
-    isMonitoring.value = true
-    resourceData.value = null
-
-    // 确保 SharedWorker 就绪
-    getSharedWorker()
-
-    if (!workerPort) {
-      throw new Error('Worker port not available')
-    }
-
-    // 订阅该实例的数据
-    workerPort.postMessage({
-      type: 'SUBSCRIBE',
-      instanceId: props.instanceName
-    })
-  } catch (error) {
-    console.error('[ResourceMonitor] Failed to start monitoring:', error)
-    isMonitoring.value = false
-    resourceData.value = {error: '启动资源监控失败'}
-  }
+  isMonitoring.value = true
+  resourceData.value = null
+  unsubscribe = subscribeInstance(props.instanceName, (data) => {
+    resourceData.value = data
+  })
+  unsubscribeStatus = subscribeStatus(({connected, error}) => {
+    if (!connected) resourceData.value = {error: error || '资源数据流已断开'}
+  })
 }
 
-// 停止资源监控
 const stopMonitoring = () => {
-  console.log(`[ResourceMonitor] Stopping resource monitoring for ${props.instanceName}`)
-
-  if (workerPort) {
-    workerPort.postMessage({
-      type: 'UNSUBSCRIBE',
-      instanceId: props.instanceName
-    })
+  if (unsubscribe) {
+    unsubscribe()
+    unsubscribe = null
   }
-
+  if (unsubscribeStatus) {
+    unsubscribeStatus()
+    unsubscribeStatus = null
+  }
   isMonitoring.value = false
   resourceData.value = null
-  // 停止订阅后，将状态置为"服务器未运行"
 }
 
 // 监听实例状态变化，从 serverStore 获取实例信息
@@ -230,12 +155,6 @@ watch(
       // 判断是否应该监听资源占用
       const shouldMonitor = newVal.isStartingOrRunning === true ||
           ['starting', 'started', 'stopping', 'restarting', 'restarted'].includes(newVal.status)
-
-      console.log(props.instanceName)
-      console.log(newVal.status)
-      console.log("isStartingOrRunning", newVal.isStartingOrRunning)
-      console.log("shouldMonitor:", shouldMonitor)
-      console.log("isMonitoring", isMonitoring.value)
 
       if (shouldMonitor && !isMonitoring.value) {
         startMonitoring()

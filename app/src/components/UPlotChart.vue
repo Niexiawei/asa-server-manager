@@ -54,6 +54,57 @@ let resizeObserver = null
 
 const legendItems = computed(() => props.series)
 
+// uPlot 没有内置浮动 tooltip，自带的「跟随光标显示数值」是那块 legend 表格，
+// 已被 legend:{show:false} 关掉。这个插件在 .u-over 里塞一个绝对定位的浮层，
+// 用 setCursor 钩子拿 cursor.idx（光标下的数据下标）逐 series 填值。
+const tooltipPlugin = (fmtY) => {
+  const fmtX = (t) => (t == null ? '' : new Date(t * 1000).toLocaleTimeString())
+  let tip = null
+
+  return {
+    hooks: {
+      init(u) {
+        tip = document.createElement('div')
+        tip.className = 'u-tooltip'
+        tip.style.display = 'none'
+        u.over.appendChild(tip)
+        u.over.addEventListener('mouseleave', () => {
+          if (tip) tip.style.display = 'none'
+        })
+      },
+      setCursor(u) {
+        if (!tip) return
+        const {idx, left, top} = u.cursor
+        if (idx == null || left == null || left < 0) {
+          tip.style.display = 'none'
+          return
+        }
+        let html = `<div class="u-tt-x">${fmtX(u.data[0][idx])}</div>`
+        for (let i = 1; i < u.series.length; i++) {
+          const s = u.series[i]
+          if (s.show === false) continue
+          html += `<div class="u-tt-row">`
+            + `<i style="background:${s.stroke}"></i>`
+            + `<span>${s.label ?? ''}</span>`
+            + `<b>${fmtY(u.data[i][idx])}</b>`
+            + `</div>`
+        }
+        tip.innerHTML = html
+        tip.style.display = 'block'
+
+        // 跟随光标，贴近边界时翻到另一侧，避免溢出裁切
+        const tw = tip.offsetWidth
+        const th = tip.offsetHeight
+        let x = left + 12
+        if (x + tw > u.over.clientWidth) x = left - tw - 12
+        let y = top + 12
+        if (y + th > u.over.clientHeight) y = top - th - 12
+        tip.style.transform = `translate(${Math.max(x, 0)}px, ${Math.max(y, 0)}px)`
+      },
+    },
+  }
+}
+
 const latestText = (seriesIdx) => {
   const col = props.data[seriesIdx]
   if (!col || col.length === 0) return '-'
@@ -68,6 +119,8 @@ const buildOptions = (width) => ({
   height: props.height,
   // 自带的 legend 是一整块表格，占地方且与卡片风格不搭，改用上面自绘的那行
   legend: {show: false},
+  // legend 关了就没有跟随光标的数值，用插件补一个浮动 tooltip
+  plugins: [tooltipPlugin(props.fmtY)],
   cursor: {
     y: false,
     points: {size: 5},
@@ -233,5 +286,47 @@ onBeforeUnmount(() => {
 
 .chart-body :deep(.u-over) {
   cursor: crosshair;
+}
+
+/* 插件运行时插入到 .u-over 里的浮层，scoped 下需要 :deep 穿透 */
+.chart-body :deep(.u-tooltip) {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 10;
+  pointer-events: none;
+  padding: 6px 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: nowrap;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+
+.chart-body :deep(.u-tt-x) {
+  margin-bottom: 4px;
+  color: #999;
+}
+
+.chart-body :deep(.u-tt-row) {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-body :deep(.u-tt-row i) {
+  width: 8px;
+  height: 2px;
+  border-radius: 1px;
+  flex: none;
+}
+
+.chart-body :deep(.u-tt-row b) {
+  margin-left: auto;
+  padding-left: 12px;
+  color: #1d39c4;
 }
 </style>
