@@ -77,6 +77,35 @@ func CopyFile(src, dst string) error {
 	return nil
 }
 
+// EnsureWorldReadable walks root and grants every entry o+r (files) or o+rx
+// (directories, and files already owner-executable) — the minimum needed for
+// an arbitrary other Unix user to traverse and read a tree it does not own,
+// without touching group bits. Meant for read-only trees (a vendored runtime,
+// an extracted archive) that a dropped-privilege child process merely needs
+// to read, as opposed to a tree it needs to write — see pkg/shareacl for that
+// case, which is a different problem (two writers, not one owner plus one
+// reader).
+func EnsureWorldReadable(root string) error {
+	return filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		mode := info.Mode().Perm()
+		want := mode | 0o044
+		if d.IsDir() || mode&0o100 != 0 {
+			want |= 0o011
+		}
+		if want != mode {
+			return os.Chmod(path, want)
+		}
+		return nil
+	})
+}
+
 // FileMD5 returns the MD5 checksum of the file at path.
 func FileMD5(path string) ([md5.Size]byte, error) {
 	f, err := os.Open(path)

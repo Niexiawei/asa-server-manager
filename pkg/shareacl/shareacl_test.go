@@ -1,6 +1,6 @@
 //go:build linux
 
-package runner
+package shareacl
 
 import (
 	"io/fs"
@@ -96,37 +96,37 @@ func TestDefaultACLMissing(t *testing.T) {
 		t.Skip("acl tools not installed")
 	}
 	gid := strconv.Itoa(os.Getgid())
-	group := runtimeGroupName(gid)
+	group := GroupName(gid)
 
 	dir := t.TempDir()
-	if !defaultACLMissing(dir, group) {
+	if !DefaultACLMissing(dir, group) {
 		t.Fatal("a fresh directory must be reported as missing the default ACL")
 	}
 
 	if err := applyDefaultACL(dir, group, []string{dir}); err != nil {
 		t.Skipf("cannot set ACLs on %s: %v", dir, err)
 	}
-	if defaultACLMissing(dir, group) {
+	if DefaultACLMissing(dir, group) {
 		t.Error("after applyDefaultACL the default entry must be found")
 	}
 }
 
-// TestSharedAccessNeeded is the cheap probe that decides whether the full
-// (expensive) pass has to run at all.
-func TestSharedAccessNeeded(t *testing.T) {
+// TestNeedsPass is the cheap probe that decides whether the full (expensive)
+// pass has to run at all.
+func TestNeedsPass(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "f"), []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
 	gid := os.Getgid()
-	if !sharedAccessNeeded(root, gid) {
+	if !NeedsPass(root, gid) {
 		t.Fatal("a 0600 file must be reported as needing the shared-access pass")
 	}
 	if _, err := chgrpSetgidTree(root, gid); err != nil {
 		t.Fatal(err)
 	}
-	if sharedAccessNeeded(root, gid) {
+	if NeedsPass(root, gid) {
 		t.Error("after chgrpSetgidTree the tree must be reported as already prepared")
 	}
 }

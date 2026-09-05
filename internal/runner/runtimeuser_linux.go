@@ -5,12 +5,13 @@ package runner
 import (
 	"context"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
 	"syscall"
 
+	"asa-server/pkg/fsutil"
+	"asa-server/pkg/shareacl"
 	"asa-server/pkg/sysuser"
 )
 
@@ -109,7 +110,7 @@ func reconcileRuntimeOwnership(cfg Config, su *sysuser.Manager) error {
 	// cheap sample decides whether the full pass is worth doing; the
 	// authoritative unconditional pass runs after every SteamCMD update and
 	// before verification (installer.go).
-	group := runtimeGroupName(strconv.Itoa(int(gid)))
+	group := shareacl.GroupName(strconv.Itoa(int(gid)))
 	for _, dir := range sharedSubtrees(cfg) {
 		if !pathExists(dir) {
 			continue
@@ -120,7 +121,7 @@ func reconcileRuntimeOwnership(cfg Config, su *sysuser.Manager) error {
 		// degraded fallback looks like once the acl package gets installed.
 		// The first check can't see the second: a degraded tree has perfectly
 		// correct ownership and mode bits and no ACLs at all.
-		if !sharedAccessNeeded(dir, int(gid)) && !defaultACLMissing(dir, group) {
+		if !shareacl.NeedsPass(dir, int(gid)) && !shareacl.DefaultACLMissing(dir, group) {
 			continue
 		}
 		if err := applySharedAccess(dir, int(uid), int(gid), group); err != nil {
@@ -129,12 +130,12 @@ func reconcileRuntimeOwnership(cfg Config, su *sysuser.Manager) error {
 	}
 
 	if proton := protonPath(cfg); pathExists(proton) {
-		if err := ensureWorldReadExec(proton); err != nil {
+		if err := fsutil.EnsureWorldReadable(proton); err != nil {
 			return fmt.Errorf("chmod %s: %w", proton, err)
 		}
 	}
 	if umu := umuDir(cfg); pathExists(umu) {
-		if err := ensureWorldReadExec(umu); err != nil {
+		if err := fsutil.EnsureWorldReadable(umu); err != nil {
 			return fmt.Errorf("chmod %s: %w", umu, err)
 		}
 	}
@@ -178,74 +179,6 @@ func rwSubtrees(cfg Config, includeMirrors bool) []string {
 		}
 	}
 	return out
-}
-
-// sharedAccessNeeded samples root and reports whether the (expensive) full
-// applySharedAccess pass is worth running: any entry whose group isn't gid, or
-// that the group can't write, or a directory missing its setgid bit, means the
-// inheritance chain is broken somewhere and the tree needs another pass.
-//
-// Sampled rather than exhaustive, on the same reasoning as sysuser's
-// ownership-drift sample: the authoritative pass is the unconditional one the
-// installer runs after each update. A clean tree costs a few hundred stats
-// here instead of a full walk on every asa-server start.
-func sharedAccessNeeded(root string, gid int) bool {
-	const sampleCap = 400
-	n := 0
-	needed := false
-	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		n++
-		if n > sampleCap {
-			return filepath.SkipAll
-		}
-		info, ierr := d.Info()
-		if ierr != nil {
-			return nil
-		}
-		if st, ok := info.Sys().(*syscall.Stat_t); ok && int(st.Gid) != gid {
-			needed = true
-			return filepath.SkipAll
-		}
-		if d.Type()&fs.ModeSymlink != 0 {
-			return nil // no permission bits of its own
-		}
-		if info.Mode().Perm()&0o060 != 0o060 {
-			needed = true
-			return filepath.SkipAll
-		}
-		if d.IsDir() && info.Mode()&os.ModeSetgid == 0 {
-			needed = true
-			return filepath.SkipAll
-		}
-		return nil
-	})
-	return needed
-}
-
-// ensureWorldReadExec makes a read-only subtree traversable/readable by any
-// user: o+r on files, o+rx on dirs and owner-executable files.
-func ensureWorldReadExec(root string) error {
-	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		info, err := d.Info()
-		if err != nil {
-			return err
-		}
-		mode := info.Mode().Perm()
-		want := mode | 0o044
-		if d.IsDir() || mode&0o100 != 0 {
-			want |= 0o011
-		}
-		if want != mode {
-			return os.Chmod(path, want)
-		}
-		return nil
-	})
 }
 
 // ChownMirrorForRuntime is called from instance start after the per-instance

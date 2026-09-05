@@ -1,6 +1,9 @@
 # 拆包方案：`internal/runner` + `internal/instance` 单一职责重构
 
-> 状态：待审阅 / 待执行（v2：把能下沉的机制尽量下沉到 `pkg/`，而不是止步于 `internal/` 平级拆分）
+> 状态：阶段 A–J 已于 2026-09-05 全部执行完成并逐阶段提交（`a83c85a`..`6894907`），
+> Windows + Linux（含 WSL2 真机）验证通过。执行时对方案的偏离与遗留缺口见
+> `docs/RUNNER_INSTANCE_PACKAGE_SPLIT_TODO.md`（`pkg/shareacl` 未按计划创建等）。
+> v2：把能下沉的机制尽量下沉到 `pkg/`，而不是止步于 `internal/` 平级拆分
 > 目标：把两个已经膨胀成"神包"的领域包，按**单一职责**拆分——**机制**（不认识 ASA 是什么、
 > 只认识"怎么管一个 Xvfb / 怎么装一个 VC++ Redist / 怎么找一个 Python 解释器"）下沉到 `pkg/`，
 > **业务规则**（认识 InstanceConfig、认识"哪个实例该跟哪个实例冲突"）留在 `internal/`。

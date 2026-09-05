@@ -6,38 +6,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/fs"
-	"os"
 	"os/exec"
 	"os/user"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"syscall"
 
 	"asa-server/pkg/logger"
+	"asa-server/pkg/shareacl"
 	"asa-server/pkg/sysuser"
 )
-
-// findAdminTool resolves a user-admin/ACL binary. LookPath first (honors
-// PATH), then the sbin dirs it commonly lives in — a systemd service's PATH
-// doesn't always include /usr/sbin. Empty string = not found anywhere.
-//
-// A small duplicate of pkg/sysuser's own copy (which needs it for
-// useradd/groupadd): this file's uses (setfacl/getfacl) aren't a "system
-// user" concept, so they don't belong on that package, and the function
-// itself is short enough that sharing it isn't worth a new tiny package.
-func findAdminTool(name string) string {
-	if p, err := exec.LookPath(name); err == nil {
-		return p
-	}
-	for _, dir := range []string{"/usr/sbin", "/sbin", "/usr/local/sbin", "/usr/bin"} {
-		if p := filepath.Join(dir, name); fileExists(p) {
-			return p
-		}
-	}
-	return ""
-}
 
 // Shared-access trees: directories that BOTH root and the dropped runtime user
 // have to be able to write.
@@ -54,13 +32,8 @@ func findAdminTool(name string) string {
 // re-creates root-owned files, at which point the game silently loses write
 // access again (this is exactly how the failure in
 // docs/LINUX_KILLTREE_AND_VERIFY_HANG_DIAGNOSIS.md §3.6 was produced). So they
-// get group access instead, with two inheritance rules that make it stick:
-//
-//   - setgid on every directory, so entries created later inherit the group
-//     no matter who creates them;
-//   - a POSIX *default* ACL granting the group rwX, because setgid inherits
-//     the group but NOT the permission bits — root's default umask of 022
-//     would otherwise produce rw-r--r-- files the group still can't write.
+// get group access instead via pkg/shareacl (group + setgid + POSIX default
+// ACL, falling back to plain chown when ACLs aren't available).
 //
 // root needs no membership in that group: it holds CAP_DAC_OVERRIDE and
 // bypasses the checks entirely.
@@ -70,11 +43,6 @@ func findAdminTool(name string) string {
 // populated — so a dedicated group would simply never be present on the
 // dropped process, and the symptom would be "permissions look right but writes
 // still fail". See docs/LINUX_KILLTREE_AND_VERIFY_HANG_DIAGNOSIS.md §3.7.
-
-// errACLUnsupported means setfacl is missing or the filesystem rejected ACLs.
-// Callers fall back to plain chown (the "A" path: fixes what exists now,
-// doesn't survive the next root-created file).
-var errACLUnsupported = errors.New("runner: POSIX ACLs unavailable")
 
 // sharedSubtrees are the trees given the treatment above. Paths are derived
 // from BaseDir rather than imported from the config package — runner
@@ -105,7 +73,7 @@ func sharedTrees() []string {
 // sharedAccessStatus answers "what regime is actually in force right now",
 // entirely read-only — the whole point is to be safe to run against a live
 // server. The ACL probe is the one exception and it creates/removes its own
-// throwaway directory (aclSupported).
+// throwaway directory (shareacl.Supported).
 func sharedAccessStatus() SharedAccessInfo {
 	cfg := getConfig()
 	info := SharedAccessInfo{Managed: runtimeUserManaged(cfg)}
@@ -121,9 +89,9 @@ func sharedAccessStatus() SharedAccessInfo {
 	}
 	info.UID, _ = strconv.Atoi(u.Uid)
 	info.GID, _ = strconv.Atoi(u.Gid)
-	info.Group = runtimeGroupName(u.Gid)
+	info.Group = shareacl.GroupName(u.Gid)
 
-	if err := aclSupported(cfg.BaseDir, info.Group); err != nil {
+	if err := shareacl.Supported(cfg.BaseDir, info.Group); err != nil {
 		info.ACLError = err.Error()
 	} else {
 		info.ACLTool = findAdminTool("setfacl")
@@ -132,8 +100,8 @@ func sharedAccessStatus() SharedAccessInfo {
 	for _, dir := range sharedSubtrees(cfg) {
 		t := TreeAccessInfo{Path: dir, Exists: pathExists(dir)}
 		if t.Exists {
-			t.Prepared = !sharedAccessNeeded(dir, info.GID)
-			t.DefaultACL = info.ACLTool != "" && !defaultACLMissing(dir, info.Group)
+			t.Prepared = !shareacl.NeedsPass(dir, info.GID)
+			t.DefaultACL = info.ACLTool != "" && !shareacl.DefaultACLMissing(dir, info.Group)
 		}
 		info.Trees = append(info.Trees, t)
 	}
@@ -152,193 +120,49 @@ func prepareSharedTree(root string) error {
 		return err
 	}
 	uid, gid, _ := su.ChildIDs()
-	return applySharedAccess(root, int(uid), int(gid), runtimeGroupName(strconv.Itoa(int(gid))))
+	return applySharedAccess(root, int(uid), int(gid), shareacl.GroupName(strconv.Itoa(int(gid))))
 }
 
-// applySharedAccess is the two-step worker: group ownership + setgid + g+rwX
-// on everything that exists now, then a default ACL so everything created
-// later inherits it. Falls back to chowning the tree to the runtime user when
-// ACLs aren't available.
+// applySharedAccess prepares root via pkg/shareacl, warning and degrading to
+// a plain chown of the runtime user when ACLs aren't available.
 func applySharedAccess(root string, uid, gid int, group string) error {
-	dirs, err := chgrpSetgidTree(root, gid)
-	if err != nil {
-		return fmt.Errorf("chgrp/setgid %s: %w", root, err)
-	}
-
-	aclErr := applyDefaultACL(root, group, dirs)
-	if aclErr == nil {
-		return nil
-	}
-	if !errors.Is(aclErr, errACLUnsupported) {
-		return aclErr
-	}
-
-	// Degraded mode: without inheritable ACLs the only way the dropped user
-	// can write is to own the files. This is re-applied on every asa-server
-	// start (reconcileRuntimeOwnership) and after every SteamCMD update, which
-	// is what keeps it usable — but a file uploaded as root mid-run stays
-	// unwritable until one of those runs again.
-	logger.Warnf("POSIX ACLs unavailable on %s (%v); falling back to chown -R to the runtime user. "+
-		"Install the 'acl' package (or mount with acl support) so plugin/mod files uploaded as root "+
-		"stay writable by the game process", root, aclErr)
-	return sysuser.ChownTreeAs(uid, gid, root)
-}
-
-// chgrpSetgidTree sets the group of every entry under root to gid, adds group
-// read/write (and execute where it makes sense — the `chmod g+rwX` rule), and
-// marks directories setgid. It returns the directories it saw, so the ACL pass
-// doesn't have to walk the tree a second time.
-//
-// Symlinks are Lchown'd only: a symlink has no permission bits of its own, and
-// following it would silently apply the change to whatever it points at
-// (server-files is full of links into other trees).
-func chgrpSetgidTree(root string, gid int) ([]string, error) {
-	var dirs []string
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		// -1 leaves the owner untouched: these trees stay root-owned on
-		// purpose, so admin tooling and backups keep behaving as before.
-		if err := os.Lchown(path, -1, gid); err != nil {
-			return err
-		}
-		if d.Type()&fs.ModeSymlink != 0 {
-			return nil
-		}
-		info, err := d.Info()
-		if err != nil {
-			return err
-		}
-		mode := info.Mode()
-		perm := mode.Perm()
-		want := perm | 0o060 // g+rw
-		if d.IsDir() || perm&0o100 != 0 {
-			want |= 0o010 // g+x, the "X" in chmod g+rwX
-		}
-		newMode := mode&^fs.ModePerm | want
-		if d.IsDir() {
-			dirs = append(dirs, path)
-			newMode |= os.ModeSetgid
-		}
-		if newMode != mode {
-			return os.Chmod(path, newMode)
-		}
-		return nil
+	return shareacl.Prepare(root, uid, gid, group, func(root string, uid, gid int) error {
+		// Degraded mode: without inheritable ACLs the only way the dropped
+		// user can write is to own the files. This is re-applied on every
+		// asa-server start (reconcileRuntimeOwnership) and after every
+		// SteamCMD update, which is what keeps it usable — but a file
+		// uploaded as root mid-run stays unwritable until one of those runs
+		// again.
+		logger.Warnf("POSIX ACLs unavailable on %s; falling back to chown -R to the runtime user. "+
+			"Install the 'acl' package (or mount with acl support) so plugin/mod files uploaded as root "+
+			"stay writable by the game process", root)
+		return sysuser.ChownTreeAs(uid, gid, root)
 	})
-	return dirs, err
 }
 
-// applyDefaultACL grants group rwX as both an access ACL (everything that
-// exists) and a default ACL (everything created later).
+// findAdminTool resolves a user-admin/ACL binary. LookPath first (honors
+// PATH), then the sbin dirs it commonly lives in — a systemd service's PATH
+// doesn't always include /usr/sbin. Empty string = not found anywhere.
 //
-// The default pass is applied to directories explicitly rather than via
-// `setfacl -R -d`: default ACLs only exist on directories, and a recursive
-// invocation that meets a regular file reports an error for it. dirs comes
-// from the walk chgrpSetgidTree already did.
-func applyDefaultACL(root, group string, dirs []string) error {
-	tool := findAdminTool("setfacl")
-	if tool == "" {
-		return fmt.Errorf("%w: setfacl not found in PATH", errACLUnsupported)
+// A small duplicate of pkg/shareacl's own internal copy (which needs the same
+// lookup for setfacl/getfacl) and pkg/sysuser's (useradd/groupadd): each
+// package is meant to stand alone with zero pkg-to-pkg dependencies, so a few
+// lines duplicated three times beats a shared micro-package. This copy's one
+// use here is diagnostic (reporting which tool sharedAccessStatus found), not
+// a dependency of the ACL mechanism itself.
+func findAdminTool(name string) string {
+	if p, err := exec.LookPath(name); err == nil {
+		return p
 	}
-	spec := "g:" + group + ":rwX"
-
-	if out, err := exec.Command(tool, "-R", "-m", spec, root).CombinedOutput(); err != nil {
-		return classifyACLError(fmt.Errorf("setfacl -R -m %s %s: %v (%s)",
-			spec, root, err, strings.TrimSpace(string(out))), out)
-	}
-
-	// ARG_MAX is generous but server-files has thousands of directories;
-	// batching keeps the argument list bounded without one exec per directory.
-	const batch = 500
-	for i := 0; i < len(dirs); i += batch {
-		end := min(i+batch, len(dirs))
-		args := append([]string{"-d", "-m", spec}, dirs[i:end]...)
-		if out, err := exec.Command(tool, args...).CombinedOutput(); err != nil {
-			return classifyACLError(fmt.Errorf("setfacl -d -m %s: %v (%s)",
-				spec, err, strings.TrimSpace(string(out))), out)
+	for _, dir := range []string{"/usr/sbin", "/sbin", "/usr/local/sbin", "/usr/bin"} {
+		if p := filepath.Join(dir, name); fileExists(p) {
+			return p
 		}
 	}
-	return nil
+	return ""
 }
 
-// classifyACLError turns "this filesystem doesn't do ACLs" into
-// errACLUnsupported (so the caller degrades gracefully) and leaves anything
-// else — a genuinely broken tree, a missing group — as a hard error.
-func classifyACLError(err error, out []byte) error {
-	s := strings.ToLower(string(out))
-	switch {
-	case strings.Contains(s, "operation not supported"),
-		strings.Contains(s, "not supported"),
-		strings.Contains(s, "read-only file system"):
-		return fmt.Errorf("%w: %v", errACLUnsupported, err)
-	}
-	return err
-}
-
-// defaultACLMissing reports whether root lacks the inheritable ACL entry
-// applySharedAccess installs.
-//
-// This exists because the cheap sampling in sharedAccessNeeded only looks at
-// ownership and mode bits, and those are *already correct* on a tree that went
-// through the degraded chown fallback. Without this check, installing the acl
-// package on a machine that had been running degraded would never take effect:
-// every subsequent startup would sample a clean-looking tree and skip the pass
-// that would finally add the ACLs.
-//
-// Returns false when ACLs aren't available at all — there is nothing to fix
-// then, and saying "needed" would make the degraded path re-walk the whole
-// tree on every single start forever.
-func defaultACLMissing(root, group string) bool {
-	if findAdminTool("setfacl") == "" {
-		return false
-	}
-	tool := findAdminTool("getfacl")
-	if tool == "" {
-		return false
-	}
-	// -c drops the header comments, leaving just the entries.
-	out, err := exec.Command(tool, "-c", root).Output()
-	if err != nil {
-		return false
-	}
-	return !strings.Contains(string(out), "default:group:"+group+":")
-}
-
-// aclSupported probes whether a default ACL can actually be set inside dir,
-// by doing it for real on a throwaway subdirectory. Checking that setfacl
-// exists is not enough — the binary is frequently present on filesystems
-// mounted without ACL support.
-func aclSupported(dir, group string) error {
-	tool := findAdminTool("setfacl")
-	if tool == "" {
-		return fmt.Errorf("%w: setfacl not found in PATH", errACLUnsupported)
-	}
-	probe, err := os.MkdirTemp(dir, ".asa-acl-probe-")
-	if err != nil {
-		return err
-	}
-	defer os.RemoveAll(probe)
-
-	out, err := exec.Command(tool, "-d", "-m", "g:"+group+":rwX", probe).CombinedOutput()
-	if err != nil {
-		return classifyACLError(fmt.Errorf("setfacl probe in %s: %v (%s)",
-			dir, err, strings.TrimSpace(string(out))), out)
-	}
-	return nil
-}
-
-// runtimeGroupName resolves a gid to its group name for setfacl, which wants
-// a name or a numeric id — the numeric form is always safe, so an unresolvable
-// gid degrades to that rather than failing.
-func runtimeGroupName(gid string) string {
-	if g, err := user.LookupGroupId(gid); err == nil && g.Name != "" {
-		return g.Name
-	}
-	return gid
-}
-
-// checkACLSupport is the Preflight-facing form of aclSupported. It is
+// checkACLSupport is the Preflight-facing form of shareacl.Supported. It is
 // advisory: a missing ACL layer degrades to chown rather than blocking
 // anything, so it belongs in Preflight (surfaced through
 // GET /api/system/preflight) and NOT in verifyRuntimeAccess, whose non-empty
@@ -348,7 +172,7 @@ func checkACLSupport() *Problem {
 	if !runtimeUserManaged(cfg) || cfg.BaseDir == "" {
 		return nil
 	}
-	if _, err := os.Stat(cfg.BaseDir); err != nil {
+	if !pathExists(cfg.BaseDir) {
 		return nil // BaseDir not created yet — setup hasn't run, nothing to say
 	}
 	// Probe against the runtime user's primary group when it exists, and fall
@@ -356,13 +180,13 @@ func checkACLSupport() *Problem {
 	// account is created.
 	group := runtimeUserName(cfg)
 	if u, err := user.Lookup(group); err == nil {
-		group = runtimeGroupName(u.Gid)
+		group = shareacl.GroupName(u.Gid)
 	} else {
 		group = strconv.Itoa(syscall.Getgid())
 	}
 
-	if err := aclSupported(cfg.BaseDir, group); err != nil {
-		if errors.Is(err, errACLUnsupported) {
+	if err := shareacl.Supported(cfg.BaseDir, group); err != nil {
+		if errors.Is(err, shareacl.ErrUnsupported) {
 			return &Problem{
 				// Advisory, not a blocker: applySharedAccess degrades to a
 				// plain chown and everything keeps working. Marking it as a
