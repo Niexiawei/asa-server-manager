@@ -4,13 +4,12 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
 	"asa-server/pkg/download"
@@ -76,7 +75,7 @@ func ensureVCRedist(ctx context.Context, cfg Config, prefixKey string, logf func
 
 	// 与 ArkApi 启动路径共用 acquireDisplay：两者需要显示的原因是同一个
 	// （Wine 的 winex11.drv），见 display_linux.go。
-	display, blocked, dispErr := acquireDisplay(cfg)
+	disp, blocked, dispErr := acquireDisplay()
 	if dispErr != nil {
 		// 有显示能力但这次没拿到（Xvfb 起不来）。与下面「本机没有显示」同样只跳过
 		// 安装、不阻断 setup，但原因不同，要如实说。
@@ -101,8 +100,12 @@ func ensureVCRedist(ctx context.Context, cfg Config, prefixKey string, logf func
 	}
 
 	logf("正在把 VC++ 运行时装进 Wine 前缀 %s（可能需要几分钟）...", prefix)
-	tail, runErr := runInPrefix(ctx, cfg, prefix, exePath,
-		[]string{"/install", "/quiet", "/norestart"}, vcRedistInstallTimeout, logf, display)
+	tail, runErr := umuRuntimeFor(cfg).RunInPrefix(ctx, prefix,
+		[]string{exePath, "/install", "/quiet", "/norestart"},
+		vcRedistRunOptions(vcRedistInstallTimeout, disp.Env), logf)
+	if errors.Is(runErr, umu.ErrNoInterpreter) {
+		return runErr
+	}
 	code := umu.ExitCode(runErr)
 
 	waitForWineserverDrain(prefix)
@@ -111,7 +114,7 @@ func ensureVCRedist(ctx context.Context, cfg Config, prefixKey string, logf func
 	if !prefixHasVCRedistCfg(cfg, prefixKey) {
 		return fmt.Errorf("VC++ 运行时安装后校验未通过：%s 仍是 Wine 自带的（DOS stub 里还有 Wine 标记）。"+
 			"安装器%s，最后的输出：\n%s",
-			prefixSystem32(cfg, prefixKey, vcredist.ProbeDLL), vcredist.ExitNote(code), tail)
+			vcredist.System32(prefix, vcredist.ProbeDLL), vcredist.ExitNote(code), tail)
 	}
 	if !vcredist.ExitOK(code) {
 		logf("注意：VC++ 运行时校验已通过，但%s", vcredist.ExitNote(code))
@@ -131,97 +134,30 @@ func prefixHasVCRedist(prefixKey string) bool {
 }
 
 // prefixHasVCRedistCfg 是显式带 cfg 的版本：安装流程全程用同一份 cfg，免得中途
-// Configure 换了指针导致「装到 A 前缀、校验 B 前缀」。
-//
-// 判据只有一条：system32 下的探针 DLL 的 DOS stub 里没有 Wine 标记。
-// 注册表那个「标准检测键」**不能用** —— GE-Proton 在全新 prefix 里就把它伪造好了，
-// 见 vcRuntimeRegSection 的注释。
+// Configure 换了指针导致「装到 A 前缀、校验 B 前缀」。判据见 vcredist.InstalledIn。
 func prefixHasVCRedistCfg(cfg Config, prefixKey string) bool {
-	return nativeDLLPresent(prefixSystem32(cfg, prefixKey, vcredist.ProbeDLL))
-}
-
-// prefixSystem32 拼出 prefix 里 64 位 system32 下某个文件的路径。
-// （win64 prefix 下 system32 是 64 位、syswow64 才是 32 位，别记反。）
-func prefixSystem32(cfg Config, prefixKey, name string) string {
-	return filepath.Join(prefixDir(cfg, prefixKey), "drive_c", "windows", "system32", name)
-}
-
-// nativeDLLPresent 报告 path 是不是一个微软原生 DLL（而非 Wine 的占位/内建 PE）。
-func nativeDLLPresent(path string) bool {
-	return classifyDLL(path) == DLLNative
-}
-
-// classifyDLL 判定一个 DLL 文件的出身：读头部字节，交给 pkg/vcredist 分类。
-func classifyDLL(path string) DLLOrigin {
-	f, err := os.Open(path)
-	if err != nil {
-		return DLLMissing
-	}
-	defer f.Close()
-
-	buf := make([]byte, vcredist.HeaderScanBytes)
-	n, err := io.ReadFull(f, buf)
-	// 文件比 HeaderScanBytes 短时 ReadFull 返回 ErrUnexpectedEOF，但 n 是有效的。
-	if n == 0 && err != nil {
-		return DLLMissing
-	}
-	return vcredist.ClassifyHeader(buf[:n])
+	return vcredist.InstalledIn(prefixDir(cfg, prefixKey))
 }
 
 // --- 诊断 ---------------------------------------------------------------------
 
 // vcRedistStatus 汇总 prefix 的 VC++ 运行时现状，供 `asa-server verify-arkapi` 展示。
 // 只读，不联网。gameDir 传游戏 exe 所在目录（可为空则跳过那一列）。
+//
+// 只读的那一半整个在 vcredist.Inspect 里；这里补的两样都是本包才知道的：运行时
+// 选型，以及显示候选链 —— 且**只问计划不动手**，`verify-arkapi --check-only`
+// 不该顺手起个 X 服务。报候选链的头一档：安装真跑起来时先试的就是它。
 func vcRedistStatus(prefixKey, gameDir string) VCRedistInfo {
 	cfg := getConfig()
-	info := VCRedistInfo{
-		Managed: cfg.Runtime == "umu",
-		Prefix:  prefixDir(cfg, prefixKey),
-	}
-	info.Installed = prefixHasVCRedistCfg(cfg, prefixKey)
-	info.ProbeDLL = vcredist.ProbeDLL
+	info := vcredist.Inspect(prefixDir(cfg, prefixKey), gameDir)
+	info.Managed = cfg.Runtime == "umu"
 
-	if data, err := os.ReadFile(filepath.Join(info.Prefix, "system.reg")); err == nil {
-		info.RegistryVersion = vcredist.RegistryVersion(data)
-	}
-	if data, err := os.ReadFile(filepath.Join(info.Prefix, "user.reg")); err == nil {
-		info.OverridesSet = vcredist.CountOverrides(data)
-	}
-	info.WantOverrides = len(vcredist.OverrideDLLs)
-
-	// 诊断视图，只问计划不动手 —— `verify-arkapi --check-only` 不该顺手起个 X 服务。
-	// 报候选链的头一档：安装真跑起来时先试的就是它。
-	if plans, blocked := planDisplay(cfg); blocked != "" {
+	if plans, blocked := planDisplay(); blocked != "" {
 		info.InstallerBlocked = blocked
 	} else {
 		info.InstallerDisplay = plans[0].How
 	}
-
-	for _, name := range vcredist.OverrideDLLs {
-		d := VCRedistDLLInfo{Name: name + ".dll"}
-		d.InSystem32 = classifyDLL(prefixSystem32(cfg, prefixKey, d.Name))
-		if gameDir != "" {
-			d.InGameDir = classifyDLL(filepath.Join(gameDir, d.Name))
-		}
-		info.DLLs = append(info.DLLs, d)
-	}
 	return info
-}
-
-// prefixHasVCRedistOverrides 报告某个 prefix 的 user.reg 里我们那批 DLL override
-// 是否已经齐了。**只读一个文件**，所以可以放在实例启动这种热路径上。
-//
-// 它与 prefixHasVCRedist 判的不是同一件事，别混用：后者看 system32 里有没有微软
-// 原生 DLL（= vc_redist 安装器跑成功过），而安装器在没有图形显示的机器上**永远
-// 装不上**（退出码 203）。拿它当「要不要再试一次」的判据，会让无头机每次启动都
-// 重跑一遍 ensureVCRedist —— 那里面有一次 regedit 容器启动，好几秒。
-// override 才是承重的那一环，也是无头可用的那一环，所以由它当判据。
-func prefixHasVCRedistOverrides(prefix string) bool {
-	data, err := os.ReadFile(filepath.Join(prefix, "user.reg"))
-	if err != nil {
-		return false
-	}
-	return vcredist.CountOverrides(data) >= len(vcredist.OverrideDLLs)
 }
 
 // --- 安装包 -----------------------------------------------------------------
@@ -312,8 +248,12 @@ func applyVCRedistOverrides(ctx context.Context, cfg Config, prefix string, logf
 	logf("正在写入 %d 条 VC++ DLL override（%s）", len(vcredist.OverrideDLLs), vcredist.OverrideMode)
 	// regedit.exe 传宿主路径（umu 对普通 exe 走 resolve(strict=True)）；
 	// 它的**参数**是 Windows 路径，所以过 gamePath。
-	tail, err := runInPrefix(ctx, cfg, prefix, regedit,
-		[]string{"/S", gamePath(regPath)}, time.Minute, logf)
+	tail, err := umuRuntimeFor(cfg).RunInPrefix(ctx, prefix,
+		[]string{regedit, "/S", gamePath(regPath)},
+		vcRedistRunOptions(time.Minute, nil), logf)
+	if errors.Is(err, umu.ErrNoInterpreter) {
+		return err
+	}
 	if err != nil {
 		return fmt.Errorf("regedit 导入失败%s：\n%s", vcredist.ExitNote(umu.ExitCode(err)), tail)
 	}
@@ -335,74 +275,25 @@ func prefixRegedit(prefix string) (string, error) {
 	return "", fmt.Errorf("Wine 前缀 %s 里找不到 regedit.exe", prefix)
 }
 
-// --- 在 prefix 里跑一个 Windows 程序 --------------------------------------------
-
-// runInPrefix 通过 umu-run 在 prefix 里执行 exePath，返回其输出的末尾几行。
+// vcRedistRunOptions 是本文件两次 umu-run 调用共用的选项。
 //
-// 与 warmPrefix 的 wineboot 调用逐项对齐，只有两处刻意的不同：
-//   - 带 UMU_RUNTIME_UPDATE=0：运行时这时早就装好了，没有理由让 umu 再去
-//     repo.steampowered.com 查更新（warmPrefix 那一次故意不带，因为它必须能拉运行时）。
+// 与 pkg/umu 的 WarmPrefix（wineboot）逐项对齐，只有三处刻意的不同：
+//   - NoRuntimeUpdate：运行时这时早就装好了，没有理由让 umu 再去
+//     repo.steampowered.com 查更新（WarmPrefix 那一次故意不带，因为它必须能拉运行时）。
+//   - Verb "run"：不能用 umu 默认的 waitforexitandrun。这里尤其致命 —— 共享 prefix 上
+//     只要有实例在跑，`wineserver -w` 就永不返回，`verify-arkapi` / EnsurePrefixVCRedist
+//     会一路挂到硬超时才报错，且错得毫无线索。
 //   - 有硬超时：见 vcRedistInstallTimeout。
-func runInPrefix(ctx context.Context, cfg Config, prefix, exePath string, args []string,
-	timeout time.Duration, logf func(string, ...any), display ...displayTarget) (string, error) {
-
-	py, err := umuInterpreter()
-	if err != nil {
-		return "", fmt.Errorf("failed to resolve a Python interpreter for umu-run: %w", err)
+//
+// 显示以 ExtraEnv 进来（追加在最后，理由见 umu.RunOptions.ExtraEnv）；override 那一步
+// 故意不带显示跑，见 ensureVCRedist 第一步。
+func vcRedistRunOptions(timeout time.Duration, displayEnv []string) umu.RunOptions {
+	return umu.RunOptions{
+		Timeout:         timeout,
+		ExtraEnv:        displayEnv,
+		NoRuntimeUpdate: true,
+		Verb:            "run",
 	}
-
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	var disp displayTarget
-	if len(display) > 0 {
-		disp = display[0]
-	}
-
-	// argv: <python> <umu-run> <exe> <args...>
-	bin := py.Path
-	argv := append([]string{umuRunPath(cfg), exePath}, args...)
-
-	// inheritedEnv, not os.Environ(): 见 inheritedEnv 的注释（泄漏的
-	// DBUS_SESSION_BUS_ADDRESS 会让 bwrap 直接拒绝启动整个容器）。
-	env := append(inheritedEnv(),
-		"WINEPREFIX="+prefix,
-		"GAMEID="+cfg.GameID,
-		"PROTONPATH="+protonPath(cfg),
-		"UMU_RUNTIME_UPDATE=0",
-		// 同 umuCommandLine：不能用 umu 默认的 waitforexitandrun。这里尤其致命 ——
-		// 共享 prefix 上只要有实例在跑，`wineserver -w` 就永不返回，
-		// `verify-arkapi` / EnsurePrefixVCRedist 会一路挂到下面那个硬超时
-		// （vcRedistInstallTimeout，15 分钟）才报错，且错得毫无线索。
-		"PROTON_VERB=run",
-		// 无障碍覆盖层在这里尤其多余：override 那一步**故意不带显示**跑
-		// （见 ensureVCRedist 第一步），于是 Xalia 每次必崩一次，在
-		// 「正在写入 11 条 VC++ DLL override」正下方留一段 .NET 栈 ——
-		// 看着像 override 失败了，其实 11/11 全写进去了。见 protonNoXalia。
-		umu.ProtonNoXalia,
-	)
-	// 用与游戏进程相同的身份运行：装出来的文件属主才对，降权后的 AsaApiLoader
-	// 才读得到。同 warmPrefix。
-	var cred *syscall.Credential
-	if c, home, err := resolveRuntimeCredential(cfg); err != nil {
-		return "", err
-	} else if c != nil {
-		cred = c
-		env = runtimeEnv(env, home, runtimeUserName(cfg))
-	}
-	// 显示放最后施加，理由见 displayTarget.applyTo。
-	env = disp.applyTo(env)
-
-	cmd := exec.CommandContext(ctx, bin, argv...)
-	cmd.Env = env
-	if cred != nil {
-		cmd.SysProcAttr = &syscall.SysProcAttr{Credential: cred}
-	}
-
-	out := umu.NewOutputCapture(logf)
-	cmd.Stdout, cmd.Stderr = out, out
-	runErr := cmd.Run()
-	return out.Tail(), runErr
 }
 
 // --- 标记 ---------------------------------------------------------------------

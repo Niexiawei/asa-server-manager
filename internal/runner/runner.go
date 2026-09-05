@@ -21,6 +21,7 @@ import (
 
 	"github.com/aymanbagabas/go-pty"
 
+	"asa-server/pkg/display"
 	"asa-server/pkg/problem"
 	"asa-server/pkg/vcredist"
 	"asa-server/pkg/wineprefix"
@@ -323,25 +324,7 @@ func VCRedistStatus(prefixKey, gameDir string) VCRedistInfo {
 // DisplayInfo is how (and whether) this host can give a Wine process an X
 // display — the precondition Options.NeedsDisplay depends on. On Windows it is
 // always available: there is a real window station.
-type DisplayInfo struct {
-	Available bool   `json:"available"`
-	How       string `json:"how"`     // "宿主的 X 显示 :0" / "自管 Xvfb 虚拟显示 :100"
-	Blocked   string `json:"blocked"` // why not, when Available is false
-	// Managed is true when the display comes from the Xvfb this program starts
-	// and owns, rather than one that was already running.
-	Managed bool `json:"managed"`
-	// Display is the ":N" that would be (or already is) used. Empty for a
-	// managed display that hasn't been started yet — reporting must not start
-	// one, see displayStatus.
-	Display string `json:"display"`
-	// Fallbacks are the remaining candidates, in order, that a launch would try
-	// if How's own acquisition failed. Diagnostic only: the display resolver
-	// returns a chain rather than a single answer so that a host whose Xvfb
-	// won't start (no fonts, full /tmp) still launches on whatever display it
-	// does have, instead of regressing to "cannot start". Empty means the head
-	// is all there is. See internal/runner/display_linux.go's planDisplay.
-	Fallbacks []string `json:"fallbacks,omitempty"`
-}
+type DisplayInfo = display.Info
 
 // DisplayStatus reports the host's display situation. Read-only and offline —
 // a PATH lookup, a stat and at most a few local socket handshakes. It never

@@ -45,5 +45,3 @@ func xvfbStatePath(cfg Config) string {
 	return filepath.Join(cfg.BaseDir, "xvfb.state")
 }
 
-// stopManagedXvfb 是 stopManagedDisplay（display_linux.go）的实现。
-func stopManagedXvfb() { xvfbManager().Stop() }

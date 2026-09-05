@@ -43,9 +43,9 @@ func run(ctx context.Context, exePath string, args []string, opt Options) (*Hand
 	// nothing at all — no console output, not even its own logs/ directory
 	// (measured 2026-08-30, see display_linux.go). Fail fast with something
 	// actionable instead of reporting a "started" instance that is already
-	// dead. Applied after runtimeEnv on purpose — see displayTarget.wrap.
+	// dead. Applied after runtimeEnv on purpose — see display.Target.Apply.
 	if opt.NeedsDisplay {
-		disp, blocked, dispErr := acquireDisplay(getConfig())
+		disp, blocked, dispErr := acquireDisplay()
 		switch {
 		case blocked != "":
 			// 这台机器压根没有显示能力。
@@ -61,7 +61,7 @@ func run(ctx context.Context, exePath string, args []string, opt Options) (*Hand
 				filepath.Base(exePath), dispErr)
 		}
 		logger.Infof("runner: %s 需要图形显示，本次使用 %s", filepath.Base(exePath), disp.How)
-		env = disp.applyTo(env)
+		env = disp.Apply(env)
 	}
 
 	if opt.PTY {

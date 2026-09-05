@@ -21,6 +21,7 @@ import (
 
 	"asa-server/pkg/logger"
 	"asa-server/pkg/umu"
+	"asa-server/pkg/vcredist"
 	"asa-server/pkg/wineprefix"
 )
 
@@ -70,7 +71,7 @@ func wineprefixMgrFor(cfg Config) *wineprefix.Manager {
 		EnsureVCRedist: func(ctx context.Context, prefixKey string, logf func(string, ...any)) error {
 			return ensureVCRedist(ctx, getConfig(), prefixKey, logf)
 		},
-		HasVCRedistOverrides: prefixHasVCRedistOverrides,
+		HasVCRedistOverrides: vcredist.OverridesApplied,
 	})
 	return wineprefixMgr
 }

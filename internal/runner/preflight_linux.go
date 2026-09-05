@@ -120,8 +120,7 @@ func runtimeUserProblems() []Problem { return verifyRuntimeAccess(false) }
 // /tmp/.X11-unix was told, and told only, to go install Xvfb
 // (docs/XVFB_CROSS_DISTRO_DISPLAY_PLAN.md §11).
 func checkDisplay() *Problem {
-	cfg := getConfig()
-	_, blocked := planDisplay(cfg)
+	_, blocked := planDisplay()
 	if blocked == "" {
 		return nil
 	}
