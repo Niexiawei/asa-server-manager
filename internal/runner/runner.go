@@ -20,6 +20,8 @@ import (
 	"sync/atomic"
 
 	"github.com/aymanbagabas/go-pty"
+
+	"asa-server/pkg/problem"
 )
 
 // Options describes a single exe launch, platform-agnostic.
@@ -285,39 +287,18 @@ func Preflight() []Problem {
 	return preflight()
 }
 
-// Problem is one failed Preflight check.
-type Problem struct {
-	Name   string // short id, e.g. "glibc32"
-	Detail string // human-readable description of what's missing/wrong
-	Fix    string // suggested remediation command, if any ("" when there isn't one)
-	// Warning marks an advisory rather than a blocker: the thing still works,
-	// just in a degraded or less convenient form. Consumers must treat the two
-	// differently — `asa-server setup` refuses to continue on a blocker but not
-	// on an advisory, and the preflight API reports healthy when only
-	// advisories are present.
-	//
-	// Without this distinction every check is a hard stop, which is how
-	// "the acl package isn't installed" once became a reason `setup` would not
-	// run at all — see docs/ACL_PERMISSION_HARDENING_PLAN.md §1.
-	Warning bool
-}
+// Problem is one failed Preflight check. Alias of pkg/problem.Problem, kept
+// here so existing callers (runner.Problem, runner.Blockers/Advisories) do
+// not need to change during the internal/runner package split — see
+// docs/RUNNER_INSTANCE_PACKAGE_SPLIT_PLAN.md phase A.
+type Problem = problem.Problem
 
 // Blockers returns the subset of problems that must stop whatever is being
 // attempted; Advisories returns the rest.
-func Blockers(problems []Problem) []Problem { return filterProblems(problems, false) }
+func Blockers(problems []Problem) []Problem { return problem.Blockers(problems) }
 
 // Advisories returns the subset of problems that are merely recommendations.
-func Advisories(problems []Problem) []Problem { return filterProblems(problems, true) }
-
-func filterProblems(problems []Problem, warning bool) []Problem {
-	var out []Problem
-	for _, p := range problems {
-		if p.Warning == warning {
-			out = append(out, p)
-		}
-	}
-	return out
-}
+func Advisories(problems []Problem) []Problem { return problem.Advisories(problems) }
 
 // RuntimeUserInfo summarises the drop-privileges state for the preflight API
 // (docs/UMU_RUNTIME_USER_PLAN.md §4.3). On Windows: always {Ready:true}.
