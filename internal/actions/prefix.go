@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 
 	cfgpkg "asa-server/internal/config"
@@ -24,6 +23,11 @@ import (
 //
 // `reconcilePrefixVersion` 在 Proton 版本变化时留下的 `umu-prefix.bak-<版本>`
 // 同样归这里管：它们同样占盘，同样没人会主动去看。
+//
+// 本文件里没有 `runtime.GOOS` 判断，也不该加：这条命令只在 `main_linux.go` 的
+// `platformCommands` 里注册，Windows 上它根本不存在。曾经有过两段
+// `if runtime.GOOS != "linux" { 打印"Windows 上没有 Wine 前缀" }`，两边都到不了 ——
+// Windows 上进不来，Linux 上条件恒假。
 func PrefixCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "prefix",
@@ -50,11 +54,6 @@ func PrefixCommand() *cli.Command {
 }
 
 func actionPrefixStatus(ctx context.Context, cmd *cli.Command) error {
-	if runtime.GOOS != "linux" {
-		fmt.Println("Windows 上没有 Wine 前缀：ARK 服务端直接以原生进程运行。")
-		return nil
-	}
-
 	prefixes := runner.PrefixStatus()
 	if len(prefixes) == 0 {
 		fmt.Println("尚未创建任何 Wine 前缀。执行 asa-server setup 完成环境准备。")
@@ -141,11 +140,6 @@ func actionPrefixStatus(ctx context.Context, cmd *cli.Command) error {
 }
 
 func actionPrefixGC(ctx context.Context, cmd *cli.Command) error {
-	if runtime.GOOS != "linux" {
-		fmt.Println("Windows 上没有 Wine 前缀，无需清理。")
-		return nil
-	}
-
 	candidates := gcCandidates(runner.PrefixStatus(), existingInstances())
 	if len(candidates) == 0 {
 		fmt.Println("没有可回收的 Wine 前缀。")

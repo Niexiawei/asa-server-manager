@@ -57,12 +57,24 @@ func runtimeUserManaged(cfg Config) bool { return sysUserFor(cfg).Managed() }
 
 func runtimeUserName(cfg Config) string { return sysUserFor(cfg).UserName() }
 
-// runtimeUserName is also needed without a Config in hand (svcmgr / systemapi).
+// RuntimeUserName is the same thing without a Config in hand. Linux-only,
+// like RuntimeHomeDir below: its one caller (svcmgr/service_linux.go's
+// install warning) already carries a build tag, so a Windows no-op returning
+// "" would be a value nobody ever reads. Callers outside this package that
+// want the name on both platforms read RuntimeUserStatus().Name instead —
+// that is what webapi/systemapi does.
 func RuntimeUserName() string { return runtimeUserName(getConfig()) }
 
 // runtimeHomeDir resolves the HOME the dropped child must see. When we are not
 // managing a separate user it's just this process's own home.
 func runtimeHomeDir(cfg Config) string { return sysUserFor(cfg).HomeDir() }
+
+// RuntimeHomeDir is the HOME the dropped child sees (umu's Steam Linux
+// Runtime cache + lsteamclient's ~/.steam/sdk{32,64} live under it).
+//
+// Linux-only for the same reason as RuntimeUserName: the only caller is
+// installer/fixups_linux.go, which is itself a Linux-only file.
+func RuntimeHomeDir() string { return runtimeHomeDir(getConfig()) }
 
 // runtimeChildIDs is the **read-only** counterpart of resolveRuntimeCredential:
 // the uid/gid the game child — and the Xvfb we start for it — will run as.

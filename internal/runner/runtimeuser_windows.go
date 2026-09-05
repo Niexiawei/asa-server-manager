@@ -2,10 +2,7 @@
 
 package runner
 
-import (
-	"context"
-	"os"
-)
+import "context"
 
 // Windows has no "run the game as a dedicated non-root user" story: the
 // service runs as LocalSystem and privilege separation for the child would be
@@ -34,15 +31,14 @@ func sharedTrees() []string { return nil }
 
 func sharedAccessStatus() SharedAccessInfo { return SharedAccessInfo{} }
 
-func runtimeHomeDir(cfg Config) string {
-	h, _ := os.UserHomeDir()
-	return h
-}
-
-func runtimeUserName(cfg Config) string { return "" }
-
-// RuntimeUserName has no meaning on Windows.
-func RuntimeUserName() string { return "" }
+// runtimeHomeDir / runtimeUserName / RuntimeHomeDir / RuntimeUserName have no
+// Windows counterpart at all, unlike everything above them. The no-ops in this
+// file exist so that cross-platform callers (package main, svcmgr, installer)
+// don't need build tags — but those four had exactly one caller each, in
+// fixups_linux.go and service_linux.go, both already Linux-only. A no-op whose
+// return value nobody reads buys nothing and advertises an API that means
+// nothing here. Code that wants the runtime user's name on both platforms
+// reads RuntimeUserStatus().Name.
 
 func runtimeUserInfo() RuntimeUserInfo {
 	return RuntimeUserInfo{Managed: false, Bypassed: false, Name: "", Ready: true}

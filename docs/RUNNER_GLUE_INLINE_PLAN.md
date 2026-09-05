@@ -241,3 +241,71 @@ wp := wineprefixMgrFor(cfg)
 - **WSL2 真机未跑**（`asa-server setup` + 实例启动仍待验证）。纯内联无逻辑变更，风险主要
   在「提取变量后 `Reconfigure` 次数减少」这一条——但同一函数内 `cfg` 本来就是固定的，
   减少的都是重复的等价调用。
+
+---
+
+## 10. 第二轮：只服务 Linux-only 调用方的空实现（2026-09-05）
+
+起因是一个观察：`asa-server perms` 与 `asa-server prefix` 两条命令**只在
+`main_linux.go` 的 `platformCommands` 里注册**，Windows 上根本不存在。那么它们背后那些
+「Windows 恒为空操作」的实现是不是也没有存在理由？
+
+§4.1 给平台接缝定的判据是「`runner.go` 无 build tag，删了就得在调用点加 tag」。这一轮把它
+**反过来用**：调用点**本来就带 tag** 时，Windows 侧的空实现一样什么都不换来。
+
+### 10.1 已执行：四个只被 linux-only 文件调用的导出 API
+
+| 导出 API | 唯一调用方 | 处理 |
+|---|---|---|
+| `runner.RuntimeHomeDir()` | `internal/installer/fixups_linux.go:47` | 从 `runner.go` 移进 `runtimeuser_linux.go` |
+| `runner.RuntimeUserName()` | `internal/svcmgr/service_linux.go:95` | 删掉 `runtimeuser_windows.go` 里的那份 |
+| （连带）`runtimeHomeDir` / `runtimeUserName` 的 Windows 实现 | 只被上面两个用 | 删除；`runtimeuser_windows.go` 的 `os` 导入随之消失 |
+
+判据是「返回值有没有人读」：Windows 上 `RuntimeHomeDir()` 返回一个真实的
+`os.UserHomeDir()`、`RuntimeUserName()` 返回 `""`，但**没有任何 Windows 代码路径读它们**。
+一个没人读的返回值不省 build tag，只是对外宣称了一个在本平台没有意义的 API。
+
+需要两平台都能拿到运行时用户名的调用方（`webapi/systemapi`）读的是
+`RuntimeUserStatus().Name` —— 那个是真跨平台的，不受影响。
+
+### 10.2 已执行：`prefix.go` 的两段不可达代码
+
+`actionPrefixStatus` / `actionPrefixGC` 开头各有一段
+`if runtime.GOOS != "linux" { 打印"Windows 上没有 Wine 前缀"; return nil }`。
+**两边都到不了**：Windows 上这条命令不存在，Linux 上条件恒假。连同 `runtime` 导入删除，
+并在两个文件的命令注释里写清楚「本文件不需要也不该有 `runtime.GOOS` 判断」，免得下次
+有人照着 `setup.go` / `verify_arkapi.go`（那两条**是** `commonCommands`，GOOS 判断是真的）
+的样子再加回来。
+
+`perms.go` 里「（Windows 恒是这种情况；…）」那半句同样是对一个 Windows 上不存在的命令
+说话，改成只讲 Linux 的两种情形。
+
+### 10.3 有意不做：`PrefixStatus` / `SharedTrees`
+
+这两个确实**只被 `prefix.go` / `perms.go` 调用**，但要删掉它们的 Windows 空实现，得先给
+这两个文件加 `//go:build linux`，而那有两个前置障碍：
+
+1. **会直接编译失败**：`existingInstances()` 定义在 `prefix.go`，却被 `arkapicache.go` 使用，
+   而 `ArkApiCacheCommand` 在 `commonCommands` 里（Windows 也注册）。
+2. **会丢掉 Windows 侧的测试覆盖**：`prefix_test.go` 测的 `gcCandidates`（其注释自称
+   「这套命令里唯一有可能造成数据损失的地方」）与 `humanSize` 都是纯逻辑，现在在 Windows 上跑。
+   文件加 tag 后测试也得加 tag —— 这与 TODO §7「让判据能在 Windows 上单测」的方向相反。
+
+绕开要拆文件 + 挪 helper，代价大于「少两个 Windows 空函数」的收益。**结论：不做。**
+
+其余看着像候选的都有真实的 Windows 调用方，不能动：`RemoveInstancePrefix`（`instanceapi`）、
+`SharedAccessStatus`（`actions/setup.go`）、`PrepareSharedTree`（`installer` 3 处 +
+`instance/server.go`）。
+
+### 10.4 顺带修正与遗留
+
+- `runtimeuser_linux.go` 里 `RuntimeUserName` 的注释原写着「svcmgr / systemapi 需要」——
+  **systemapi 并不调它**（读的是 `RuntimeUserStatus().Name`）。已改。
+- `docs/ACL_PERMISSION_HARDENING_PLAN.md` §（Windows 行为）里有一句「Windows 上
+  `perms status`/`fix` 会打印…」，描述的是一条 Windows 上不存在的命令。**未改** ——
+  PLAN 是只增不改的档案，记在这里。
+
+### 10.5 验证
+
+`go build`/`go vet` 双平台通过；`go test ./internal/actions/` 通过（`prefix_test.go`
+仍在 Windows 上跑，正是 §10.3 保住的那部分）。净 -2 行，少 4 个包级名字。

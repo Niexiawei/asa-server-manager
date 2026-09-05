@@ -17,8 +17,9 @@ import (
 // 那些在实例启动流程里已经自动处理（见 internal/instance/server.go 里
 // runner.Run 之前那段循环，以及 docs/ACL_PERMISSION_HARDENING_PLAN.md §3.2）。
 //
-// Windows 上游戏与 asa-server 同一身份，没有"共享"可言，两个子命令都会直接
-// 说明情况并退出。
+// 这条命令只在 `main_linux.go` 的 `platformCommands` 里注册，Windows 上不存在
+// —— 那里游戏与 asa-server 同一身份，没有"共享"可言。所以本文件里不需要、也不该
+// 有 `runtime.GOOS` 判断（`prefix.go` 曾经有过两段，两边都到不了）。
 func PermsCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "perms",
@@ -47,7 +48,7 @@ func actionPermsStatus(ctx context.Context, cmd *cli.Command) error {
 	info := runner.SharedAccessStatus()
 	if !info.Managed {
 		fmt.Println("当前不涉及降权运行：游戏进程与 asa-server 使用同一身份，无需共享写权限处理。")
-		fmt.Println("（Windows 恒是这种情况；Linux 上非 root 启动、或 linux.umu_run_as_root=true 时也是。）")
+		fmt.Println("（非 root 启动、或 linux.umu_run_as_root=true 时就是这种情况。）")
 		return nil
 	}
 

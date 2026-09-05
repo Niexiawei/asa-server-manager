@@ -388,11 +388,6 @@ func VerifyRuntimeAccess() []Problem { return verifyRuntimeAccess(false) }
 // deep probe forced on — used as the per-instance start gate.
 func VerifyRuntimeAccessForLaunch() []Problem { return verifyRuntimeAccess(true) }
 
-// RuntimeHomeDir is the HOME the dropped child sees (umu's Steam Linux
-// Runtime cache + lsteamclient's ~/.steam/sdk{32,64} live under it). On
-// Windows / when not managing a user: this process's own home.
-func RuntimeHomeDir() string { return runtimeHomeDir(getConfig()) }
-
 // ChownMirrorForRuntime hands a freshly (re)built per-instance mirror dir to
 // the runtime user. No-op unless managing a dropped user.
 func ChownMirrorForRuntime(mirrorDir string) error { return chownMirrorForRuntime(mirrorDir) }
