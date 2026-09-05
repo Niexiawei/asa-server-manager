@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -356,6 +357,20 @@ func (w *OutputCapture) Write(p []byte) (int, error) {
 		w.mu.Unlock()
 	}
 	return len(p), nil
+}
+
+// ExitCode extracts a process's exit code from the error umu-run's Wait/Run
+// returned; -1 means it didn't end normally (killed by a signal, including a
+// context timeout) rather than exiting with a nonzero status.
+func ExitCode(err error) int {
+	if err == nil {
+		return 0
+	}
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		return ee.ExitCode()
+	}
+	return -1
 }
 
 // Tail returns the last few lines written, for quoting in an error.

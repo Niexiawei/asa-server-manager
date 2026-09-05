@@ -4,10 +4,8 @@ package runner
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -105,7 +103,7 @@ func ensureVCRedist(ctx context.Context, cfg Config, prefixKey string, logf func
 	logf("正在把 VC++ 运行时装进 Wine 前缀 %s（可能需要几分钟）...", prefix)
 	tail, runErr := runInPrefix(ctx, cfg, prefix, exePath,
 		[]string{"/install", "/quiet", "/norestart"}, vcRedistInstallTimeout, logf, display)
-	code := exitCodeOf(runErr)
+	code := umu.ExitCode(runErr)
 
 	waitForWineserverDrain(prefix)
 
@@ -228,37 +226,6 @@ func prefixHasVCRedistOverrides(prefix string) bool {
 
 // --- 安装包 -----------------------------------------------------------------
 
-// downloadProgress 把 pkg/download 的字节级回调节流成人能看的进度行：每 5% 或每 2 秒
-// 一行，外加收尾那一行。回调在 io.Copy 的单个 goroutine 里串行调用，无需加锁。
-//
-// 总长未知（total <= 0）时只按时间节流 —— 否则百分比恒为 0，「涨够 5%」永远不成立，
-// 每读一个块就会打一行。
-func downloadProgress(label string, logf func(string, ...any)) func(done, total int64) {
-	var (
-		lastAt  time.Time
-		lastPct = -1
-	)
-	return func(done, total int64) {
-		pct := 0
-		if total > 0 {
-			pct = int(done * 100 / total)
-		}
-		final := total > 0 && done >= total
-		now := time.Now()
-		if !final && pct < lastPct+5 && now.Sub(lastAt) < 2*time.Second {
-			return
-		}
-		lastAt, lastPct = now, pct
-		if total > 0 {
-			logf("  %s: %d%% (%.1f/%.1f MiB)", label, pct, mib(done), mib(total))
-		} else {
-			logf("  %s: %.1f MiB", label, mib(done))
-		}
-	}
-}
-
-func mib(n int64) float64 { return float64(n) / (1 << 20) }
-
 // ensureVCRedistInstaller 保证安装包在本地，返回其路径与实际使用的校验值
 // （校验值仅用于写进标记文件，便于日后复现）。
 func ensureVCRedistInstaller(ctx context.Context, cfg Config, logf func(string, ...any)) (string, string, error) {
@@ -278,7 +245,7 @@ func ensureVCRedistInstaller(ctx context.Context, cfg Config, logf func(string, 
 	}
 
 	// 跟随重定向拿最终地址：微软的最终 URL 路径里自带文件 sha256。
-	finalURL, err := resolveFinalURL(ctx, srcURL)
+	finalURL, err := download.ResolveFinalURL(ctx, srcURL)
 	if err != nil {
 		logf("解析 %s 的最终下载地址失败（%v），按原地址下载", srcURL, err)
 		finalURL = srcURL
@@ -303,39 +270,17 @@ func ensureVCRedistInstaller(ctx context.Context, cfg Config, logf func(string, 
 		Dest:     dest,
 		Checksum: checksum,
 		Resume:   true,
-		Progress: downloadProgress("vc_redist", logf),
+		Progress: download.ProgressLogger("vc_redist", logf),
 	}); err != nil {
 		return "", "", fmt.Errorf("下载 VC++ 运行时安装包失败: %w", err)
 	}
 	return dest, checksum, makeVCRedistReadable(cfg, dest)
 }
 
-// resolveFinalURL 跟随重定向，返回最终落到的地址。
-func resolveFinalURL(ctx context.Context, rawURL string) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodHead, rawURL, nil)
-	if err != nil {
-		return "", err
-	}
-	resp, err := download.Client().Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<10))
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("HEAD %s 返回 %s", rawURL, resp.Status)
-	}
-	if resp.Request == nil || resp.Request.URL == nil {
-		return "", fmt.Errorf("HEAD %s 没有返回最终地址", rawURL)
-	}
-	return resp.Request.URL.String(), nil
-}
-
 // makeVCRedistReadable 让降权后的运行时用户能读到安装包。
 //
 // 用 chmod 而不是 chown：这是个只读产物，降权用户只需要读+穿过目录，不需要属主
-// —— 与 ensureWorldReadExec 对 proton/umu-launcher 两个只读子树的处理同类。
+// —— 与 fsutil.EnsureWorldReadable 对 proton/umu-launcher 两个只读子树的处理同类。
 func makeVCRedistReadable(cfg Config, dest string) error {
 	if err := os.Chmod(vcRedistDir(cfg), 0o755); err != nil {
 		return err
@@ -370,7 +315,7 @@ func applyVCRedistOverrides(ctx context.Context, cfg Config, prefix string, logf
 	tail, err := runInPrefix(ctx, cfg, prefix, regedit,
 		[]string{"/S", gamePath(regPath)}, time.Minute, logf)
 	if err != nil {
-		return fmt.Errorf("regedit 导入失败%s：\n%s", vcredist.ExitNote(exitCodeOf(err)), tail)
+		return fmt.Errorf("regedit 导入失败%s：\n%s", vcredist.ExitNote(umu.ExitCode(err)), tail)
 	}
 	return nil
 }
@@ -458,18 +403,6 @@ func runInPrefix(ctx context.Context, cfg Config, prefix, exePath string, args [
 	cmd.Stdout, cmd.Stderr = out, out
 	runErr := cmd.Run()
 	return out.Tail(), runErr
-}
-
-// exitCodeOf 取进程退出码；-1 表示没有正常结束（被信号杀掉，含超时）。
-func exitCodeOf(err error) int {
-	if err == nil {
-		return 0
-	}
-	var ee *exec.ExitError
-	if errors.As(err, &ee) {
-		return ee.ExitCode()
-	}
-	return -1
 }
 
 // --- 标记 ---------------------------------------------------------------------

@@ -4,8 +4,8 @@
 > 见该文档历史与提交 `a83c85a`..`6894907`）。本文档是**活动清单**，记录方案执行完之后盘点出的
 > 真实缺口与可选卫生项；结论稳定后回填 PLAN，不在 PLAN 里直接改。
 >
-> **Gap A（`pkg/shareacl`）已于 2026-09-05 执行完成**——见 §1 末尾的落地说明。Gap B（vcredist
-> 零散机制）仍待定，优先级低。
+> **Gap A（`pkg/shareacl`）与 Gap B（vcredist 零散机制）均已于 2026-09-05 执行完成**——
+> 见 §1、§2 末尾的落地说明。
 
 ---
 
@@ -114,7 +114,12 @@
 | `downloadProgress`/`mib` | 把 `pkg/download.Options.Progress` 的字节回调节流成人可读的百分比行 | `pkg/download`，导出为 `download.ProgressLogger(label string, logf func(string, ...any)) func(done, total int64)` | `pkg/download` 本来就定义了 `Progress` 回调这个概念，节流格式化理应跟着走，其它调用 `download.Fetch` 的地方（目前只有这一处，未来 syncthing/frp 更新也可能用到）能直接复用 |
 | `resolveFinalURL` | HTTP HEAD 跟随重定向拿最终 URL | `pkg/download`，导出为 `download.ResolveFinalURL(ctx, url) (string, error)` | 同上，通用 HTTP 机制，跟"VC++"毫无关系 |
 | `exitCodeOf` | `exec.ExitError` → `int`，-1 表示被信号杀 | `pkg/umu`，作为 `umu.ExitCode(err) int` | 与 `umu.NewOutputCapture`（同文件、同"跑一个 exe 拿输出"的场景）放一起最自然 |
-| `classifyDLL`/`nativeDLLPresent` | 读文件头转调 `vcredist.ClassifyHeader` | 可留可搬 | 已经是两行的薄封装，搬不搬都行，优先级最低 |
+| `classifyDLL`/`nativeDLLPresent` | 读文件头转调 `vcredist.ClassifyHeader` | 保留 | 已经是两行的薄封装，搬不搬都行，优先级最低——本轮未动 |
+
+**落地说明（2026-09-05）**：`downloadProgress`/`mib` → `download.ProgressLogger`、
+`resolveFinalURL` → `download.ResolveFinalURL`（新文件 `pkg/download/progress.go`）、
+`exitCodeOf` → `umu.ExitCode`（`pkg/umu/umu_linux.go`，紧邻 `NewOutputCapture`），均按上表建议落地，
+签名不变。`classifyDLL`/`nativeDLLPresent` 按计划保留在 `internal/runner/vcredist_linux.go`。
 
 ---
 
