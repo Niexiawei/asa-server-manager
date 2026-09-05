@@ -3,16 +3,16 @@ package instance
 import (
 	"context"
 	"fmt"
-	"sync"
 
 	cfgpkg "asa-server/internal/config"
 	"asa-server/internal/installer"
 	procpkg "asa-server/internal/process"
 	"asa-server/internal/runner"
 	"asa-server/pkg/logger"
+	"asa-server/pkg/resourcegate"
 )
 
-// launchGate 是共享 Wine prefix 下的启动闸门。
+// sharedPrefixGate 是共享 Wine prefix 下的启动闸门，容量 1。
 //
 // 为什么需要它：`prefix_mode: shared` 时所有实例跑在同一个 Wine prefix、同一个
 // wineserver 上，而 Proton 的启动路径（prefix setup + protonfixes）假设一个
@@ -26,29 +26,10 @@ import (
 // docs/UMU_PREFIX_PER_INSTANCE_PLAN.md §8）。
 //
 // per-instance 模式与 Windows 上没有这个约束，闸门整段短路，时序与加它之前
-// 逐字相同。
-type launchGateState struct {
-	sem chan struct{} // 容量 1 的信号量：写入 = 持有，读出 = 释放
-	mu  sync.Mutex
-	who string // 当前持有者，只用于把等待日志写得有主语
-}
-
-var launchGate = &launchGateState{sem: make(chan struct{}, 1)}
-
-func (g *launchGateState) holder() string {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	if g.who == "" {
-		return "（未知）"
-	}
-	return g.who
-}
-
-func (g *launchGateState) setHolder(name string) {
-	g.mu.Lock()
-	g.who = name
-	g.mu.Unlock()
-}
+// 逐字相同。信号量+持有者机制本身不认识"实例""prefix"这些概念，见
+// asa-server/pkg/resourcegate；判断要不要用这把闸门（SharesWinePrefix）
+// 与等待日志的措辞，是本文件唯一留下的业务规则。
+var sharedPrefixGate = resourcegate.New(1)
 
 // acquireLaunchGate 阻塞到本次启动可以进入启动路径为止。
 //
@@ -59,31 +40,24 @@ func acquireLaunchGate(ctx context.Context, instanceName string) (release func()
 		return func() {}, nil
 	}
 
-	select {
-	case launchGate.sem <- struct{}{}:
-	default:
-		// 没抢到才打日志，也才需要说明在等谁——否则常见路径上会多出一条
-		// 每次启动都出现、却什么也没解释的噪音。
+	// 只有确实要等才打日志——否则常见的「无人竞争」路径上会多出一条每次启动都
+	// 出现、却什么也没解释的噪音。
+	waited := sharedPrefixGate.Holder() != ""
+	if waited {
 		logger.Infof("实例 %s 正在等待实例 %s 初始化完成后再启动"+
 			"（linux.prefix_mode=shared，多实例共用一个 Wine prefix，需串行启动）",
-			instanceName, launchGate.holder())
-		select {
-		case launchGate.sem <- struct{}{}:
-		case <-ctx.Done():
-			return func() {}, fmt.Errorf("等待共享 Wine prefix 启动闸门时被取消: %w", ctx.Err())
-		}
-		logger.Infof("实例 %s 已获得共享 Wine prefix 的启动许可，开始启动", instanceName)
+			instanceName, sharedPrefixGate.Holder())
 	}
 
-	launchGate.setHolder(instanceName)
+	release, err = sharedPrefixGate.Acquire(ctx, instanceName)
+	if err != nil {
+		return func() {}, fmt.Errorf("等待共享 Wine prefix 启动闸门时被取消: %w", err)
+	}
 
-	var once sync.Once
-	return func() {
-		once.Do(func() {
-			launchGate.setHolder("")
-			<-launchGate.sem
-		})
-	}, nil
+	if waited {
+		logger.Infof("实例 %s 已获得共享 Wine prefix 的启动许可，开始启动", instanceName)
+	}
+	return release, nil
 }
 
 // conflictingArkApiInstance 找出「已经在跑、并且也启用了 ArkApi」的实例，
