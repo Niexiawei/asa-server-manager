@@ -3,6 +3,7 @@
 package runner
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -15,7 +16,28 @@ import (
 	"syscall"
 
 	"asa-server/pkg/logger"
+	"asa-server/pkg/sysuser"
 )
+
+// findAdminTool resolves a user-admin/ACL binary. LookPath first (honors
+// PATH), then the sbin dirs it commonly lives in — a systemd service's PATH
+// doesn't always include /usr/sbin. Empty string = not found anywhere.
+//
+// A small duplicate of pkg/sysuser's own copy (which needs it for
+// useradd/groupadd): this file's uses (setfacl/getfacl) aren't a "system
+// user" concept, so they don't belong on that package, and the function
+// itself is short enough that sharing it isn't worth a new tiny package.
+func findAdminTool(name string) string {
+	if p, err := exec.LookPath(name); err == nil {
+		return p
+	}
+	for _, dir := range []string{"/usr/sbin", "/sbin", "/usr/local/sbin", "/usr/bin"} {
+		if p := filepath.Join(dir, name); fileExists(p) {
+			return p
+		}
+	}
+	return ""
+}
 
 // Shared-access trees: directories that BOTH root and the dropped runtime user
 // have to be able to write.
@@ -122,16 +144,15 @@ func sharedAccessStatus() SharedAccessInfo {
 // No-op when we aren't managing a dropped user. Idempotent.
 func prepareSharedTree(root string) error {
 	cfg := getConfig()
-	if !runtimeUserManaged(cfg) {
+	su := sysUserFor(cfg)
+	if !su.Managed() {
 		return nil
 	}
-	u, err := lookupOrCreateRuntimeUser(cfg)
-	if err != nil {
+	if err := su.EnsureUser(context.Background()); err != nil {
 		return err
 	}
-	uid, _ := strconv.Atoi(u.Uid)
-	gid, _ := strconv.Atoi(u.Gid)
-	return applySharedAccess(root, uid, gid, runtimeGroupName(u.Gid))
+	uid, gid, _ := su.ChildIDs()
+	return applySharedAccess(root, int(uid), int(gid), runtimeGroupName(strconv.Itoa(int(gid))))
 }
 
 // applySharedAccess is the two-step worker: group ownership + setgid + g+rwX
@@ -160,7 +181,7 @@ func applySharedAccess(root string, uid, gid int, group string) error {
 	logger.Warnf("POSIX ACLs unavailable on %s (%v); falling back to chown -R to the runtime user. "+
 		"Install the 'acl' package (or mount with acl support) so plugin/mod files uploaded as root "+
 		"stay writable by the game process", root, aclErr)
-	return chownTree(root, uid, gid)
+	return sysuser.ChownTreeAs(uid, gid, root)
 }
 
 // chgrpSetgidTree sets the group of every entry under root to gid, adds group
