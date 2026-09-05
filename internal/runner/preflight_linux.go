@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"asa-server/pkg/linuxdeps"
+	"asa-server/pkg/xvfb"
 )
 
 // preflight runs the host dependency checks scripts/ark_instance_manager.sh
@@ -74,26 +75,6 @@ func checkOverlayfs() *Problem {
 // package main's startup gate (EnsureRuntimeUser then VerifyRuntimeAccess).
 func runtimeUserProblems() []Problem { return verifyRuntimeAccess(false) }
 
-// xvfbInstallHint is the per-distro install line, kept in one place because
-// three different messages point at it (preflight, the vcredist skip note and
-// the launch-time error).
-//
-// The package names here are the ones that ship **Xvfb**, the X.Org virtual
-// framebuffer server — not Debian's xvfb-run wrapper script, which this program
-// no longer uses precisely because Fedora/RHEL/Arch don't ship it. See
-// docs/XVFB_CROSS_DISTRO_DISPLAY_PLAN.md.
-const xvfbInstallHint = "安装 Xvfb（Debian/Ubuntu: sudo apt install xvfb  |  " +
-	"Fedora/RHEL: sudo dnf install xorg-x11-server-Xvfb  |  " +
-	"Arch: sudo pacman -S xorg-server-xvfb  |  " +
-	"openSUSE: sudo zypper install xorg-x11-server-extra）"
-
-// xvfbFontHint covers a failure only a self-managed Xvfb can even see: a
-// minimal install with no fonts makes the X server exit outright
-// ("could not open default font 'fixed'"). Under xvfb-run this happened too,
-// it just went to /dev/null along with everything else the server said.
-const xvfbFontHint = "Xvfb 缺少基础字体，装上即可（Debian/Ubuntu: sudo apt install xfonts-base  |  " +
-	"Fedora/RHEL: sudo dnf install xorg-x11-fonts-misc  |  Arch: sudo pacman -S xorg-fonts-misc）"
-
 // checkDisplay reports whether this host can hand a Wine process an X display.
 //
 // Wine's winex11.drv failing to connect makes every CreateWindow call fail —
@@ -151,7 +132,7 @@ func checkDisplay() *Problem {
 			"Wine 下没有显示时它们直接失败（加载器 5 秒后以退出码 3 退出，一行日志都不写）。" +
 			"**不启用 ArkApi 的实例不受影响** —— ArkAscendedServer.exe 本身不需要显示，" +
 			"所以这一项不阻断安装",
-		Fix: xvfbInstallHint + "。若 " + x11SocketDir + " 是只读挂载（WSLg 就是这么挂的），" +
+		Fix: xvfb.InstallHint + "。若 " + xvfb.SocketDir + " 是只读挂载（WSLg 就是这么挂的），" +
 			"asa-server 以 root 运行时会尝试把它重新挂载为可写（linux.allow_x11_remount，" +
 			"默认开）；这一步也失败时，需要系统里有一个不需要 xauth cookie 就能连的 X 服务，" +
 			"并可用 config.yaml 的 linux.display 指定它",

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"asa-server/pkg/download"
+	"asa-server/pkg/xvfb"
 )
 
 // vcRedistInstallTimeout 给安装器的硬上限。/quiet 理论上不弹窗，但 Wine 下的 Burn
@@ -90,7 +91,7 @@ func ensureVCRedist(ctx context.Context, cfg Config, prefixKey string, logf func
 		// （不是只有 system32 没补齐）。
 		logf("跳过 VC++ 运行时安装：%s。", blocked)
 		logf("  override 已经写好，普通实例不受影响；但 **ArkApi 实例同样起不来** ——")
-		logf("  AsaApiLoader.exe 也要求有图形显示。请%s，然后重跑 asa-server setup。", xvfbInstallHint)
+		logf("  AsaApiLoader.exe 也要求有图形显示。请%s，然后重跑 asa-server setup。", xvfb.InstallHint)
 		return nil
 	}
 

@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"asa-server/pkg/xvfb"
 )
 
 // TestDisplayApplyToAppendsLast: 显示以环境变量的形式追加，且必须排在最后 ——
@@ -60,8 +62,8 @@ func TestX11SocketPathParsing(t *testing.T) {
 		{"remote.host:0", "", "远程显示没有本地 socket"},
 	}
 	for _, tt := range tests {
-		if got := x11SocketPath(tt.display); got != tt.want {
-			t.Errorf("x11SocketPath(%q) = %q, want %q（%s）", tt.display, got, tt.want, tt.why)
+		if got := xvfb.SocketPath(tt.display); got != tt.want {
+			t.Errorf("xvfb.SocketPath(%q) = %q, want %q（%s）", tt.display, got, tt.want, tt.why)
 		}
 	}
 }
@@ -69,11 +71,11 @@ func TestX11SocketPathParsing(t *testing.T) {
 // TestX11DisplayUsableRejectsDeadDisplay: 光有 DISPLAY 变量不算数 —— 实测
 // DISPLAY=:99（无人监听）与完全不设一样失败。远程形式无法本地判断，放行。
 func TestX11DisplayUsableRejectsDeadDisplay(t *testing.T) {
-	if x11DisplayUsable(":99999") {
-		t.Error("x11DisplayUsable(\":99999\") = true, want false — 没有这个 socket")
+	if xvfb.DisplayUsable(":99999") {
+		t.Error("xvfb.DisplayUsable(\":99999\") = true, want false — 没有这个 socket")
 	}
-	if !x11DisplayUsable("remote.host:0") {
-		t.Error("x11DisplayUsable(remote) = false, want true — 远程显示交给调用方去试")
+	if !xvfb.DisplayUsable("remote.host:0") {
+		t.Error("xvfb.DisplayUsable(remote) = false, want true — 远程显示交给调用方去试")
 	}
 }
 
@@ -200,10 +202,10 @@ func TestDisplayStatusMatchesPlan(t *testing.T) {
 // TestDisplayStatusStartsNothing: 诊断视图不许有副作用。自管那一档的「拿到显示」
 // 意味着真的 fork 一个 X 服务端，被 GET /api/system/preflight 问一句就起一个是不行的。
 func TestDisplayStatusStartsNothing(t *testing.T) {
-	before := currentManagedXvfb()
+	before := xvfbManager().Status()
 	_ = displayStatus()
 	_ = checkDisplay()
-	if currentManagedXvfb() != before {
+	if xvfbManager().Status() != before {
 		t.Error("displayStatus/checkDisplay started an X server as a side effect")
 	}
 }
@@ -242,8 +244,8 @@ func TestDisplayProblemDetailCarriesRealReason(t *testing.T) {
 // TestXvfbUnavailableReasonDistinguishesCauses: 「没装 Xvfb」「xvfb_bin 指错了」
 // 「socket 目录不可写」是三件不同的事，指引也不同。只有第一种才该让用户去装包。
 func TestXvfbUnavailableReasonDistinguishesCauses(t *testing.T) {
-	if got := xvfbUnavailableReason(errNoXvfb, ""); !strings.Contains(got, "sudo apt install xvfb") {
-		t.Errorf("errNoXvfb → %q, want the install hint", got)
+	if got := xvfbUnavailableReason(xvfb.ErrNoBinary, ""); !strings.Contains(got, "sudo apt install xvfb") {
+		t.Errorf("xvfb.ErrNoBinary → %q, want the install hint", got)
 	}
 	badBin := errors.New("linux.xvfb_bin 指向的 /nope/Xvfb 不存在或不可执行")
 	if got := xvfbUnavailableReason(badBin, ""); !strings.Contains(got, "/nope/Xvfb") {
@@ -265,39 +267,36 @@ func TestXvfbUnavailableReasonDistinguishesCauses(t *testing.T) {
 // 而且不能再拿 o+w 当判据 —— 那条判据会把「属主是运行时用户的 0755 目录」判成
 // 不可写，而目录恰恰是上一轮那个降权 Xvfb 自己建的（第一次成功毒死后续每一次）。
 func TestX11SocketDirStateExplainsRefusal(t *testing.T) {
-	st := x11SocketDirState(getConfig())
+	st := xvfbManager().SocketDirState()
 	if st.Writable && st.Why != "" {
-		t.Errorf("x11SocketDirState = %+v；可写就不该带原因", st)
+		t.Errorf("SocketDirState = %+v；可写就不该带原因", st)
 	}
 	if !st.Writable && st.Why == "" {
-		t.Errorf("x11SocketDirState = %+v；不可写必须说明原因", st)
+		t.Errorf("SocketDirState = %+v；不可写必须说明原因", st)
 	}
 	if st.Writable && st.Fixable {
-		t.Errorf("x11SocketDirState = %+v；已经可写就没有「待修」这回事", st)
+		t.Errorf("SocketDirState = %+v；已经可写就没有「待修」这回事", st)
 	}
-	if !st.Writable && !strings.Contains(st.Why, x11SocketDir) && !strings.Contains(st.Why, "/tmp") {
-		t.Errorf("refusal reason %q names neither %s nor /tmp", st.Why, x11SocketDir)
+	if !st.Writable && !strings.Contains(st.Why, xvfb.SocketDir) && !strings.Contains(st.Why, "/tmp") {
+		t.Errorf("refusal reason %q names neither %s nor /tmp", st.Why, xvfb.SocketDir)
 	}
 }
 
 // TestX11SocketDirStateFixableNeedsRootAndConsent: 「只读挂载但我们修得好」这一档
 // 有两个前提，缺一不可 —— 必须是 root（remount 要 CAP_SYS_ADMIN），
-// 且 linux.allow_x11_remount 没被关掉。关掉时不但不能 Fixable，还要在原因里说清楚
+// 且 AllowX11Remount 没被关掉。关掉时不但不能 Fixable，还要在原因里说清楚
 // 是**配置**挡住的，否则用户会去查一个根本不存在的权限问题。
 func TestX11SocketDirStateFixableNeedsRootAndConsent(t *testing.T) {
-	cfg := getConfig()
-	cfg.AllowX11Remount = false
-	st := x11SocketDirState(cfg)
+	st := xvfb.New(xvfb.Config{AllowX11Remount: false}).SocketDirState()
 	if st.Fixable {
-		t.Errorf("allow_x11_remount=false 却报 Fixable：%+v", st)
+		t.Errorf("AllowX11Remount=false 却报 Fixable：%+v", st)
 	}
-	if !st.Writable && !strings.Contains(st.Why, "allow_x11_remount") &&
+	if !st.Writable && !strings.Contains(st.Why, "AllowX11Remount") &&
 		strings.Contains(st.Why, "只读挂载") {
-		t.Errorf("只读挂载 + 开关关掉时，原因里必须点名 allow_x11_remount：%q", st.Why)
+		t.Errorf("只读挂载 + 开关关掉时，原因里必须点名 AllowX11Remount：%q", st.Why)
 	}
 	if os.Geteuid() != 0 {
-		cfg.AllowX11Remount = true
-		if st := x11SocketDirState(cfg); st.Fixable {
+		if st := xvfb.New(xvfb.Config{AllowX11Remount: true}).SocketDirState(); st.Fixable {
 			t.Errorf("非 root 却报 Fixable（remount 需要 CAP_SYS_ADMIN）：%+v", st)
 		}
 	}

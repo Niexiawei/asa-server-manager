@@ -20,31 +20,20 @@ package runner
 // 只有上面两条路径会去解析显示，普通实例启动一如既往地不碰它。
 //
 // 见 docs/ARKAPI_LINUX_VCREDIST_PLAN.md §9 与 docs/XVFB_CROSS_DISTRO_DISPLAY_PLAN.md。
+//
+// 自管虚拟显示的机制本身（拉起/看门狗/认领/socket 目录 remount）在
+// asa-server/pkg/xvfb；本文件只留「显示从哪来」的候选链业务规则。
 
 import (
 	"errors"
-	"fmt"
-	"io"
-	"net"
 	"os"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
-	"syscall"
-	"time"
 
 	"asa-server/pkg/logger"
+	"asa-server/pkg/xvfb"
 )
-
-// x11SocketDir 是 X 服务发布本地 socket 的**唯一**位置 —— 路径写死在 xtrans 里，
-// 不受任何环境变量影响。整个文件里对它的两次检查（能不能写、里面有没有现成的
-// socket）都源自这一点。
-const x11SocketDir = "/tmp/.X11-unix"
-
-// x11ProbeTimeout 是探测一个显示能不能连的超时。本地 unix socket 的握手是微秒级，
-// 给足一秒纯粹是防对端半死不活地吊着。
-const x11ProbeTimeout = time.Second
 
 // displayKind 是「显示从哪来」的四种答案，常量的声明顺序就是候选顺序：
 // **点名的 > 自己管的 > 捡来的 > 扫出来的**（见 planDisplay）。
@@ -54,12 +43,12 @@ const (
 	displayNone displayKind = ""
 	// displayConfigured：linux.display 点名的。唯一表达了「请用这个显示」的一档。
 	displayConfigured displayKind = "configured"
-	// displayManaged：我们自己拉起的 Xvfb（xvfb_linux.go）。
+	// displayManaged：自管的 Xvfb（asa-server/pkg/xvfb）。
 	displayManaged displayKind = "managed"
 	// displayEnv：从环境变量 DISPLAY 捡来的。没有人表达过意图 —— 桌面终端、
 	// su -、WSLg 都会顺手把它塞进来。
 	displayEnv displayKind = "env"
-	// displayExisting：扫 /tmp/.X11-unix 扫出来的、系统里已在跑的 X 服务。
+	// displayExisting：扫 SocketDir 扫出来的、系统里已在跑的 X 服务。
 	displayExisting displayKind = "existing"
 )
 
@@ -72,7 +61,6 @@ const (
 type displayPlan struct {
 	Kind    displayKind
 	Display string // Kind 为 env/existing 时的 ":0"
-	XvfbBin string // Kind 为 managed 时解析好的 Xvfb 路径
 	How     string // 人类可读的说明
 }
 
@@ -94,44 +82,33 @@ type displayTarget struct {
 //     它也是「我就是想用宿主那个显示」的逃生舱（调试时想看见游戏窗口，配它）。
 //     后台服务进程通常**没有** DISPLAY（真机 /proc/<pid>/environ 里只有 HOME=/root），
 //     这也是把机器上现成的 X 服务告诉它的唯一办法。
-//  2. **自管 Xvfb**，要求 /tmp/.X11-unix 可写（或我们改得动，见 x11SocketDirState）。
-//     它是这条链上唯一**由我们启动、由我们监控、随我们退出**的显示：不依赖任何桌面
-//     会话，用户注销、桌面重启、WSLg 重启都不会把游戏带走；而且它是进程内单例，
-//     天然保证所有实例拿到同一个显示。判据是 **Xvfb 这个服务端二进制**，不是 Debian
-//     那个 xvfb-run 脚本 —— 后者 Fedora/RHEL/Arch 压根不提供，拿它当判据会把能用的
-//     机器挡在门外（docs/XVFB_CROSS_DISTRO_DISPLAY_PLAN.md §1）。
+//  2. **自管 Xvfb**，要求 SocketDir 可写（或我们改得动）。它是这条链上唯一**由我们
+//     启动、由我们监控、随我们退出**的显示：不依赖任何桌面会话，用户注销、桌面
+//     重启、WSLg 重启都不会把游戏带走；而且它是进程内单例，天然保证所有调用方
+//     拿到同一个显示。判据是 **Xvfb 这个服务端二进制**，不是 Debian 那个 xvfb-run
+//     脚本 —— 后者 Fedora/RHEL/Arch 压根不提供，拿它当判据会把能用的机器挡在门外
+//     （docs/XVFB_CROSS_DISTRO_DISPLAY_PLAN.md §1）。
 //  3. 环境变量 `DISPLAY` **捡来**的显示。它以前排在第 1 位，但没有人表达过「请用这个」
 //     的意思：从桌面终端启动、从 su - 继承、WSLg 自动导出都会带上它，而它的生命周期
 //     不归我们管。降到自管 Xvfb 之后（docs/ALWAYS_MANAGED_XVFB_DISPLAY_PLAN.md §1.1）。
-//  4. 扫 /tmp/.X11-unix 扫出来的、握手能过的 X 服务。兜底。
+//  4. 扫 SocketDir 扫出来的、握手能过的 X 服务。兜底。
 //
-// 后两档保留而不是删掉，是**故意的**：一台没有 Xvfb、或 /tmp/.X11-unix 死活写不了的
+// 后两档保留而不是删掉，是**故意的**：一台没有 Xvfb、或 SocketDir 死活写不了的
 // 机器（WSL 是其中一种）仍然要能跑起 ArkApi，而不是拿到一句「本机没有可用的 X 显示」。
 //
 // # 为什么是「链」而不是「一个答案」
 //
-// 第 2 档从「只服务无头机」升到「几乎所有机器」之后，它的 acquire 是**可能失败**的
+// 第 2 档从「只服务无头机」升到「几乎所有机器」之后，它的 acquire 是**可能失败的**
 // （缺字体、/tmp 满了、SELinux 拦了）。若仍只返回一个答案，一台本来靠 :0 跑得好好的
 // 机器会因为 Xvfb 起不来而启动失败 —— 纯粹的回归。返回整条链，让 acquireDisplay 依次
 // 尝试，既堵住这个回归，又不破坏「planDisplay 只读 / acquire 才动手」这条分界：
 // **链非空 ⇔ 这台机器有合理把握拿到显示**，preflight 与 DisplayStatus 问的还是它。
 //
-// 为什么第 2 档要检查 /tmp/.X11-unix 可写 —— 这是 2026-08-30 真机踩出来的：WSLg 把
-// 这个目录挂成 **只读 tmpfs**（`none on /tmp/.X11-unix type tmpfs (ro,relatime)`），
-// 于是 `Xvfb :100` 建不出文件 socket，只剩一个抽象 socket，pressure-vessel 只能报
-//
-//	W: X11 socket /tmp/.X11-unix/X100 does not exist in filesystem,
-//	   trying to use abstract socket instead.
-//
-// 然后容器里的程序连不上，GE-Proton 的 xalia 抛
-// `PlatformNotSupportedException: Video driver not supported`，AsaApiLoader 同样
-// 起不来 —— 又回到那个「零输出」的失败模式。既然这个前提可以直接测出来，就不该赌。
-//
 // **不传 XAUTHORITY**。理由与 inheritedEnv 的白名单同源：它经常指向 /run/user/0
 // 下面的路径，而 pressure-vessel 会老老实实地去 bind 环境变量点名的每一个路径，
 // 降权之后那次 bind 直接让整个容器起不来（DBUS_SESSION_BUS_ADDRESS 那次就是这么坑了
 // 一整晚，见 inheritedEnv 的注释）。所以四条路都只认**不需要 cookie 就能握手**的显示，
-// 自管的那个 Xvfb 也因此不带 -auth（见 xvfbArgs）。
+// 自管的那个 Xvfb 也因此不带 -auth。
 func planDisplay(cfg Config) ([]displayPlan, string) {
 	var plans []displayPlan
 
@@ -142,16 +119,17 @@ func planDisplay(cfg Config) ([]displayPlan, string) {
 	}
 
 	// ② 自管 Xvfb
-	xvfbBin, xvfbErr := xvfbBinary(cfg)
-	dir := x11SocketDirState(cfg)
+	mgr := xvfbManager()
+	_, xvfbErr := mgr.BinaryPath()
+	dir := mgr.SocketDirState()
 	if xvfbErr == nil && (dir.Writable || dir.Fixable) {
 		how := "自管 Xvfb 虚拟显示"
 		if !dir.Writable {
 			// 只读挂载但我们改得动。说出来，别让「拉起 Xvfb 之前顺手 remount 了
 			// 一个系统目录」这件事只有读代码的人才知道。
-			how += "（需先把 " + x11SocketDir + " 重新挂载为可写：" + dir.Why + "）"
+			how += "（需先把 " + xvfb.SocketDir + " 重新挂载为可写：" + dir.Why + "）"
 		}
-		plans = append(plans, displayPlan{Kind: displayManaged, XvfbBin: xvfbBin, How: how})
+		plans = append(plans, displayPlan{Kind: displayManaged, How: how})
 	}
 
 	// ③ 捡来的
@@ -194,10 +172,16 @@ func planDisplay(cfg Config) ([]displayPlan, string) {
 //   - socket 文件不在 —— DISPLAY=:99（无人监听）与完全不设一样失败；
 //   - socket 在但握不上手 —— 多半是它要 xauth cookie，而我们刻意不传 XAUTHORITY。
 func namedDisplayPlan(kind displayKind, display, how string) (displayPlan, bool) {
-	if display == "" || !x11SocketExists(display) || !x11DisplayUsable(display) {
+	if display == "" || !x11SocketExists(display) || !xvfb.DisplayUsable(display) {
 		return displayPlan{}, false
 	}
 	return displayPlan{Kind: kind, Display: display, How: how}, true
+}
+
+// x11SocketExists 校验 DISPLAY 指向的本地 X 服务的 socket 文件是不是真的在。
+// 这只是握手前的快速筛子；能不能连由 xvfb.DisplayUsable 说了算。
+func x11SocketExists(display string) bool {
+	return xvfb.SocketPath(display) != "" || !xvfb.IsLocalDisplay(display)
 }
 
 // containsKind 报告链里有没有这一档。
@@ -226,13 +210,13 @@ func containsDisplay(plans []displayPlan, display string) bool {
 // xvfbUnavailableReason 说明「自管 Xvfb」这一档为什么走不通。
 //
 // 三种原因必须分清楚。以前不管哪一种都归到同一句「本机没有可用的 X 显示，也没有
-// Xvfb —— 请安装 Xvfb」，于是 2026-08-31 那台 AlmaLinux（Xvfb 装在 /usr/bin/Xvfb、
-// 真正的问题是 /tmp/.X11-unix 权限不对）得到的唯一指引，是去装一个它早就装好了的包。
-// 判断得对却说不清，等于没判断。
+// Xvfb —— 请安装 Xvfb」，于是一台 Xvfb 装在 /usr/bin/Xvfb、真正的问题是 SocketDir
+// 权限不对的机器，得到的唯一指引是去装一个它早就装好了的包。判断得对却说不清，
+// 等于没判断。
 func xvfbUnavailableReason(xvfbErr error, dirWhy string) string {
 	switch {
-	case errors.Is(xvfbErr, errNoXvfb):
-		return "本机没有 Xvfb —— 请" + xvfbInstallHint
+	case errors.Is(xvfbErr, xvfb.ErrNoBinary):
+		return "本机没有 Xvfb —— 请" + xvfb.InstallHint
 	case xvfbErr != nil:
 		// linux.xvfb_bin 指错了。原文（哪个路径、不存在还是不可执行）比任何转述都有用。
 		return xvfbErr.Error()
@@ -244,7 +228,7 @@ func xvfbUnavailableReason(xvfbErr error, dirWhy string) string {
 // xvfbUnavailableNote 是同一件事的短版本，挂在「用了现成显示」的说明后面当尾注。
 func xvfbUnavailableNote(xvfbErr error, dirWhy string) string {
 	switch {
-	case errors.Is(xvfbErr, errNoXvfb):
+	case errors.Is(xvfbErr, xvfb.ErrNoBinary):
 		return "（本机没有 Xvfb）"
 	case xvfbErr != nil:
 		return "（Xvfb 不可用：" + xvfbErr.Error() + "）"
@@ -259,13 +243,13 @@ func (p displayPlan) acquire(cfg Config) (displayTarget, error) {
 	case displayConfigured, displayEnv, displayExisting:
 		return displayTarget{Env: []string{"DISPLAY=" + p.Display}, How: p.How}, nil
 	case displayManaged:
-		x, err := ensureXvfb(cfg, p.XvfbBin)
+		display, err := xvfbManager().Acquire()
 		if err != nil {
 			return displayTarget{}, err
 		}
 		return displayTarget{
-			Env: []string{"DISPLAY=" + x.display},
-			How: "自管 Xvfb 虚拟显示 " + x.display,
+			Env: []string{"DISPLAY=" + display},
+			How: "自管 Xvfb 虚拟显示 " + display,
 		}, nil
 	}
 	return displayTarget{}, errors.New("本机没有可用的图形显示")
@@ -327,85 +311,10 @@ func (d displayTarget) applyTo(env []string) []string {
 
 // --- 探测 -----------------------------------------------------------------------
 
-// x11SocketExists 校验 DISPLAY 指向的本地 X 服务的 socket 文件是不是真的在。
-// 这只是握手前的快速筛子；能不能连由 x11DisplayUsable 说了算。
-func x11SocketExists(display string) bool {
-	return x11SocketPath(display) != "" || !isLocalDisplay(display)
-}
-
-// x11SocketPath 把 ":0" / ":0.0" 这样的本地 DISPLAY 换算成 socket 文件路径，
-// 文件不存在或不是本地形式时返回 ""。
-func x11SocketPath(display string) string {
-	if !isLocalDisplay(display) {
-		return ""
-	}
-	num := strings.TrimPrefix(display, ":")
-	if i := strings.Index(num, "."); i >= 0 {
-		num = num[:i] // 去掉 screen 号，socket 只按 display 号命名
-	}
-	if num == "" {
-		return ""
-	}
-	if _, err := strconv.Atoi(num); err != nil {
-		return ""
-	}
-	path := filepath.Join(x11SocketDir, "X"+num)
-	if !pathExists(path) {
-		return ""
-	}
-	return path
-}
-
-// isLocalDisplay 区分 ":0" 这样的本地显示与 "host:0" / 路径形式的远程显示。
-// 只有本地形式能靠 socket 与握手判断，远程的交给调用方自己去试。
-func isLocalDisplay(display string) bool {
-	return strings.HasPrefix(display, ":")
-}
-
-// x11DisplayUsable 真的连一次 X 服务并走一遍**无认证**的连接握手。
-//
-// 为什么要做到这一步而不是止于「socket 文件在不在」：本项目刻意不传 XAUTHORITY
-// （见 planDisplay 的注释），所以一个需要 cookie 的显示对我们就是不可用的 ——
-// 而它的 socket 文件明明在。拿文件存在当判据，会挑中一个连不上的显示，然后又变成
-// 那个「加载器零输出退出」的谜题。握手一次就能把猜测换成事实，代价是几微秒。
-//
-// 自管 Xvfb 的就绪判定（managedXvfb.waitReady）用的也是这个函数 —— 起没起来与能不能用
-// 必须是同一个判据。
-//
-// 协议（X11 §连接建立）：客户端先发 12 字节的 setup 请求，服务端回的第一个字节
-// 0=Failed / 1=Success / 2=Authenticate。我们只看这一个字节，不解析后面的
-// 服务端信息，也不需要任何 X 库。
-func x11DisplayUsable(display string) bool {
-	if !isLocalDisplay(display) {
-		return true // 远程显示无法本地判断，放行让调用方去试
-	}
-	path := x11SocketPath(display)
-	if path == "" {
-		return false
-	}
-	conn, err := net.DialTimeout("unix", path, x11ProbeTimeout)
-	if err != nil {
-		return false
-	}
-	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(x11ProbeTimeout))
-
-	// 'l' = 小端；protocol-major=11, minor=0；auth 名与 auth 数据长度都是 0。
-	req := []byte{'l', 0, 11, 0, 0, 0, 0, 0, 0, 0, 0, 0}
-	if _, err := conn.Write(req); err != nil {
-		return false
-	}
-	resp := make([]byte, 8)
-	if _, err := io.ReadFull(conn, resp); err != nil {
-		return false
-	}
-	return resp[0] == 1
-}
-
-// firstUsableX11Display 扫 /tmp/.X11-unix，返回第一个握手能过的显示号。
+// firstUsableX11Display 扫 SocketDir，返回第一个握手能过的显示号。
 // 显示号按数值升序，好让结果稳定（同一台机器每次选中同一个）。
 func firstUsableX11Display() string {
-	entries, err := os.ReadDir(x11SocketDir)
+	entries, err := os.ReadDir(xvfb.SocketDir)
 	if err != nil {
 		return ""
 	}
@@ -420,106 +329,16 @@ func firstUsableX11Display() string {
 	sort.Ints(nums)
 	for _, n := range nums {
 		d := ":" + strconv.Itoa(n)
-		if x11DisplayUsable(d) {
+		if xvfb.DisplayUsable(d) {
 			return d
 		}
 	}
 	return ""
 }
 
-// x11DirState 是 socket 目录的可写性判断结果。
-//
-// Fixable 这一档存在的理由：只读挂载（WSLg）是 root 也写不进去的唯一情形，而它恰恰
-// 是我们**改得动**的 —— acquire 那一侧会 remount。判断侧若只报「不可写」，
-// 自管 Xvfb 在 WSL 上就永远进不了候选链，等于这条路在最需要它的场景里默认关闭。
-// 所以这里如实分成三种：能写、现在不能但我们修得好、不能且修不了。
-type x11DirState struct {
-	Writable bool
-	Fixable  bool
-	Why      string // 不可写的原因，原样进用户文案，所以要具体
-}
-
-// x11SocketDirState 报告 Xvfb 能不能在 /tmp/.X11-unix 里发布一个**文件** socket。
-//
-// # 这里曾经有一条 o+w 判据，它把自己毒死了
-//
-// 原来的最后一行是 `fi.Mode().Perm()&0o002 != 0`，想用「目录是不是 world-writable」
-// 模拟「降权之后的 Xvfb 写不写得进去」。2026-08-31 真机（AlmaLinux）上翻车：
-//
-//	drwxr-xr-x. 2 asa-umu-runtime asa-umu-runtime /tmp/.X11-unix
-//
-// 这个目录是**上一轮那个降权 Xvfb 自己建的** —— 非 root 的 X 服务端建不出 1777
-// （chmod 不动），落到 umask 022 就是 0755，属主正是它。于是：
-//
-//   - 那个用户明明是属主、rwx 俱全、写得进去，o+w 这一条却判它不行；
-//   - 更糟的是目录**不存在**时这个函数只看 /tmp，返回 true。第一次启动因此成功，
-//     而它一成功就把目录建成了 0755 —— **第一次成功把后续每一次都毒死了**。
-//     Xvfb 装在 /usr/bin/Xvfb，preflight 却一口咬定「本机没有可用的 X 显示」。
-//
-// # 现在的判据：本进程的写入能力，加上「我们改不改得动它」
-//
-//   - access(2) 的 W_OK。root 绕得过权限位，但绕不过**只读挂载**（返回 EROFS），
-//     而只读挂载正是 WSLg 那个坑；asa-server 不以 root 运行时，它就是完整答案。
-//   - 目录不存在时看 /tmp —— X 服务端会自己建，我们也会先替它建好。
-//
-// 降权那一档不在这里猜了。runtimeUserManaged 蕴含 euid == 0，也就是说凡是要降权的
-// 场合，**这个目录的权限我们都改得动**：真要起 Xvfb 之前由 ensureX11SocketDir 把它
-// 扶正到 X 的约定 1777。判断与动作因此各归各位 —— planDisplay 只读，acquire 才动手。
-//
-// # 只读挂载：判据是 EROFS，不是「这是不是 WSL」
-//
-// EROFS 是 root 也写不进去的唯一原因，而 remount 恰恰能修好它。触发条件因此写成
-// 「错误码是 EROFS + 我们是 root + 配置允许」，**不写成「这台机器是不是 WSL」**——
-// 按机器长什么样判断能力，正是 §10/§11.6 反复记过的那个错误形状。任何一台把
-// /tmp/.X11-unix 挂成只读的机器都该得到同样的处置，WSL 只是最常见的一种。
-func x11SocketDirState(cfg Config) x11DirState {
-	fi, err := os.Stat(x11SocketDir)
-	if err != nil {
-		if aerr := syscall.Access("/tmp", writeOK); aerr != nil {
-			return x11DirState{Why: fmt.Sprintf("/tmp 不可写（%v），Xvfb 建不出 %s", aerr, x11SocketDir)}
-		}
-		return x11DirState{Writable: true}
-	}
-	if !fi.IsDir() {
-		return x11DirState{Why: x11SocketDir + " 存在但不是目录"}
-	}
-
-	aerr := syscall.Access(x11SocketDir, writeOK)
-	if aerr == nil {
-		return x11DirState{Writable: true}
-	}
-	if errors.Is(aerr, syscall.EROFS) {
-		why := x11SocketDir + " 是只读挂载（WSLg 就是这么挂的），Xvfb 建不出文件 socket，" +
-			"pressure-vessel 也就没法把显示带进容器"
-		if os.Geteuid() == 0 && cfg.AllowX11Remount {
-			return x11DirState{Fixable: true, Why: why}
-		}
-		return x11DirState{Why: why + x11RemountUnavailableNote(cfg)}
-	}
-	return x11DirState{Why: fmt.Sprintf("%s 不可写（%v；当前权限 %04o）—— 本进程身份没有写权限，"+
-		"Xvfb 无法在那里发布 socket", x11SocketDir, aerr, fi.Mode().Perm())}
-}
-
-// x11RemountUnavailableNote 说明「只读挂载，而且这次不打算去修」的原因。
-// 两种情况指引完全不同，不能合成一句。
-func x11RemountUnavailableNote(cfg Config) string {
-	if !cfg.AllowX11Remount {
-		return "；linux.allow_x11_remount 为 false，不尝试把它重新挂载为可写"
-	}
-	return "；重新挂载它需要 root，而 asa-server 不是以 root 运行"
-}
-
-// writeOK is access(2)'s W_OK. Spelled out rather than pulled from x/sys/unix
-// so this file keeps to the standard library.
-const writeOK = 0x2
-
 // stopManagedDisplay 是 runner.StopManagedDisplay 的实现。
-//
-// 顺序要紧：先收掉 Xvfb（它自己会清 socket 与 lock 文件），再把可能被我们改成可写的
-// 挂载点还原回只读。反过来做的话，Xvfb 退出时清不掉自己的 socket。
 func stopManagedDisplay() {
 	stopManagedXvfb()
-	restoreX11SocketDirRO()
 }
 
 // displayStatus 是 runner.DisplayStatus 的实现。**只读**：自管那一档只报告
@@ -545,9 +364,9 @@ func displayStatus() DisplayInfo {
 	}
 	if p.Kind == displayManaged {
 		info.Managed = true
-		if x := currentManagedXvfb(); x != nil {
-			info.Display = x.display
-			info.How = "自管 Xvfb 虚拟显示 " + x.display
+		if status := xvfbManager().Status(); status.Running {
+			info.Display = status.Display
+			info.How = "自管 Xvfb 虚拟显示 " + status.Display
 		} else {
 			info.How = "自管 Xvfb 虚拟显示（尚未启动，将在需要时拉起）"
 		}
