@@ -1,11 +1,17 @@
 // Package vcredist holds the pure logic for installing Microsoft's VC++
 // runtime into a Wine prefix: download-URL/checksum resolution, the
 // installed-vs-Wine-builtin judgement, DLL-override .reg generation, and
-// installer exit-code translation. It does not know about umu, prefixes, or
-// how to actually execute a Windows exe — that mechanism (running something
-// via umu-run, resolving a display, dropping to a runtime user) is supplied
-// by the caller, since this package would otherwise have to depend on
-// pkg/umu/pkg/wineprefix/pkg/xvfb just to describe "run this .exe".
+// installer exit-code translation. It also reads a prefix to answer "is it
+// installed / are the overrides in place" (inspect.go) — that is a Wine
+// directory layout, the same kind of thing pkg/wineprefix knows, not an ASA
+// domain concept, and splitting the judgement from "which file to read" only
+// made both halves harder to follow.
+//
+// It does not know about umu or how to actually execute a Windows exe — that
+// mechanism (running something via umu-run, resolving a display, dropping to
+// a runtime user) is supplied by the caller, since this package would
+// otherwise have to depend on pkg/umu/pkg/wineprefix/pkg/xvfb just to
+// describe "run this .exe".
 //
 // Every judgement here is checked against winetricks' vcrun2022 verb
 // (https://github.com/Winetricks/winetricks src/winetricks) rather than

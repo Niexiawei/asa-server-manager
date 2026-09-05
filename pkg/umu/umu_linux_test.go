@@ -3,6 +3,7 @@
 package umu
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -162,5 +163,71 @@ func TestPrefixMarker_RoundTrips(t *testing.T) {
 	}
 	if got := PrefixMarker(prefix); got != "GE-Proton10-34" {
 		t.Errorf("PrefixMarker = %q, want GE-Proton10-34", got)
+	}
+}
+
+// hasEnv 报告 env 里有没有某个 KEY=（不比较值）。
+func hasEnv(env []string, key string) bool {
+	for _, e := range env {
+		if strings.HasPrefix(e, key+"=") {
+			return true
+		}
+	}
+	return false
+}
+
+// TestRunEnv_ZeroOptionsIsWarmPrefixShape: WarmPrefix 传的是零值 RunOptions，
+// 它**必须**既不带 UMU_RUNTIME_UPDATE 也不带 PROTON_VERB ——
+//   - 前者：wineboot 那一次是唯一必须被允许去拉运行时的调用，关掉更新检查会让全新
+//     机器上的第一次 setup 拿不到 Steam Linux Runtime；
+//   - 后者：它要的正是 umu 默认的 waitforexitandrun。
+//
+// 这两条是 runInPrefix 下沉进本包时唯一有行为风险的地方（见
+// docs/RUNNER_INSTANCE_PACKAGE_SPLIT_TODO.md §4），所以单独钉住。
+func TestRunEnv_ZeroOptionsIsWarmPrefixShape(t *testing.T) {
+	r := New(Config{GameID: "umu-0"})
+	env := r.runEnv("/tmp/pfx", RunOptions{})
+
+	if hasEnv(env, "UMU_RUNTIME_UPDATE") {
+		t.Error("零值 RunOptions 带上了 UMU_RUNTIME_UPDATE，wineboot 将无法拉取缺失的运行时")
+	}
+	if hasEnv(env, "PROTON_VERB") {
+		t.Error("零值 RunOptions 带上了 PROTON_VERB，wineboot 需要 umu 的默认 verb")
+	}
+	for _, want := range []string{"WINEPREFIX", "GAMEID", "PROTONPATH", "PROTON_USE_XALIA"} {
+		if !hasEnv(env, want) {
+			t.Errorf("runEnv 少了 %s：%v", want, env)
+		}
+	}
+}
+
+// TestRunEnv_VCRedistShape: vcredist 那两次必须两样都带 —— PROTON_VERB=run 尤其
+// 关键，umu 默认的 waitforexitandrun 会先跑 `wineserver -w`，共享 prefix 上只要有
+// 实例在跑就永不返回。
+func TestRunEnv_VCRedistShape(t *testing.T) {
+	r := New(Config{GameID: "umu-0"})
+	env := r.runEnv("/tmp/pfx", RunOptions{NoRuntimeUpdate: true, Verb: "run"})
+
+	if !slices.Contains(env, "UMU_RUNTIME_UPDATE=0") {
+		t.Errorf("NoRuntimeUpdate 没生效：%v", env)
+	}
+	if !slices.Contains(env, "PROTON_VERB=run") {
+		t.Errorf("Verb 没生效：%v", env)
+	}
+}
+
+// TestRunEnv_DoesNotAliasInheritedEnv: runEnv 连着调两次，第二次不能看见第一次
+// 追加的东西。InheritedEnv 若返回一个有富余容量的切片，就地 append 会让「解析一次
+// 环境、跑两条命令」串味 —— vcredist 正是连着跑 regedit 与安装器两条。
+func TestRunEnv_DoesNotAliasInheritedEnv(t *testing.T) {
+	r := New(Config{GameID: "umu-0"})
+	_ = r.runEnv("/tmp/a", RunOptions{NoRuntimeUpdate: true, Verb: "run"})
+	second := r.runEnv("/tmp/b", RunOptions{})
+
+	if hasEnv(second, "UMU_RUNTIME_UPDATE") || hasEnv(second, "PROTON_VERB") {
+		t.Errorf("第二次 runEnv 看见了第一次追加的变量：%v", second)
+	}
+	if !slices.Contains(second, "WINEPREFIX=/tmp/b") {
+		t.Errorf("第二次 runEnv 的 WINEPREFIX 不对：%v", second)
 	}
 }

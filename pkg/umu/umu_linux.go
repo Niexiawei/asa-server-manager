@@ -252,40 +252,18 @@ func (r *Runtime) WarmPrefix(ctx context.Context, prefix string, logf func(strin
 		return fmt.Errorf("failed to hand prefix dir to the runtime user: %w", err)
 	}
 
-	py, err := r.Interpreter()
-	if err != nil {
-		return fmt.Errorf("failed to resolve a Python interpreter for umu-run: %w", err)
-	}
-
-	cmd := exec.CommandContext(ctx, py.Path, r.RunPath(), "wineboot", "--init")
-	// inheritedEnv, not os.Environ(): a leaked DBUS_SESSION_BUS_ADDRESS
-	// pointing at root's session bus makes bwrap refuse to start the whole
-	// container. See InheritedEnv's comment.
-	cmd.Env = append(InheritedEnv(),
-		"WINEPREFIX="+prefix,
-		"GAMEID="+cfg.GameID,
-		"PROTONPATH="+r.ProtonPath(),
-		// Deliberately no UMU_RUNTIME_UPDATE=0 here: this is the one
-		// invocation that must be allowed to fetch a missing runtime.
-		ProtonNoXalia,
-	)
-	// Warm the prefix as the same non-root user that will later run the
-	// game, so the prefix + Steam Linux Runtime cache are created with the
-	// right owner from the start.
-	if cred, err := cfg.credential(); err != nil {
-		return err
-	} else if cred != nil {
-		cmd.SysProcAttr = &syscall.SysProcAttr{Credential: cred}
-		cmd.Env = RuntimeEnv(cmd.Env, cfg.homeDir(), cfg.userName())
-	}
-	out := NewOutputCapture(logf)
-	cmd.Stdout = out
-	cmd.Stderr = out
 	// A non-zero exit is tolerated on its own — the reference script's `|| true`
 	// is right that wineboot can grumble and still have built the prefix. What
 	// is NOT tolerated is an unverified result: the exit code is kept only to
 	// annotate the verdict the filesystem gives us below.
-	runErr := cmd.Run()
+	//
+	// Deliberately no NoRuntimeUpdate and no Verb: this is the one invocation
+	// that must be allowed to fetch a missing runtime, and the one that wants
+	// umu's default waitforexitandrun. See RunOptions' field comments.
+	tail, runErr := r.RunInPrefix(ctx, prefix, []string{"wineboot", "--init"}, RunOptions{}, logf)
+	if errors.Is(runErr, ErrNoInterpreter) {
+		return runErr
+	}
 
 	WaitForWineserverDrain(prefix)
 
@@ -295,11 +273,127 @@ func (r *Runtime) WarmPrefix(ctx context.Context, prefix string, logf func(strin
 	// that had just silently failed.
 	if !PrefixInitialized(prefix) {
 		return fmt.Errorf("Wine 前缀初始化失败：%s 里没有生成 system.reg%s。wineboot 最后的输出：\n%s",
-			prefix, exitNote(runErr), out.Tail())
+			prefix, exitNote(runErr), tail)
 	}
 
 	logf("umu runtime and Wine prefix ready")
 	return writePrefixMarker(prefix, cfg.ProtonVersion, cfg.chownPath)
+}
+
+// RunOptions tunes a single RunInPrefix call. The zero value is what
+// WarmPrefix's wineboot needs; every field exists because exactly one caller
+// deviates from it.
+type RunOptions struct {
+	// Timeout caps the whole run. 0 = no cap.
+	//
+	// Needed because /quiet does not actually guarantee no dialog: under Wine
+	// a WiX Burn bootstrapper can still pop up a box nobody will ever click,
+	// hanging the caller forever.
+	Timeout time.Duration
+	// ExtraEnv is appended **last**, after the runtime-user rewrite. That
+	// ordering is deliberate and load-bearing for DISPLAY: RuntimeEnv strips
+	// XDG_*, and exec takes the last occurrence of a duplicated name, so
+	// appending last keeps a future filter from eating it.
+	//
+	// This is also how "a display" reaches umu-run without this package having
+	// to know what a display is — resolving one is a caller-side business
+	// rule (internal/runner's display candidate chain).
+	ExtraEnv []string
+	// NoRuntimeUpdate sets UMU_RUNTIME_UPDATE=0 — the runtime is already
+	// installed by the time those callers run, so there is no reason to let umu
+	// go ask repo.steampowered.com about updates. WarmPrefix must NOT set it:
+	// fetching a missing runtime is that call's whole job.
+	NoRuntimeUpdate bool
+	// Verb sets PROTON_VERB. Empty keeps umu's default (waitforexitandrun).
+	//
+	// "run" is required for anything touching a prefix that may already have a
+	// game in it: waitforexitandrun starts with `wineserver -w`, which never
+	// returns while another instance holds the same prefix — the caller then
+	// hangs until Timeout with no useful clue as to why.
+	Verb string
+}
+
+// runEnv assembles the environment every umu-run invocation starts from —
+// everything except the runtime-user rewrite and ExtraEnv, both of which have
+// to come after it (see RunInPrefix).
+//
+// Split out so the two deliberate deviations between callers are unit
+// testable: WarmPrefix's wineboot passes the zero RunOptions and must end up
+// with neither UMU_RUNTIME_UPDATE nor PROTON_VERB set, because it is the one
+// call allowed to fetch a missing runtime and the one that wants umu's
+// default verb.
+func (r *Runtime) runEnv(prefix string, opt RunOptions) []string {
+	cfg := r.config()
+	// InheritedEnv, not os.Environ(): a leaked DBUS_SESSION_BUS_ADDRESS
+	// pointing at root's session bus makes bwrap refuse to start the whole
+	// container. See InheritedEnv's comment.
+	env := append(InheritedEnv(),
+		"WINEPREFIX="+prefix,
+		"GAMEID="+cfg.GameID,
+		"PROTONPATH="+r.ProtonPath(),
+		ProtonNoXalia,
+	)
+	if opt.NoRuntimeUpdate {
+		env = append(env, "UMU_RUNTIME_UPDATE=0")
+	}
+	if opt.Verb != "" {
+		env = append(env, "PROTON_VERB="+opt.Verb)
+	}
+	return env
+}
+
+// ErrNoInterpreter marks "there is no usable Python for umu-run", so a caller
+// can tell a launch that never happened from one that ran and failed without
+// matching on error text.
+var ErrNoInterpreter = errors.New("no usable Python interpreter for umu-run")
+
+// RunInPrefix runs a command under umu-run against prefix, to completion, and
+// returns the tail of its output.
+//
+// argv is everything after umu-run — either a Windows exe path plus its
+// arguments, or a Proton verb like "wineboot". The full command line is
+// `<python> <umu-run> <argv...>`, matching scripts/ark_instance_manager.sh.
+//
+// This is the one place that knows how to run something in a prefix: both
+// WarmPrefix's wineboot and internal/runner's VC++ runtime installation go
+// through it, so their environments cannot drift apart. It deliberately does
+// **not** WaitForWineserverDrain — whether the prefix must be quiet again
+// before the caller continues is the caller's judgement, and one of them (the
+// DLL-override regedit import) has no reason to wait.
+func (r *Runtime) RunInPrefix(ctx context.Context, prefix string, argv []string,
+	opt RunOptions, logf func(string, ...any)) (string, error) {
+
+	cfg := r.config()
+
+	py, err := r.Interpreter()
+	if err != nil {
+		return "", fmt.Errorf("%w: %w", ErrNoInterpreter, err)
+	}
+
+	if opt.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, opt.Timeout)
+		defer cancel()
+	}
+
+	env := r.runEnv(prefix, opt)
+
+	cmd := exec.CommandContext(ctx, py.Path, append([]string{r.RunPath()}, argv...)...)
+	// Run as the same non-root user that will later run the game, so whatever
+	// this writes into the prefix (and into the Steam Linux Runtime cache) has
+	// the right owner from the start.
+	if cred, err := cfg.credential(); err != nil {
+		return "", err
+	} else if cred != nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{Credential: cred}
+		env = RuntimeEnv(env, cfg.homeDir(), cfg.userName())
+	}
+	cmd.Env = append(env, opt.ExtraEnv...)
+
+	out := NewOutputCapture(logf)
+	cmd.Stdout, cmd.Stderr = out, out
+	runErr := cmd.Run()
+	return out.Tail(), runErr
 }
 
 // runtimeUserNameHint is a best-effort label for RuntimeEnv's USER/LOGNAME
