@@ -4,12 +4,43 @@ package instance
 
 import (
 	"asa-server/pkg/console"
+	"asa-server/pkg/iox"
 	"asa-server/pkg/logger"
+	"asa-server/pkg/tail"
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
+)
+
+// ArkApi（AsaApiLoader.exe）的业务日志**不走控制台**，只写文件：
+//
+//	<游戏 exe 目录>/logs/ArkApi_<wine 侧 PID>_<YYYY-MM-DD_HH-MM>.log
+//
+// 实例场景下「游戏 exe 目录」是镜像里的 ShooterGame/Binaries/Win64/，每次启动一个
+// 新文件，轮转由 ArkApi 自己按 config.json 的 DeleteOldLogs 处理。
+//
+// 这件事在 Linux 上很要命：这里 PTY 里跑的是 umu-run 整条包装链，不是加载器本体，
+// 所以实例的 arkAsaApi.log 收到的全是 umu/pressure-vessel/Proton 的噪声，
+// ArkApi 的内容一行都没有。而且「把噪声过滤掉」是行不通的 —— 过滤完是空的。
+// 见 docs/ARKAPI_LINUX_LOGGING_AND_PID_PLAN.md §1。
+//
+// 「目录里找最新匹配文件，且要等它出现」的机制部分在 asa-server/pkg/tail
+// （WaitNewest）；「持续转抄」的机制部分在 asa-server/pkg/iox（Relay）。本文件
+// 只留 ArkApi 日志自己的命名规则与调用胶水。
+
+// arkApiLogDirRel 是 ArkApi 日志目录相对游戏根目录的位置。
+const arkApiLogDirRel = "ShooterGame/Binaries/Win64/logs"
+
+// ArkApi 日志的文件名形状。用宽松的前后缀匹配而不是精确解析 PID 与时间戳：
+// 上游改了格式时我们只会挑错文件，而不是一个都挑不到。
+const (
+	arkApiLogPrefix = "ArkApi_"
+	arkApiLogSuffix = ".log"
 )
 
 // ArkApi 日志转抄协程的节奏。
@@ -23,6 +54,15 @@ const (
 	// 加载 —— 此时写一行说明并退出，而不是留一个永远在转的协程。
 	arkApiLogAppearTimeout = 5 * time.Minute
 )
+
+// arkApiLogDir 返回某个实例镜像里的 ArkApi 日志目录。
+func arkApiLogDir(mirrorDir string) string {
+	return filepath.Join(mirrorDir, filepath.FromSlash(arkApiLogDirRel))
+}
+
+func isArkApiLogName(name string) bool {
+	return strings.HasPrefix(name, arkApiLogPrefix) && strings.HasSuffix(name, arkApiLogSuffix)
+}
 
 // startAsaApiLogging 把这次 ArkApi 启动的输出接到实例目录里。Linux 版本要做两件事，
 // 因为这里的 PTY 和 Windows 的 PTY 装的**不是同一样东西**：
@@ -74,10 +114,26 @@ func copyArkApiLog(instanceName, mirrorDir string, launchedAt time.Time, done <-
 	dir := arkApiLogDir(mirrorDir)
 	note(dst, "正在等待 ArkApi 日志出现（%s）；启动链本身的输出在同目录的 launcher.log", dir)
 
-	srcPath, err := awaitArkApiLog(dir, launchedAt, done)
+	// done 关闭与「等待超时」合并成一个 ctx：WaitNewest 只需要认识一种取消信号，
+	// 而 ctx.Err() 的两种取值（Canceled/DeadlineExceeded）恰好够区分下面的措辞。
+	ctx, cancel := context.WithTimeout(context.Background(), arkApiLogAppearTimeout)
+	defer cancel()
+	go func() {
+		select {
+		case <-done:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+
+	srcPath, err := tail.WaitNewest(ctx, dir, launchedAt, isArkApiLogName, arkApiLogPollInterval)
 	if err != nil {
 		// 说清楚而不是留一个空文件 —— 「静默」正是这个问题最初难查的原因。
-		note(dst, "未能找到本次启动的 ArkApi 日志：%v", err)
+		reason := "启动链已结束，仍未生成 ArkApi 日志"
+		if errors.Is(err, context.DeadlineExceeded) {
+			reason = fmt.Sprintf("等待超过 %s", arkApiLogAppearTimeout)
+		}
+		note(dst, "未能找到本次启动的 ArkApi 日志：%s", reason)
 		note(dst, "多半意味着 ArkApi 没有被加载。请看 launcher.log，或跑 asa-server verify-arkapi")
 		return
 	}
@@ -90,59 +146,9 @@ func copyArkApiLog(instanceName, mirrorDir string, launchedAt time.Time, done <-
 	}
 	defer src.Close()
 
-	follow(src, dst, done)
-}
-
-// awaitArkApiLog 等本次启动的 ArkApi 日志出现，done 关闭或超时则放弃。
-func awaitArkApiLog(dir string, launchedAt time.Time, done <-chan struct{}) (string, error) {
-	deadline := time.After(arkApiLogAppearTimeout)
-	for {
-		if path, err := newestArkApiLog(dir, launchedAt); err == nil {
-			return path, nil
-		}
-		select {
-		case <-done:
-			// 启动链已经结束了，再看最后一眼：日志可能在最后一刻才落盘。
-			if path, err := newestArkApiLog(dir, launchedAt); err == nil {
-				return path, nil
-			}
-			return "", errors.New("启动链已结束，仍未生成 ArkApi 日志")
-		case <-deadline:
-			return "", fmt.Errorf("等待超过 %s", arkApiLogAppearTimeout)
-		case <-time.After(arkApiLogPollInterval):
-		}
-	}
-}
-
-// follow 把 src 的增量内容持续写进 dst，直到 done 关闭后把剩余内容读完为止。
-//
-// 用轮询而不是 fsnotify（pkg/tail 那套）：这里两端都是普通文件、需要的是字节级
-// 透传而不是按行分发，一个读到 EOF 就歇一会儿的循环没有 inotify 的 watch 上限、
-// 文件替换、事件丢失这些边角问题。
-func follow(src *os.File, dst io.Writer, done <-chan struct{}) {
-	buf := make([]byte, 32*1024)
-	finishing := false
-	for {
-		n, err := src.Read(buf)
-		if n > 0 {
-			if _, werr := dst.Write(buf[:n]); werr != nil {
-				return
-			}
-			continue // 还有内容就接着读，别急着去睡
-		}
-		if err != nil && !errors.Is(err, io.EOF) {
-			return
-		}
-		if finishing {
-			return // 收尾这一轮已经读到 EOF，真的没有了
-		}
-		select {
-		case <-done:
-			// 启动链结束：再跑一轮把尾巴读干净，然后退出。
-			finishing = true
-		case <-time.After(arkApiLogPollInterval):
-		}
-	}
+	iox.Relay(ctx, src, dst, arkApiLogPollInterval, func(msg string) {
+		logger.Warnf("ArkApi log relay for instance %s stopped: %s", instanceName, msg)
+	})
 }
 
 // note 往转抄目标里写一行 asa-server 自己的说明，与 ArkApi 的行区分开。
