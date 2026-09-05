@@ -27,7 +27,7 @@
 |---|---:|---|
 | `python_linux.go` | 49 | 纯胶水：`pyfinder.New()` + 把 `Config.PythonBin` 接进去 |
 | `xvfb_linux.go` | 49 | 纯胶水：`xvfb.New()` + `Reconfigure` |
-| `umu_linux.go` | 209 | 组合根：umu/wineprefix 单例 + `ensureRuntime` 编排（无法再下沉，见 PLAN §"关键设计决策" 4.2 的 wineprefix→umu 单向依赖论证） |
+| `umu_linux.go` | 203 | 组合根：umu/wineprefix 单例 + `ensureRuntime` 编排（无法再下沉，见 PLAN §"关键设计决策" 4.2 的 wineprefix→umu 单向依赖论证）。原 209 行，薄转发层已按 `docs/RUNNER_GLUE_INLINE_PLAN.md` 删除 |
 | `display_linux.go` | 45 | 见 §3 Gap C（已执行，原 375 行） |
 | `preflight_linux.go` | 141 | 聚合逻辑，方案设计如此 |
 | `prefix_windows.go` | 24 | 六个入口在 Windows 上的空实现 |

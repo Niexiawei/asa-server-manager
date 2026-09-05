@@ -85,7 +85,7 @@ func ensureVCRedist(ctx context.Context, cfg Config, prefixKey string, logf func
 
 	// 全程用同一份 cfg（不是每处各取一次 getConfig()）：中途 Configure 换了指针会
 	// 导致「装到 A 前缀、校验 B 前缀」。
-	res, err := vcRedistInstallerFor(cfg, logf).Ensure(ctx, prefixDir(cfg, prefixKey), logf)
+	res, err := vcRedistInstallerFor(cfg, logf).Ensure(ctx, wineprefixMgrFor(cfg).Dir(prefixKey), logf)
 
 	var noDownload *vcredist.AutoDownloadDisabledError
 	if errors.As(err, &noDownload) {
@@ -116,7 +116,7 @@ func ensureVCRedist(ctx context.Context, cfg Config, prefixKey string, logf func
 // prefixHasVCRedist 只读判断某个 prefix 里有没有微软原生 VC++ 运行时。
 // 不联网、不改动，可以放心在实例启动这种热路径上调。判据见 vcredist.InstalledIn。
 func prefixHasVCRedist(prefixKey string) bool {
-	return vcredist.InstalledIn(prefixDir(getConfig(), prefixKey))
+	return vcredist.InstalledIn(wineprefixMgrFor(getConfig()).Dir(prefixKey))
 }
 
 // --- 诊断 ---------------------------------------------------------------------
@@ -129,7 +129,7 @@ func prefixHasVCRedist(prefixKey string) bool {
 // 不该顺手起个 X 服务。报候选链的头一档：安装真跑起来时先试的就是它。
 func vcRedistStatus(prefixKey, gameDir string) VCRedistInfo {
 	cfg := getConfig()
-	info := vcredist.Inspect(prefixDir(cfg, prefixKey), gameDir)
+	info := vcredist.Inspect(wineprefixMgrFor(cfg).Dir(prefixKey), gameDir)
 	info.Managed = cfg.Runtime == "umu"
 
 	if plans, blocked := planDisplay(); blocked != "" {

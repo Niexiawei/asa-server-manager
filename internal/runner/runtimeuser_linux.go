@@ -129,14 +129,15 @@ func reconcileRuntimeOwnership(cfg Config, su *sysuser.Manager) error {
 		}
 	}
 
-	if proton := protonPath(cfg); pathExists(proton) {
+	umuRT := umuRuntimeFor(cfg)
+	if proton := umuRT.ProtonPath(); pathExists(proton) {
 		if err := fsutil.EnsureWorldReadable(proton); err != nil {
 			return fmt.Errorf("chmod %s: %w", proton, err)
 		}
 	}
-	if umu := umuDir(cfg); pathExists(umu) {
-		if err := fsutil.EnsureWorldReadable(umu); err != nil {
-			return fmt.Errorf("chmod %s: %w", umu, err)
+	if umuDir := umuRT.Dir(); pathExists(umuDir) {
+		if err := fsutil.EnsureWorldReadable(umuDir); err != nil {
+			return fmt.Errorf("chmod %s: %w", umuDir, err)
 		}
 	}
 	return nil
@@ -147,12 +148,13 @@ func reconcileRuntimeOwnership(cfg Config, su *sysuser.Manager) error {
 // per-instance server-files-tmp-* dirs (wanted for the verify sampling, not
 // for the startup reconcile — see reconcileRuntimeOwnership).
 func rwSubtrees(cfg Config, includeMirrors bool) []string {
+	wp := wineprefixMgrFor(cfg)
 	out := []string{
-		prefixDir(cfg, ""),
+		wp.Dir(""),
 		filepath.Join(cfg.BaseDir, "clusters"),
 	}
-	overlays := wineprefixMgrFor(cfg).OverlayRoot()
-	if m, _ := filepath.Glob(prefixDir(cfg, "") + "-*"); len(m) > 0 {
+	overlays := wp.OverlayRoot()
+	if m, _ := filepath.Glob(wp.Dir("") + "-*"); len(m) > 0 {
 		for _, p := range m {
 			// The overlay root is not a prefix, and walking it here would be
 			// actively harmful — see wineprefix.Manager.UnmountedOverlayDirs.
@@ -172,7 +174,7 @@ func rwSubtrees(cfg Config, includeMirrors bool) []string {
 	// reasons (see that method's doc) — `work` in particular is the
 	// kernel's private scratch area (root-owned, mode 000), and listing it
 	// is what made the very first real-hardware launch fail.
-	out = append(out, wineprefixMgrFor(cfg).UnmountedOverlayDirs()...)
+	out = append(out, wp.UnmountedOverlayDirs()...)
 	if includeMirrors {
 		if m, _ := filepath.Glob(filepath.Join(cfg.BaseDir, "server-files-tmp-*")); len(m) > 0 {
 			out = append(out, m...)
@@ -209,8 +211,8 @@ func verifyRuntimeAccess(forceDeep bool) []Problem {
 	return sysUserFor(cfg).Problems(sysuser.AccessCheck{
 		OwnershipDirs:  rwSubtrees(cfg, true),
 		TraversableDir: cfg.BaseDir,
-		ReadableEntry:  filepath.Join(protonPath(cfg), "proton"),
-		ProbeDir:       prefixDir(cfg, ""),
+		ReadableEntry:  filepath.Join(umuRuntimeFor(cfg).ProtonPath(), "proton"),
+		ProbeDir:       wineprefixMgrFor(cfg).Dir(""),
 	}, forceDeep)
 }
 

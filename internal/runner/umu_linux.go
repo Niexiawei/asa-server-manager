@@ -76,19 +76,15 @@ func wineprefixMgrFor(cfg Config) *wineprefix.Manager {
 	return wineprefixMgr
 }
 
-// Directory-layout / launch-mechanism thin wrappers — unchanged signatures
-// so every other file in this package (runner_linux.go, vcredist_linux.go,
-// runtimeuser_linux.go, sharedaccess_linux.go, preflight_linux.go) needs no
-// further changes beyond what the sysuser/vcredist/xvfb/display phases
-// already made.
-func umuDir(cfg Config) string        { return umuRuntimeFor(cfg).Dir() }
-func umuRunPath(cfg Config) string    { return umuRuntimeFor(cfg).RunPath() }
-func protonPath(cfg Config) string    { return umuRuntimeFor(cfg).ProtonPath() }
-func prefixDir(cfg Config, key string) string { return wineprefixMgrFor(cfg).Dir(key) }
-
-// Wine-prefix lifecycle thin wrappers — see runner.go's exported
-// PrefixKeyFor/EnsurePrefix/RemoveInstancePrefix/PrefixStatus/
-// PrepareSharedPrefixWrite/ReconcilePrefixes for the documented contract.
+// Wine-prefix lifecycle. These six look like the directory-layout wrappers
+// that used to sit above them, but they are the **platform seam**, not
+// leftovers from the split: runner.go carries no build tag, so every
+// unexported name it calls needs a Windows definition too — that is what
+// prefix_windows.go's six no-ops are for. Deleting these would push a build
+// tag onto runner.go's call sites, which is the thing the seam exists to
+// avoid. See runner.go's exported PrefixKeyFor/EnsurePrefix/
+// RemoveInstancePrefix/PrefixStatus/PrepareSharedPrefixWrite/
+// ReconcilePrefixes for the documented contract.
 func prefixKeyFor(instanceName string) string { return wineprefixMgrFor(getConfig()).KeyFor(instanceName) }
 
 func ensurePrefix(ctx context.Context, prefixKey string, progress io.Writer) error {

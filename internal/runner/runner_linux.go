@@ -132,40 +132,41 @@ func runPTY(ctx context.Context, bin string, args, env []string, cred *syscall.C
 // callers can probe readiness up front. Error text is end-user facing.
 func checkRuntime() error {
 	cfg := getConfig()
+	umuRT := umuRuntimeFor(cfg)
 
-	bin := umuRunPath(cfg)
+	bin := umuRT.RunPath()
 	if fi, err := os.Stat(bin); err != nil || fi.Mode()&0111 == 0 {
 		return fmt.Errorf("Wine/Proton 运行时尚未初始化：缺少 umu-run（%s）。请运行 asa-server setup 完成环境准备", bin)
 	}
-	proton := protonPath(cfg)
+	proton := umuRT.ProtonPath()
 	if fi, err := os.Stat(filepath.Join(proton, "proton")); err != nil || fi.IsDir() {
 		return fmt.Errorf("Wine/Proton 运行时尚未初始化：缺少 %s（%s）。请运行 asa-server setup 完成环境准备", cfg.ProtonVersion, proton)
 	}
-	prefix := prefixDir(cfg, "")
+	prefix := wineprefixMgrFor(cfg).Dir("")
 	if _, err := os.Stat(filepath.Join(prefix, "system.reg")); err != nil {
 		return fmt.Errorf("Wine 前缀尚未初始化：%s。请运行 asa-server setup 完成环境准备", prefix)
 	}
 	return nil
 }
 
-// sharesWinePrefix asks prefixDir the question directly: would two different
-// instances land in the same prefix directory?
+// sharesWinePrefix asks wineprefix.Manager.Dir the question directly: would
+// two different instances land in the same prefix directory?
 //
 // It used to be a hand-written mode check (`PrefixMode != "per-instance"`),
 // which was correct with exactly two modes and silently wrong the moment a
 // third arrived — "overlay" isolates prefixes too, and a stale check would
 // have serialized its launches and rejected its second ArkApi instance, with
-// no error anywhere to explain either. Deriving the answer from prefixDir
-// makes drift impossible: whatever prefixDir decides IS the sharing model.
+// no error anywhere to explain either. Deriving the answer from Dir makes
+// drift impossible: whatever Dir decides IS the sharing model.
 //
 // The failure direction is also the safe one. An unconfigured (zero-value)
-// Config, or an unrecognized mode string, falls through prefixDir to the one
+// Config, or an unrecognized mode string, falls through Dir to the one
 // shared prefix — so this returns true, and the caller gets the launch gate
 // and the ArkApi exclusion. Over-serializing costs time; under-serializing
 // costs a three-minute hang and an orphaned process tree.
 func sharesWinePrefix() bool {
-	cfg := getConfig()
-	return prefixDir(cfg, "instance-a") == prefixDir(cfg, "instance-b")
+	wp := wineprefixMgrFor(getConfig())
+	return wp.Dir("instance-a") == wp.Dir("instance-b")
 }
 
 // umuCommandLine builds the umu-run invocation for exePath/args, matching
@@ -188,23 +189,24 @@ func umuCommandLine(exePath string, args []string, opt Options) (bin string, lau
 		return "", nil, nil, err
 	}
 
+	umuRT := umuRuntimeFor(cfg)
 	bin = py.Path
-	proton := protonPath(cfg)
+	proton := umuRT.ProtonPath()
 
 	// checkRuntime validated the default shared prefix; a per-instance launch
 	// (Options.PrefixKey set under PrefixMode "per-instance") uses a distinct
 	// directory that still has to exist.
-	prefix := prefixDir(cfg, opt.PrefixKey)
+	prefix := wineprefixMgrFor(cfg).Dir(opt.PrefixKey)
 	if _, statErr := os.Stat(prefix); statErr != nil {
 		return "", nil, nil, fmt.Errorf("runner: Wine prefix not found at %s (call EnsureRuntime first): %w", prefix, statErr)
 	}
 
 	// argv: <python> <umu-run> <exe> <exe args...>
-	launchArgs = append([]string{umuRunPath(cfg), exePath}, args...)
+	launchArgs = append([]string{umuRT.RunPath(), exePath}, args...)
 
 	baseEnv := opt.Env
 	if baseEnv == nil {
-		baseEnv = inheritedEnv()
+		baseEnv = umu.InheritedEnv()
 	}
 	env = append(append([]string{}, baseEnv...),
 		"WINEPREFIX="+prefix,
@@ -235,18 +237,16 @@ func umuCommandLine(exePath string, args []string, opt Options) (bin string, lau
 	// written into the prefix registry at install time (see
 	// docs/ARKAPI_LINUX_VCREDIST_PLAN.md §2.4), so this is for one-off
 	// troubleshooting rather than normal operation. Appended last so it wins
-	// over anything inheritedEnv let through — exec keeps the last occurrence.
+	// over anything umu.InheritedEnv let through — exec keeps the last occurrence.
 	if cfg.WineDLLOverrides != "" {
 		env = append(env, "WINEDLLOVERRIDES="+cfg.WineDLLOverrides)
 	}
 	return bin, launchArgs, env, nil
 }
 
-// inheritedEnv/gamePath are thin wrappers over asa-server/pkg/umu — kept as
-// local names so umuCommandLine/runInPrefix below (and vcredist_linux.go)
-// don't need to change, and so this file has exactly one place that knows
-// the mechanism moved.
-func inheritedEnv() []string        { return umu.InheritedEnv() }
+// gamePath is the platform seam for runner.GamePath (runner_windows.go has
+// the identity version), so it stays a local name even though the mechanism
+// itself now lives in asa-server/pkg/umu.
 func gamePath(hostPath string) string { return umu.GamePath(hostPath) }
 
 // launcherIsDirect: umu-run is an OS-level wrapper — Handle.LauncherPID is
