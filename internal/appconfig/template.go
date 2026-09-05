@@ -142,6 +142,24 @@ download:
   timeout: 30s   # 只约束连接建立与响应头等待，不含大文件传输本身
   retries: 3
 
+# ArkApi 的 offsets cache 预取：在 AsaApiLoader.exe 启动**之前**，由本程序把 ArkApi
+# 需要的缓存下好、校验好、按它认得的格式提交好，让加载器启动时直接采用本地缓存。
+# 为什么值得做：那次下载由 ArkApi 自己的 C++ 代码发起，读不到上面的 download.http_proxy，
+# 没有断点续传，而且压着一个 10 分钟的总死线——慢到 10 分钟下不完的链路，它永远下不完。
+# 预取失败一律无声降级回「ArkApi 自己去下」，不会让原本能启动的实例启动不了。
+# 见 docs/ARKAPI_CACHE_PREFETCH_PLAN.md。
+arkapi_cache:
+  enabled: true                    # false = 完全不介入
+  # CDN 前缀列表，按顺序回退；留空 = 用内置默认列表（与 ArkApi 的默认顺序一致）：
+  #   https://cdn.pelayori.com/cache/
+  #   https://cdn.shadowhunter.co.za/cache/
+  #   https://cdn.shadowhunter-systems.co.za/cache/
+  # 顺序**必须**与 ArkApi 的默认顺序一致，尤其是第一个：写进缓存元数据的
+  # last_modified 要取自 ArkApi 会优先查询的那个 CDN，否则它会判定缓存过期并整包重下。
+  urls: []
+  keep_generations: 0              # 源目录里除当前版本外额外保留几代（镜像里由 ArkApi 自己清）
+  max_size: 805306368              # 768 MiB，与 ArkApi 侧的上限一致
+
 # Linux 专属：Wine/Proton 运行时（用于在 Linux 上运行 Windows 版 ARK 服务端 exe）。
 # 这整段在 Windows 上被忽略。
 linux:

@@ -23,6 +23,9 @@ func (c *Config) Validate() error {
 	if err := c.Download.validate(); err != nil {
 		return err
 	}
+	if err := c.ArkApiCache.validate(); err != nil {
+		return err
+	}
 	return c.Linux.validate()
 }
 
@@ -152,6 +155,28 @@ func (d *DownloadConfig) validate() error {
 	}
 	if d.Retries < 1 {
 		return fmt.Errorf("download.retries: 必须至少为 1，当前为 %d", d.Retries)
+	}
+	return nil
+}
+
+func (a *ArkApiCacheConfig) validate() error {
+	for i, raw := range a.URLs {
+		raw = strings.TrimSpace(raw)
+		u, err := url.Parse(raw)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			return fmt.Errorf("arkapi_cache.urls[%d]: %q 必须是完整的 http(s) 前缀，形如 https://cdn.example.com/cache/", i, raw)
+		}
+		// ZIP 地址是 <前缀><exe SHA256>.zip，前缀不以 / 结尾会拼成同级的兄弟路径。
+		if !strings.HasSuffix(raw, "/") {
+			raw += "/"
+		}
+		a.URLs[i] = raw
+	}
+	if a.MaxSize <= 0 {
+		return fmt.Errorf("arkapi_cache.max_size: 必须为正数，当前为 %d", a.MaxSize)
+	}
+	if a.KeepGenerations < 0 {
+		return fmt.Errorf("arkapi_cache.keep_generations: 不能为负，当前为 %d", a.KeepGenerations)
 	}
 	return nil
 }

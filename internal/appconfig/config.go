@@ -39,6 +39,9 @@ type Config struct {
 	Auth     AuthConfig     `mapstructure:"auth"`
 	Download DownloadConfig `mapstructure:"download"`
 	Linux    LinuxConfig    `mapstructure:"linux"`
+	// ArkApiCache 不放 linux 段下：ArkApi 在 Windows 上同样要下这份缓存，
+	// 而那是本项目的主力平台。
+	ArkApiCache ArkApiCacheConfig `mapstructure:"arkapi_cache"`
 }
 
 // ServerConfig 对应 HTTP 服务本身
@@ -241,6 +244,24 @@ type LinuxConfig struct {
 	// UmuRuntimeDeepProbe：asa-server 启动自检时是否 fork 降权子进程做真实写探测。
 	// 实例启动门禁处恒为开，此项只管 asa-server 启动那一次。
 	UmuRuntimeDeepProbe bool `mapstructure:"umu_runtime_deep_probe"`
+}
+
+// ArkApiCacheConfig 控制「在 AsaApiLoader.exe 启动之前把 ArkApi 的 offsets cache
+// 备好」这件事，见 docs/ARKAPI_CACHE_PREFETCH_PLAN.md。两平台都读。
+type ArkApiCacheConfig struct {
+	// Enabled 为 false 时完全不介入，回到「ArkApi 自己去下」的行为。
+	Enabled bool `mapstructure:"enabled"`
+	// URLs 是 CDN 前缀列表，按序回退；留空 = 用 pkg/arkcache 的内置默认值。
+	//
+	// 顺序**必须**与 ArkApi 的默认顺序一致，尤其是第一个：写进 cached_key.cache
+	// 的 last_modified 要取自 ArkApi 会优先 HEAD 的那个 CDN，否则它会判定缓存
+	// 过期并整包重下，预取完全失效（方案 §4.5）。
+	URLs []string `mapstructure:"urls"`
+	// KeepGenerations 是源目录里除当前哈希外额外保留几代。镜像里留几代由不得
+	// 我们——ArkApi 每次启动都会把非当选的整棵删掉。
+	KeepGenerations int `mapstructure:"keep_generations"`
+	// MaxSize 是下载体与解压总量的上限，默认 768 MiB，与 C++ 侧一致。
+	MaxSize int64 `mapstructure:"max_size"`
 }
 
 // current 让读侧无锁：热重载时整体换指针即可。
@@ -587,6 +608,10 @@ func defaultConfig() Config {
 			GameID:          "umu-default",
 			UmuRuntimeUser:  "asa-umu-runtime",
 		},
+		ArkApiCache: ArkApiCacheConfig{
+			Enabled: true,
+			MaxSize: 768 << 20,
+		},
 	}
 }
 
@@ -660,4 +685,9 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("linux.umu_runtime_gid", d.Linux.UmuRuntimeGID)
 	v.SetDefault("linux.umu_run_as_root", d.Linux.UmuRunAsRoot)
 	v.SetDefault("linux.umu_runtime_deep_probe", d.Linux.UmuRuntimeDeepProbe)
+
+	v.SetDefault("arkapi_cache.enabled", d.ArkApiCache.Enabled)
+	v.SetDefault("arkapi_cache.urls", []string{})
+	v.SetDefault("arkapi_cache.keep_generations", d.ArkApiCache.KeepGenerations)
+	v.SetDefault("arkapi_cache.max_size", d.ArkApiCache.MaxSize)
 }
