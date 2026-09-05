@@ -83,11 +83,8 @@ func wineprefixMgrFor(cfg Config) *wineprefix.Manager {
 // already made.
 func umuDir(cfg Config) string        { return umuRuntimeFor(cfg).Dir() }
 func umuRunPath(cfg Config) string    { return umuRuntimeFor(cfg).RunPath() }
-func protonBaseDir(cfg Config) string { return umuRuntimeFor(cfg).ProtonBaseDir() }
 func protonPath(cfg Config) string    { return umuRuntimeFor(cfg).ProtonPath() }
 func prefixDir(cfg Config, key string) string { return wineprefixMgrFor(cfg).Dir(key) }
-
-func waitForWineserverDrain(prefix string) { umu.WaitForWineserverDrain(prefix) }
 
 // Wine-prefix lifecycle thin wrappers — see runner.go's exported
 // PrefixKeyFor/EnsurePrefix/RemoveInstancePrefix/PrefixStatus/
