@@ -13,6 +13,11 @@ on:
 # GOOS=linux CGO_ENABLED=0. It still can't cover anything that needs a real
 # ARK/Wine/systemd environment (see docs/LINUX_COMPATIBILITY_PLAN.md §9)
 # — this is unit-test-level coverage only.
+#
+# pkg/procnet 的 eBPF 对象（procnet_amd64.o）不在这里处理：它是提交进仓库的编译
+# 产物，只在 BPF 源真的变了时才需要重新生成，用的是原生 paths 过滤 + 单独的
+# contents: write 权限，所以放在 .github/workflows/bpf.yml。本工作流照常会
+# build/vet/test 到 pkg/procnet（含校验内嵌对象契约的 spec_linux_test.go）。
 jobs:
   build:
     name: build (${{ matrix.goos }})

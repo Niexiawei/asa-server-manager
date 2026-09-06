@@ -1,0 +1,140 @@
+# pkg/procnet 的 eBPF 对象（procnet_amd64.o）的自动重生成。
+#
+# 为什么单独一个 workflow 而不是塞进 ci.yml：
+#   1. 需要 **原生 paths 过滤**——只有 BPF 源真的变了才跑。ci.yml 的触发器没有
+#      paths，塞进去就得自己用 git diff 判断改了哪些文件，而那条路在首次推分支
+#      （github.event.before 全零）、强推、浅克隆几种情况下都要额外兜底，容易漏跑
+#      或空跑。这里用 GitHub 原生的 paths，行为是确定的。
+#   2. 只有这个 job 需要 contents: write（要把重新生成的 .o 提交回来），
+#      单独一个文件就不必给 ci.yml 整体放宽权限。
+#
+# 为什么是「自动提交」而不是「校验字节是否一致」：这个 .o 在不同版本、不同发行版的
+# clang 下编出来的字节并不相同（指令选择与 BTF 编码都可能变），做成 diff 校验会在
+# 开发机 clang 与 CI clang 不同版本时长期红着。改成 CI 生成并提交回来，
+# CI 就是这个产物的权威构建者。
+name: BPF object
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "pkg/procnet/bpf/procnet.c"
+      - "pkg/procnet/bpf/bpf_min.h"
+      - "Makefile"
+      - ".github/workflows/bpf.yml"
+  pull_request:
+    branches: [master]
+    paths:
+      - "pkg/procnet/bpf/procnet.c"
+      - "pkg/procnet/bpf/bpf_min.h"
+      - "Makefile"
+      - ".github/workflows/bpf.yml"
+  # 手动重跑（比如想换 clang 版本重新出一份产物）
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  regenerate:
+    name: regenerate procnet_amd64.o
+    runs-on: ubuntu-latest
+    permissions:
+      # 唯一需要写权限的地方：把重新生成的 .o 提交回分支
+      contents: write
+    defaults:
+      run:
+        shell: bash
+    env:
+      OBJ: pkg/procnet/bpf/procnet_amd64.o
+      # fork 来的 PR 拿不到可写的 token，也推不回对方的仓库
+      IS_FORK: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+    steps:
+      # PR 场景要 checkout **PR 的分支本身**，而不是默认那个游离的 merge commit，
+      # 否则提交回去没有落点
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+
+      # 与 ci.yml 同一份配置：go.mod 里有一个私有模块。fork 的 PR 拿不到这个
+      # secret，但本 job 只 build/test pkg/procnet（依赖仅 cilium/ebpf +
+      # pkg/logger），用不到那个私有模块，跳过即可。
+      - name: Configure private modules
+        if: env.IS_FORK != 'true'
+        run: |
+          echo "GOPRIVATE=github.com/Niexiawei/go-arkparser" >> "$GITHUB_ENV"
+          git config --global url."https://${{ secrets.GH_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
+      # runner 镜像里的 LLVM 不保证有不带版本号的软链，所以按 clang 的主版本号
+      # 自己解析一次，再通过 make 的 ?= 变量传进去（环境变量优先于 ?=）
+      - name: Resolve clang / llvm-strip
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends clang llvm
+
+          clang_bin="$(command -v clang || command -v clang-18)"
+          major="$("$clang_bin" -dumpversion | cut -d. -f1)"
+          strip_bin="$(command -v llvm-strip || command -v "llvm-strip-$major" || true)"
+          if [ -z "$strip_bin" ]; then
+            echo "::error::找不到 llvm-strip（也没有 llvm-strip-$major）"
+            exit 1
+          fi
+
+          echo "CLANG=$clang_bin" >> "$GITHUB_ENV"
+          echo "LLVM_STRIP=$strip_bin" >> "$GITHUB_ENV"
+          "$clang_bin" --version | head -1
+          "$strip_bin" --version | head -1
+
+      - name: Regenerate
+        run: make bpf-force
+
+      # 产物有没有变都跑一遍：这一步校验的是「重新生成出来的对象仍然是我们期望的
+      # 那个契约」（两张 map 的 key/value 尺寸、六个程序名与挂点），
+      # 用错编译参数或改名了探针会在这里当场红掉，而不是等到 Linux 真机上
+      - name: Verify object contract
+        env:
+          GOOS: linux
+          GOARCH: amd64
+          CGO_ENABLED: "0"
+        run: go test ./pkg/procnet/...
+
+      - name: Detect change
+        id: diff
+        run: |
+          if git diff --quiet -- "$OBJ"; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "对象无变化，无需提交"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            git --no-pager diff --stat -- "$OBJ"
+          fi
+
+      # fork 的 PR 推不回去，只能把产物挂成 artifact 并要求作者本地重新生成
+      - name: Upload artifact (fork PR)
+        if: steps.diff.outputs.changed == 'true' && env.IS_FORK == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: procnet_amd64.o
+          path: pkg/procnet/bpf/procnet_amd64.o
+
+      - name: Fail with instructions (fork PR)
+        if: steps.diff.outputs.changed == 'true' && env.IS_FORK == 'true'
+        run: |
+          echo "::error::BPF 源已改动但 procnet_amd64.o 没跟着更新。fork 的 PR 无法自动提交，请在本地执行 \`make bpf\`（或 \`go generate ./pkg/procnet/...\`）后一并提交；本次 CI 生成的产物可从本 job 的 artifact 下载。"
+          exit 1
+
+      - name: Commit regenerated object
+        if: steps.diff.outputs.changed == 'true' && env.IS_FORK != 'true'
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$OBJ"
+          git commit             -m "chore(procnet): 重新生成 procnet_amd64.o"             -m "由 CI 在 BPF 源变更后自动生成（clang $("$CLANG" -dumpversion)）。"
+          git push
