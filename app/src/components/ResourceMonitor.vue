@@ -45,8 +45,9 @@
             :data="memData"
             :height="CHART_HEIGHT"
             :min-y="memMinY"
+            :max-y="memMaxY"
             :show-axes="false"
-            :fmt-y="fmtBytes"
+            :fmt-y="fmtMemPercentAsBytes"
         />
         <div class="mini-sub">
           <span>占用率 {{ resourceData.render.memory_percent_value }}%</span>
@@ -163,17 +164,25 @@ const ioSeries = [
   {label: '写', stroke: COLORS.write},
 ]
 
-// 内存画的是**占用字节**而不是占用率：两条曲线的形状完全一样（总量是常数），
-// 画两张纯属重复，而绝对值更直接。占用率与总量作为数字放在图下方。
 const cpuData = computed(() => trend.slice(['cpu_percent'], SPARK_WINDOW))
-const memData = computed(() => trend.slice(['memory_used'], SPARK_WINDOW))
+// 内存曲线画的是**占用率**（memory_percent），不是绝对字节：
+// 按字节画时 y 轴只能靠数据自适应，而 ARK 的 RSS 在几分钟里只漂几十~几百 MB，
+// 自适应量程会把这点变化放大到占满整张图 —— 7.2→7.35GB 这种小增长看着像「断崖」。
+// 占用率天然锚定在物理内存上（0~100），配合下面的最小量程，小变化就画成小起伏。
+// tooltip / 图例仍显示实际字节（memory_percent × 总内存），与卡片右上角的数值一致。
+const memData = computed(() => trend.slice(['memory_percent'], SPARK_WINDOW))
 const ioData = computed(() => trend.slice(['disk_read_bytes_per_sec', 'disk_write_bytes_per_sec'], SPARK_WINDOW))
 
-// 内存图的纵轴下限不能是 0（CPU 与 I/O 那两张是 0）：ARK 的 RSS 常年稳在 6~10GB
-// 上下缓慢漂移，0 起点会把 6.1→6.3GB 这种真正要看的变化压成一条直线。
-// 取窗口内的最小值再往下留一点余量，曲线才有形状；绝对值与占用率都在图外的文字里，
-// 不存在「贴着底边 = 快没内存了」的误读。
-const memMinY = computed(() => {
+// 最新一帧里的物理内存总量（常数），用于把占用率换算回字节展示
+const memTotal = computed(() => resourceData.value?.memory?.total || 0)
+
+// 内存图的最小纵向跨度（百分点）。31GB 内存下 10 个百分点 ≈ 3GB：一段 0.5% 的真实
+// 增长只占图高的 ~5%，不会被误读成暴涨；真出现进程内存泄漏（占用率翻倍）时照样看得出。
+const MEM_MIN_SPAN_PCT = 10
+
+// 纵轴取「数据实际波动带 ×1.6」与「最小跨度」里大的那个，并以波动带中点为中心摆放，
+// 上下各半；越界则整体平移回 [0,100]。0 起点会把 24%→25% 压成贴边直线，故不从 0 画。
+const memRange = computed(() => {
   const col = memData.value[1] || []
   let lo = Infinity
   let hi = -Infinity
@@ -182,10 +191,24 @@ const memMinY = computed(() => {
     if (v < lo) lo = v
     if (v > hi) hi = v
   }
-  if (!isFinite(lo)) return 0
-  const span = hi - lo
-  return Math.max(0, lo - (span > 0 ? span * 0.25 : lo * 0.02))
+  if (!isFinite(lo)) return {min: 0, max: null}
+  const span = Math.max((hi - lo) * 1.6, MEM_MIN_SPAN_PCT)
+  const mid = (lo + hi) / 2
+  let min = mid - span / 2
+  let max = mid + span / 2
+  if (min < 0) { max -= min; min = 0 }
+  if (max > 100) { min = Math.max(0, min - (max - 100)); max = 100 }
+  return {min, max}
 })
+const memMinY = computed(() => memRange.value.min)
+const memMaxY = computed(() => memRange.value.max)
+
+// 图上是占用率，展示给人看的是字节：占用率 × 总内存。拿不到总量时退回显示百分比。
+const fmtMemPercentAsBytes = (pct) => {
+  if (pct == null) return '-'
+  const total = memTotal.value
+  return total > 0 ? fmtBytes((pct / 100) * total) : `${pct.toFixed(1)}%`
+}
 
 // 措辞按 docs/RESOURCE_RATE_CHART_PLAN.md §2.1：这是「进程 I/O」不是「磁盘吞吐」，
 // Windows 上的口径尤其容易被误读
