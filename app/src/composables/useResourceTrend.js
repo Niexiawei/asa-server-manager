@@ -1,4 +1,4 @@
-import {ref, onMounted, onBeforeUnmount} from 'vue'
+import {ref, watch, onMounted, onBeforeUnmount} from 'vue'
 import {getMetricsHistory} from '@/apis/api.js'
 import {subscribeHost, subscribeInstance} from '@/composables/useResourceStream.js'
 
@@ -82,11 +82,18 @@ function instancePoint(payload) {
  * @param {Object} opts
  * @param {'host'|'instance'} opts.scope
  * @param {import('vue').Ref<string>|string} [opts.instanceName]
+ * @param {import('vue').Ref<boolean>} [opts.enabled] 为 false 时不回填也不订阅；
+ *        缺省视为恒 true。首页 masonry 下每个实例卡片都挂一份，未运行的实例
+ *        没必要在页面加载时各发一次历史回填请求。
+ * @param {number} [opts.backfillSeconds] 回填窗口，缺省 900（15 分钟）。
+ *        迷你 sparkline 只画几分钟，传小一点能显著缩小首屏那几个请求的体积。
  */
 export function useResourceTrend(opts) {
     const scope = opts.scope
     const fields = scope === 'host' ? HOST_FIELDS : INSTANCE_FIELDS
     const instanceName = () => (typeof opts.instanceName === 'string' ? opts.instanceName : opts.instanceName?.value)
+    const enabled = opts.enabled
+    const backfillSeconds = opts.backfillSeconds ?? BACKFILL_SECONDS
 
     // 缓冲用普通数组而不是 ref：450 点 × 10 条曲线每 2 秒全量代理一遍纯属浪费，
     // 变更用一个计数器通知，切片时读它来建立依赖
@@ -141,6 +148,7 @@ export function useResourceTrend(opts) {
     // 实例停机后 all-info 不再输出它，曲线会"冻结"而不是走出空洞；
     // 这里按 tick 补 null 点，让时间轴继续前进，图上能看出是从哪一刻断的
     const startPadding = () => {
+        if (timer) return
         timer = setInterval(() => {
             if (disposed) return
             if (Date.now() - lastFrameAt < STALE_MS) return
@@ -150,7 +158,7 @@ export function useResourceTrend(opts) {
 
     const backfill = async () => {
         try {
-            const res = await getMetricsHistory(BACKFILL_SECONDS, scope === 'instance' ? instanceName() : undefined)
+            const res = await getMetricsHistory(backfillSeconds, scope === 'instance' ? instanceName() : undefined)
             if (disposed || !res || !Array.isArray(res.timestamps)) return
             const src = scope === 'host' ? res.host : res.instance
             const stamps = res.timestamps
@@ -204,21 +212,51 @@ export function useResourceTrend(opts) {
         return false
     }
 
-    onMounted(async () => {
+    let started = false
+    // 代次计数：stop→start 若发生在回填还没返回的那一瞬间，只靠 started 布尔量
+    // 判断会让**两次** start 的续段都通过检查，于是订阅两次、漏掉一次退订
+    let runId = 0
+
+    const start = async () => {
+        if (started || disposed) return
+        started = true
+        const myRun = ++runId
         // 顺序固定：先回填灌满缓冲，再订阅增量
         await backfill()
-        if (disposed) return
+        if (disposed || runId !== myRun) return
         lastFrameAt = Date.now()
         unsubscribe = scope === 'host'
             ? subscribeHost(onFrame)
             : subscribeInstance(instanceName(), onFrame)
         startPadding()
+    }
+
+    // 停下来不清缓冲：实例停了再起来时曲线应当接着画，中间那段由 push 的
+    // 断档规则补一个空点，图上看得出是从哪一刻断的
+    const stop = () => {
+        started = false
+        runId++
+        if (timer) {
+            clearInterval(timer)
+            timer = null
+        }
+        if (unsubscribe) {
+            unsubscribe()
+            unsubscribe = null
+        }
+    }
+
+    onMounted(() => {
+        if (!enabled) {
+            start()
+            return
+        }
+        watch(enabled, (v) => (v ? start() : stop()), {immediate: true})
     })
 
     onBeforeUnmount(() => {
         disposed = true
-        if (timer) clearInterval(timer)
-        if (unsubscribe) unsubscribe()
+        stop()
     })
 
     return {ready, version, slice, hasData}
