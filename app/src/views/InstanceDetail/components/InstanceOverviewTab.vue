@@ -91,20 +91,7 @@
           </div>
         </div>
       </t-card>
-
       <div class="info-right" v-if="baseLoaded">
-        <t-card class="config-section resource-monitor-card" headerBordered>
-          <template #title>
-            <div class="config-card-title"><span>资源占用</span></div>
-          </template>
-          <resource-monitor :show-title-div="false" :instance-name="instanceName"/>
-        </t-card>
-        <t-card class="config-section resource-trend-card" headerBordered>
-          <template #title>
-            <div class="config-card-title"><span>资源趋势</span></div>
-          </template>
-          <resource-trend-panel scope="instance" :instance-name="instanceName"/>
-        </t-card>
         <t-card class="config-section status-history-card" headerBordered>
           <template #title>
             <div class="config-card-title"><span>实例历史状态</span></div>
@@ -117,6 +104,20 @@
         <t-skeleton :animation="true" theme="paragraph"></t-skeleton>
         <t-skeleton :animation="true" theme="paragraph"></t-skeleton>
         <t-skeleton :animation="true" theme="paragraph"></t-skeleton>
+      </t-card>
+    </div>
+    <div class="config-resource-row config-resource-row-bottom">
+      <t-card class="config-section resource-monitor-card" headerBordered>
+        <template #title>
+          <div class="config-card-title"><span>资源占用</span></div>
+        </template>
+        <resource-monitor :show-title-div="false" :instance-name="instanceName"/>
+      </t-card>
+      <t-card class="config-section resource-trend-card" headerBordered>
+        <template #title>
+          <div class="config-card-title"><span>资源趋势</span></div>
+        </template>
+        <resource-trend-panel scope="instance" :instance-name="instanceName"/>
       </t-card>
     </div>
   </div>
@@ -208,6 +209,16 @@ const copyAllModIds = async (modIds) => {
 </script>
 
 <style scoped lang="less">
+.overview-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.config-resource-row-bottom{
+  grid-template-columns: 1fr 3fr !important;
+}
+
 .config-resource-row {
   display: grid;
   grid-template-columns: 3fr 1fr;
