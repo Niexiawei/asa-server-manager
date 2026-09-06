@@ -155,6 +155,7 @@ func (s *APIServer) Start() error {
 	// 资源采样器必须排在状态管理器之后：历史数据借的就是那个 Badger 实例。
 	// 它是 all-info / metrics 接口的唯一数据源，SSE handler 不再自己采样。
 	serverinfo.StartSampler(s.serverCtx, serverinfo.Options{History: statepkg.MetricsStore()})
+	startProcNet()
 
 	s.startStateChangeDispatcher(s.serverCtx)
 	startAuthHousekeeping(s.serverCtx)
@@ -271,6 +272,7 @@ func (s *APIServer) Stop() error {
 	// 指标历史补刷一次，**必须排在 CloseStateManager 之前**：刷盘用的就是那个 Badger 实例。
 	// 正常退出因此几乎无缝，崩溃才会在曲线上留下最多 5 分钟的空洞。
 	serverinfo.StopSampler()
+	stopProcNet()
 
 	if err := statepkg.CloseStateManager(); err != nil {
 		logger.Warnf("Error closing state manager: %v", err)

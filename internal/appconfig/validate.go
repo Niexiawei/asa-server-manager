@@ -212,6 +212,9 @@ func (l *LinuxConfig) validate() error {
 	if l.UmuRuntimeUID < 0 || l.UmuRuntimeGID < 0 {
 		return fmt.Errorf("linux.umu_runtime_uid/gid: 不得为负数")
 	}
+	// 同 UmuPythonBin：只做去空白。路径存不存在由 pkg/procnet 在 Linux 上真正加载时
+	// 判断，且不存在也只降级不阻断，validate 跨平台跑，这里 stat 没意义。
+	l.EBPFBTFPath = strings.TrimSpace(l.EBPFBTFPath)
 	return nil
 }
 

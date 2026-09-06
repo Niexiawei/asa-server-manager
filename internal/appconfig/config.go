@@ -244,6 +244,15 @@ type LinuxConfig struct {
 	// UmuRuntimeDeepProbe：asa-server 启动自检时是否 fork 降权子进程做真实写探测。
 	// 实例启动门禁处恒为开，此项只管 asa-server 启动那一次。
 	UmuRuntimeDeepProbe bool `mapstructure:"umu_runtime_deep_probe"`
+	// EBPFBTFPath：pkg/procnet（实例级网络监控的 eBPF 采集）用的外部 BTF 位置，
+	// 留空 = 用内核自带的 /sys/kernel/btf/vmlinux（需 CONFIG_DEBUG_INFO_BTF=y）。
+	// 可以是单个 BTF 文件（.btf 或 btfhub 的 .btf.tar.xz），也可以是 btfhub-archive
+	// 的本地副本目录——后者按 uname -r + /etc/os-release 自动拼路径。文件用户自备。
+	//
+	// 当前这版 BPF 程序只读 pt_regs 的寄存器参数、不访问内核结构体字段，没有 CO-RE
+	// 重定位，**加载时并不需要它**；留着是为将来要读内核结构体的扩展预留。
+	// 配错了只让实例级网络指标退回 null，不影响启动与其它指标。
+	EBPFBTFPath string `mapstructure:"ebpf_btf_path"`
 }
 
 // ArkApiCacheConfig 控制「在 AsaApiLoader.exe 启动之前把 ArkApi 的 offsets cache
@@ -685,6 +694,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("linux.umu_runtime_gid", d.Linux.UmuRuntimeGID)
 	v.SetDefault("linux.umu_run_as_root", d.Linux.UmuRunAsRoot)
 	v.SetDefault("linux.umu_runtime_deep_probe", d.Linux.UmuRuntimeDeepProbe)
+	v.SetDefault("linux.ebpf_btf_path", "")
 
 	v.SetDefault("arkapi_cache.enabled", d.ArkApiCache.Enabled)
 	v.SetDefault("arkapi_cache.urls", []string{})
