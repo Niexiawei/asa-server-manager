@@ -1,7 +1,7 @@
 # 资源使用趋势图（uPlot）方案
 
-> 状态：**P1–P6 已落地并验证（2026-09-04）**，P7（eBPF）未开始 ｜ 实现记录见 §9
-> ｜ 实现前审查订正见 §7.1 ｜ **SharedWorker → 专用 Worker 的返工见 §10（2026-09-06）**
+> 状态：**P1–P6 已落地并验证（2026-09-04）**，**P7（eBPF）已实现，真机验收未做（2026-09-06，见 §11）**
+> ｜ 实现记录见 §9 ｜ 实现前审查订正见 §7.1 ｜ **SharedWorker → 专用 Worker 的返工见 §10（2026-09-06）**
 > 关联文件：
 > - 前端：`app/src/components/ResourceMonitor.vue`、`app/src/components/ServerResourceMonitor.vue`（顶栏弹窗）、
 >   `app/src/workers/resourceWorker.js`（原 `sharedResourceWorker.js`，改专用 Worker，见 §10）、
@@ -734,10 +734,9 @@ P1–P2（后端）与 P3（前端封装）可并行。P4 只依赖 CPU/内存�
 
 ### 9.4 未完成
 
-- **P7（`pkg/procnet` eBPF）未开始**。本机有 clang 18（带 bpf target），但缺 `bpf2go`，
-  且验收需要 Linux 5.4 真机。另外实现前还有一个决策要定：纯 kprobe 读 `PT_REGS_PARM*` +
-  `bpf_get_current_pid_tgid` **不需要任何 BTF/CO-RE**（不访问内核结构体字段），
-  若走这条路，决策 10/14 的 `linux.ebpf_btf_path` 与 btfhub 支持都可以不做。
+- ~~**P7（`pkg/procnet` eBPF）未开始**~~ —— **2026-09-06 已实现，见 §11**。当时留的决策
+  「纯 kprobe 不需要 BTF/CO-RE，是否可以省掉决策 10/14」已定案：**仍按原方案带 BTF 支持**，
+  作为将来要读内核结构体时的预留（§11.2 决策 24）。
 - **P8 的深色适配**：项目当前只有浅色主题，`UPlotChart` 的轴线/网格色暂时写死，留了
   `palette` 的位置但没做主题切换。
 
@@ -803,3 +802,106 @@ P1–P2（后端）与 P3（前端封装）可并行。P4 只依赖 CPU/内存�
 
 - `npm run build` 通过；`dist/assets/resourceWorker-*.js` 与 `wsWorker-*.js` 并列产出（同一打包路径）。
 - 决策 20（host 数据走同一条流的 `SUBSCRIBE_HOST`、`serverResourceWorker.js` 删除）**继续有效**，本次只换了承载 Worker 的类型。
+
+---
+
+## 11. 实现记录（2026-09-06，P7：`pkg/procnet` eBPF）
+
+> 状态：**代码完成，`go build`/`go vet`/`go test`（Windows + `GOOS=linux` amd64 + arm64 stub）全绿；
+> Linux 5.4 真机验收未做**——本机没有 Linux 环境。Windows 侧已确认恒 `null` 且不报错。
+> **Windows 的按进程网络计量（ETW）本期不实现**，方案由用户后续提供。
+
+### 11.1 落地清单
+
+| 文件 | 内容 |
+|---|---|
+| `pkg/procnet/bpf/bpf_min.h` | 自带的最小 BPF 头（~60 行）：`SEC`/`__uint`/`__type`、3 个 helper 声明、x86_64 `struct pt_regs` + `PT_REGS_PARM{1,2,3}`/`PT_REGS_RC` |
+| `pkg/procnet/bpf/procnet.c` | 六个 kprobe/kretprobe + 两张 hash map（`procnet_targets` / `procnet_counters`） |
+| `pkg/procnet/bpf/procnet_amd64.o` | **编译产物，已提交**（11KB，`llvm-strip -g` 去 DWARF 留 `.BTF`） |
+| `pkg/procnet/procnet.go` | 无 build tag：包文档、`Options{BTFPath}`、`ErrUnsupported` |
+| `pkg/procnet/btfhub.go` | 无 build tag：btfhub 候选路径构造 + `/etc/os-release` 解析（纯字符串逻辑，可在 Windows 单测） |
+| `pkg/procnet/procnet_linux.go` | `linux && amd64`：`Load`/`Bytes`/`Close`/`Describe`、探针挂载、BTF 解析、TTL 淘汰、`//go:generate` |
+| `pkg/procnet/procnet_windows.go` / `procnet_other.go` | stub，`Load` 恒返回 `ErrUnsupported` |
+| `pkg/procnet/btfhub_test.go` | 候选顺序、空/重复发行版 ID、缺 `VERSION_ID`、os-release 引号与注释 |
+| `pkg/procnet/spec_linux_test.go` | 解析内嵌 `.o`，钉死两张 map 的 key/value/max_entries 与六个程序名+挂点（不加载进内核，无需 root） |
+| `Makefile`（新增，仓库根） | `make bpf` / `bpf-force` / `bpf-clean`：唯一带依赖判断的重新生成入口，`CLANG=` / `LLVM_STRIP=` 可覆盖 |
+| `.github/workflows/bpf.yml`（新增） | BPF 源变更时自动重新生成 `.o`、跑契约测试、把结果提交回分支 |
+| `internal/webapi/procnet.go` | 组合根：`startProcNet()`（`Load` + `serverinfo.SetNetSource`）/ `stopProcNet()`（先撤 NetSource 再 `Close`） |
+| `internal/webapi/actions.go` | `startProcNet()` 接在 `StartSampler` 之后，`stopProcNet()` 接在 `StopSampler` 之后 |
+| `internal/appconfig/{config,validate}.go` | 新增 `linux.ebpf_btf_path`（默认空，只做去空白校验） |
+
+**后端载荷与前端一行没改**：`instances[].net_io` 的契约、`useResourceTrend.js` 的字段、
+`ResourceTrendPanel.vue` 的「当前平台不支持按进程网络计量」占位在 P5/P6 就已就位，
+P7 只是让这些字段在 Linux 上真的有值。`openapi.json` / `docs/API_REFERENCE.md` 同样无需改动。
+
+### 11.2 与方案的偏差
+
+24. **决策 10/14 保留：仍带 BTF 支持**（用户 2026-09-06 拍板）。当前这版 BPF 程序只读
+    `pt_regs` 的寄存器参数、不访问任何内核结构体字段 ⇒ 没有 CO-RE 重定位 ⇒
+    **加载时并不需要目标机 BTF**，`linux.ebpf_btf_path` 事实上是为「将来要按 socket 取
+    地址/端口之类」预留的。代码里三处都写明了这一点，免得后人以为它是运行前置。
+25. **不用 `bpf2go`，改「clang 直接编 + `//go:embed` + `ebpf.LoadCollectionSpecFromReader`」**。
+    原因是硬的：`cmd/bpf2go` 的 `main.go` 带 `//go:build !windows`，**在本项目的开发机上根本
+    编不出来**（`go tool bpf2go` 报 "build constraints exclude all Go files"）。
+    `go:generate` 换成两条跨平台命令（`clang -target bpf` + `llvm-strip -g`），
+    产物照旧提交进仓库、常规 `go build` 不需要 clang。少掉的只是 bpf2go 生成的类型绑定，
+    而这里统共两张 map、六个程序，`coll.Maps[...]` / `coll.Programs[...]` 取一次就够。
+26. **不 vendor libbpf 的 `bpf_helpers.h` / `bpf_tracing.h`，也不生成 `vmlinux.h`**，改写一份
+    ~60 行的 `bpf_min.h`。同样是开发机决定的：`vmlinux.h` 要从目标内核的 BTF 生成、
+    `bpf_tracing.h` 的 `PT_REGS_*` 又要靠 `vmlinux.h` 给出 `struct pt_regs`，Windows 上两样都没有。
+    里面每个数字都是内核 ABI（helper 编号、`BPF_MAP_TYPE_HASH`、x86_64 的寄存器保存布局），不随版本漂。
+27. **新增 `procnet_targets` map：探针先按目标过滤，没命中立刻返回**（原方案没有这一层）。
+    没有它的话，机器上**每个**进程的每次收发都会往 `counters` 里插条目：map（`max_entries`）迟早
+    被撑满，而那时插不进去的很可能正是我们要看的游戏进程；还得另挂 `sched_process_exit` 才能淘汰。
+    加了这张表之后两张 map 的条目数被限死在「被跟踪的实例数」，**内核侧不用挂退出钩子**，
+    淘汰交给用户态 TTL（30s 没人问就从两张 map 一起删，扫描最多 10s 一次）。
+    副作用是首次问到某个 PID 时只做登记、以 0 为基线返回（0 不是猜的：登记之前内核根本
+    没为这个 tgid 计数，计数器就是从 0 开始的，所以下一轮的差值恰好是这两次之间的流量）。
+    调用方那一帧仍然没有 prev、算不出速率，与 §3.1.1「首帧速率为 null」一致。
+28. **UDP 收方向用 kretprobe 取返回值**，不是入口取 `len`：`udp_recvmsg` 的 `len` 是缓冲区大小
+    不是实收量。顺带躲开一个坑——`udp_recvmsg` 的形参在 5.19 删掉了 `noblock`，
+    取返回值不受影响。TCP 收方向同理挂 `tcp_cleanup_rbuf(sk, copied)` 而非 `tcp_recvmsg`。
+29. **每个探针单独兜底，挂上一个就算可用**：内核符号跨版本会漂（尤其 UDP 路径），
+    缺一条只让那部分流量不计入，六个全挂不上才返回错误。`Describe()` 把「挂上了几个/哪几个/
+    BTF 从哪来」拼成一行日志，真机排障时不用猜。
+30. **`.btf.tar.xz` 用 `tar -xOJf` 解到标准输出**，不引 xz 解压依赖。Go 标准库没有 xz，
+    为这一个场景加一个模块不划算，而 `tar` 本来就是 Linux 侧的既有前置（`pkg/linuxdeps` 在查它）。
+31. **btfhub 目录按「最精确 → 最宽松」依次试，返回的是通配模式而不是单一路径**：
+    btfhub-archive 的真实布局是 `<distro>/<version>/<arch>/<release>.btf.tar.xz`，
+    而 §2.2 当初写的是 `<distro>/<arch>/<release>.btf`，用户也可能只解压了自己那一份。
+    与其赌一种布局，不如依次 `filepath.Glob`，最后兜底 `<dir>/*/*/<arch>/` 与 `<dir>/<release>.btf`。
+
+### 11.3 产物的再生成（2026-09-06 补）
+
+`procnet_amd64.o` 是**编译产物却提交进了仓库**（决策 25），于是「改了 BPF 源忘了重新生成」
+是这套东西最容易出的错——而且它不会在任何构建步骤上报错，只会在真机上表现为
+「曲线一直是 0」或加载失败。三个入口，参数必须一致：
+
+| 入口 | 场景 |
+|---|---|
+| `go generate ./pkg/procnet/...` | Windows 开发机（本机没有 make）。指令写在 `procnet.go`（**不带 build tag 的那个文件**——`go generate` 也遵守 build tag，写进 `procnet_linux.go` 在 Windows 上连指令都扫不到） |
+| `make bpf` | Linux / 有 make 的环境。带依赖判断（源比产物新才编），`CLANG=` / `LLVM_STRIP=` 可指定工具链 |
+| `.github/workflows/bpf.yml` | CI 自动兜底：`pkg/procnet/bpf/*.c`、`*.h` 或 `Makefile` 变更时触发，重新生成 → 跑契约测试 → 有变化就提交回分支 |
+
+两个设计取舍：
+
+- **CI 是「自动生成并提交」而不是「校验字节是否一致」**。这个 `.o` 在不同版本、不同发行版的
+  clang 下编出来的字节并不相同（指令选择与 BTF 编码都可能变），做成 diff 校验会在开发机
+  clang 与 CI clang 版本不同时长期红着。改成 CI 生成并提交回来，CI 就是这个产物的权威构建者。
+  fork 来的 PR 推不回去，那种情况改为**失败 + 把生成好的产物挂成 artifact**，并提示作者本地重跑。
+- **单独一个 workflow 而不是塞进 `ci.yml`**：需要原生 `paths:` 过滤（塞进 `ci.yml` 就得自己用
+  `git diff` 判断改了哪些文件，而首次推分支 `github.event.before` 全零、强推、浅克隆几种情况
+  都要额外兜底，容易漏跑或空跑）；另外只有这个 job 需要 `contents: write`，单独一个文件
+  就不必给 `ci.yml` 整体放宽权限。`ci.yml` 里留了一行指路注释。
+
+`Makefile` 只为这一件事存在——本仓库的常规构建（`go build` / `npm run build`）**不需要 make**。
+
+### 11.4 仍待验证（需要 Linux 5.4 真机）
+
+- 六个 kprobe 能否全部挂上；`tcp_cleanup_rbuf` 在 5.4 上是否被内联（若被内联则 attach 失败，
+  收方向要改挂 `tcp_recvmsg` + 取返回值）。
+- `rlimit.RemoveMemlock()` 之后 map 创建是否正常（5.4 的 locked-memory 配额路径）。
+- 数值口径核对：与 `nethogs` / `ss -i` 或实例自己的流量统计对一遍，确认量级正确。
+- 容器 / AppArmor / lockdown 环境下的降级是否真的只是 `net_io` 为 null、不影响其它指标。
+- `linux.ebpf_btf_path` 指向 btfhub 目录时的路径命中（当前无 CO-RE，命不中也不影响加载，
+  所以这条只是把预留路径走通，不是阻塞项）。
