@@ -93,6 +93,7 @@ var commonCommands = []*cli.Command{
 	actions.VerifyCommand(),
 	actions.VerifyArkApiCommand(),
 	actions.ArkApiCacheCommand(),
+	actions.NetmonCommand(),
 	certmgr.Command(),
 	actions.AuthDBCommand(),
 	actions.AuthUserCommand(),
