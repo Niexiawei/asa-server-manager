@@ -33,6 +33,7 @@ var (
 
 	procTdhGetEventInformation = tdhDll.NewProc("TdhGetEventInformation")
 	procTdhGetProperty         = tdhDll.NewProc("TdhGetProperty")
+	procTdhGetPropertySize     = tdhDll.NewProc("TdhGetPropertySize")
 )
 
 // sessionName 固定，绝不生成带编号的实例（方案 §4.2 / 上游设计文档 §13）：
@@ -58,18 +59,35 @@ const (
 )
 
 // ⚠️ 「查不到该 session」是 **4201**，不是 4200（4200 是 ERROR_WMI_GUID_NOT_FOUND）。
-// 而且实测（2026-09-07，Win11 非提权）：`ControlTraceW(0, name, STOP)` 把会话**成功**
-// 停掉之后返回的也是 4201——调用前 QUERY 得 0（在），调用后 QUERY 得 4201（没了），
-// 但 STOP 自己报 4201。所以这两个码一律不能当失败，否则每次退出都假报警。
-// 见 docs/WINNET_ETW_TODO.md §2.7。
+// 停一个已经不在的会话不算失败——重复 Close、以及「上次已经清干净了」都会走到这，
+// 当失败会让每次退出都假报警。
+//
+// （此前注释说「STOP 成功之后也返回 4201」是错的：那是控制码写反时，
+// 一次 QUERY 打在刚被停掉的会话上的结果。见 eventTraceControl* 的说明。）
 func controlStopSucceeded(errCode uint32) bool {
 	return errCode == 0 || errCode == errWmiInstanceNotFound || errCode == errWmiGuidNotFound
 }
 
-// EVENT_TRACE_CONTROL_*（ControlTraceW 的 ControlCode）。
+// EVENT_TRACE_CONTROL_*（ControlTraceW 的 ControlCode，evntrace.h）。
+//
+// ⚠️ **QUERY 是 0，STOP 是 1**。这两个值曾经被写反，那一个错误制造了此前
+// 追查过的一连串「怪现象」，全部是同一个根因（2026-09-07 真机实测确认）：
+//
+//   - `Describe()` 里的 stats() 以为在 QUERY，实际发的是 **STOP**——
+//     于是**打印一行状态就把自己的会话停了**，随后所有 Bytes 返回采不到。
+//     这就是真机上「事件=1、然后会话已终止（已正常停止）」的全部原因。
+//   - `stop()` 以为在 STOP，实际只是 QUERY——**会话根本没被停掉**，
+//     于是 Load 失败后残留一个 session，`logman query -ets` 里一直是 Running。
+//   - 「STOP 成功之后也返回 4201」那个结论同样是假象：那是一次 QUERY
+//     打在已经停掉的会话上。
+//   - `SessionActive()` 的独占护栏更糟：它以为在查，实际会把别人正在用的
+//     会话**停掉**——本该防止抢占的东西自己在抢占。
+//
+// 教训：这类「一组语义相反的魔数」必须在单测里钉死实际行为，而不是钉死我们
+// 以为的值（TestControlCodeSemantics）。
 const (
-	eventTraceControlQuery = 1
-	eventTraceControlStop  = 0 // EVENT_TRACE_CONTROL_STOP
+	eventTraceControlQuery = 0
+	eventTraceControlStop  = 1
 )
 
 // EVENT_CONTROL_CODE_ENABLE_PROVIDER（EnableTraceEx2 的 ControlCode）。
@@ -269,10 +287,21 @@ type eventHeader struct {
 	ActivityId      windows.GUID
 }
 
-// etwBufferContext，2 字节。
+// etwBufferContext，**4 字节**（不是 2）。C 里是：
+//
+//	union { struct { UCHAR ProcessorNumber; UCHAR Alignment; }; USHORT ProcessorIndex; };
+//	USHORT LoggerId;
+//
+// ⚠️ 曾经把 LoggerId 写成 uint8、整个结构体当成 2 字节。那个错误**不会**让
+// EVENT_RECORD 的三个指针错位（88/96/104 由 8 字节对齐兜住了，所以 UserData、
+// UserContext 都还是对的），但它把它前面的两个 USHORT 整体前移了 2 字节：
+// UserDataLength 实际读到的是 C 里的 ExtendedDataCount（通常是 0）。
+// 后果是 payload 长度恒为 0 → 每个事件都因越界被判解析失败 → 计数永远不增长，
+// 而**日志上看不出任何异常**。见 docs/WINNET_ETW_TODO.md §2.10。
 type etwBufferContext struct {
 	ProcessorNumber uint8
-	LoggerId        uint8
+	Alignment       uint8
+	LoggerId        uint16
 }
 
 // eventRecord，112 字节。EventRecordCallback 的入参——本包整个热路径的起点。
@@ -430,24 +459,60 @@ func closeTrace(handle traceHandle) uint32 {
 	return uint32(r)
 }
 
-func tdhGetEventInformation(event *eventRecord, buffer []byte) uint32 {
+// tdhGetEventInformation 取事件的 schema。
+//
+//	TDHSTATUS TdhGetEventInformation(PEVENT_RECORD, ULONG, PTDH_CONTEXT,
+//	                                 PTRACE_EVENT_INFO, ULONG *BufferSize);
+//
+// ⚠️ 最后一个参数是 **ULONG\***（in/out），不是值。曾经按值传 len(buffer)，
+// 于是 TDH 把 4096 当成指针去解引用——回调线程上直接 `0xc0000005`
+// 访问违例、**整个进程崩掉**（2026-09-07 真机；异常信息里的
+// `0x1000` 就是 4096）。返回 ERROR_INSUFFICIENT_BUFFER 时它会写回所需大小，
+// 所以调用方按这个数一次分对，不需要倍增试探。
+func tdhGetEventInformation(event *eventRecord, buffer []byte) (rc uint32, needed uint32) {
+	size := uint32(len(buffer))
 	r, _, _ := procTdhGetEventInformation.Call(
 		uintptr(unsafe.Pointer(event)),
 		0, 0,
 		uintptr(unsafe.Pointer(&buffer[0])),
-		uintptr(len(buffer)))
-	return uint32(r)
+		uintptr(unsafe.Pointer(&size)))
+	return uint32(r), size
 }
 
-// tdhGetProperty 按属性名取值。propertySize 返回实际写入的字节数。
-func tdhGetProperty(event *eventRecord, desc *propertyDataDescriptor, buffer []byte, propertySize *uint32) uint32 {
+// tdhGetPropertySize 问一个属性占几个字节。
+//
+//	TDHSTATUS TdhGetPropertySize(PEVENT_RECORD, ULONG, PTDH_CONTEXT,
+//	                             ULONG PropertyDataCount, PPROPERTY_DATA_DESCRIPTOR,
+//	                             ULONG *pPropertySize);
+//
+// TdhGetProperty **没有**「实际写了多少字节」的出参，取值前必须先问这里。
+func tdhGetPropertySize(event *eventRecord, desc *propertyDataDescriptor) (rc uint32, size uint32) {
+	var out uint32
+	r, _, _ := procTdhGetPropertySize.Call(
+		uintptr(unsafe.Pointer(event)),
+		0, 0,
+		1,
+		uintptr(unsafe.Pointer(desc)),
+		uintptr(unsafe.Pointer(&out)))
+	return uint32(r), out
+}
+
+// tdhGetProperty 按属性名取值。
+//
+//	TDHSTATUS TdhGetProperty(PEVENT_RECORD, ULONG, PTDH_CONTEXT,
+//	                         ULONG PropertyDataCount, PPROPERTY_DATA_DESCRIPTOR,
+//	                         ULONG BufferSize, PBYTE pBuffer);
+//
+// ⚠️ **7 个参数**，BufferSize 在 pBuffer **之前**且按值传。曾经多传了一个
+// 「propertySize 出参」（TdhGetProperty 根本没有这个参数），于是那个变量永远是 0，
+// 调用方按 `size == 0` 判失败——慢路径**从来没成功过**，只是被快路径掩盖着。
+func tdhGetProperty(event *eventRecord, desc *propertyDataDescriptor, buffer []byte) uint32 {
 	r, _, _ := procTdhGetProperty.Call(
 		uintptr(unsafe.Pointer(event)),
 		0, 0,
 		1,
 		uintptr(unsafe.Pointer(desc)),
 		uintptr(len(buffer)),
-		uintptr(unsafe.Pointer(&buffer[0])),
-		uintptr(unsafe.Pointer(propertySize)))
+		uintptr(unsafe.Pointer(&buffer[0])))
 	return uint32(r)
 }

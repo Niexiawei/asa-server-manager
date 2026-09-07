@@ -4,7 +4,6 @@ package winnetetw
 
 import (
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"strings"
 	"unicode/utf16"
@@ -240,35 +239,47 @@ func utf16NameBytes(name string) []byte {
 	return out
 }
 
-// getEventInformation 两段式获取 TRACE_EVENT_INFORMATION。TDH 不返回所需
-// 大小（BufferSize 是值参数），只能从小到大倍增重试，上限 1MB。
+// getEventInformation 两段式获取 TRACE_EVENT_INFORMATION：缓冲区不够时
+// TDH 会把**所需大小**写回 BufferSize（那是个 in/out 指针），照它再要一次即可。
+// 原来那版以为 BufferSize 是值参数、只能倍增试探——那个误解同时也是
+// 「按值传 len(buffer)」这个崩溃的来源，见 tdhGetEventInformation 的注释。
 func getEventInformation(rec *eventRecord) ([]byte, error) {
-	size := 4096
-	for size <= 1<<20 {
-		buf := make([]byte, size)
-		if rc := tdhGetEventInformation(rec, buf); rc == 0 {
-			return buf, nil
-		} else if rc != errInsufficientBuffer {
-			return nil, fmt.Errorf("TdhGetEventInformation 失败: win32 error %d", rc)
-		}
-		size *= 2
+	buf := make([]byte, 4096)
+	rc, needed := tdhGetEventInformation(rec, buf)
+	if rc == 0 {
+		return buf, nil
 	}
-	return nil, errors.New("TdhGetEventInformation 缓冲区需求超过 1MB")
+	if rc != errInsufficientBuffer {
+		return nil, fmt.Errorf("TdhGetEventInformation 失败: win32 error %d", rc)
+	}
+	if needed == 0 || needed > 1<<20 {
+		return nil, fmt.Errorf("TdhGetEventInformation 要求的缓冲区不合理: %d 字节", needed)
+	}
+	buf = make([]byte, needed)
+	if rc, _ = tdhGetEventInformation(rec, buf); rc != 0 {
+		return nil, fmt.Errorf("TdhGetEventInformation 失败: win32 error %d", rc)
+	}
+	return buf, nil
 }
 
 // tdhPropertyValue 按属性名取一个标量值（TdhGetProperty 慢路径 + schema 验证）。
+//
+// 必须先 TdhGetPropertySize 再 TdhGetProperty：后者没有「实际写了多少字节」的出参
+// （曾经多传一个参数假装它有，于是慢路径从来没成功过）。
 func tdhPropertyValue(rec *eventRecord, nameUTF16 []byte) (uint32, bool) {
 	if len(nameUTF16) == 0 {
 		return 0, false
 	}
 	desc := propertyDataDescriptor{PropertyName: uintptr(unsafe.Pointer(&nameUTF16[0]))}
-	var (
-		buf  [8]byte
-		size uint32
-	)
-	if rc := tdhGetProperty(rec, &desc, buf[:], &size); rc != 0 || size == 0 || size > 8 {
+
+	rc, size := tdhGetPropertySize(rec, &desc)
+	if rc != 0 || size == 0 || size > 8 {
 		return 0, false
 	}
-	v := binary.LittleEndian.Uint64(buf[:size])
+	var buf [8]byte
+	if rc := tdhGetProperty(rec, &desc, buf[:size]); rc != 0 {
+		return 0, false
+	}
+	v := binary.LittleEndian.Uint64(buf[:]) // buf 其余字节是零，截断到 size 即原值
 	return uint32(v), true
 }

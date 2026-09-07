@@ -19,9 +19,24 @@ const (
 )
 
 // netCounters 只有累计值，绝不存速率（速率由 serverinfo 采样器差分）。
+//
+// 分成四路而不是 rx/tx 两路，是为了 `asa-server netmon etw` 的诊断输出：
+// Kernel-Network 的 UDP 接收事件是否可靠是这套方案最大的未知数
+// （docs/WINNET_ETW_TODO.md §4），而聚合值分不出「UDP 收方向整个缺失」与
+// 「这个实例本来就没人连」。每个被跟踪 PID 多占 16 字节，而条目数本就被限死在
+// 被跟踪的实例数，可忽略。Bytes 照旧返回两路聚合值，NetSource 契约一个字不变。
 type netCounters struct {
-	rx, tx uint64
+	tcpRx, tcpTx, udpRx, udpTx uint64
 }
+
+// ProtoBytes 是按协议分开的累计字节，供 BytesByProtocol 返回。
+type ProtoBytes struct {
+	TCPRx, TCPTx, UDPRx, UDPTx uint64
+}
+
+// Rx / Tx 是 Bytes 对外的那两个聚合值。
+func (p ProtoBytes) Rx() uint64 { return p.TCPRx + p.UDPRx }
+func (p ProtoBytes) Tx() uint64 { return p.TCPTx + p.UDPTx }
 
 // aggregator 是 tracked-set + 计数的纯逻辑部分，不碰任何 ETW API——
 // 单独拆出来是为了 TTL 语义可以注入时钟做单测（方案 §8）。
@@ -64,27 +79,33 @@ func newAggregator(now func() time.Time) *aggregator {
 func (a *aggregator) add(pid uint32, k netKind, size uint32) {
 	a.mu.Lock()
 	if c, tracked := a.counters[pid]; tracked { // 未登记：丢弃（成本 = 一次锁 + 一次 map miss）
-		if k == kindTCP_RX || k == kindUDP_RX {
-			c.rx += uint64(size)
-		} else {
-			c.tx += uint64(size)
+		switch k {
+		case kindTCP_RX:
+			c.tcpRx += uint64(size)
+		case kindTCP_TX:
+			c.tcpTx += uint64(size)
+		case kindUDP_RX:
+			c.udpRx += uint64(size)
+		case kindUDP_TX:
+			c.udpTx += uint64(size)
 		}
 	}
 	a.mu.Unlock()
 }
 
-// get 即对外的 Bytes。首次问到登记零值条目并返回 0 基线。
-func (a *aggregator) get(pid uint32) (rx, tx uint64, ok bool) {
+// get 是 Bytes 与 BytesByProtocol 共用的入口。首次问到登记零值条目并返回 0 基线。
+// 两个出口走同一条登记路径——否则「先问分项再问聚合」会登记两次、语义分岔。
+func (a *aggregator) get(pid uint32) (ProtoBytes, bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	now := a.now()
 	a.seen[pid] = now
 	a.pruneLocked(now)
 	if c, tracked := a.counters[pid]; tracked {
-		return c.rx, c.tx, true
+		return ProtoBytes{TCPRx: c.tcpRx, TCPTx: c.tcpTx, UDPRx: c.udpRx, UDPTx: c.udpTx}, true
 	}
 	a.counters[pid] = &netCounters{}
-	return 0, 0, true
+	return ProtoBytes{}, true
 }
 
 // pruneLocked 淘汰一段时间没人问的 PID，两张 map 一起清。
@@ -207,8 +228,22 @@ func (c *Collector) onEvent(rec *eventRecord) {
 // 前端画成贴着底边的实线，被读成「实例真的没流量」。采不到就得是 null，
 // 这是 RESOURCE_RATE_CHART_PLAN §4.4 的全局约定。见 docs/WINNET_ETW_TODO.md §2.2。
 func (c *Collector) Bytes(pid int32) (rx, tx uint64, ok bool) {
-	if c == nil || c.sess == nil || pid <= 0 || c.closed.Load() || !c.sess.alive() {
+	v, ok := c.BytesByProtocol(pid)
+	if !ok {
 		return 0, 0, false
+	}
+	return v.Rx(), v.Tx(), true
+}
+
+// BytesByProtocol 与 Bytes 是同一份数据的两个视角（登记语义、TTL 完全一致），
+// 只是把 TCP/UDP 拆开。**诊断专用**：`asa-server netmon etw` 用它回答
+// 「UDP 收方向到底有没有事件」，采样器不需要分项。
+//
+// 刻意**不**进 serverinfo.NetSource：加进接口就等于逼 Linux 侧也实现一遍，
+// 而 eBPF 那边的 map 里只有 rx/tx 两个数，只能返回零值——那是更坏的谎。
+func (c *Collector) BytesByProtocol(pid int32) (ProtoBytes, bool) {
+	if c == nil || c.sess == nil || pid <= 0 || c.closed.Load() || !c.sess.alive() {
+		return ProtoBytes{}, false
 	}
 	return c.agg.get(uint32(pid))
 }
@@ -229,9 +264,11 @@ func (c *Collector) Describe() string {
 		desc += "（部分 Event ID 的 schema 不兼容，对应流量未计入）"
 	}
 	// 「没流量」与「会话没了」在日志里必须能分开——后者的现象是计数停增，
-	// 不写出来只会去查解析代码。
+	// 不写出来只会去查解析代码。带上 ProcessTrace 的返回码：消费侧一起来就退出
+	// （被别人抢走 session、或者根本没跑起来）时，那个码是唯一的线索。
 	if !c.closed.Load() && !c.sess.alive() {
-		desc += "（⚠️ 会话已终止：多半被同机另一个消费进程抢走了 session 名，实例网络字段将回到 null）"
+		desc += "（⚠️ 会话已终止：" + c.sess.consumerExitReason() +
+			"；可能是被同机另一个消费进程抢走了 session 名，实例网络字段将回到 null）"
 	}
 	return desc
 }

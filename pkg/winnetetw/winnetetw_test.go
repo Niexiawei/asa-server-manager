@@ -4,8 +4,10 @@ package winnetetw
 
 import (
 	"encoding/binary"
+	"runtime"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 	"unsafe"
@@ -32,7 +34,7 @@ func TestStructSizes(t *testing.T) {
 		{"eventTraceLogfileW", unsafe.Sizeof(eventTraceLogfileW{}), 448},
 		{"eventDescriptor", unsafe.Sizeof(eventDescriptor{}), 16},
 		{"eventHeader", unsafe.Sizeof(eventHeader{}), 80},
-		{"etwBufferContext", unsafe.Sizeof(etwBufferContext{}), 2},
+		{"etwBufferContext", unsafe.Sizeof(etwBufferContext{}), 4}, // 2 是错的，见该类型注释
 		{"eventRecord", unsafe.Sizeof(eventRecord{}), 112},
 		{"enableTraceParameters", unsafe.Sizeof(enableTraceParameters{}), 48},
 		{"eventFilterDescriptor", unsafe.Sizeof(eventFilterDescriptor{}), 16},
@@ -78,10 +80,15 @@ func TestFieldOffsets(t *testing.T) {
 		{"logf.IsKernelTrace", unsafe.Offsetof(logf.IsKernelTrace), 432},
 		{"logf.Context", unsafe.Offsetof(logf.Context), 440},
 
-		// eventRecord：callback 入参，UserContext 在 104
+		// eventRecord：callback 入参，UserContext 在 104。
+		// ⚠️ ETW_BUFFER_CONTEXT 是 **4 字节**（ProcessorNumber+Alignment+LoggerId(USHORT)），
+		// 所以 ExtendedDataCount 在 84、UserDataLength 在 **86**。
+		// 这两个数曾经被写成 82/84（把 BufferContext 当成 2 字节），后果是
+		// payload 长度实际读到 ExtendedDataCount，恒为 0 → 每个事件都解析失败。
 		{"rec.EventHeader", unsafe.Offsetof(rec.EventHeader), 0},
 		{"rec.BufferContext", unsafe.Offsetof(rec.BufferContext), 80},
-		{"rec.UserDataLength", unsafe.Offsetof(rec.UserDataLength), 84},
+		{"rec.ExtendedDataCount", unsafe.Offsetof(rec.ExtendedDataCount), 84},
+		{"rec.UserDataLength", unsafe.Offsetof(rec.UserDataLength), 86},
 		{"rec.ExtendedData", unsafe.Offsetof(rec.ExtendedData), 88},
 		{"rec.UserData", unsafe.Offsetof(rec.UserData), 96},
 		{"rec.UserContext", unsafe.Offsetof(rec.UserContext), 104},
@@ -334,8 +341,8 @@ func TestAggregatorTrackedSetSemantics(t *testing.T) {
 
 	// 未登记前的事件必须被丢弃
 	agg.add(100, kindTCP_RX, 999)
-	if rx, tx, _ := agg.get(100); rx != 0 || tx != 0 {
-		t.Fatalf("登记前的事件不应计入：rx=%d tx=%d", rx, tx)
+	if v, _ := agg.get(100); v.Rx() != 0 || v.Tx() != 0 {
+		t.Fatalf("登记前的事件不应计入：rx=%d tx=%d", v.Rx(), v.Tx())
 	}
 
 	// 登记（首次 get 返回 0 基线）之后事件才开始累计
@@ -343,19 +350,23 @@ func TestAggregatorTrackedSetSemantics(t *testing.T) {
 	agg.add(100, kindTCP_TX, 200)
 	agg.add(100, kindUDP_RX, 300)
 	agg.add(100, kindUDP_TX, 400)
-	rx, tx, ok := agg.get(100)
-	if !ok || rx != 400 || tx != 600 {
-		t.Fatalf("rx=%d tx=%d ok=%v，应为 400/600", rx, tx, ok)
+	v, ok := agg.get(100)
+	if !ok || v.Rx() != 400 || v.Tx() != 600 {
+		t.Fatalf("rx=%d tx=%d ok=%v，应为 400/600", v.Rx(), v.Tx(), ok)
+	}
+	// 四路必须各归各位——聚合值对了不代表分项对了
+	if v.TCPRx != 100 || v.TCPTx != 200 || v.UDPRx != 300 || v.UDPTx != 400 {
+		t.Fatalf("分项错位：%+v", v)
 	}
 
 	// 未登记的 PID：事件丢弃 + get 首问登记 0 基线
 	agg.add(200, kindTCP_RX, 500)
-	if rx, _, _ := agg.get(200); rx != 0 {
-		t.Fatalf("未登记 PID 的事件不应计入，rx=%d", rx)
+	if v, _ := agg.get(200); v.Rx() != 0 {
+		t.Fatalf("未登记 PID 的事件不应计入，rx=%d", v.Rx())
 	}
 	agg.add(200, kindTCP_RX, 50)
-	if rx, _, _ := agg.get(200); rx != 50 {
-		t.Fatalf("登记后应累计，rx=%d", rx)
+	if v, _ := agg.get(200); v.Rx() != 50 {
+		t.Fatalf("登记后应累计，rx=%d", v.Rx())
 	}
 }
 
@@ -371,8 +382,8 @@ func TestAggregatorTTLPrune(t *testing.T) {
 
 	// 100 已超 TTL：条目被淘汰，事件不再计入；再次 get 重新登记 0 基线
 	agg.add(100, kindTCP_RX, 10)
-	if rx, _, _ := agg.get(100); rx != 0 {
-		t.Fatalf("TTL 淘汰后应重新登记 0 基线，rx=%d", rx)
+	if v, _ := agg.get(100); v.Rx() != 0 {
+		t.Fatalf("TTL 淘汰后应重新登记 0 基线，rx=%d", v.Rx())
 	}
 
 	// 常问的 200 不应被淘汰
@@ -381,8 +392,8 @@ func TestAggregatorTTLPrune(t *testing.T) {
 		agg.get(200)
 	}
 	agg.add(200, kindUDP_TX, 7)
-	if _, tx, _ := agg.get(200); tx != 7 {
-		t.Fatalf("常问的 PID 不应被 TTL 淘汰，tx=%d", tx)
+	if v, _ := agg.get(200); v.Tx() != 7 {
+		t.Fatalf("常问的 PID 不应被 TTL 淘汰，tx=%d", v.Tx())
 	}
 }
 
@@ -436,9 +447,102 @@ func TestAggregatorConcurrentAddGet(t *testing.T) {
 	<-writerDone
 
 	// 登记之后必然累计过（写侧一直在打），顺带确认没被并发弄丢
-	if rx, tx, ok := agg.get(1); !ok || rx == 0 || tx == 0 {
-		t.Fatalf("并发后计数异常：rx=%d tx=%d ok=%v", rx, tx, ok)
+	if v, ok := agg.get(1); !ok || v.Rx() == 0 || v.Tx() == 0 {
+		t.Fatalf("并发后计数异常：rx=%d tx=%d ok=%v", v.Rx(), v.Tx(), ok)
 	}
+}
+
+// TestEventCallbackThunk 直接调用 syscall.NewCallback 造出来的那个函数指针，
+// 用一条**合成的** EVENT_RECORD 走一遍回调链路。
+//
+// 这是唯一能在没有管理员权限、没有真实 ETW 会话的情况下验证的一段：
+// 回调能不能被调进来、能不能从 UserContext 还原出 Collector、
+// 事件计数有没有加上、解析失败会不会把进程带崩。
+// 真实事件的解析仍然只能靠真机（§8 的既有裁决）。
+func TestEventCallbackThunk(t *testing.T) {
+	c := &Collector{
+		agg:     newAggregator(nil),
+		sess:    &etwSession{consumerDone: make(chan struct{}), traceHandle: invalidProcessTraceHandle},
+		schemas: make(schemaCache),
+	}
+
+	// 预置 schema，绕开 TDH：这里要测的是「回调 → 分类 → 按 offset 读 payload
+	// → 落到计数」这条链，而合成记录没有真实的 manifest。
+	// （TDH 本身的调用约定由 TestTdhGetEventInformationDoesNotCrash 覆盖。）
+	c.schemas[10] = &eventSchema{state: schemaFast, pidOffset: 0, pidSize: 4, sizeOffset: 4, sizeSize: 4}
+
+	const testPID = 4321
+	c.BytesByProtocol(testPID) // 先登记，否则事件按设计被丢弃
+
+	payload := make([]byte, 32)
+	binary.LittleEndian.PutUint32(payload[0:], testPID)
+	binary.LittleEndian.PutUint32(payload[4:], 1500) // size
+
+	rec := eventRecord{
+		UserData:       unsafe.Pointer(&payload[0]),
+		UserDataLength: uint16(len(payload)),
+		UserContext:    unsafe.Pointer(c),
+	}
+	rec.EventHeader.EventDescriptor.Id = 10 // TCP IPv4 send
+
+	// 与 ETW 完全一样的调用方式：拿函数指针，传一个 EVENT_RECORD*
+	r, _, _ := syscall.SyscallN(getEventCallback(), uintptr(unsafe.Pointer(&rec)))
+	if r != 0 {
+		t.Errorf("回调应返回 0，实际 %d", r)
+	}
+	if got := c.eventsReceived.Load(); got != 1 {
+		t.Errorf("事件计数应为 1，实际 %d——回调没能从 UserContext 还原出 Collector？", got)
+	}
+	if got := c.parseDropped.Load(); got != 0 {
+		t.Errorf("预置 schema 下不该解析失败，parseDropped=%d", got)
+	}
+
+	// 这一条就是 UserDataLength 偏移写错时会挂掉的断言：payload 长度读成
+	// ExtendedDataCount（恒 0）的话，读取越界 → 解析失败 → 这里恒为 0。
+	v, ok := c.BytesByProtocol(testPID)
+	if !ok || v.TCPTx != 1500 {
+		t.Errorf("事件应落到 TCP 发送方向 1500 字节，实际 %+v ok=%v", v, ok)
+	}
+
+	// 不认识的 Event ID 直接丢弃，连计数都不该加
+	rec.EventHeader.EventDescriptor.Id = 9999
+	before := c.eventsReceived.Load()
+	syscall.SyscallN(getEventCallback(), uintptr(unsafe.Pointer(&rec)))
+	if c.eventsReceived.Load() != before {
+		t.Error("未登记的 Event ID 不该被计数")
+	}
+
+	// nil 记录不能把进程带崩（callback 里的 recover 是最后一道，但不该走到）
+	syscall.SyscallN(getEventCallback(), 0)
+	runtime.KeepAlive(payload)
+}
+
+// TestTdhGetEventInformationDoesNotCrash 用一条合成记录调真正的 TDH。
+//
+// 这条测试存在的唯一理由是那次真机崩溃：`TdhGetEventInformation` 的
+// 最后一个参数是 ULONG*（in/out），原来按值传了 len(buffer)，TDH 把 4096
+// 当指针解引用 → 回调线程 0xc0000005 → **整个进程没了**。
+// 调用约定写错时这条测试会同样崩掉，所以它比任何断言都有效。
+// 合成记录没有 manifest，TDH 只会返回一个错误码，那正是期望结果。
+func TestTdhGetEventInformationDoesNotCrash(t *testing.T) {
+	payload := make([]byte, 32)
+	rec := eventRecord{
+		UserData:       unsafe.Pointer(&payload[0]),
+		UserDataLength: uint16(len(payload)),
+	}
+	rec.EventHeader.EventDescriptor.Id = 10
+
+	if _, err := getEventInformation(&rec); err == nil {
+		t.Log("合成记录居然解析出了 schema（无妨，本测试只要求不崩）")
+	}
+
+	// 慢路径同理：TdhGetPropertySize / TdhGetProperty 的参数个数与顺序写错
+	// 同样是解引用一个整数。
+	name := utf16NameBytes("PID")
+	if v, ok := tdhPropertyValue(&rec, name); ok {
+		t.Logf("合成记录取到了 PID=%d（无妨）", v)
+	}
+	runtime.KeepAlive(payload)
 }
 
 // ---- 会话存活语义 ----
@@ -467,6 +571,39 @@ func TestBytesDeadSession(t *testing.T) {
 	c.closed.Store(true)
 	if _, _, ok := c.Bytes(1234); ok {
 		t.Fatal("Close 之后必须返回 ok=false")
+	}
+}
+
+// TestBytesByProtocolSharesRegistration：两个出口必须走同一条登记路径，
+// 否则「先问分项再问聚合」会登记两次、语义分岔。
+func TestBytesByProtocolSharesRegistration(t *testing.T) {
+	c := &Collector{
+		agg:     newAggregator(nil),
+		sess:    &etwSession{consumerDone: make(chan struct{}), traceHandle: invalidProcessTraceHandle},
+		schemas: make(schemaCache),
+	}
+
+	v, ok := c.BytesByProtocol(4321) // 首问 = 登记 + 0 基线
+	if !ok || v != (ProtoBytes{}) {
+		t.Fatalf("首问应是零基线，实际 %+v ok=%v", v, ok)
+	}
+
+	c.agg.add(4321, kindUDP_RX, 700)
+	c.agg.add(4321, kindTCP_TX, 30)
+
+	v, _ = c.BytesByProtocol(4321)
+	if v.UDPRx != 700 || v.TCPTx != 30 || v.TCPRx != 0 || v.UDPTx != 0 {
+		t.Fatalf("分项不对：%+v", v)
+	}
+	rx, tx, _ := c.Bytes(4321)
+	if rx != v.Rx() || tx != v.Tx() {
+		t.Fatalf("Bytes 应等于分项之和：%d/%d vs %d/%d", rx, tx, v.Rx(), v.Tx())
+	}
+
+	// 会话没了：两个出口都要报采不到
+	c.closed.Store(true)
+	if _, ok := c.BytesByProtocol(4321); ok {
+		t.Fatal("Close 之后 BytesByProtocol 必须返回 ok=false")
 	}
 }
 
@@ -506,9 +643,53 @@ func TestCloseTraceSucceeded(t *testing.T) {
 	}
 }
 
-// TestControlStopSucceeded：「查不到该 session」是 4201 不是 4200，而且
-// STOP 成功停掉会话之后返回的**也是** 4201（2026-09-07 真机实测）。
-// 把它当失败会让每次退出都假报警。见 docs/WINNET_ETW_TODO.md §2.7。
+// TestControlCodeSemantics 用**真实的会话**验证两个控制码的语义，
+// 而不是断言我们以为的数值。
+//
+// 这条测试是为一次具体事故写的：QUERY 与 STOP 曾被写反（QUERY=0/STOP=1 才对），
+// 于是 Describe() 里的一次「查询」实际把自己的会话停掉了，而 stop() 里的
+// 「停止」实际只是查询、会话一直泄漏。数值断言防不住这种错——它和被测代码
+// 出自同一个错误认知——只有让真会话跑一遍才防得住。
+//
+// 非提权也能跑：StartTraceW 不需要管理员（要管理员的是 EnableTraceEx2）。
+func TestControlCodeSemantics(t *testing.T) {
+	name := utf16FromString(sessionName)
+	ctl := func(code uint32) uint32 {
+		buf := buildPropertiesBuffer(name)
+		return controlTraceW(0, &name[0], (*eventTraceProperties)(unsafe.Pointer(&buf[0])), code)
+	}
+
+	// 先确保没有残留（别把正在跑的 asa-server 的会话搅了：有的话直接跳过）
+	if ctl(eventTraceControlQuery) == 0 {
+		t.Skip("已有同名 ETW 会话在跑，跳过以免影响它")
+	}
+
+	var h traceHandle
+	props := buildPropertiesBuffer(name)
+	if rc := startTraceW(&h, &name[0], (*eventTraceProperties)(unsafe.Pointer(&props[0]))); rc != 0 {
+		t.Skipf("建不了 ETW 会话（win32 %d），跳过", rc)
+	}
+	t.Cleanup(func() { _ = ctl(eventTraceControlStop) })
+
+	// QUERY 必须是**只读**的：连问两次，会话都得还在
+	if rc := ctl(eventTraceControlQuery); rc != 0 {
+		t.Fatalf("QUERY 第一次返回 %d，应为 0", rc)
+	}
+	if rc := ctl(eventTraceControlQuery); rc != 0 {
+		t.Fatalf("QUERY 第二次返回 %d —— 说明它把会话停掉了，两个控制码写反了", rc)
+	}
+
+	// STOP 必须真的停掉：之后 QUERY 应报「查不到」
+	if rc := ctl(eventTraceControlStop); !controlStopSucceeded(rc) {
+		t.Fatalf("STOP 返回 %d", rc)
+	}
+	if rc := ctl(eventTraceControlQuery); rc != errWmiInstanceNotFound {
+		t.Fatalf("STOP 之后 QUERY 返回 %d，应为 %d（会话没被真正停掉）", rc, errWmiInstanceNotFound)
+	}
+}
+
+// TestControlStopSucceeded：「查不到该 session」是 4201 不是 4200；
+// 停一个已经不在的会话不算失败，当失败会让每次退出都假报警。
 func TestControlStopSucceeded(t *testing.T) {
 	cases := []struct {
 		code uint32

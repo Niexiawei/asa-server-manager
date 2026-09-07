@@ -28,10 +28,17 @@ type etwSession struct {
 	nameUTF16 []uint16 // session 名，指针会被 ETW 持有，必须存活整个会话
 	propsBuf  []byte   // StartTraceW 用过的 properties 缓冲，保活 + 偏移复用
 	filterBuf []byte   // Event ID 过滤器，EnableTraceEx2 之后保守保活
+	logfile   *eventTraceLogfileW
 
 	consumerDone chan struct{}
-	closeOnce    sync.Once
-	closeErr     error
+	// consumerRC 是 ProcessTrace 的返回码，在 close(consumerDone) **之前**写、
+	// 通道关闭之后读（channel close 提供 happens-before，不需要额外同步）。
+	//
+	// 以前这个值被 `_ =` 丢掉了，于是「消费侧起来就退出了」这种失败在外部只表现为
+	// 「事件数恒为 0」——没有任何线索。它是排障的第一现场，必须留下来。
+	consumerRC uint32
+	closeOnce  sync.Once
+	closeErr   error
 }
 
 // 会话参数（方案 §12：先写死，压测发现问题再提到 Options，不加无消费者的配置面）。
@@ -127,25 +134,63 @@ func startSession(context unsafe.Pointer, eventCallback uintptr) (*etwSession, e
 		return nil, err
 	}
 
-	// consumer 侧
-	logfile := &eventTraceLogfileW{
+	// consumer 侧。logfile 挂在 session 上而不是留作局部变量：ETW 文档说结构体会被
+	// 复制，但 Context / LoggerName 两个指针指向的东西必须活到会话结束，
+	// 而且 ProcessTrace 期间 ETW 会往 LogfileHeader 里回填——留个引用最省心。
+	s.logfile = &eventTraceLogfileW{
 		LoggerName:          namePtr,
 		ProcessTraceMode:    processTraceModeEventRec | processTraceModeRealTime,
 		EventRecordCallback: eventCallback,
 		Context:             context,
 	}
-	s.traceHandle = openTraceW(logfile)
+	s.traceHandle = openTraceW(s.logfile)
 	if s.traceHandle == invalidProcessTraceHandle {
 		s.stop()
 		return nil, errors.New("OpenTraceW 失败（实时消费需要管理员或 Performance Log Users 权限）")
 	}
 
 	go func() {
-		defer close(s.consumerDone)
-		// CloseTrace 之后返回，返回码通常是 ERROR_CANCELLED（1223），属正常退出
-		_ = processTrace(&s.traceHandle)
+		// 返回码必须在 close 之前写好（channel close = happens-before）
+		s.consumerRC = processTrace(&s.traceHandle)
+		close(s.consumerDone)
 	}()
+
+	// ProcessTrace 对实时会话是**阻塞**的，正常情况下一直到 CloseTrace 才返回。
+	// 它要是立刻就退了，说明消费侧根本没起来——这种时候必须当场失败，
+	// 而不是把一个「会话还在、但永远收不到事件」的 Collector 交出去：
+	// 后者在上层表现为「一切正常但计数恒为 0」，最难查。
+	select {
+	case <-s.consumerDone:
+		reason := s.consumerExitReason()
+		s.stop()
+		return nil, fmt.Errorf("ETW 消费侧启动即退出：%s", reason)
+	case <-time.After(consumerStartupGrace):
+	}
 	return s, nil
+}
+
+// consumerStartupGrace 是「ProcessTrace 起来了没」的观察窗口。
+// 只在 Load 里等这一次，短到用户感觉不到，长到足以捕捉「立刻返回」这种失败。
+const consumerStartupGrace = 200 * time.Millisecond
+
+// consumerExitReason 把 ProcessTrace 的返回码翻成人话。
+// 正常退出（CloseTrace 之后）是 ERROR_SUCCESS 或 ERROR_CANCELLED(1223)；
+// **会话刚建起来就退出**说明消费侧压根没跑起来，这里要给出可行动的原因。
+func (s *etwSession) consumerExitReason() string {
+	switch rc := s.consumerRC; rc {
+	case 0, 1223: // ERROR_SUCCESS / ERROR_CANCELLED
+		return "已正常停止"
+	case errAccessDenied:
+		return "ProcessTrace 权限不足（win32 error 5）"
+	case 6: // ERROR_INVALID_HANDLE
+		return "ProcessTrace 句柄无效（win32 error 6，OpenTraceW 返回的句柄没被接受）"
+	case 87: // ERROR_INVALID_PARAMETER
+		return "ProcessTrace 参数无效（win32 error 87，EVENT_TRACE_LOGFILEW 的字段或模式不对）"
+	case errWmiInstanceNotFound, errWmiGuidNotFound:
+		return fmt.Sprintf("ProcessTrace 找不到该 session（win32 error %d）", rc)
+	default:
+		return fmt.Sprintf("ProcessTrace 返回 win32 error %d", rc)
+	}
 }
 
 // enableProvider 启用 Kernel-Network provider，过滤器只放行 8 个 Event ID——
@@ -183,16 +228,48 @@ func (s *etwSession) stats() (eventsLost, realTimeBuffersLost uint32, err error)
 	return props.EventsLost, props.RealTimeBuffersLost, nil
 }
 
+// SessionActive 报告本包那个固定名字的 ETW 会话当前是否已经存在。
+//
+// ⚠️ 这个函数**只许用 QUERY**。控制码写反的那一版里它发的其实是 STOP：
+// 一个本该「查一下有没有人在用」的护栏，会把别人正在用的会话直接停掉——
+// 比不做护栏更糟。改动这里时先看 eventTraceControl* 的说明。
+//
+// 存在的理由是**独占性**：session 名固定，同机同时只能有一个消费进程，
+// 第二个 Load 会把第一个的会话停掉、且对方要重启才能恢复
+// （docs/WINNET_ETW_PLAN.md §15.2）。接线之后这就成了实打实的脚枪：
+// 管理员在服务跑着的时候敲一次诊断命令，线上的实例网络监控就没了。
+// 所以诊断命令在 Load 之前先问这里，查到就拒绝执行。
+//
+// 直接问会话本身，而不是去进程列表里找 asa-server.exe：服务、api、GUI
+// 三种形态的进程名与命令行都不一样，扫进程既容易漏也容易误判，
+// 而这里测量的就是冲突本身。查不到会话时返回 (false, nil)——
+// 「没人在用」不是错误。
+func SessionActive() (bool, error) {
+	name := utf16FromString(sessionName)
+	buf := buildPropertiesBuffer(name)
+	props := (*eventTraceProperties)(unsafe.Pointer(&buf[0]))
+	switch errCode := controlTraceW(0, &name[0], props, eventTraceControlQuery); errCode {
+	case 0:
+		return true, nil
+	case errWmiInstanceNotFound, errWmiGuidNotFound:
+		return false, nil
+	case errAccessDenied:
+		// 没权限查 = 也没权限起，交给调用方按「问不出来」处理
+		return false, errors.New("查询 ETW 会话状态权限不足（需要管理员或 Performance Log Users 组）")
+	default:
+		return false, fmt.Errorf("ControlTraceW(QUERY) 失败: win32 error %d", errCode)
+	}
+}
+
 // destroySession 按名字停掉会话，并**复核它真的没了**。
 //
-// ⚠️ 单发一次 STOP 不可靠——2026-09-07 实测（Win11，非提权）：
-// `ControlTraceW(0, name, STOP)` 返回 4201（按 controlStopSucceeded 属成功语义）
-// 之后，会话**有时仍在**（`logman query -ets` 里还是 Running），而且不会自行消失；
-// 复现方式是让进程在 STOP 之后立刻退出，残留能存活数分钟，直到下一次 Load 走
-// ERROR_ALREADY_EXISTS 分支把它收掉。ETW session 是有限系统资源，不能指望
-// 「下次启动兜底」当作正常路径，所以这里 STOP 之后 QUERY 复核，还在就再来一次。
+// 之前追查过的「STOP 之后会话仍在、`logman query -ets` 里还是 Running」，根因是
+// 控制码写反了——那次「STOP」实际发出去的是 QUERY，会话当然不会停
+// （见 eventTraceControl* 的说明）。码修对之后单发一次就够了。
 //
-// 每轮之间的 200ms 是给内核收尾留的时间；5 轮 = 最坏 1 秒，只发生在停止路径上。
+// 复核仍然保留：ETW session 是有限系统资源，停不掉要让调用方知道，而不是
+// 靠「下次启动走 ERROR_ALREADY_EXISTS 兜底」。happy path 上 STOP 返回 0、
+// QUERY 返回 4201，第一轮就退出，不产生任何额外延迟。
 func destroySession(nameUTF16 []uint16) error {
 	namePtr := &nameUTF16[0]
 	var last uint32
