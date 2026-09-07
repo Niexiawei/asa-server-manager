@@ -1,7 +1,11 @@
 # `pkg/winnetetw` 迭代清单（活动文档）
 
-> 状态：**§2 的九项缺陷已全部修完并验证（2026-09-07）**；仍缺的是需要管理员终端的
-> 真机验收（§5 的 7 与 8），其中 #3（ARK 实例 UDP 双向）是决定 T1 能否接线的那一项。
+> 状态：**§2 的缺陷已全部修完并验证（2026-09-07，共五轮真机）**；
+> `netmon etw --selftest` 已判定「捕获正常」。仍缺的是对着**在跑的 ARK 实例**
+> 核对 UDP 四路分项。
+>
+> 📌 **验证状态汇总与下一步操作手册见 `docs/NETMON_VERIFICATION_LOG.md`**；
+> 本清单保留每个缺陷的现场与修法。
 > 与 `docs/WINNET_ETW_PLAN.md` 的分工同 overlay 那对文档：
 > **PLAN 是只增不改的档案，新缺陷进本文件，结论回填 PLAN**。
 > 关联：`docs/RESOURCE_RATE_CHART_PLAN.md`（P7，Windows 侧的上位方案）。
@@ -156,9 +160,10 @@ P7 §2.2 原文就写明「eBPF-for-Windows 尚不覆盖此类网络计量，按
 - **位置**：`etw_syscall.go` 的 `errWmiInstanceIdNotFound = 4200`。
 - **事实**：`ERROR_WMI_INSTANCE_NOT_FOUND` 是 **4201**；4200 是
   `ERROR_WMI_GUID_NOT_FOUND`。
-- **更要紧的一条实测**：`ControlTraceW(0, name, STOP)` 把会话**成功停掉之后返回的也是
-  4201**——调用前 QUERY 得 0（在），调用后 QUERY 得 4201（没了），而 STOP 自己报 4201。
-  所以这个码一律不能当失败。
+- ~~**更要紧的一条实测**：`ControlTraceW(0, name, STOP)` 把会话成功停掉之后返回的也是
+  4201。~~ **已订正（§2.14）**：那是控制码写反时，一次 QUERY 打在刚被停掉的会话上的结果。
+  4201 仍然要当成功处理，但理由是「停一个已经不在的会话不算失败」（重复 Close、
+  上次已清干净），不是「STOP 成功也返回它」。
 - **修法**：常量拆成 `errWmiGuidNotFound`(4200) / `errWmiInstanceNotFound`(4201)，
   新增 `controlStopSucceeded()` 把两者与 0 一并视为成功。与 §2.3 是同一类问题
   （把成功语义当失败，制造假报警）。
@@ -182,6 +187,11 @@ P7 §2.2 原文就写明「eBPF-for-Windows 尚不覆盖此类网络计量，按
 ### 2.9 【高】`Load` 失败会泄漏一个系统级 ETW session
 
 > 执行期实测发现，是 §2.8 的直接后果。**已修，并已用 `logman query -ets` 复验。**
+>
+> ⚠️ **根因订正（见 §2.14）**：泄漏不是「单发 STOP 不可靠」，而是
+> `stop()` 里那一发根本不是 STOP——控制码写反了，它发的是 QUERY。
+> 下面「机制未查明」的记述已作废；`destroySession` 的复核重试保留，
+> 但它不再是修复本身，只是一道确认。
 
 - **现象**：非提权下 `StartTraceW` 已经把 session 建出来了（§2.8），随后
   `EnableTraceEx2` 失败走清理路径。清理里那一发 `ControlTraceW(STOP)` **不可靠**：
@@ -197,6 +207,129 @@ P7 §2.2 原文就写明「eBPF-for-Windows 尚不覆盖此类网络计量，按
   分支都改走它。
 - **验收（已跑）**：连续 4 次非提权启动 + `logman query -ets`，全部 `CLEAN`；
   其中第一次还顺带收掉了修复前遗留的那个残留（= PLAN §9 验收项 #8 的等价验证）。
+
+### 2.10 【阻断】`ETW_BUFFER_CONTEXT` 是 4 字节不是 2，payload 长度一直读的是别的字段
+
+> 2026-09-07 真机首次跑 `netmon etw` 后排查发现。**已修。**
+
+- **位置**：`etw_syscall.go` 的 `etwBufferContext`（原 `ProcessorNumber uint8` +
+  `LoggerId uint8`，2 字节）。
+- **正确布局**：C 侧是 `union { struct { UCHAR ProcessorNumber; UCHAR Alignment; };
+  USHORT ProcessorIndex; }` + `USHORT LoggerId`，共 **4 字节**。
+- **后果不在指针上，在两个 USHORT 上**：`EVENT_RECORD` 里三个指针
+  （88/96/104）被 8 字节对齐兜住了，所以 `UserData` / `UserContext` 一直是对的；
+  但 `ExtendedDataCount` 与 `UserDataLength` 整体前移了 2 字节——
+  **`UserDataLength` 实际读到的是 C 的 `ExtendedDataCount`**（这类事件恒为 0）。
+  于是 `readPayloadValues` 拿到一个**长度为 0** 的 payload，每个事件都因越界判解析失败，
+  计数永远不动，而日志上只看得到「事件=N 解析丢弃=N」，没有任何指向布局的线索。
+- **单测为什么没拦住**：`TestFieldOffsets` 把 `rec.UserDataLength` 钉在 84，
+  而 84 正是**错误布局**下的值（正确值是 86）。钉子和被钉的东西来自同一个错误认知，
+  这种测试只能防回归、防不住第一次写错。现在两个偏移都按 C 重新推导过并注明了推导过程。
+- **修法**：结构体补 `Alignment uint8` 并把 `LoggerId` 改成 `uint16`；
+  测试改钉 `ExtendedDataCount=84` / `UserDataLength=86`。
+- **新增回归**：`TestEventCallbackThunk` 直接调用 `syscall.NewCallback` 造出来的函数指针，
+  用一条合成 EVENT_RECORD 走完「回调 → 分类 → 按 offset 读 payload → 落到计数」，
+  断言 1500 字节确实进了 TCP 发送方向。偏移写错时这条断言必挂。
+  （⚠️ 该测试必须**预置 schema**：让它走 `TdhGetEventInformation` 会因为记录是合成的
+  而访问违例 `0xc0000005` 把进程带崩——真实记录来自内核，不存在这个问题。）
+
+### 2.11 【阻断】`ProcessTrace` 的返回码被丢掉，消费侧启动即退出时毫无线索
+
+> 同上，2026-09-07 真机暴露。**诊断已加，根因见 §2.14（控制码写反）。**
+> 下面「已排除…只在 provider 启用之后出现」的推断是错的：与 provider 无关，
+> 是 `Describe()` 自己把会话停掉了。本机之所以复现不出来，正是因为那次实验
+> 没有调 `Describe()`。
+
+- **现象**：真机上 `Load` 返回成功，但第一行 `Describe()` 就报「会话已终止」——
+  说明 `ProcessTrace` 起来就退了，事件数恒 0。而原代码是 `_ = processTrace(...)`，
+  **返回码被丢弃**，外部只能看到「没有事件」。
+- **已排除**（本机非提权复现过 consumer 路径）：`EVENT_TRACE_LOGFILEW` 布局、
+  六个 API 的 proc 解析、实时模式、调用约定——不挂 provider 时
+  `ProcessTrace` 能正常阻塞，`CloseTrace` 后返回 0。所以问题只在
+  **provider 启用、事件真的开始流动之后**才出现。
+- **顺带纠正一个直觉**：`OpenTraceW` 对**不存在的 session 名**并不返回
+  `INVALID_PROCESSTRACE_HANDLE`，实测返回一个正常句柄（`0x101`），
+  失败要等到 `ProcessTrace` 才暴露。所以「OpenTraceW 成功」什么都不证明。
+- **修法（诊断）**：`etwSession.consumerRC` 记下返回码，
+  `consumerExitReason()` 把常见码翻成人话，并入 `Describe()`。
+- **修法（行为）**：`startSession` 在起 goroutine 之后等 200ms，
+  发现消费侧已经退出就**当场失败**并带上原因，而不是交出一个
+  「会话还在、但永远收不到事件」的 Collector——后者在上层表现为
+  「一切正常但计数恒为 0」，是最难查的一种。
+
+### 2.12 【阻断】TDH 的三个调用约定全写错了，其中一个把进程直接打崩
+
+> 2026-09-07 第二轮真机（管理员终端）暴露。**已修，且有测试兜住。**
+
+第一轮修完之后 ETW 会话终于活下来了（`事件=1`），紧接着在回调线程上崩了：
+
+```
+Exception 0xc0000005 0x0 0x1000
+asa-server/pkg/winnetetw.tdhGetEventInformation(...)
+```
+
+`0x1000` = **4096** = 我们传进去的缓冲区长度。三处都是同一类错误：
+
+| 函数 | 错在哪 | 后果 |
+| --- | --- | --- |
+| `TdhGetEventInformation` | 最后一个参数是 `ULONG *BufferSize`（in/out），**按值传了 `len(buffer)`** | TDH 把 4096 当指针解引用 → 访问违例 → **整个进程崩**。回调在 ETW 原生线程上，`recover` 拦不住 |
+| `TdhGetProperty` | C 侧 **7 个参数**（`BufferSize` 按值、在 `pBuffer` 之前），代码传了 8 个，多出来一个「实际写入字节数」出参——**那个参数根本不存在** | 那个变量永远是 0，调用方按 `size == 0` 判失败 ⇒ **慢路径从来没成功过**，一直被快路径掩盖 |
+| `TdhGetPropertySize` | 压根没声明 | 取值前问不到属性宽度，只能靠上面那个不存在的出参 |
+
+**顺带纠正一个此前写进注释的错误结论**：原来说「TDH 不返回所需大小，只能从
+4096 开始倍增试探」——那是把 in/out 指针当值参数之后的错觉。现在按
+`ERROR_INSUFFICIENT_BUFFER` 写回的 needed 一次分对。
+
+**新增两条测试**（都在没有管理员权限、没有真实会话的情况下跑得动）：
+
+- `TestTdhGetEventInformationDoesNotCrash`：拿合成记录调真正的 TDH。
+  调用约定写错时它会以同样的方式崩掉，比任何断言都有效。
+- `TestEventCallbackThunk`：直接调 `syscall.NewCallback` 造出来的函数指针，
+  走完「回调 → 分类 → 按 offset 读 payload → 落到计数」，断言 1500 字节确实
+  进了 TCP 发送方向（§2.10 的偏移写错时这条必挂）。
+
+### 2.13 【订正】`EVENT_TRACE_LOGFILEW` 的生命周期：是个真 bug，但**不是**会话早退的原因
+
+第二轮时把 `logfile` 从局部变量改成挂在 `etwSession` 上，当时归因为
+「它被 GC 回收导致 `ProcessTrace` 立刻返回」。**那个归因是错的**：
+第三轮定位到真正的原因是控制码写反（§2.14）——`Describe()` 里的
+「QUERY」实际是 STOP，打印一行状态就把会话停了。三轮里
+「会话已终止」出现的时机不同（有时在加载那行、有时在最后），
+只是 `ProcessTrace` 返回与 `alive()` 检查之间的竞争，不是别的机制。
+
+`logfile` 的改法**保留**，它本身是对的：ETW 在整个会话期间都要用这个结构体
+（回调指针、LoggerName，以及往 LogfileHeader 回填），传给 Windows 的东西只要
+生命周期跨越调用返回就必须有 Go 侧引用——`propsBuf` / `filterBuf` / `nameUTF16`
+当初都做了，唯独它漏了。只是它是一个**潜在**缺陷，不是已观测现象的成因。
+
+**教训**：手上同时有两三个可疑点时，「改了 A，现象变了」不等于「A 是根因」——
+这轮的现象变化其实来自竞争窗口的偏移。没有独立验证就别把因果写进文档。
+
+### 2.14 【根因】`EVENT_TRACE_CONTROL_QUERY` 与 `STOP` 写反了 —— 前面好几条结论都是它的假象
+
+> 2026-09-07 第三轮真机后定位，**已修，并有一条用真实会话验证语义的测试兜住**。
+> 正确值：`EVENT_TRACE_CONTROL_QUERY = 0`，`EVENT_TRACE_CONTROL_STOP = 1`（evntrace.h）。
+> 代码里写成了 QUERY=1 / STOP=0，**两个语义完全相反的操作互换了**。
+
+一个常量错位，制造了此前分三轮追查的一连串「怪现象」：
+
+| 观察到的现象 | 真实原因 |
+| --- | --- |
+| `Describe()` 打印完状态，会话就没了（`事件=1`、`已正常停止`、随后全是「采不到」） | `stats()` 以为在 QUERY，**实际发的是 STOP**——打印一行状态把自己的会话停了 |
+| `Load` 失败后 session 泄漏，`logman` 里一直 Running | `stop()` 以为在 STOP，**实际只是 QUERY**，从来没停过任何东西 |
+| 「单发一次 STOP 不可靠，加了 QUERY 复核重试才好」 | 复核那一发（`QUERY`=1）才是真正的 STOP。重试循环之所以「有效」，是因为它多发了一次 |
+| 「STOP 成功停掉会话之后返回的也是 4201」 | 那是一次 QUERY 打在刚被停掉的会话上 |
+| `SessionActive()` 从来没拦住过任何东西 | 它以为在查，**实际会把别人正在用的会话停掉**——本该防抢占的护栏自己在抢占 |
+
+**验证方式**：`TestControlCodeSemantics` 建一个真会话，然后
+①连发两次 QUERY，会话必须还在；②发一次 STOP，之后 QUERY 必须报 4201。
+把常量换回错的，这条测试当场失败并直接指出「两个控制码写反了」。
+非提权也能跑（`StartTraceW` 不需要管理员）。
+
+**教训**：一组语义相反的魔数，单测**不能钉数值**——钉子和被钉的东西出自同一个
+错误认知（§2.10 的偏移也栽在这上面）。只有让真对象跑一遍才防得住。
+
+⚠️ 本清单里 §2.9 / §2.11 / §2.13 的「根因」表述受此影响，见各节开头的订正。
 
 ### 2.5 【观察项，不阻断】`stop()` 会写正被 `ProcessTrace` 持有的句柄字段
 
@@ -219,6 +352,12 @@ P7 §2.2 原文就写明「eBPF-for-Windows 尚不覆盖此类网络计量，按
 ---
 
 ## 4. 真机验收：真正决定成败的那一项
+
+> **2026-09-07 第四轮进展（初步是好消息）**：`netmon etw --selftest` 判定
+> `捕获正常`，其中**经真实网卡的 UDP 收发两个方向都被报出来了**
+> （DNS 查询：RX 1.2 KB / TX 1.2 KB）。ARK 的游戏流量正是这条路。
+> 但**回环 UDP 不上报**（回环 TCP 上报），已回填 PLAN §4.9。
+> 下面这条仍然成立：**判据是对着在跑的实例看 UDP 四路分项**，自测只说明机制可用。
 
 PLAN §10 第一条（UDP RX 完整性）是唯一可能推翻整套方案的风险，而且**比 PLAN 写得更棘手**：
 
@@ -255,7 +394,7 @@ T1 一旦落地，`internal/webapi` 的启动日志与前端占位行为都会�
 | 7 | PLAN §9 本期项 #1/2/10 真机跑通（**需管理员终端**） | 验收 | ☐ 本机未提权，冒烟程序已备好（§7） |
 | 7b | #7/#8 session 生命周期与残留清理 | 验收 | ✅ 非提权下已等价验证（§2.9） |
 | 8 | **#3：ARK 实例 UDP 双向核对**（§4，决定性） | 验收 | ☐ 执行方式见 `docs/NETMON_CLI_AND_ETW_WIRING_PLAN.md` N3 |
-| 9 | T1：`procnet_windows.go` stub 改委托（PLAN §14） | 接线 | ☐ 待 #8，归入上述方案的 N4 |
+| 9 | T1：`procnet_windows.go` stub 改委托（PLAN §14） | 接线 | ✅ 2026-09-07 已接（提前于 #8，理由见新方案 §11.2） |
 
 > §5 的 7/8/9 三项已并入 **`docs/NETMON_CLI_AND_ETW_WIRING_PLAN.md`**：
 > 那个方案先做两条诊断命令（`netmon ebpf` / `netmon etw`），再用它们的结论

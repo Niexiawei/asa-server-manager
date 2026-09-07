@@ -1621,7 +1621,7 @@
                     "net_io": {
                       "type": "object",
                       "nullable": true,
-                      "description": "Per-process network rates. Always null on Windows; on Linux only when the eBPF probe is available",
+                      "description": "Per-process network rates. Null unless per-process metering is available: on Windows an ETW session (admin or service), on Linux the eBPF probes",
                       "properties": {
                         "recv_bytes_per_sec": { "type": "number", "format": "float" },
                         "sent_bytes_per_sec": { "type": "number", "format": "float" }

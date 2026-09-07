@@ -198,7 +198,7 @@ data: {"cpu_usage": 35.0, "memory_total": 17179869184, "memory_used": 8589934592
       "memory_used_mb": 6144, "memory_used_gb": 6,
       "disk_io": { "read_bytes_per_sec": 131072, "write_bytes_per_sec": 65536,
                    "read_iops": 12, "write_iops": 6 },
-      "net_io": null                  // Windows 恒 null；Linux 需 eBPF 可用
+      "net_io": null                  // 采不到时为 null：Windows 需 ETW 权限，Linux 需 eBPF 可用
     }
   ]
 }

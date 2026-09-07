@@ -55,7 +55,7 @@
       <div v-else class="trend-placeholder">
         <div class="placeholder-title">网络收发速度</div>
         <div class="placeholder-text">
-          当前平台不支持按进程网络计量（需 Linux + eBPF），整机网络请看服务器资源监控页
+          未启用按进程网络计量（Windows 需以管理员或服务方式运行，Linux 需内核支持），整机网络请看服务器资源监控页
         </div>
       </div>
     </div>

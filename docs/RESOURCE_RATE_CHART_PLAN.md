@@ -115,8 +115,15 @@ gopsutil 的 `Process.NetIOCounters()` 在 **Windows 上未实现**，在 **Linu
   卸载 BPF、释放 map。
 
 **Windows 方案**：eBPF-for-Windows 尚不覆盖此类网络计量，按进程网络需 ETW
-（`Microsoft-Windows-Kernel-Network` provider）。**本方案 Windows 上实例级网络指标不提供**
-（`pkg/procnet` 的 `procnet_windows.go` 直接返回 `unsupported`），留作后续独立事项。
+（`Microsoft-Windows-Kernel-Network` provider）。~~**本方案 Windows 上实例级网络指标不提供**
+（`pkg/procnet` 的 `procnet_windows.go` 直接返回 `unsupported`），留作后续独立事项。~~
+
+> **2026-09-07 订正**：那个「后续独立事项」已经做完并接线。Windows 侧走
+> `pkg/winnetetw`（ETW），`procnet_windows.go` 从 stub 改成了委托壳，
+> `instances[].net_io` 在 Windows 上**不再恒为 null**——权限满足（服务/管理员）
+> 就有值，普通用户降级为 null。实现见 `docs/WINNET_ETW_PLAN.md`，
+> 接线与诊断命令见 `docs/NETMON_CLI_AND_ETW_WIRING_PLAN.md`。
+> 本文档下面几处「Windows 恒 null」的表述一律按此理解。
 
 **包归属**：`pkg/procnet/`——不认识实例/PID 文件等领域概念、零领域依赖、有自己的 load/close
 生命周期但不持有领域状态，符合 `pkg/` 准入（对照 `pkg/procx`）。按平台拆
@@ -347,7 +354,8 @@ type HistoryStore interface {
         "write_iops": 6
       },
 
-      // 新增：进程网络速率。Windows 恒为 null；Linux 仅在 eBPF 可用时为对象，否则 null（见 §2.2）
+      // 新增：进程网络速率。两平台都是「前置满足才有值」：Windows 需 ETW 权限，
+      // Linux 需 eBPF 可加载；否则 null（见 §2.2 与其 2026-09-07 订正）
       "net_io": {
         "recv_bytes_per_sec": 524288,
         "sent_bytes_per_sec": 131072
@@ -404,10 +412,11 @@ GET /api/server/metrics/history?window=900&instance=<name>
 | `disk.IOCounters` | key 是**盘符**（`"C:"`），gopsutil 已只留 `DRIVE_FIXED`，全收 | 需过滤分区/`dm-`/`loop` |
 | 网络计数 | **必须 `pernic=true` 自筛**，排除回环适配器 | **必须 `pernic=true` 自筛**，排除 `lo`/`docker0`/`veth*` |
 | 进程 `IOCounters` | 全量 I/O 计数，可用 | `/proc/<pid>/io`，需权限，否则 null |
-| 进程网络 | 不提供（gopsutil 不支持；ETW 留作后续） | `pkg/procnet` eBPF（cilium/ebpf），前置不满足则 null |
+| 进程网络 | `pkg/winnetetw` ETW（2026-09-07 起，见 §2.2 订正），无权限则 null | `pkg/procnet` eBPF（cilium/ebpf），前置不满足则 null |
 
-Windows 是主平台，Linux 上采不到的项一律 null 降级，不影响启动与其它指标。
-实例级 `net_io` 字段：Windows 恒为 `null`；Linux eBPF 可用时为速率对象，否则 `null`。
+Windows 是主平台，两边采不到的项一律 null 降级，不影响启动与其它指标。
+实例级 `net_io` 字段：**两个平台都是「前置满足才有值，否则 `null`」**——
+Windows 的前置是 ETW 实时会话权限（服务/管理员），Linux 的前置是 eBPF 可加载。
 
 ---
 
@@ -898,10 +907,24 @@ P7 只是让这些字段在 Linux 上真的有值。`openapi.json` / `docs/API_R
 
 ### 11.4 仍待验证（需要 Linux 5.4 真机）
 
-- 六个 kprobe 能否全部挂上；`tcp_cleanup_rbuf` 在 5.4 上是否被内联（若被内联则 attach 失败，
-  收方向要改挂 `tcp_recvmsg` + 取返回值）。
-- `rlimit.RemoveMemlock()` 之后 map 创建是否正常（5.4 的 locked-memory 配额路径）。
+> 📌 两个平台的验证状态、真机排障的完整账、以及实例级验证的操作手册，
+> 统一收在 **`docs/NETMON_VERIFICATION_LOG.md`**。
+>
+> **2026-09-07 真机进展**：用新增的 `asa-server netmon ebpf --selftest` 端到端跑通了，
+> 判定「捕获正常」（回环 TCP 16 MB / 回环 UDP 4 MB / 外发 DNS 数百字节，量级全对）。
+> 下面前两条因此销掉；**但那台机器是较新的内核**（BPF 运行统计需 5.8+），
+> 5.4 本身仍未实测。
+>
+> 同一轮还查出并修掉一个**在容器里必然踩到**的问题：`bpf_get_current_pid_tgid()`
+> 给的是初始 namespace 的 tgid，与容器内 `os.Getpid()` 永远对不上，表现为
+> 探针命中数一直涨、计数恒为 0。已改用 `bpf_get_ns_current_pid_tgid`
+> （单独一个 `.o`，5.7+ 才加载，失败退回基础版），详见
+> `docs/NETMON_CLI_AND_ETW_WIRING_PLAN.md` §11.6。
+
+- ~~六个 kprobe 能否全部挂上~~ **已验证：6/6 挂上**（`tcp_cleanup_rbuf` 未被内联）。
+- ~~`rlimit.RemoveMemlock()` 之后 map 创建是否正常~~ **已验证**（该机内核较新，5.4 仍待测）。
 - 数值口径核对：与 `nethogs` / `ss -i` 或实例自己的流量统计对一遍，确认量级正确。
+  （自测阶段的量级已对上，但那是本进程自己打的流量，不等于对着 ARK 实例核对过。）
 - 容器 / AppArmor / lockdown 环境下的降级是否真的只是 `net_io` 为 null、不影响其它指标。
 - `linux.ebpf_btf_path` 指向 btfhub 目录时的路径命中（当前无 CO-RE，命不中也不影响加载，
   所以这条只是把预留路径走通，不是阻塞项）。
