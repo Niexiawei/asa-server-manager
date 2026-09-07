@@ -22,6 +22,11 @@ BPF_DIR := pkg/procnet/bpf
 BPF_SRC := $(BPF_DIR)/procnet.c
 BPF_HDR := $(BPF_DIR)/bpf_min.h
 BPF_OBJ := $(BPF_DIR)/procnet_amd64.o
+# 命名空间感知版：同一份源加 -DPROCNET_NS_PID，用 bpf_get_ns_current_pid_tgid
+# 把 tgid 换算到调用方的 PID namespace（容器里唯一对得上号的口径）。
+# 那个 helper 要内核 5.7+，5.4 的 verifier 会直接拒绝，所以两个产物都得留，
+# 由 procnet_linux.go 先试后退。
+BPF_OBJ_NS := $(BPF_DIR)/procnet_ns_amd64.o
 
 # -target bpf 选后端；-g **必须留着**——BTF 风格的 map 定义靠它写进 .BTF 段，
 # 去掉就没有 .maps 的类型信息，cilium/ebpf 加载不了。
@@ -39,7 +44,7 @@ help:
 	@echo "当前工具链：CLANG=$(CLANG)  LLVM_STRIP=$(LLVM_STRIP)"
 
 .PHONY: bpf
-bpf: $(BPF_OBJ)
+bpf: $(BPF_OBJ) $(BPF_OBJ_NS)
 
 # 只在 .c / .h 比 .o 新时才重编。这不只是省时间：不同版本、不同发行版的 clang
 # 编出来的字节并不相同（指令选择与 BTF 编码都可能变），无条件重编会让这个
@@ -49,13 +54,18 @@ $(BPF_OBJ): $(BPF_SRC) $(BPF_HDR)
 	$(LLVM_STRIP) -g $@
 	@echo "已生成 $@ （llvm-strip -g 去掉 DWARF、保留 .BTF）"
 
+$(BPF_OBJ_NS): $(BPF_SRC) $(BPF_HDR)
+	$(CLANG) $(BPF_CFLAGS) -DPROCNET_NS_PID -c $(BPF_SRC) -o $@
+	$(LLVM_STRIP) -g $@
+	@echo "已生成 $@ （命名空间感知版，需内核 5.7+）"
+
 # 写成「删了再递归调一次」而不是 `bpf-force: bpf-clean bpf`：
 # 并行 make（-j）下同一个目标的多个前置没有先后保证，那种写法可能先编再删。
 .PHONY: bpf-force
 bpf-force:
-	rm -f $(BPF_OBJ)
+	rm -f $(BPF_OBJ) $(BPF_OBJ_NS)
 	$(MAKE) bpf
 
 .PHONY: bpf-clean
 bpf-clean:
-	rm -f $(BPF_OBJ)
+	rm -f $(BPF_OBJ) $(BPF_OBJ_NS)

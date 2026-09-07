@@ -3,9 +3,15 @@
 // 存在的理由：gopsutil 给不了这个量——`Process.NetIOCounters` 在 Windows 上未实现，
 // 在 Linux 上读的是网络 namespace 级（等价于整机）。要按进程精确计量只能在内核侧下钩子。
 //
-// 实现只有 Linux/amd64 一条：用 github.com/cilium/ebpf 加载一组 kprobe/kretprobe，
-// 按 `bpf_get_current_pid_tgid() >> 32` 聚合到 BPF hash map。其余平台（Windows 的
-// 按进程网络计量要走 ETW，尚未实现；arm64 不出 eBPF 产物）一律返回 ErrUnsupported。
+// 本包是**统一门面**，两个平台各有一套机理完全不同的实现：
+//
+//   - Linux/amd64：用 github.com/cilium/ebpf 加载一组 kprobe/kretprobe，
+//     按 `bpf_get_current_pid_tgid() >> 32` 聚合到 BPF hash map（procnet_linux.go）。
+//   - Windows：委托 pkg/winnetetw，走 ETW 的 Microsoft-Windows-Kernel-Network
+//     provider（procnet_windows.go 只是转发壳，见 docs/WINNET_ETW_PLAN.md）。
+//
+// 其余平台（linux/arm64 不出 eBPF 产物等）返回 ErrUnsupported。
+// 调用方不需要知道有几种实现，也不需要 build tag——这正是门面存在的理由。
 //
 // 本包**不认识实例、PID 文件等领域概念**，只认 PID；被跟踪进程的集合由调用方通过
 // Bytes 的调用隐式给出（问到谁就跟踪谁，一段时间没人问就自动淘汰）。
@@ -30,11 +36,19 @@ import "errors"
 //     可用 CLANG= / LLVM_STRIP= 指定工具链）
 //   - CI：.github/workflows/bpf.yml 在 .c/.h 变更时自动重新生成并提交回来
 //
+// **两个产物**：基础版 + `-DPROCNET_NS_PID` 的命名空间感知版。后者用
+// bpf_get_ns_current_pid_tgid（内核 5.7+）把 tgid 换算到调用方的 PID namespace；
+// 5.4 上加载不了，所以不能只留它一个（procnet_linux.go 先试后退）。
+//
 //go:generate clang -O2 -g -Wall -Werror -target bpf -mcpu=v1 -c bpf/procnet.c -o bpf/procnet_amd64.o
 //go:generate llvm-strip -g bpf/procnet_amd64.o
+//go:generate clang -O2 -g -Wall -Werror -target bpf -mcpu=v1 -DPROCNET_NS_PID -c bpf/procnet.c -o bpf/procnet_ns_amd64.o
+//go:generate llvm-strip -g bpf/procnet_ns_amd64.o
 
-// ErrUnsupported 表示当前平台/内核/权限下拿不到按进程的网络计量。
-// 调用方应当据此把实例级网络字段整体置 null，而不是当作故障——
+// ErrUnsupported 表示当前平台/内核下压根没有实现（linux/arm64 等）。
+// 有实现但这次没起来（缺权限、缺 BTF、被容器策略挡下）返回的是具体原因，不是它。
+//
+// 无论哪种，调用方都应当把实例级网络字段整体置 null，而不是当作故障——
 // 宿主机网络与其它所有指标都不受影响。
 var ErrUnsupported = errors.New("procnet: 当前平台或内核不支持按进程网络计量")
 
@@ -51,4 +65,17 @@ type Options struct {
 	// 因此**没有 CO-RE 重定位、加载时并不需要目标机 BTF**；这个选项是为将来
 	// 需要按 socket 取地址/端口之类要读内核结构体的扩展预留的。配错了只降级，不阻断。
 	BTFPath string
+
+	// Diagnostics 打开之后，实现可以做一些**只有排障才值得的**额外工作，
+	// 代价是常驻开销——服务进程一律传 false，只有 `asa-server netmon` 传 true。
+	//
+	// Linux：开启内核的 BPF 运行统计（BPF_ENABLE_STATS，需 5.8+），于是
+	// Describe() 能报出每个探针**被命中了多少次**。这一个数把
+	// 「探针根本没触发」与「触发了但 tgid 对不上、流量没算进目标」分开——
+	// 两者在外部表现完全一样（曲线恒零），没有它只能靠猜。
+	// 统计是全局开关，会给**机器上所有** BPF 程序加一点每次执行的计时开销，
+	// 所以不能在服务里默认开。
+	//
+	// Windows：当前无额外行为（ETW 侧的等价信息本来就在 Describe 里）。
+	Diagnostics bool
 }

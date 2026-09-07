@@ -139,7 +139,8 @@ func procDiskIO(r serverinfo.ProcRates) any {
 	}
 }
 
-// procNetIO 只有 Linux + eBPF 可用时才非 nil，Windows 恒为 null。
+// procNetIO 在按进程网络计量可用时才非 nil（Linux 走 eBPF、Windows 走 ETW，
+// 都要前置条件：权限、内核支持）。采不到时整块为 null，与「速率真的是 0」区分开。
 func procNetIO(r serverinfo.ProcRates) any {
 	if r.NetRxBytesPS == nil || r.NetTxBytesPS == nil {
 		return nil

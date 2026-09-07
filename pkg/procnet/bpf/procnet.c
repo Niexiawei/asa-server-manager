@@ -40,12 +40,82 @@ struct {
     __uint(max_entries, 256);
 } procnet_counters SEC(".maps");
 
+/* tracked：这个 tgid 要不要统计。
+ *
+ * key 0 是**诊断用的全捕获哨兵**：targets 里存在它时，所有 tgid 一律计数。
+ * tgid 0 是 swapper/idle，永远走不到这些 socket 路径，拿它当哨兵不会和真实目标撞车。
+ * 只有 `asa-server netmon`（procnet.Options.Diagnostics）会写这个 key，服务进程不会。
+ *
+ * 为什么需要它：探针「挂上了」「跑了」都能从用户态看到，唯独
+ * 「内核眼里这笔流量属于哪个 tgid」看不到——而用户态登记的 PID 与内核看到的 tgid
+ * 一旦不是同一个（典型是进程在 PID namespace 里），表现就是探针命中数一直涨、
+ * counters 却永远是空的，没有任何线索。开了哨兵之后 counters 里的 key
+ * 就是内核的答案，一眼能和 os.Getpid() 对上。 */
+#ifdef PROCNET_NS_PID
+/* ---- PID namespace 感知（只编进 procnet_ns_amd64.o） ----
+ *
+ * bpf_get_current_pid_tgid() 给的是**初始 namespace** 的 tgid。asa-server 跑在容器
+ * （或任何 PID namespace）里时，用户态拿到的 PID 与它不是同一个空间：登记的 key
+ * 永远匹配不上，表现为探针命中数一直涨、counters 里全是别的 tgid。
+ * 2026-09-07 真机实测就是这个形态（本进程 PID 14597，内核只报 913/925/958/15036）。
+ *
+ * bpf_get_ns_current_pid_tgid(dev, ino, ...) 正是为此而设：给它
+ * /proc/self/ns/pid 的 (st_dev, st_ino)，它返回**那个 namespace 里**的 pid/tgid，
+ * 与用户态的 os.Getpid() 同一个空间。
+ *
+ * 这个 helper 要 **kernel 5.7+**，而本项目的基线是 5.4——用了它的程序在 5.4 上
+ * 会被 verifier 直接拒绝加载（未知 helper）。所以它单独编成一个 .o，
+ * 用户态先试它、失败再退回基础版（procnet_linux.go 的 Load）。
+ * 拿不到 dev/ino 时 cfg->ino == 0，同样退回 bpf_get_current_pid_tgid()。 */
+struct pidns_cfg {
+    __u64 dev;
+    __u64 ino;
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __type(key, __u32);
+    __type(value, struct pidns_cfg);
+    __uint(max_entries, 1);
+} procnet_pidns SEC(".maps");
+
+struct bpf_pidns_info {
+    __u32 pid;
+    __u32 tgid;
+};
+
+static long (*bpf_get_ns_current_pid_tgid)(__u64 dev, __u64 ino,
+                                           struct bpf_pidns_info *nsdata,
+                                           __u32 size) = (void *)120;
+#endif /* PROCNET_NS_PID */
+
+/* current_tgid：当前任务的 tgid，**与用户态处在同一个 PID namespace**。 */
+static __always_inline __u32 current_tgid(void) {
+#ifdef PROCNET_NS_PID
+    __u32 zero = 0;
+    struct pidns_cfg *cfg = bpf_map_lookup_elem(&procnet_pidns, &zero);
+    if (cfg && cfg->ino) {
+        struct bpf_pidns_info info = {};
+        if (bpf_get_ns_current_pid_tgid(cfg->dev, cfg->ino, &info, sizeof(info)) == 0)
+            return info.tgid;
+    }
+#endif
+    return (__u32)(bpf_get_current_pid_tgid() >> 32);
+}
+
+static __always_inline int tracked(__u32 tgid) {
+    if (bpf_map_lookup_elem(&procnet_targets, &tgid))
+        return 1;
+    __u32 any = 0;
+    return bpf_map_lookup_elem(&procnet_targets, &any) != 0;
+}
+
 static __always_inline void account(__u64 bytes, int is_rx) {
     if (bytes == 0)
         return;
 
-    __u32 tgid = (__u32)(bpf_get_current_pid_tgid() >> 32);
-    if (!bpf_map_lookup_elem(&procnet_targets, &tgid))
+    __u32 tgid = current_tgid();
+    if (!tracked(tgid))
         return;
 
     struct counters *c = bpf_map_lookup_elem(&procnet_counters, &tgid);

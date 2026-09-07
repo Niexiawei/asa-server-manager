@@ -31,6 +31,7 @@ typedef unsigned long long __u64;
 
 /* uapi/linux/bpf.h */
 #define BPF_MAP_TYPE_HASH 1
+#define BPF_MAP_TYPE_ARRAY 2
 #define BPF_NOEXIST 1
 
 /* helper 编号即内核 ABI */

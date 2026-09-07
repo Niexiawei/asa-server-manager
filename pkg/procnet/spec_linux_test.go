@@ -17,9 +17,31 @@ import (
 // 在 Linux 真机上跑起来之前不会有任何提示。这里把契约钉死在编译期之后、
 // 部署之前，CI 的 make bpf 之后就跑它。
 func TestEmbeddedObjectSpec(t *testing.T) {
-	spec, err := ebpf.LoadCollectionSpecFromReader(bytes.NewReader(bpfObject))
+	testEmbeddedObjectSpec(t, bpfObject, false)
+}
+
+// 命名空间感知版是同一份源加 -DPROCNET_NS_PID 编的，两张主 map 与六个程序
+// 必须完全一致，只多一张 procnet_pidns。两个产物是分别编译的，
+// 「只重新生成了其中一个」是这套东西最容易出的错，所以两个都钉。
+func TestEmbeddedNSObjectSpec(t *testing.T) {
+	testEmbeddedObjectSpec(t, bpfObjectNS, true)
+}
+
+func testEmbeddedObjectSpec(t *testing.T, obj []byte, wantPidns bool) {
+	t.Helper()
+	spec, err := ebpf.LoadCollectionSpecFromReader(bytes.NewReader(obj))
 	if err != nil {
 		t.Fatalf("解析内嵌 BPF 对象失败（.o 是不是用错参数重新生成过？）: %v", err)
+	}
+
+	if m := spec.Maps["procnet_pidns"]; wantPidns != (m != nil) {
+		t.Fatalf("procnet_pidns 存在=%v，应为 %v（两个 .o 是不是编混了？）", m != nil, wantPidns)
+	} else if wantPidns {
+		// key = u32 索引，value = struct pidns_cfg{u64 dev; u64 ino}
+		if m.KeySize != 4 || m.ValueSize != 16 || m.MaxEntries != 1 {
+			t.Errorf("procnet_pidns 的 key/value/max_entries = %d/%d/%d，应为 4/16/1",
+				m.KeySize, m.ValueSize, m.MaxEntries)
+		}
 	}
 
 	maps := map[string]struct {
