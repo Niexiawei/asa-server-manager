@@ -1,6 +1,14 @@
 # 按进程网络计量：诊断命令 + Windows 侧接线方案
 
-> 状态：**方案待实施**（2026-09-07 起草，先文档后代码）。
+> 状态：**两个平台的自测都已 `捕获正常`（2026-09-07）**；
+> 剩 N3：对着在跑的 ARK 实例核对 UDP 四路分项。
+> 五轮真机各自查出一个真 bug，记录在 §11.3 – §11.7。
+>
+> 📌 **验证状态、16 个问题的完整账、以及 N3 的操作手册收在
+> `docs/NETMON_VERIFICATION_LOG.md`** —— 要动手验实例流量看那份，
+> 本文件保留的是设计与分轮实施过程。
+> ⚠️ N4（接线）在 N3（真机验证 UDP 双向）之前就做了，是有意为之的顺序偏差，理由见 §11.2。
+> **在 N3 跑通之前，Windows 面板上那条实例网络曲线的数值不能当作已验证的。**
 > 两件事放一个方案里：
 >
 > 1. 新增两条 CLI 命令 `asa-server netmon ebpf` / `asa-server netmon etw`，
@@ -335,10 +343,10 @@ internal/webapi                    → pkg/procnet → pkg/winnetetw（T1 之后
 
 | 阶段 | 内容 | 依赖 | 可独立验收 |
 | --- | --- | --- | --- |
-| **N1** | `pkg/winnetetw`：四路计数 + `BytesByProtocol` + `SessionActive`，单测跟上 | — | `go test -race`（PowerShell）通过；`Bytes` 的聚合值与改造前一致 |
-| **N2** | `netmon` 命令骨架 + 两个平台子命令 + `--selftest` | N1 | Windows 管理员终端 `netmon etw --selftest` 三段全绿；普通终端走降级并给出权限提示 |
-| **N3** | 真机诊断：对着**在跑的 ARK 实例** `netmon etw --instance <名字>` | N2 | **决定性一步**：拿到 TCP/UDP 四路分项，回答 `WINNET_ETW_TODO.md` §4 |
-| **N4** | T1 委托 + §4 的全部文案同步 | N3 结论为「可用」 | 服务模式起 asa-server，实例详情页网络图渲染曲线；`logman query -ets` 在停止后无残留 |
+| **N1** ✅ | `pkg/winnetetw`：四路计数 + `BytesByProtocol` + `SessionActive`，单测跟上 | — | `go test -race`（PowerShell）通过；`Bytes` 的聚合值与改造前一致 |
+| **N2** ✅ | `netmon` 命令骨架 + 两个平台子命令 + `--selftest` | N1 | 普通终端已验降级路径（权限提示 + 退出码 1 + 无残留）；管理员终端三段流量待跑 |
+| **N3** ☐ | 真机诊断：对着**在跑的 ARK 实例** `netmon etw --instance <名字>` | N2 | **决定性一步**：拿到 TCP/UDP 四路分项，回答 `WINNET_ETW_TODO.md` §4 |
+| **N4** ✅ | T1 委托 + §4 的全部文案同步 | ~~N3 结论为「可用」~~ 见 §11.2 偏差 1 | 服务模式起 asa-server，实例详情页网络图渲染曲线；`logman query -ets` 在停止后无残留 |
 
 **N3 的结论决定 N4 做不做**：若 UDP RX 确认缺失或归错进程，N4 暂缓，
 改为在本方案追加一节讨论备选 provider（`Microsoft-Windows-TCPIP`），
@@ -409,3 +417,242 @@ Linux 侧（`netmon ebpf`）没有对应的阻塞项：那条链路早就接好�
   在 2 秒采样窗口里明显高于噪声，实施时按真机调。
 - **`netmon` 是否值得再加一个 `status` 子命令**（只打印 `Describe()` 与
   `SessionActive()` 就退出，不采样）。倾向做，成本几乎为零，但先看 N2 之后顺不顺手。
+
+---
+
+## 11. 实施记录（2026-09-07）
+
+### 11.1 落地清单
+
+| 文件 | 内容 |
+| --- | --- |
+| `pkg/winnetetw/collector.go` | `netCounters` 拆四路；`ProtoBytes` + `Rx()/Tx()`；`BytesByProtocol`；`Bytes` 改为在其之上求和（两个出口共用同一条登记路径） |
+| `pkg/winnetetw/etw_session.go` | 新增 `SessionActive()`（一次 `ControlTraceW(QUERY)`，`4200/4201` 视为「没人在用」，权限不足返回可读错误） |
+| `pkg/winnetetw/winnetetw_test.go` | 现有 aggregator 测试改造为分项断言；新增 `TestBytesByProtocolSharesRegistration`（共用登记 + 关闭后两个出口都报采不到） |
+| `internal/actions/netmon.go` | 父命令、共享 flag、`netCollector`/`protoSplitter`、目标解析、采样循环、判定与退出码、自测三段流量、humanize |
+| `internal/actions/netmon_linux.go` | `ebpf` 子命令 + `--btf`（缺省取 `linux.ebpf_btf_path`） |
+| `internal/actions/netmon_windows.go` | `etw` 子命令 + `--force` + 独占护栏 + `etwCollector` 适配器 |
+| `internal/actions/netmon_test.go` | 12 个纯逻辑测试：humanize、判定四分支与退出码、目标互斥、采样循环（轮次/增量/采不到/分项/ctx 取消）、自测三段流量真跑一遍 |
+| `pkg/procnet/procnet_windows.go` | stub → 委托壳（§3.1） |
+| `pkg/procnet/procnet.go` | 包文档改成「门面 + 两套实现」；`ErrUnsupported` 的语义澄清为「压根没有实现」，与「有实现但这次没起来」分开 |
+| `main.go` | `commonCommands` 加 `actions.NetmonCommand()` |
+| 文案同步 | `pkg/serverinfo/netsource.go`、`internal/webapi/procnet.go`、`internal/webapi/serverapi/metrics.go`、`docs/API_REFERENCE.md`、`openapi.json`、`docs/RESOURCE_RATE_CHART_PLAN.md`（§2.2 订正块 + §3.3 表 + §3.1 注释）、`app/src/components/ResourceTrendPanel.vue`、`CLAUDE.md`（procnet 条目改写 + 新增 `pkg/winnetetw` 条目 + 依赖图） |
+
+验证：`go build ./...`、`go vet ./...`、`go test -race`（`pkg/winnetetw` 20 项 /
+`internal/actions` 15 项）、`GOOS=linux go build ./... && go vet ./...`、
+`npm run build` 全部通过；`pkg/procnet`、`pkg/serverinfo` 回归通过。
+非提权真机跑 `netmon etw --selftest`：走降级路径，打印权限提示，退出码 1，
+`logman query -ets` 无残留。
+
+### 11.2 与方案的偏差
+
+1. **N4 提前到 N3 之前做**。方案 §6 写的是「N3 结论为可用才做 N4」，实际先接了线。
+   理由是用户明确要求这次就把 Windows 侧接通；接线本身可逆（一个文件），
+   降级路径安全（无权限就是 null）。**但那条门禁的实质理由没有失效**：
+   在 N3 跑通之前，Windows 上那条曲线**没有被验证过**，
+   尤其是「UDP 收方向是否可靠」这一条。别拿它做容量判断。
+2. **不建 `internal/actions/netmon_other.go`**。方案 §5 列了这个文件，实际删掉了：
+   `internal/actions` 本来就编不了 darwin（它依赖的 `internal/runner`、
+   `internal/certmgr`、`pkg/proctree` 全都只有 windows/linux 实现），
+   加一个 stub 不会让这个包变得可移植，只会让 LSP 去分析一个永远编不过的平台、
+   刷出一屏与本次改动无关的报错。
+3. **`protoSplitter` 用五返回值而不是 `ProtoBytes`**。`internal/actions/netmon.go`
+   没有 build tag，不能 import `pkg/winnetetw`（那是 windows-only 包），
+   所以接口用平铺的四个 `uint64`，由 `netmon_windows.go` 里的 `etwCollector`
+   适配器把 `ProtoBytes` 摊开。
+4. **`resolveTarget` 拆成两层**：读 flag 的一层 + 纯逻辑的 `resolveTargetFrom`，
+   后者可以不构造 `cli.Command` 就单测互斥规则。
+
+### 11.3 首次真机结果（2026-09-07）与随之而来的修复
+
+两个平台第一次跑 `--selftest` 就各暴露一个问题，**都不是「机制不支持」，是我们自己的 bug**。
+
+**Windows**：`Load` 成功，但第一行 `Describe()` 就报「会话已终止」，事件数恒 0——
+`ProcessTrace` 起来就退了。修了两处，根因待复跑确认（见 `WINNET_ETW_TODO.md` §2.10 / §2.11）：
+
+| 修复 | 说明 |
+| --- | --- |
+| `ETW_BUFFER_CONTEXT` 4 字节（原写成 2） | payload 长度实际读到了 `ExtendedDataCount`（恒 0），**每个事件都解析失败**。这条是确凿的，只是被上面那个问题挡在后面还没来得及发作 |
+| `ProcessTrace` 返回码不再丢弃 | 记进 `consumerRC`，翻成人话并入 `Describe()`；`Load` 发现消费侧 200ms 内就退出直接失败 |
+
+本机非提权复现过整条 consumer 路径（`StartTraceW` 非提权也能建 session），
+**排除**了结构体布局、proc 解析、实时模式、调用约定：不挂 provider 时
+`ProcessTrace` 正常阻塞、`CloseTrace` 后返回 0。所以剩下的可能性集中在
+「provider 启用、事件开始流动之后」。顺带纠正一个直觉：`OpenTraceW` 对不存在的
+session 名**也返回正常句柄**（实测 `0x101`），失败要等 `ProcessTrace` 才暴露。
+
+**Linux**：6/6 探针挂上、BTF 正常，但三段自测流量全是 0。这里缺的是**判据**——
+「探针没触发」和「触发了但 tgid 对不上」在外部完全一样。加了：
+
+- `procnet.Options.Diagnostics`（只有 `netmon` 传 true，服务不传：BPF 运行统计是全局开关）；
+- `Describe()` 多报**每个探针的命中次数** + 两张 map 的条目数，并直接给出结论：
+  命中全 0 = 内核没走到这些函数；有命中但 counters 为空 = tgid 对不上
+  （最常见的是进程在 PID namespace 里，用户态给的是命名空间内 PID，BPF 看到的是宿主机 tgid）。
+
+### 11.4 第二轮真机（2026-09-07）
+
+**Windows：会话活下来了，然后在回调线程上崩了。** `[加载]` 报 `事件=1`，
+说明 §11.3 的修复让 `ProcessTrace` 正常阻塞了（根因是 `EVENT_TRACE_LOGFILEW`
+作为局部变量被 GC 回收，见 `WINNET_ETW_TODO.md` §2.13）。紧接着
+`TdhGetEventInformation` 访问违例 `0xc0000005`，异常地址 `0x1000` = 4096 =
+我们传进去的缓冲区长度——**TDH 的三个调用约定全写错了**（§2.12），已修并补了
+两条能在无管理员权限下跑的回归测试。
+
+**Linux：探针在跑，但计数一条都没写。**
+
+```
+探针命中：tcp_sendmsg=363 tcp_cleanup_rbuf=497 udp_sendmsg=3552 udp_recvmsg=3907
+map 条目 targets=1 counters=0
+```
+
+命中数与自测打出的流量对得上（UDP 那 3552 ≈ 2 MiB ÷ 1200 字节的一来一回），
+**说明内核确实看到了我们这个进程的收发**；而 `targets` 里有我们登记的 PID、
+`counters` 却是空的 ⇒ BPF 侧 `bpf_map_lookup_elem(&procnet_targets, &tgid)` 没命中。
+只剩两种可能，而它们的外部表现完全一样：
+
+1. 用户态登记的 PID ≠ 内核看到的 tgid（典型是进程在 PID namespace 里）；
+2. BPF 读到的那张 map 根本不是用户态写的那张。
+
+**为此给 BPF 程序加了一个全捕获哨兵**（`bpf/procnet.c` 的 `tracked()`）：
+`procnet_targets` 里存在 key `0` 时，对所有 tgid 计数。tgid 0 是 swapper/idle，
+走不到那些 socket 路径，拿它当哨兵不会和真实目标撞车；只有
+`procnet.Options.Diagnostics`（即 `netmon` 命令）会写它，服务进程不会。
+
+于是 `counters` 里的 key 就是「内核认为这些流量属于谁」的答案，`Describe()`
+直接拿它和 `os.Getpid()` 对：
+
+- 本进程 PID **在列** ⇒ map 是通的、tgid 也对，问题在别处；
+- **不在列**但有别的 tgid ⇒ 内核与用户态不在同一个 PID 空间（可能性 1）；
+- counters **仍为空** ⇒ 哨兵都没生效，说明 BPF 读的不是这张 map（可能性 2）。
+
+`.o` 已用本机 clang 18 重新生成并提交（6 个程序 + 2 张 map + 12 处 map 重定位已核对）。
+
+### 11.5 第三轮真机（2026-09-07）：Windows 的总根因
+
+第三轮的输出终于把线索指死了：`[加载] 事件=1`，三段自测全是「采不到」，
+最后一行 `会话已终止：已正常停止`。会话不是崩的、不是被抢的，是**被正常停止**的——
+而这中间只有我们自己调过一次 `Describe()`。
+
+根因：**`EVENT_TRACE_CONTROL_QUERY` 与 `STOP` 两个常量写反了**
+（正确是 QUERY=0 / STOP=1）。于是：
+
+- `Describe()` → `stats()` 以为在查询，**实际发的是 STOP**，打印一行状态就把会话停了；
+- `stop()` 以为在停止，**实际只是查询**，这就是之前追查过的「session 泄漏」；
+- `SessionActive()` 这个防抢占的护栏，**自己在抢占**。
+
+前两轮的几条「根因」因此作废，已在 `WINNET_ETW_TODO.md` §2.9 / §2.11 / §2.13
+逐条订正——包括「`EVENT_TRACE_LOGFILEW` 被 GC 回收导致 ProcessTrace 早退」那条：
+它是个真 bug（改动保留），但**不是**已观测现象的成因，现象变化其实来自竞争窗口偏移。
+
+新增 `TestControlCodeSemantics`：建一个真会话，连发两次 QUERY 要求会话还在、
+发一次 STOP 要求之后查不到。把常量换回错的，它当场失败并直接说出「两个控制码写反了」。
+**这类语义相反的魔数不能用数值断言防护**——钉子和被钉的东西出自同一个错误认知
+（§2.10 的结构体偏移也栽在同一件事上）。
+
+**Linux 第三轮跑的是旧二进制**：输出与上一轮逐字相同，`targets=1`（有哨兵应是 2），
+提示文案也还是旧版。内嵌的 `.o` 这轮变了，必须重新交叉编译才能生效。
+
+### 11.6 第四轮真机（2026-09-07）：Windows 通了，Linux 定位到 PID namespace
+
+**Windows：`[判定] 捕获正常`。** 这是本方案第一次拿到真实数据：
+
+| 段 | 结果 |
+| --- | --- |
+| 回环 TCP | ✅ 捕获（16 MB 收 + 16 MB 发，与 8 MiB 双向回显对得上） |
+| 回环 UDP | ❌ **不计入**（2 MiB 打出去，UDP 分项只有 DNS 那 1.2 KB） |
+| 外发 DNS（真网卡 UDP） | ✅ **双向都有**（RX 1.2 KB / TX 1.2 KB） |
+
+两条结论：
+
+1. **`WINNET_ETW_TODO.md` §4 那个悬了很久的风险，初步是好消息**：
+   UDP 经真实网卡时**收发两个方向都被 Kernel-Network 报出来了**。ARK 的游戏流量
+   正是这条路。真正的判据仍然是对着在跑的实例看四路分项（N3 尚未做）。
+2. **Windows 不上报回环 UDP**（TCP 回环是上报的）。这与
+   `WINNET_ETW_PLAN.md` §4.9「回环流量计入」的断言**部分冲突**：TCP 成立、UDP 不成立。
+   对本项目无影响（要看的流量走真实网卡），但那句断言要按此理解。
+
+**顺带修一个会误导人的显示问题**：第一段打的 16 MB 记到了第二段头上，
+因为每段之后只等了 700ms，而 ETW 会话的 FlushTimer 是 **1 秒**——第一段的事件
+在第二段的窗口里才到账。真机上看起来就是「回环 TCP 采不到、回环 UDP 16 MB」，
+数字全对但归属错位，很容易被读成「TCP 不支持」。等待时间改成 2.5 秒
+（`selftestSettle`，注释里写死了它必须大于 FlushTimer）。
+
+**Linux：确认是 PID namespace。**
+
+```
+map 条目 targets=2 counters=4；内核观察到的 tgid=[913 925 958 15036]
+（本进程 PID=14597，**不在列**）
+```
+
+全捕获哨兵生效了（counters 有 4 个 tgid），探针命中数与自测打的流量对得上，
+**唯独本进程的 PID 不在内核给出的那份名单里** ⇒ 用户态与内核不在同一个 PID 空间。
+`bpf_get_current_pid_tgid()` 返回的永远是**初始 namespace** 的 tgid，
+而容器里的 `os.Getpid()` 是命名空间内的号，两者永远匹配不上。
+
+**修法：`bpf_get_ns_current_pid_tgid`（内核 5.7+）。**
+把 `/proc/self/ns/pid` 的 `(st_dev, st_ino)` 交给 BPF，它就返回**那个 namespace 里**的
+tgid，与 `os.Getpid()` 同一口径。
+
+⚠️ 这个 helper 在 5.4 上会让整个程序**加载失败**（未知 helper），而 5.4 是本项目
+的基线。所以做成**两个产物**，同一份 C 源编两遍：
+
+| 产物 | 编译参数 | 用途 |
+| --- | --- | --- |
+| `bpf/procnet_amd64.o` | 无 | 基础版，5.4 可用；没有 namespace 的机器上完全正确 |
+| `bpf/procnet_ns_amd64.o` | `-DPROCNET_NS_PID` | 命名空间感知版，需 5.7+ |
+
+`Load` **先试命名空间感知版，加载失败再退回基础版**，用哪个会写进 `Describe()`
+的「PID 口径」。拿不到 ns id 时 BPF 侧看到 `ino == 0`，同样退回初始 namespace，
+不会因为一个可选项把整条链拖垮。`go generate` / `make bpf` / CI 三个入口都已同步
+（两个产物必须一起重新生成，只更新其中一个是这套东西最容易犯的错，
+`TestEmbeddedNSObjectSpec` 因此把两个都钉住了）。
+
+诊断也加强了：`内核观察到的 tgid` 现在带**每个 tgid 的累计字节**。
+只有 key 的时候没法判断「其中某个就是我们在宿主机上的号」还是
+「这些全是别人、我们的流量压根没入账」，带上字节数一眼能分。
+
+### 11.7 第五轮真机（2026-09-07）：Linux 侧通过
+
+```
+PID 口径：命名空间感知
+内核观察到的 tgid [... 15240:rx=20.0M,tx=20.9M ...]（被跟踪的 PID=[15240]，在列 ✅）
+[判定] 捕获正常
+```
+
+三段自测全部有值（回环 TCP 16 MB、回环 UDP 4 MB、外发 DNS 约 400 B），
+量级与打出去的流量一一对得上。**PID namespace 的换算成立，Linux 侧的 eBPF
+链路首次端到端验证通过**——`RESOURCE_RATE_CHART_PLAN` §11.4 留的
+「Linux 5.4 真机验收未做」由此销掉大半（剩余：ARK 实例端到端、与 nethogs 对量级）。
+
+顺带注意 Linux **上报回环 UDP**（4 MB 在列），Windows 不上报——
+两个平台在回环 UDP 这一点上行为不同，已在 `WINNET_ETW_PLAN.md` §4.9 注明。
+
+**同一轮暴露的一个诊断文案 bug（已修）**：拿 `--pid` 观察别的进程时，
+「不在列」的判定用的是 `os.Getpid()`（netmon 自己）而不是**被跟踪的 PID**。
+`--selftest` 下两者恰好相同，所以一直没暴露。真机上对着 `docker pull` 的
+CLI 进程跑，于是给出了「本进程不在列 ⇒ tgid 对不上」这种既无关又吓人的结论。
+
+而那次观察本身**没有 bug**：`docker` CLI 只通过 unix socket 指挥守护进程，
+真正下载的是 dockerd（诊断行里 `396:rx=27.4M` 就是它）。这是「按进程计量」的
+固有语义，不是采集漏了。判定文案现在把这条列为第二自查项，并指出
+「字节数最大的那个 tgid 才是真正在收发的进程」——全捕获诊断因此还兼作
+「到底该盯哪个 PID」的定位工具。
+
+### 11.8 还差什么
+
+**N3 是唯一剩下的实质工作**，需要管理员终端 + 一个在跑的 ARK 实例：
+
+```powershell
+# 1) 先确认机制本身通（三段流量各自的增量）
+asa-server netmon etw --selftest
+
+# 2) 决定性的一步：对着在跑的实例看 TCP/UDP 四路分项
+asa-server netmon etw --instance <实例名> --seconds 60
+```
+
+判据：UDP 两路**都**要有值。若 UDP RX 恒零而 TX 正常，命令会直接给出
+退出码 3 与对应提示，那就说明 `WINNET_ETW_TODO.md` §4 的风险成真，
+需要回到本方案 §6 讨论备选 provider 或退化方案——**并把已经接上的委托层退回 stub**。
+
+⚠️ 跑第 2 条之前先停掉 asa-server 服务，或者接受护栏的提示：
+ETW 会话独占，诊断命令与服务不能同时用。
