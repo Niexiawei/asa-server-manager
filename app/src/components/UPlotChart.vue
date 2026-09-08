@@ -42,7 +42,7 @@ const props = defineProps({
   maxY: {type: Number, default: null},
   showAxes: {type: Boolean, default: true},
   // 纵轴留白宽度，速率类（"9.67 MB/s"）比百分比需要更宽
-  axisWidth: {type: Number, default: 76},
+  axisWidth: {type: Number, default: 86},
 })
 
 const containerRef = ref(null)

@@ -105,7 +105,7 @@
 </template>
 
 <script setup>
-import {ref, computed, watch, onUnmounted} from 'vue'
+import {ref, computed, watch, onUnmounted, onMounted} from 'vue'
 import {ErrorCircleFilledIcon, HelpCircleIcon} from 'tdesign-icons-vue-next'
 import {getInstanceStatus} from '@/store/serverStore.js'
 import UPlotChart from '@/components/UPlotChart.vue'
@@ -196,8 +196,14 @@ const memRange = computed(() => {
   const mid = (lo + hi) / 2
   let min = mid - span / 2
   let max = mid + span / 2
-  if (min < 0) { max -= min; min = 0 }
-  if (max > 100) { min = Math.max(0, min - (max - 100)); max = 100 }
+  if (min < 0) {
+    max -= min;
+    min = 0
+  }
+  if (max > 100) {
+    min = Math.max(0, min - (max - 100));
+    max = 100
+  }
   return {min, max}
 })
 const memMinY = computed(() => memRange.value.min)
@@ -237,6 +243,7 @@ const fmtBytesPerSec = (v) => {
 }
 
 const startMonitoring = () => {
+  console.log("开始订阅")
   if (!props.instanceName || isMonitoring.value) return
   isMonitoring.value = true
   resourceData.value = null
@@ -271,6 +278,7 @@ watch(
       }
     },
     (newVal, oldValue) => {
+      console.log(newVal)
       // 判断是否应该监听资源占用
       const shouldMonitor = newVal.isStartingOrRunning === true ||
           ['starting', 'started', 'stopping', 'restarting', 'restarted'].includes(newVal.status)
