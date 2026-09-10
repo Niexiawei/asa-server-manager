@@ -1,61 +1,67 @@
 package frpmanage
 
 import (
+	"bytes"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
-	"os"
-	"path/filepath"
 	"time"
+
+	"asa-server/internal/webapi/apiresp"
 
 	"github.com/gin-gonic/gin"
 )
 
-type StatusResponse struct {
-	Success bool        `json:"success"`
-	Message string      `json:"message"`
-	Data    interface{} `json:"data,omitempty"`
-	Error   string      `json:"error,omitempty"`
-}
-
-// GetFRPConfig retrieves the FRP client configuration file
+// GetFRPConfig 返回结构化的 FRP 配置。
+//
+// 未配置时返回一份空配置而不是 404：前端表单要有个东西可以绑定，
+// 「没配过」与「配置文件读坏了」的区别由 /status 的 configured 字段表达。
 func GetFRPConfig(c *gin.Context) {
-	configPath := filepath.Join(frpConfigDir, frpcConfigFileName)
-
-	// Check if config file exists
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			c.JSON(http.StatusNotFound, StatusResponse{
-				Success: false,
-				Message: "Failed to retrieve FRP config",
-				Error:   "FRP config file not found",
-			})
-		} else {
-			c.JSON(http.StatusInternalServerError, StatusResponse{
-				Success: false,
-				Message: "Failed to retrieve FRP config",
-				Error:   fmt.Sprintf("Failed to read config: %v", err),
-			})
-		}
+	manager := GetGlobalManager()
+	if manager == nil {
+		c.JSON(http.StatusInternalServerError, apiresp.StatusResponse{
+			Success: false,
+			Message: "Failed to retrieve FRP config",
+			Error:   "FRP manager not initialized",
+		})
 		return
 	}
 
-	c.JSON(http.StatusOK, StatusResponse{
+	cfg := manager.Config()
+	if cfg == nil {
+		cfg = &Config{Rules: []PortRule{}}
+	}
+	if cfg.Rules == nil {
+		cfg.Rules = []PortRule{}
+	}
+
+	c.JSON(http.StatusOK, apiresp.StatusResponse{
 		Success: true,
 		Message: "FRP config retrieved successfully",
-		Data:    string(data),
+		Data:    cfg,
 	})
 }
 
-// UpdateFRPConfig updates the FRP client configuration file
+// UpdateFRPConfig 用结构化参数覆盖 FRP 配置。
+//
+// 与旧接口的区别：收的是参数不是配置文件文本，因此能在保存时就校验并给出
+// 「第几条规则错在哪」这种可读错误，而不是等启动失败。
 func UpdateFRPConfig(c *gin.Context) {
-	var req struct {
-		Config string `json:"config" binding:"required"`
+	manager := GetGlobalManager()
+	if manager == nil {
+		c.JSON(http.StatusInternalServerError, apiresp.StatusResponse{
+			Success: false,
+			Message: "Failed to update FRP config",
+			Error:   "FRP manager not initialized",
+		})
+		return
 	}
 
-	if err := c.BindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, StatusResponse{
+	var cfg Config
+	if err := c.ShouldBindJSON(&cfg); err != nil {
+		c.JSON(http.StatusBadRequest, apiresp.StatusResponse{
 			Success: false,
 			Message: "Failed to update FRP config",
 			Error:   fmt.Sprintf("Invalid request: %v", err),
@@ -63,117 +69,103 @@ func UpdateFRPConfig(c *gin.Context) {
 		return
 	}
 
-	configPath := filepath.Join(frpConfigDir, frpcConfigFileName)
-
-	// Write config to file
-	if err := os.WriteFile(configPath, []byte(req.Config), 0644); err != nil {
-		c.JSON(http.StatusInternalServerError, StatusResponse{
+	warnings, err := manager.SetConfig(&cfg)
+	if err != nil {
+		// 校验失败是用户输入问题（400）；落盘/热更新失败是服务端问题（500）。
+		// 两者对用户的意义完全不同：前者改表单就好，后者要去看日志。
+		status := http.StatusInternalServerError
+		if _, verr := cfg.Validate(); verr != nil {
+			status = http.StatusBadRequest
+		}
+		c.JSON(status, apiresp.StatusResponse{
 			Success: false,
 			Message: "Failed to update FRP config",
-			Error:   fmt.Sprintf("Failed to write config: %v", err),
+			Error:   err.Error(),
 		})
 		return
 	}
 
-	// Restart frpc if running
-	manager := GetGlobalManager()
-	if manager != nil && manager.IsRunning() {
-		if err := manager.Restart(); err != nil {
-			c.JSON(http.StatusInternalServerError, StatusResponse{
-				Success: false,
-				Message: "FRP config updated but failed to restart",
-				Error:   fmt.Sprintf("Failed to restart frpc: %v", err),
-			})
-			return
-		}
-	}
-
-	c.JSON(http.StatusOK, StatusResponse{
+	c.JSON(http.StatusOK, apiresp.StatusResponse{
 		Success: true,
 		Message: "FRP config updated successfully",
+		Data:    gin.H{"warnings": warnings},
 	})
 }
 
-// GetFRPStatus retrieves the current FRP client status
+// GetFRPStatus 返回一次性的运行状态。
 func GetFRPStatus(c *gin.Context) {
 	manager := GetGlobalManager()
-
-	status := "stopped"
-	if manager != nil && manager.CheckStatus() {
-		status = "running"
+	if manager == nil {
+		c.JSON(http.StatusInternalServerError, apiresp.StatusResponse{
+			Success: false,
+			Message: "Failed to retrieve FRP status",
+			Error:   "FRP manager not initialized",
+		})
+		return
 	}
 
-	c.JSON(http.StatusOK, StatusResponse{
+	c.JSON(http.StatusOK, apiresp.StatusResponse{
 		Success: true,
 		Message: "FRP status retrieved successfully",
-		Data: gin.H{
-			"status": status,
-		},
+		Data:    manager.Status(),
 	})
 }
 
-// StreamFRPStatus streams FRP status changes via SSE
+// StreamFRPStatus 用 SSE 推送状态变化。
+//
+// 与 /status 返回**同一个** FRPStatus —— 两个端点由同一处构造，不再各自拼字符串。
+// 只在内容变化时推送（外加首帧与心跳）：状态本身只在用户操作和异步登录失败时
+// 才变，每秒无脑推一遍纯属噪声。
 func StreamFRPStatus(c *gin.Context) {
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")
-	c.Header("Access-Control-Allow-Origin", "*")
+	c.Header("X-Accel-Buffering", "no")
 
 	manager := GetGlobalManager()
 	if manager == nil {
-		fmt.Fprintf(c.Writer, "data: {\"error\":\"FRP manager not initialized\"}\n\n")
+		fmt.Fprint(c.Writer, "data: {\"error\":\"FRP manager not initialized\"}\n\n")
 		return
 	}
 
-	// Channel for status updates
-	statusChannel := make(chan string, 1)
-	done := make(chan struct{})
+	const (
+		pollInterval      = time.Second
+		heartbeatInterval = 25 * time.Second
+	)
 
-	// Start background goroutine to monitor status changes
-	go func() {
-		defer close(statusChannel)
-		ticker := time.NewTicker(1 * time.Second)
-		defer ticker.Stop()
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
 
-		for {
-			select {
-			case <-ticker.C:
-				currentStatus := "stopped"
-				// Check if there was a start error
-				if manager.GetStartErr() != nil {
-					currentStatus = "stopped"
-				} else if manager.CheckStatus() {
-					currentStatus = "running"
-				}
-				select {
-				case statusChannel <- currentStatus:
-				case <-done:
-					return
-				}
-			case <-done:
-				return
-			}
-		}
-	}()
+	var lastPayload []byte
+	lastSent := time.Now()
 
-	// Send initial status
-	initialStatus := "stopped"
-	if manager.CheckStatus() {
-		initialStatus = "running"
+	// 首帧立即发，别让前端等满一个 tick 才看到状态。
+	if payload, err := json.Marshal(manager.Status()); err == nil {
+		lastPayload = payload
+		fmt.Fprintf(c.Writer, "data: %s\n\n", payload)
+		c.Writer.Flush()
 	}
-	statusChannel <- initialStatus
 
-	// Stream status using c.Stream
 	c.Stream(func(w io.Writer) bool {
 		select {
-		case status, ok := <-statusChannel:
-			if !ok {
-				return false
+		case <-ticker.C:
+			payload, err := json.Marshal(manager.Status())
+			if err != nil {
+				return true
 			}
-			fmt.Fprintf(w, "data: {\"status\":\"%s\"}\n\n", status)
+			if !bytes.Equal(payload, lastPayload) {
+				lastPayload = payload
+				lastSent = time.Now()
+				fmt.Fprintf(w, "data: %s\n\n", payload)
+				return true
+			}
+			// 心跳注释帧：保持连接不被中间的反代按空闲超时掐断。
+			if time.Since(lastSent) >= heartbeatInterval {
+				lastSent = time.Now()
+				fmt.Fprint(w, ": ping\n\n")
+			}
 			return true
 		case <-c.Request.Context().Done():
-			close(done)
 			return false
 		}
 	})
@@ -183,7 +175,7 @@ func StreamFRPStatus(c *gin.Context) {
 func StartFRP(c *gin.Context) {
 	manager := GetGlobalManager()
 	if manager == nil {
-		c.JSON(http.StatusInternalServerError, StatusResponse{
+		c.JSON(http.StatusInternalServerError, apiresp.StatusResponse{
 			Success: false,
 			Message: "Failed to start FRP",
 			Error:   "FRP manager not initialized",
@@ -192,7 +184,7 @@ func StartFRP(c *gin.Context) {
 	}
 
 	if manager.IsRunning() {
-		c.JSON(http.StatusBadRequest, StatusResponse{
+		c.JSON(http.StatusBadRequest, apiresp.StatusResponse{
 			Success: false,
 			Message: "Failed to start FRP",
 			Error:   "FRP is already running",
@@ -201,15 +193,19 @@ func StartFRP(c *gin.Context) {
 	}
 
 	if err := manager.Start(); err != nil {
-		c.JSON(http.StatusInternalServerError, StatusResponse{
+		status := http.StatusInternalServerError
+		if errors.Is(err, ErrNotConfigured) {
+			status = http.StatusBadRequest
+		}
+		c.JSON(status, apiresp.StatusResponse{
 			Success: false,
 			Message: "Failed to start FRP",
-			Error:   fmt.Sprintf("Failed to start FRP: %v", err),
+			Error:   err.Error(),
 		})
 		return
 	}
 
-	c.JSON(http.StatusOK, StatusResponse{
+	c.JSON(http.StatusOK, apiresp.StatusResponse{
 		Success: true,
 		Message: "FRP started successfully",
 	})
@@ -219,7 +215,7 @@ func StartFRP(c *gin.Context) {
 func StopFRP(c *gin.Context) {
 	manager := GetGlobalManager()
 	if manager == nil {
-		c.JSON(http.StatusInternalServerError, StatusResponse{
+		c.JSON(http.StatusInternalServerError, apiresp.StatusResponse{
 			Success: false,
 			Message: "Failed to stop FRP",
 			Error:   "FRP manager not initialized",
@@ -228,7 +224,7 @@ func StopFRP(c *gin.Context) {
 	}
 
 	if !manager.IsRunning() {
-		c.JSON(http.StatusBadRequest, StatusResponse{
+		c.JSON(http.StatusBadRequest, apiresp.StatusResponse{
 			Success: false,
 			Message: "Failed to stop FRP",
 			Error:   "FRP is not running",
@@ -237,7 +233,7 @@ func StopFRP(c *gin.Context) {
 	}
 
 	if err := manager.Stop(); err != nil {
-		c.JSON(http.StatusInternalServerError, StatusResponse{
+		c.JSON(http.StatusInternalServerError, apiresp.StatusResponse{
 			Success: false,
 			Message: "Failed to stop FRP",
 			Error:   fmt.Sprintf("Failed to stop FRP: %v", err),
@@ -245,7 +241,7 @@ func StopFRP(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, StatusResponse{
+	c.JSON(http.StatusOK, apiresp.StatusResponse{
 		Success: true,
 		Message: "FRP stopped successfully",
 	})
@@ -255,7 +251,7 @@ func StopFRP(c *gin.Context) {
 func RestartFRP(c *gin.Context) {
 	manager := GetGlobalManager()
 	if manager == nil {
-		c.JSON(http.StatusInternalServerError, StatusResponse{
+		c.JSON(http.StatusInternalServerError, apiresp.StatusResponse{
 			Success: false,
 			Message: "Failed to restart FRP",
 			Error:   "FRP manager not initialized",
@@ -264,15 +260,19 @@ func RestartFRP(c *gin.Context) {
 	}
 
 	if err := manager.Restart(); err != nil {
-		c.JSON(http.StatusInternalServerError, StatusResponse{
+		status := http.StatusInternalServerError
+		if errors.Is(err, ErrNotConfigured) {
+			status = http.StatusBadRequest
+		}
+		c.JSON(status, apiresp.StatusResponse{
 			Success: false,
 			Message: "Failed to restart FRP",
-			Error:   fmt.Sprintf("Failed to restart FRP: %v", err),
+			Error:   err.Error(),
 		})
 		return
 	}
 
-	c.JSON(http.StatusOK, StatusResponse{
+	c.JSON(http.StatusOK, apiresp.StatusResponse{
 		Success: true,
 		Message: "FRP restarted successfully",
 	})

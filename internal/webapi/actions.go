@@ -137,7 +137,13 @@ func (s *APIServer) Start() error {
 	frpcMgr := frpmanage.GetGlobalManager()
 	if frpcMgr != nil {
 		if err := frpcMgr.Start(); err != nil {
-			logger.Errorf("Failed to start frpc: %v", err)
+			// 「用户根本没配 frp」是常规状态，不是故障 —— 记成 ERROR 会让每台
+			// 没用内网穿透的机器每次开机都刷一条红字。
+			if errors.Is(err, frpmanage.ErrNotConfigured) {
+				logger.Infof("frp 尚未配置，跳过自动启动")
+			} else {
+				logger.Errorf("Failed to start frpc: %v", err)
+			}
 		}
 	}
 	//start syncthing manage

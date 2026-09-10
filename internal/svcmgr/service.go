@@ -12,7 +12,6 @@ package svcmgr
 import (
 	"asa-server/internal/actions"
 	"asa-server/internal/certmgr"
-	"asa-server/internal/frpmanage"
 	"asa-server/internal/runner"
 	"asa-server/internal/webapi"
 	"asa-server/pkg/logger"
@@ -55,11 +54,9 @@ func (p *program) Start(s service.Service) error {
 	// Create API server
 	p.apiServer = webapi.NewAPIServer()
 
-	if frp := frpmanage.GetGlobalManager(); frp != nil {
-		if err := frp.Start(); err != nil {
-			log.Printf("frp start err :%v \n", err)
-		}
-	}
+	// frp 的启动不在这里：APIServer.Start() 已经做了，且与它的 Stop() 对称。
+	// 这里再来一次的话第二次必然撞上 "frpc is already running"，被记成 ERROR ——
+	// 服务模式每次开机都刷一条假错误。
 
 	go func() {
 		if err := p.apiServer.Start(); err != nil && !errors.Is(err, context.Canceled) {
