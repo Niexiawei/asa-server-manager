@@ -93,8 +93,15 @@
               <div class="proxy-list">
                 <div v-for="p in proxies" :key="p.name" class="proxy-row"
                      :class="{ bad: p.phase !== 'running' }">
-                  <div class="dot">{{ p.phase === 'running' ? '●' : '✕' }}</div>
+                  <div class="dot">
+                    <TaskChecked1Icon size="20" v-if="p.phase === 'running'" :fill-color='["transparent","transparent"]'
+                                      :stroke-color='["currentColor","#0262f8"]' :stroke-width="2"/>
+                    <CloseOctagonIcon size="20" v-else :fill-color='["transparent","transparent"]'
+                                      :stroke-color='["currentColor","rgba(227, 77, 89, 1)"]' :stroke-width="2"/>
+                  </div>
                   <div class="proxy-port">{{ p.type }} {{ p.local_port }}</div>
+                  <ArrowRightIcon size="20" :fill-color='["transparent","transparent"]'
+                                  :stroke-color='["currentColor","#0262f8"]' :stroke-width="2"/>
                   <div class="proxy-detail">
                     {{ p.phase === 'running' ? (p.remote_addr || '已连接') : (p.err || p.phase) }}
                   </div>
@@ -176,7 +183,14 @@ import {
 } from '@/apis/api.js'
 import dayjs from 'dayjs'
 import {ref, reactive, computed, onMounted, onBeforeUnmount, nextTick} from 'vue'
-import {CheckIcon, CloseIcon, BrowseIcon, BrowseOffIcon} from 'tdesign-icons-vue-next'
+import {
+  CheckIcon,
+  CloseIcon,
+  BrowseIcon,
+  BrowseOffIcon,
+  TaskChecked1Icon,
+  CloseOctagonIcon, ArrowLeftIcon, ArrowRightIcon
+} from 'tdesign-icons-vue-next'
 import {MessagePlugin, NotifyPlugin} from 'tdesign-vue-next'
 import VirtualLogList from '@/components/VirtualLogList.vue'
 
@@ -499,6 +513,7 @@ onBeforeUnmount(() => {
 .log-panel {
   height: 100%;
   min-height: 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   background: white;
@@ -651,6 +666,13 @@ onBeforeUnmount(() => {
   .custom-scrollbar-style();
 }
 
+
+@media (max-width: 1880px) {
+  .proxy-list {
+    grid-template-columns: repeat(3, 1fr) !important;
+  }
+}
+
 .proxy-list {
   font-size: 16px;
   display: grid;
@@ -663,20 +685,17 @@ onBeforeUnmount(() => {
 
 .proxy-row {
   display: grid;
-  grid-template-columns: 1fr 2fr 2fr;
-  gap: 8px;
+  grid-template-columns: 30px 2fr 30px 1fr;
   align-items: center;
-  color: #22c55e;
   box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
   border-radius: 8px;
   border: 1px solid #e5e7eb;
+  padding: 0 6px;
+  box-sizing: border-box;
+  align-content: center;
 
   > div {
     text-align: center;
-  }
-
-  &.bad {
-    color: #ef4444;
   }
 
   .proxy-port {
