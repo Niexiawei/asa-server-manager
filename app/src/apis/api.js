@@ -148,8 +148,11 @@ export function getFRPConfig() {
 }
 
 // 更新 FRP 配置
+//
+// 收的是结构化参数而不是配置文件文本：
+// { server_addr, server_port, token, rules: [{start, end, protocol, remark}] }
 export function updateFRPConfig(config) {
-    return apiClient.put('/api/frp/config', {config})
+    return apiClient.put('/api/frp/config', config)
 }
 
 // 获取 FRP 状态

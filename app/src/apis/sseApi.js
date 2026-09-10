@@ -182,16 +182,16 @@ export function streamSystemLogs(onLog, onError, onClose) {
 }
 
 // 流式获取 FRP 状态变化
+//
+// 推的是与 GET /api/frp/status 完全同形的 FRPStatus 对象：
+// { running, configured, message, proxy_count, proxies[] }
+// —— 不再是旧版那个只有 status 字符串的 payload。
 export function streamFRPStatus(onStatus, onError, onClose) {
-    console.log(buildEventSourceUrl('/api/frp/status/stream'))
     const eventSource = new EventSource(buildEventSourceUrl('/api/frp/status/stream'))
 
     eventSource.onmessage = (event) => {
         try {
-            const data = JSON.parse(event.data)
-            if (data.status) {
-                onStatus(data.status)
-            }
+            onStatus(JSON.parse(event.data))
         } catch (error) {
             console.error('Failed to parse status event:', error)
         }

@@ -3,10 +3,13 @@
     <template #title>
       <div class="frp-header">
         <div class="header-left">
-          <span class="page-title">FRP 管理</span>
+          <span class="page-title">端口映射(Frp)</span>
           <check-icon v-if="frpStatus === 'running'"
                       style="color: #22c55e; font-size: 18px;"/>
           <close-icon v-else style="color: #ef4444; font-size: 18px;"/>
+          <span v-if="statusMessage" class="status-message" :title="statusMessage">
+            {{ statusMessage }}
+          </span>
         </div>
         <t-space size="small">
           <t-button size="small" theme="primary" @click="startFRPAction" :disabled="frpStatus === 'running'">启动
@@ -21,13 +24,85 @@
     <div class="frp-container">
       <div class="config-panel">
         <div class="panel-header">
-          <h3>配置文件编辑</h3>
+          <h3>连接配置</h3>
           <t-space>
-            <t-button theme="primary" size="small" @click="saveFRPConfig" :loading="saving">保存</t-button>
-            <t-button size="small" @click="reloadFRPConfig" variant="outline">重新加载</t-button>
+            <t-button theme="primary" size="small" @click="saveConfig" :loading="saving">保存并应用</t-button>
+            <t-button size="small" @click="loadConfig" variant="outline">重置</t-button>
           </t-space>
         </div>
-        <div ref="editorContainer" class="editor-container"></div>
+
+        <div class="config-body">
+          <t-form label-width="100px" :data="form">
+            <t-form-item label="服务器地址">
+              <t-input v-model="form.server_addr" placeholder="47.97.22.91 或 47.97.22.91:7000"/>
+            </t-form-item>
+            <t-form-item label="服务端口">
+              <t-input-number v-model="form.server_port" :min="1" :max="65535"
+                              theme="column" placeholder="7000" style="width: 160px"/>
+            </t-form-item>
+            <t-form-item label="验证密钥">
+              <t-input v-model="form.token" :type="showToken ? 'text' : 'password'"
+                       placeholder="frps 的 auth.token，未开鉴权可留空">
+                <template #suffixIcon>
+                  <browse-icon v-if="showToken" class="token-toggle" @click="showToken = false"/>
+                  <browse-off-icon v-else class="token-toggle" @click="showToken = true"/>
+                </template>
+              </t-input>
+            </t-form-item>
+          </t-form>
+          <t-divider>端口映射</t-divider>
+          <div class="section-header">
+            <div class="section-actions">
+              <span class="proxy-count" :class="{ 'over-limit': overLimit }">
+                共 {{ proxyCount }} 条代理{{ overLimit ? `（超出上限 ${MAX_PROXIES}）` : '' }}
+              </span>
+              <t-button size="small" variant="outline" @click="addRule">添加规则</t-button>
+            </div>
+          </div>
+
+          <div class="rule-list">
+            <div class="rule-head">
+              <span>起始端口</span><span>结束端口</span><span>协议</span><span>备注</span><span></span>
+            </div>
+            <div v-for="(rule, idx) in form.rules" :key="idx" class="rule-row">
+              <t-input-number v-model="rule.start" :min="1" :max="65535" theme="normal"/>
+              <t-input-number v-model="rule.end" :min="1" :max="65535" theme="normal"/>
+              <t-select v-model="rule.protocol">
+                <t-option value="udp" label="UDP"/>
+                <t-option value="tcp" label="TCP"/>
+                <t-option value="tcp+udp" label="TCP+UDP"/>
+              </t-select>
+              <t-input v-model="rule.remark" placeholder="备注"/>
+              <t-button size="small" theme="danger" variant="text" @click="removeRule(idx)">删除</t-button>
+            </div>
+            <div v-if="form.rules.length === 0" class="rule-empty">
+              还没有端口映射规则。ARK 通常需要游戏端口（UDP）与 RCON 端口（TCP）。
+            </div>
+          </div>
+
+          <div v-if="proxies.length" class="proxy-status">
+            <t-divider>代理状态</t-divider>
+            <div class="section-header">
+              <span class="proxy-summary">
+                {{ healthyCount }} 条正常<template v-if="unhealthy.length">，
+                  <span class="bad">{{ unhealthy.length }} 条异常</span>
+                </template>
+              </span>
+            </div>
+            <div class="proxy-scroll">
+              <div class="proxy-list">
+                <div v-for="p in proxies" :key="p.name" class="proxy-row"
+                     :class="{ bad: p.phase !== 'running' }">
+                  <div class="dot">{{ p.phase === 'running' ? '●' : '✕' }}</div>
+                  <div class="proxy-port">{{ p.type }} {{ p.local_port }}</div>
+                  <div class="proxy-detail">
+                    {{ p.phase === 'running' ? (p.remote_addr || '已连接') : (p.err || p.phase) }}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div class="log-panel">
@@ -91,7 +166,6 @@
 
 <script setup>
 import {
-  getFRPStatus,
   streamFRPStatus,
   getFRPConfig,
   updateFRPConfig,
@@ -100,54 +174,70 @@ import {
   stopFRP,
   restartFRP
 } from '@/apis/api.js'
-import * as monaco from 'monaco-editor'
 import dayjs from 'dayjs'
-import {ref, onMounted, onBeforeUnmount, nextTick, shallowRef} from 'vue'
-import {CheckIcon, CloseIcon} from 'tdesign-icons-vue-next'
+import {ref, reactive, computed, onMounted, onBeforeUnmount, nextTick} from 'vue'
+import {CheckIcon, CloseIcon, BrowseIcon, BrowseOffIcon} from 'tdesign-icons-vue-next'
+import {MessagePlugin, NotifyPlugin} from 'tdesign-vue-next'
 import VirtualLogList from '@/components/VirtualLogList.vue'
 
+// 与后端 internal/frpmanage/config.go 的上限保持一致：每个端口都是一条独立的
+// frp 代理注册，范围写大了会向 frps 发起海量注册。
+const MAX_PROXIES = 128
+const MAX_PORTS_PER_RULE = 64
+
 const frpStatus = ref('stopped')
-const frpConfig = ref('')
+const statusMessage = ref('')
+const proxies = ref([])
 const saving = ref(false)
+const showToken = ref(false)
 const isStreaming = ref(false)
-const statusCheckInterval = ref(null)
 const statusStreamStop = ref(null)
 const stopStreamFn = ref(null)
-const editor = shallowRef(null)
-const editorContainer = ref(null)
 const vllRef = ref(null)
 
+const form = reactive({
+  server_addr: '',
+  server_port: 7000,
+  token: '',
+  rules: []
+})
+
+const proxyCount = computed(() =>
+    form.rules.reduce((sum, r) => {
+      if (!r.start || !r.end || r.end < r.start) return sum
+      return sum + (r.end - r.start + 1) * (r.protocol === 'tcp+udp' ? 2 : 1)
+    }, 0)
+)
+const overLimit = computed(() => proxyCount.value > MAX_PROXIES)
+const unhealthy = computed(() => proxies.value.filter(p => p.phase !== 'running'))
+const healthyCount = computed(() => proxies.value.length - unhealthy.value.length)
+
 const initializeFRP = async () => {
-  try {
-    await loadFRPConfig()
-    initEditor()
-    startStatusStream()
-  } catch (error) {
-    console.error('Failed to initialize FRP manager:', error)
-  }
+  await loadConfig()
+  startStatusStream()
 }
 
-const checkFRPStatus = async () => {
-  try {
-    const response = await getFRPStatus()
-    if (response.success) {
-      frpStatus.value = response.data.status
-    }
-  } catch (error) {
-    console.error('Failed to check FRP status:', error)
-  }
-}
+// 上一次看到的状态，用来在「运行中 → 已停止且带原因」时弹一次提示。
+// 登录失败（token 错、frps 不可达）是异步发生的，不主动弹的话用户只会看到
+// 状态灯自己变红，原因埋在日志里。
+let prevRunning = null
 
 const startStatusStream = () => {
   if (statusStreamStop.value) return
 
   statusStreamStop.value = streamFRPStatus(
-      (status) => {
-        frpStatus.value = status
+      (st) => {
+        frpStatus.value = st.running ? 'running' : 'stopped'
+        statusMessage.value = st.message || ''
+        proxies.value = st.proxies || []
+
+        if (prevRunning && !st.running && st.message) {
+          NotifyPlugin.error({title: 'FRP 已停止', content: st.message, duration: 8000})
+        }
+        prevRunning = st.running
       },
       (error) => {
         console.error('Status stream error:', error)
-        // 错误发生时，对5秒后重新连接
         setTimeout(() => {
           statusStreamStop.value = null
           startStatusStream()
@@ -163,93 +253,101 @@ const stopStatusStream = () => {
   }
 }
 
-const loadFRPConfig = async () => {
+const loadConfig = async () => {
   try {
     const response = await getFRPConfig()
-    if (response.success) {
-      frpConfig.value = response.data
-      if (editor.value) {
-        editor.value.setValue(frpConfig.value)
-      }
+    if (response.success && response.data) {
+      const cfg = response.data
+      form.server_addr = cfg.server_addr || ''
+      form.server_port = cfg.server_port || 7000
+      form.token = cfg.token || ''
+      form.rules = (cfg.rules || []).map(r => ({...r}))
     }
   } catch (error) {
     console.error('Failed to load FRP config:', error)
   }
 }
 
-const initEditor = () => {
-  if (!editorContainer.value || editor.value) return
-
-  editor.value = monaco.editor.create(editorContainer.value, {
-    value: frpConfig.value,
-    language: 'toml',
-    theme: 'vs-light',
-    automaticLayout: true,
-    minimap: {enabled: true},
-    fontSize: 13,
-    lineNumbers: 'on',
-    scrollBeyondLastLine: false,
-    wordWrap: 'on'
-  })
+const addRule = () => {
+  form.rules.push({start: 7777, end: 7777, protocol: 'udp', remark: ''})
 }
 
-const saveFRPConfig = async () => {
-  if (!editor.value) return
+const removeRule = (idx) => {
+  form.rules.splice(idx, 1)
+}
+
+// 前端先跑一遍与后端同规则的轻校验，让用户在点保存前就看到问题。
+// 后端仍会完整校验一次 —— 这里只是快速反馈，不是信任边界。
+const localValidate = () => {
+  if (!form.server_addr.trim()) return '远程服务器地址不能为空'
+  if (form.rules.length === 0) return '至少需要一条端口映射规则'
+  for (let i = 0; i < form.rules.length; i++) {
+    const r = form.rules[i]
+    const n = i + 1
+    if (!r.start || !r.end) return `第 ${n} 条规则：端口不能为空`
+    if (r.start > r.end) return `第 ${n} 条规则：起始端口不能大于结束端口`
+    if (r.end - r.start + 1 > MAX_PORTS_PER_RULE) {
+      return `第 ${n} 条规则跨越 ${r.end - r.start + 1} 个端口，单条上限 ${MAX_PORTS_PER_RULE}`
+    }
+  }
+  if (overLimit.value) return `端口映射共展开 ${proxyCount.value} 条代理，上限 ${MAX_PROXIES}`
+  return ''
+}
+
+const saveConfig = async () => {
+  const localErr = localValidate()
+  if (localErr) {
+    MessagePlugin.error(localErr)
+    return
+  }
 
   saving.value = true
   try {
-    const content = editor.value.getValue()
-    const response = await updateFRPConfig(content)
+    const response = await updateFRPConfig({
+      server_addr: form.server_addr.trim(),
+      server_port: form.server_port || 0,
+      token: form.token,
+      rules: form.rules.map(r => ({
+        start: r.start,
+        end: r.end,
+        protocol: r.protocol,
+        remark: r.remark || ''
+      }))
+    })
     if (response.success) {
-      frpConfig.value = content
-      console.log('FRP config saved successfully')
+      MessagePlugin.success(
+          frpStatus.value === 'running' ? '已保存并应用' : '已保存，启动后生效'
+      )
+      const warnings = response.data?.warnings || []
+      warnings.forEach(w => MessagePlugin.warning(w))
+    } else {
+      MessagePlugin.error(response.error || '保存失败')
     }
   } catch (error) {
-    console.error('Failed to save FRP config:', error)
+    MessagePlugin.error(error?.response?.data?.error || '保存失败')
   } finally {
     saving.value = false
   }
 }
 
-const reloadFRPConfig = async () => {
-  await loadFRPConfig()
-}
-
-const startFRPAction = async () => {
+const runAction = async (fn, okText) => {
   try {
-    const response = await startFRP()
+    const response = await fn()
     if (response.success) {
-      frpStatus.value = 'running'
-      console.log('FRP started successfully')
+      MessagePlugin.success(okText)
+    } else {
+      MessagePlugin.error(response.error || '操作失败')
     }
   } catch (error) {
-    console.error('Failed to start FRP:', error)
+    MessagePlugin.error(error?.response?.data?.error || '操作失败')
   }
 }
 
-const stopFRPAction = async () => {
-  try {
-    const response = await stopFRP()
-    if (response.success) {
-      frpStatus.value = 'stopped'
-      console.log('FRP stopped successfully')
-    }
-  } catch (error) {
-    console.error('Failed to stop FRP:', error)
-  }
-}
-
-const restartFRPAction = async () => {
-  try {
-    const response = await restartFRP()
-    if (response.success) {
-      frpStatus.value = 'running'
-      console.log('FRP restarted successfully')
-    }
-  } catch (error) {
-    console.error('Failed to restart FRP:', error)
-  }
-}
+// 状态一律由 SSE 推回来，这里不再手工乐观改 frpStatus ——
+// 之前那样写会让「启动失败」在面板上先亮一下绿灯再变红。
+const startFRPAction = () => runAction(startFRP, 'FRP 已启动')
+const stopFRPAction = () => runAction(stopFRP, 'FRP 已停止')
+const restartFRPAction = () => runAction(restartFRP, 'FRP 已重启')
 
 // 格式化时间戳为 yyyy-mm-dd HH:mm:ss
 const formatTimestamp = (ts) => {
@@ -332,9 +430,6 @@ onBeforeUnmount(() => {
   if (stopStreamFn.value) {
     stopStreamFn.value()
   }
-  if (editor.value) {
-    editor.value.dispose()
-  }
 })
 </script>
 
@@ -346,6 +441,10 @@ onBeforeUnmount(() => {
   flex-direction: column;
   border-radius: var(--border-radius-large);
   overflow: hidden;
+
+  :deep(.t-divider) {
+    margin: 12px 0;
+  }
 }
 
 :deep(.t-card__body) {
@@ -380,23 +479,31 @@ onBeforeUnmount(() => {
   font-weight: 500;
 }
 
+.status-message {
+  font-size: 12px;
+  color: #ef4444;
+  max-width: 420px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .frp-container {
   display: grid;
   gap: 20px;
-  overflow: hidden;
   height: 100%;
   grid-template-columns: 1fr 1fr;
 }
 
 .config-panel,
 .log-panel {
-  max-height: 100%;
+  height: 100%;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   background: white;
   border: 1px solid rgb(229, 231, 235);
   border-radius: 4px;
-  overflow: hidden;
 
   .log-panel-header {
     display: flex;
@@ -408,11 +515,8 @@ onBeforeUnmount(() => {
     margin: 0;
     width: 100%;
     box-sizing: border-box;
+    flex: 0 0 auto;
   }
-}
-
-.log-controls {
-
 }
 
 .log-count {
@@ -432,6 +536,7 @@ onBeforeUnmount(() => {
   padding: 12px 16px;
   border-bottom: 1px solid rgb(229, 231, 235);
   background: rgb(249, 250, 251);
+  flex: 0 0 auto;
 }
 
 .panel-header h3 {
@@ -440,10 +545,148 @@ onBeforeUnmount(() => {
   font-weight: 500;
 }
 
-.editor-container {
-  flex: 1;
+.config-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 16px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+
+  > div {
+    flex: 0 0 auto;
+  }
+
+  .t-form {
+    flex: 0 0 auto;
+  }
+
+  .proxy-status {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+
+    .section-header {
+      flex: 0 0 auto;
+    }
+
+    .proxy-scroll {
+      flex: 1 1 auto;
+      min-height: 0;
+      padding: 10px;
+      box-sizing: border-box;
+    }
+  }
+}
+
+.token-toggle {
+  cursor: pointer;
+  color: var(--color-text-3, #888);
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: end;
+  margin: 8px 0 10px;
+}
+
+.section-title {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.section-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.proxy-count {
+  font-size: 12px;
+  color: var(--color-text-3, #888);
+
+  &.over-limit {
+    color: #ef4444;
+    font-weight: 500;
+  }
+}
+
+.rule-head,
+.rule-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 3fr 56px;
+  gap: 8px;
+  align-items: center;
+}
+
+.rule-head {
+  font-size: 12px;
+  color: var(--color-text-3, #888);
+  margin-bottom: 6px;
+}
+
+.rule-row {
+  margin-bottom: 8px;
+}
+
+.rule-empty {
+  font-size: 12px;
+  color: var(--color-text-3, #888);
+  padding: 12px 0;
+}
+
+.proxy-summary {
+  font-size: 12px;
+  color: var(--color-text-3, #888);
+
+  .bad {
+    color: #ef4444;
+  }
+}
+
+.proxy-scroll {
+  overflow-y: auto;
+  .custom-scrollbar-style();
+}
+
+.proxy-list {
+  font-size: 16px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  grid-auto-rows: 40px;
+  align-content: start;
   width: 100%;
-  overflow: hidden;
+}
+
+.proxy-row {
+  display: grid;
+  grid-template-columns: 1fr 2fr 2fr;
+  gap: 8px;
+  align-items: center;
+  color: #22c55e;
+  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+
+  > div {
+    text-align: center;
+  }
+
+  &.bad {
+    color: #ef4444;
+  }
+
+  .proxy-port {
+    color: var(--color-text-1, #333);
+  }
+
+  .proxy-detail {
+    color: var(--color-text-3, #888);
+    word-break: break-all;
+  }
 }
 
 .log-viewer {
@@ -451,9 +694,8 @@ onBeforeUnmount(() => {
   border: 1px solid var(--color-border);
   border-radius: 4px;
   background-color: #1a1a1a;
-  height: calc(100% - 62px);
-  flex: 1;
-  overflow: hidden;
+  flex: 1 1 auto;
+  min-height: 0;
 
   :deep(.vll-viewport::-webkit-scrollbar) {
     width: 8px;
