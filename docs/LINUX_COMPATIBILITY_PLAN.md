@@ -788,6 +788,46 @@ frp 转成库内调用**不能**免掉这一项。
 | F4 | 删 `frpc.exe`、删 `//go:embed`，补 LICENSE / NOTICE | `git ls-files` 里没有 frpc.exe |
 | F5 | `GOOS=linux CGO_ENABLED=0 go build` 核对 `internal/frpmanage` 通过 | —— 到这一步 frp 就**彻底退出 Linux 兼容的工作清单** |
 
+#### 5.10.7 后续：配置面改为结构化参数（2026-09 落地，见 `docs/FRP_FORM_CONFIG_PLAN.md`）
+
+§5.10.2 结尾说「配置文件格式、路径、以及现有 `frpc.toml` 的读写与前端编辑**全部不变**」——
+那是本次改造**刻意划的边界**（只换发动机、不动方向盘），不是长期结论。2026-09 的后续改造
+把方向盘也换了，**本节结论不受影响，但有四处要更新**：
+
+1. **`frpc.toml` 没有了**。配置真相是 `{BaseDir}/frp/frpc.json`（结构化参数：服务器地址、
+   token、端口映射规则），前端从 Monaco 编辑器改成表单。`api.go` 不再是「293 行一行不用动」。
+2. **不再走 `config.LoadClientConfigResult`**。改为在内存里生成 frp 的 v1 配置字节交给
+   `config.LoadConfigure` —— **这正是坑 #5 的直接后果**：既然 frp 不承诺 `client` /
+   `config/v1` 这些 Go 包的 API 稳定，就不该手搓 `v1.TCPProxyConfig`，而应该依赖它文档化
+   并保证兼容的**配置 schema**。⚠️ `LoadConfigure` 只解码不补默认值，`Common.Complete()`
+   要自己调（`LoadClientConfigResult` 内部替你调了）。
+3. **`svr.StatusExporter()` 用上了**。§5.10.3 收益表里列过但一直没接。端口**范围**映射的
+   典型故障是范围里单个端口在 frps 侧被占用 —— 二值的 running/stopped 对此完全失语。
+4. **`UpdateAllConfigurer` 从「可选」变成「该做」**，但要用 `UpdateConfigSource`：后者会先
+   把新配置写回 `ConfigSource` 再应用，只调前者的话 frp 内部任何一次
+   `reloadConfigFromSources()` 都会从旧 source 把配置**回滚回去**。
+
+**另外修掉了本节遗留的一个真实缺陷**（不是配置面的事，是 §5.10.4 坑 #1 的实际触发路径）：
+`Service.cancel` 是 `Run` 开头才赋值的，而我们（以及上游 `cmd/frpc` 的 `handleTermSignal`）
+是从**另一个 goroutine** 调 `GracefulClose` 去读它。Start 之后立刻 Stop / Restart 时，
+`svr.cancel` 可能还是 nil —— `svr.cancel(nil)` 当场 **nil 指针 panic，带走整个 asa-server**
+（库内调用没有崩溃隔离）。`go test -race` 也会如实报出这对读写没有同步边。
+处置：**自己持有喂给 `Run` 的 ctx 并 cancel 它**，`Run` 的收尾 `<-svr.ctx.Done(); svr.stop()`
+派生自它，走的是同一个关闭流程。代价只有 `gracefulShutdownDuration` 归 0，对 tcp/udp
+端口转发没有意义（上游自己也只在 kcp/quic 下才在意优雅关闭）。
+回归用例：`TestStopImmediatelyAfterStart`（100 次零间隔 Start/Stop，旧写法当场 panic）。
+
+**§5.10.6 的 F3 验收（50 次 Start/Stop 无 goroutine 泄漏）仍然有效并保留**，因为两次改造的
+切面正交：本次改的是运行机制，后续改的是配置面。⚠️ 但那条用例**此前一直没测到它标称的
+场景** —— 它把 `loginFailExit=false` 的配置写到了 `{base}`，而 `Initialize` 的 runDir 是
+`{base}/frp`，于是跑的一直是自动生成的默认配置（`loginFailExit` 同样是 true，走的是立即
+失败路径，`GracefulClose` 根本没被调到）。坑 #6 点名的「退避重试循环里关闭」现在由
+`TestRetryLoopCloseNoGoroutineLeak` 真正压住。
+
+**坑 #8（许可证）复核**：`THIRD_PARTY_NOTICES.md` 已含 Apache-2.0 全文与 frp 归属，
+**分发义务已履行**。仍缺的是仓库**自身**的 `LICENSE` 文件 —— 那是项目授权决定，
+不属于 frp 引入带来的义务，留给仓库所有者。
+
 ### 5.11 `pkg/tail` —— 文件身份
 
 ```go

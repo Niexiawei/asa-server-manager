@@ -413,23 +413,71 @@ data: {"cpu_usage": 35.0, "memory_total": 17179869184, "memory_used": 8589934592
 
 ## FRP 管理
 
-FRP（Fast Reverse Proxy）反向代理管理，内嵌 `frpc.exe`。
+FRP（Fast Reverse Proxy）反向代理管理。frpc **库内调用**（`github.com/fatedier/frp/client`），
+没有 `frpc.exe`，也没有 `frpc.toml` —— 配置是结构化参数，落 `{BaseDir}/frp/frpc.json`。
+见 `docs/FRP_FORM_CONFIG_PLAN.md`。
 
 ### `GET /api/frp/config`
 
-获取当前 FRP 客户端配置。
+获取当前 FRP 配置。未配置过时返回一份空配置（`rules: []`），不是 404。
+
+```json
+{
+  "success": true,
+  "data": {
+    "server_addr": "47.97.22.91",
+    "server_port": 7000,
+    "token": "…",
+    "rules": [
+      { "start": 9310, "end": 9319, "protocol": "udp", "remark": "游戏端口" }
+    ]
+  }
+}
+```
 
 ### `PUT /api/frp/config`
 
-更新 FRP 客户端配置。
+更新 FRP 配置。请求体就是上面的 `data` 对象（**不是**配置文件文本）。
+
+- `server_addr`：`host` 或 `host:port`；带端口时与 `server_port` 冲突会报错
+- `server_port`：省略/0 → 7000
+- `protocol`：`tcp` | `udp` | `tcp+udp`；远端端口恒等于本地端口
+- 上限：单条规则 ≤ 64 个端口，展开后总代理数 ≤ 128
+- 同协议的端口区间不得重叠（会展开出同名代理，frps 侧登记冲突）
+
+校验失败返回 **400** 且错误文案指出是第几条规则；落盘/热更新失败返回 500。
+成功时 `data.warnings` 可能带非阻塞提示（如未设置 token）。
+
+**生效方式分两条**：只改端口规则时走热更新，已建立的隧道不断开；
+改地址/端口/token 时会重新连接 frps。
 
 ### `GET /api/frp/status`
 
-获取 FRP 客户端运行状态。
+获取 FRP 运行状态。与下面的 SSE 流返回**同一个** payload：
+
+```json
+{
+  "success": true,
+  "data": {
+    "running": true,
+    "configured": true,
+    "message": "",
+    "proxy_count": 10,
+    "proxies": [
+      { "name": "udp-asaserver-9310", "type": "udp", "local_port": 9310,
+        "phase": "running", "remote_addr": "47.97.22.91:9310" }
+    ]
+  }
+}
+```
+
+`message` 与 `proxies[].err` 分工不同：前者是**连不上 frps**（整体失败），
+后者是**连上了但这条代理没起来**（局部失败，例如范围里某个端口在 frps 侧已被占用）。
+`proxies` 只在运行中才有。
 
 ### `GET /api/frp/status/stream`  *(SSE)*
 
-实时推送 FRP 客户端状态变更。
+推送与 `GET /api/frp/status` 同形的对象。**仅在内容变化时推送**（外加首帧与 25s 心跳注释帧）。
 
 ### `POST /api/frp/start`
 
