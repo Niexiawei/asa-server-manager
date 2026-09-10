@@ -16,10 +16,10 @@
                 <span>服务器管理</span>
               </t-menu-item>
               <t-menu-item value="frp-manager">
-                <span>FRP管理</span>
+                <span>端口映射(Frp)</span>
               </t-menu-item>
               <t-menu-item value="syncthing-manager">
-                <span>Syncthing管理</span>
+                <span>文件同步(Syncthing)</span>
               </t-menu-item>
               <t-menu-item value="schedule-manager">
                 <span>定时任务</span>

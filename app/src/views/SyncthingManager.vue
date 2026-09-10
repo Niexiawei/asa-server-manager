@@ -3,7 +3,7 @@
     <template #title>
       <div class="syncthing-header">
         <div class="header-left">
-          <span class="page-title">Syncthing 管理</span>
+          <span class="page-title">文件同步(Syncthing)</span>
           <check-icon v-if="syncthingStatus === 'running'"
                       style="color: #22c55e; font-size: 18px;"/>
           <close-icon v-else style="color: #ef4444; font-size: 18px;"/>
