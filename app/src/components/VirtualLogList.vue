@@ -117,33 +117,49 @@ const bottomSpacerHeight = computed(() => {
 // _isPinning：即时滚动的一次性标志，消费后清除
 // _smoothScrolling：平滑滚动进行中，期间忽略模式切换
 // _smoothScrollAbortFn：取消当前平滑滚动的清理函数
+// _lastScrollTop：上一次 onScroll 观察到的 scrollTop，用于判断滚动方向
 let _isPinning = false
 let _smoothScrolling = false
 let _smoothScrollAbortFn = null
+let _lastScrollTop = 0
 
 function onScroll() {
+  const el = viewportRef.value
+  if (!el) return
+  const st = el.scrollTop
+
   if (_isPinning) {
     _isPinning = false
+    _lastScrollTop = st // 程序跳转也要刷新基线，否则下一次被误判为 movedUp
     return
   }
 
-  const el = viewportRef.value
-  if (!el) return
-  const dist = el.scrollHeight - el.scrollTop - el.clientHeight
+  const movedUp = st < _lastScrollTop - 0.5
+  _lastScrollTop = st
+  const dist = el.scrollHeight - st - el.clientHeight
 
   if (_smoothScrolling) {
     // 程序触发的平滑滚动期间：追踪位置供虚拟渲染使用，不切换 mode
-    scrollTop.value = el.scrollTop
+    scrollTop.value = st
     if (dist <= BOTTOM_THRESHOLD) mode.value = 'anchored'
     return
   }
 
-  if (dist > BOTTOM_THRESHOLD) {
-    scrollTop.value = el.scrollTop
-    if (mode.value !== 'free') mode.value = 'free'
-  } else if (mode.value !== 'anchored') {
-    mode.value = 'anchored'
+  if (mode.value === 'anchored') {
+    // 非程序触发的向上移动且确实离开了底部带 → 立即让位，不再等 dist 越过 50px。
+    // 高频日志场景里用户一次只滚一行(~28px)也能停住，不会被下一条日志拽回底部。
+    // dist > 4 的护栏：内容收缩时浏览器把 scrollTop 向下夹取，movedUp 会为真但 dist≈0，
+    // 那不是用户离开，忽略。
+    if (movedUp && dist > 4) {
+      mode.value = 'free'
+      scrollTop.value = st
+    }
+    return
   }
+
+  // free 模式：滚回底部附近（大阈值，手感友好）时重新吸附
+  scrollTop.value = st
+  if (dist <= BOTTOM_THRESHOLD) mode.value = 'anchored'
 }
 
 function pinToBottom() {
@@ -186,9 +202,10 @@ function _startSmoothScroll(el, target) {
   el.scrollTo({top: target, behavior: 'smooth'})
 }
 
-// 底部锚定模式下追加新条目时自动固定到底部
+// 底部锚定模式下追加新条目时自动固定到底部（即时 pinToBottom，不启动平滑滚动）。
+// 高频场景下平滑滚动只会互相 abort、永远收不了尾；平滑效果留给显式 scrollToBottom()。
 watch(() => items.value.length, (n, o) => {
-  if (n > o && mode.value === 'anchored') nextTick(pinToBottom)
+  if (n > o && mode.value === 'anchored' && props.autoScroll) nextTick(pinToBottom)
 }, {flush: 'post'})
 
 // 视口宽度变化时清除高度缓存（换行数变化）
@@ -207,7 +224,8 @@ const _flush = () => {
   items.value.push(..._pending)
   _pending = []
   _batchRaf = null
-  if (props.autoScroll) scrollToBottom(true)
+  // 追底交给 items.length watcher 的 pinToBottom 统一负责（即时、不会被 abort）。
+  // 这里不再每批启动平滑滚动，否则洪流下动画互相取消、视口永远追不上底部。
 }
 
 // ===== ResizeObserver 高度测量 =====
@@ -267,6 +285,7 @@ function clear() {
   _pending = []
   if (_batchRaf !== null) { cancelAnimationFrame(_batchRaf); _batchRaf = null }
   mode.value = 'anchored'
+  _lastScrollTop = 0 // 内容清空后 scrollTop 归零，重置基线避免下一帧被误判为 movedUp
 }
 
 function scrollToBottom(smooth = true) {
@@ -350,5 +369,8 @@ defineExpose({push, clear, scrollToBottom, scrollToTop, scrollToIndex, itemCount
 
 .vll-item {
   box-sizing: border-box;
+  /* 建立 BFC：slot 内容用 margin 做行距时也计入 offsetHeight，
+     使 ResizeObserver 的实测高度与真实 scrollHeight 一致 */
+  display: flow-root;
 }
 </style>

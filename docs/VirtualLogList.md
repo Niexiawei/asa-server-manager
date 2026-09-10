@@ -248,10 +248,14 @@ push(item) → _pending.push(item)
 _flush()   → items.value.push(..._pending)   // 一次 Vue re-render
            → _pending = []
            → _batchRaf = null
-           → if autoScroll: scrollToBottom(true)
+           // 追底由 items.length watcher 的 pinToBottom 负责（见 §十四），_flush 不再触发滚动
 ```
 
 同一帧内的所有 `push` 调用合并为一次响应式更新，无论 SSE 同帧推送多少条日志。
+
+> 追底路径：`anchored` 模式下 `items.length` 增加时 `watch` 触发 `nextTick(pinToBottom)`
+> （即时跳转，`props.autoScroll` 为真才执行）。平滑滚动只留给显式 `scrollToBottom()`。
+> 历史原因与洪流下的抖动修复见 §十四。
 
 ### 8.5 滚动状态标志
 
@@ -364,3 +368,164 @@ cleanup(shouldAnchor)
 - **日志过滤**：在外部过滤后传入已过滤数据，或在 `push` 前过滤（当前 FRPManager/SyncthingManager 的做法）
 - **固定行高模式**：若日志均为单行，可跳过 ResizeObserver，直接 `itemHeight * index` 计算偏移，性能更优
 - **历史日志分页加载**：在 `scrollToTop` 或 `visibleRange.start === 0` 时触发向上翻页，向 `items` 头部插入旧日志（需重新计算 heightMap 下标）
+
+---
+
+## 十四、底部抖动修复方案（anchored 模式 + 高频日志）
+
+### 14.1 现象
+
+在 `FRPManager.vue` 里，向上滚到「倒数第二行」时视口会被自动拽回最后一行，需要连续滚动
+好几次才能真正停在末尾；持续滚动时画面在最后一行与倒数第二行之间来回跳。
+`SystemLogs.vue` 用的是同一个组件、同一套 props，却没有这个问题 —— 差异**不在组件**，
+在**日志到达频率**（FRP 的 `[frpc]` 行是洪流，系统日志是零星）与调用方 CSS。
+
+### 14.2 根因
+
+| # | 根因 | 位置 | 说明 |
+|---|------|------|------|
+| 1（主因） | `anchored` 模式下每批 `push` 都强制回底，而「离开 anchored」只有 `dist > BOTTOM_THRESHOLD(50)` 一个出口 | `_flush()`（`scrollToBottom(true)`）、`items.length` watcher（`pinToBottom`）、ResizeObserver（`pinToBottom`）；出口在 `onScroll` | 往上滚一行 ≈ 28~30px，`dist` 落在 `0<dist≤50`，仍是 `anchored`，下一条日志 `pinToBottom` 立刻拍回底部。必须一次滚过 50px 才能切 `free` |
+| 2（放大） | FRP 的 `.log-line { margin-bottom: 2px }`，而 `.vll-item` 无 padding/border | `FRPManager.vue` `.log-line`；`VirtualLogList.vue` `.vll-item` | 子元素外边距**合并/外溢**到 `.vll-item` 之外，不计入 ResizeObserver 读的 `offsetHeight`。每行实测高度少 ~2px，`prefixSums` 虚拟高度与真实 `scrollHeight` 逐行累积偏差，`dist` 在 50px 阈值附近抖动 |
+| 3（放大） | 洪流下每批 `_flush` 都启动一次平滑滚动，`_startSmoothScroll` 开头 `_smoothScrollAbortFn()` 取消上一次 | `_flush` → `scrollToBottom(true)` → `_startSmoothScroll` | 日志比一次 smooth 动画（数百 ms）来得快 → 动画反复中止重启，`scrollend` 从不干净触发，`_smoothScrolling` 长期 `true`，`pinToBottom` 里 `if (_smoothScrolling) return` 被跳过 → 视口一直追一个不断后移的底部 |
+
+`SystemLogs.vue` 免疫的原因：日志稀疏，两次 `push` 之间平滑滚动早已结束，根因 1/3 的「洪流」前提不成立；且它的 `.log-line` 用 `min-height: 28px; box-sizing: border-box` 而非 `margin`，无根因 2。
+
+### 14.3 修复方案
+
+四项，A/B/C 改组件，D 是调用方对齐（C 落地后非必需）。改动都限定在既有的双模式/RAF/测量框架内，不引入新状态机。
+
+#### 方案 A —— 用「用户滚动意图」离开 anchored，不再依赖 50px 阈值
+
+`onScroll` 里新增「非程序触发的向上移动」判据：`anchored` 模式下，只要 `scrollTop` 比上一次
+变小且不是 `_isPinning`/`_smoothScrolling` 造成的，立即切 `free`；不再等 `dist` 越过阈值。
+`BOTTOM_THRESHOLD` 保留，仅用于**反方向**——`free` 模式滚回底部附近时重新吸附（这个方向留
+大阈值手感才好，是刻意的非对称）。
+
+```js
+// 新增模块级变量：上一次 onScroll 观察到的 scrollTop
+let _lastScrollTop = 0
+
+function onScroll() {
+  const el = viewportRef.value
+  if (!el) return
+  const st = el.scrollTop
+
+  if (_isPinning) {
+    _isPinning = false
+    _lastScrollTop = st          // 程序跳转也要刷新基线，否则下一次被误判为 movedUp
+    return
+  }
+
+  const movedUp = st < _lastScrollTop - 0.5
+  _lastScrollTop = st
+  const dist = el.scrollHeight - st - el.clientHeight
+
+  if (_smoothScrolling) {
+    scrollTop.value = st
+    if (dist <= BOTTOM_THRESHOLD) mode.value = 'anchored'
+    return
+  }
+
+  if (mode.value === 'anchored') {
+    // movedUp 且确实离开了底部带（dist > 4）→ 切 free。一次一行(~28px)的上滚也能停住。
+    // dist > 4 护栏：内容收缩时浏览器把 scrollTop 向下夹取，movedUp 为真但 dist≈0，非用户离开。
+    if (movedUp && dist > 4) {
+      mode.value = 'free'
+      scrollTop.value = st
+    }
+    return
+  }
+
+  // free
+  scrollTop.value = st
+  if (dist <= BOTTOM_THRESHOLD) mode.value = 'anchored'
+}
+```
+
+配套：`clear()` 里补 `_lastScrollTop = 0`（内容清空后 scrollTop 归零，重置基线避免下一帧
+被误判为 movedUp）。
+
+切 `free` 后，`pinToBottom`（`if (mode.value !== 'anchored') return`）与方案 B 后的 `_flush`
+都会早退，单次上滚即可稳定脱离洪流。
+
+> 可选增强：再挂一个 `@wheel` 监听，`e.deltaY < 0` 直接切 `free`。`wheel` 只由用户产生、
+> 程序 `scrollTo` 不触发，是比「比较 scrollTop」更早、更干净的意图信号；键盘 `PageUp`/
+> `ArrowUp`/`Home` 同理。非必需，方案 A 主体已覆盖鼠标滚轮场景。
+
+#### 方案 B —— anchored 追加一律即时追底，平滑滚动只留给显式 API
+
+去掉 `_flush` 里的 `scrollToBottom(true)`，追加追底完全交给 `items.length` watcher 的
+`pinToBottom`（即时、廉价、不会被 abort）。平滑动画只保留给**显式** `scrollToBottom()`
+调用（清空后回底、`onActivated`、按钮）。顺带给 watcher 补上 `props.autoScroll` 判据，
+让 `:auto-scroll="false"` 时真的不自动追底（当前 watcher 无视这个 prop，是既有的不一致）。
+
+```js
+const _flush = () => {
+  if (!_pending.length) return
+  items.value.push(..._pending)
+  _pending = []
+  _batchRaf = null
+  // 删除原来的 if (props.autoScroll) scrollToBottom(true)
+  // 追底由下面的 length watcher 统一负责
+}
+
+watch(() => items.value.length, (n, o) => {
+  if (n > o && mode.value === 'anchored' && props.autoScroll) nextTick(pinToBottom)
+}, {flush: 'post'})
+```
+
+这样根因 3 的「平滑动画互相 abort」在洪流下彻底不出现；洪流停止后用户仍能用按钮平滑回底。
+
+#### 方案 C —— `.vll-item` 建立 BFC，行高测量计入 slot 外边距
+
+给 `.vll-item` 加 `display: flow-root`（或 `overflow: hidden`）。建立块级格式化上下文后，
+slot 内容的 `margin` 不再合并/外溢到 `.vll-item` 之外，`offsetHeight` 如实包含它，
+ResizeObserver 实测高度与真实 `scrollHeight` 重新一致。视觉行距不变（2px 仍在，只是从
+「外溢的合并 margin」变成「`.vll-item` 内部空间」），但对任何用 `margin` 做行距的调用方
+都免疫，不必逐个改调用方 CSS。
+
+```css
+.vll-item {
+  box-sizing: border-box;
+  display: flow-root;   /* 含入子元素外边距，使实测高度 == 真实占位 */
+}
+```
+
+对 `SystemLogs.vue`（`.log-line` 无 margin）是无副作用的 no-op。
+
+#### 方案 D（调用方，可选）—— FRPManager 行样式与 SystemLogs 对齐
+
+`FRPManager.vue` 的 `.log-line` 删掉 `margin-bottom: 2px`，改与 `SystemLogs.vue` 一致
+（`min-height: 28px; box-sizing: border-box; align-items: flex-start;`）；若要保留行距用
+`padding-bottom` 代替。方案 C 落地后此项非硬性要求，但对齐两处样式能减少后续困惑，
+也是 `LogViewer.vue` / `SyncthingManager.vue` 的推荐写法：**行距用 padding，不用 margin**。
+
+### 14.4 回归检查清单
+
+- `SystemLogs.vue`：停底自动追新；上滚停住；滚回底部重新吸附（稀疏日志，不应有行为变化）
+- `FRPManager.vue`：洪流日志下，上滚一格即停住、不回弹；滚回底部恢复自动追底
+- `LogViewer.vue` / `SyncthingManager.vue`：同上两条
+- 显式 `scrollToBottom()`（清空后、`onActivated`、按钮）仍平滑，远距离不滑过空白
+- `scrollToTop()` / `scrollToIndex()` 跳转后不被下一批日志拽回（`_isPinning` + `mode='free'`）
+- 视口宽度变化触发换行、heightMap 清空后，anchored 仍精确贴底
+- `estimatedItemHeight` 与实测差异大的多行日志，贴底不累积偏移
+- `:auto-scroll="false"` 时新日志到达不跳动（方案 B 的 watcher 判据）
+
+### 14.5 不采纳的方案
+
+- **只调 `BOTTOM_THRESHOLD`**：调小会让「滚回底部自动吸附」手感变差；根因是「离开」不该用
+  距离阈值判定，而非阈值大小
+- **给 `pinToBottom` 加时间节流**：治标，洪流未停前仍周期性回弹
+- **改用浏览器原生 `overflow-anchor`**：组件明确禁用了它（`.vll-viewport { overflow-anchor: none }`），
+  且浏览器锚定不认识虚拟 spacer，会与 `prefixSums` 打架
+
+### 14.6 落地状态
+
+方案 A / B / C 已实施（`VirtualLogList.vue`）：
+
+- `onScroll` 重写为「意图判据」+ 新增 `_lastScrollTop`；`clear()` 补 `_lastScrollTop = 0`
+- `_flush` 去掉 `scrollToBottom(true)`；`items.length` watcher 加 `props.autoScroll` 判据
+- `.vll-item` 加 `display: flow-root`
+
+方案 D（`FRPManager.vue` 行样式对齐）与「可选 `@wheel` 增强」未做——C 落地后非必需，留作后续清理。
+`npm run build` 通过。
