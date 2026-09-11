@@ -1,5 +1,45 @@
 <template>
   <div class="plugin-data-panel">
+    <div class="core-card">
+      <div class="core-row">
+        <span class="core-title">ArkApi 主程序</span>
+        <span class="muted small">全局一份，所有实例共用</span>
+        <template v-if="coreLoaded">
+          <t-tag v-if="core.installed" theme="success" variant="light" size="small">已安装</t-tag>
+          <t-tag v-else variant="light" size="small">未安装</t-tag>
+          <span v-if="core.installed">{{ core.version || '版本未知' }}</span>
+          <span class="muted small">{{ coreSourceText }}</span>
+        </template>
+        <span class="spacer"/>
+        <template v-if="canManage && coreLoaded">
+          <t-button
+              size="small"
+              theme="primary"
+              variant="outline"
+              :disabled="core.busy"
+              @click="coreDialogVisible = true"
+          >
+            {{ core.installed ? '上传更新' : '上传主程序' }}
+          </t-button>
+          <t-button
+              v-if="core.installed || core.managed"
+              size="small"
+              theme="danger"
+              variant="outline"
+              :disabled="core.busy"
+              :loading="uninstallingCore"
+              @click="confirmUninstallCore"
+          >
+            卸载
+          </t-button>
+        </template>
+      </div>
+      <div v-if="core.busy" class="core-note">
+        server-files 正在被改写（Steam 更新或另一个主程序操作），完成之后才能操作主程序。
+      </div>
+      <div v-if="coreChangedText" class="core-note">{{ coreChangedText }}</div>
+    </div>
+
     <div class="instance-settings">
       <div class="setting-row">
         <span class="label">启用ASA插件</span>
@@ -37,9 +77,9 @@
     </div>
 
     <t-alert
-        v-if="loaded && !arkApiInstalled"
-        :theme="enableAsaPlugin ? 'warning' : 'info'"
-        :message="notInstalledMessage"
+        v-if="loaded && !arkApiInstalled && enableAsaPlugin"
+        theme="warning"
+        message="本实例已开启「启用ASA插件」，但没有安装 ArkApi 主程序（server-files 中找不到 AsaApiLoader.exe），实例将以原版服务端启动。"
     />
 
     <t-alert
@@ -207,17 +247,27 @@
         :plugin="uninstallTarget"
         @done="load"
     />
+
+    <ark-api-core-dialog v-model:visible="coreDialogVisible" :current="core" @done="refreshAll"/>
   </div>
 </template>
 
 <script setup>
 import {computed, ref, watch} from 'vue'
-import {MessagePlugin} from 'tdesign-vue-next'
+import {DialogPlugin, MessagePlugin} from 'tdesign-vue-next'
 import {HelpCircleIcon} from 'tdesign-icons-vue-next'
 import ConfigEditor from '@/components/ConfigEditor.vue'
 import PluginInstallDialog from '@/components/PluginInstallDialog.vue'
 import PluginUninstallDialog from '@/components/PluginUninstallDialog.vue'
-import {getPluginConfig, listInstancePlugins, setInstancePluginEnabled, updatePluginConfig} from '@/apis/api'
+import ArkApiCoreDialog from '@/components/ArkApiCoreDialog.vue'
+import {
+  getArkApiStatus,
+  getPluginConfig,
+  listInstancePlugins,
+  setInstancePluginEnabled,
+  uninstallArkApi,
+  updatePluginConfig
+} from '@/apis/api'
 import {authState, isAdmin} from '@/store/authStore.js'
 
 const props = defineProps({
@@ -256,6 +306,12 @@ const installExpect = ref('')
 const uninstallVisible = ref(false)
 const uninstallTarget = ref('')
 
+// ArkApi 主程序（全局）的状态，来自 GET /api/arkapi
+const core = ref({})
+const coreLoaded = ref(false)
+const coreDialogVisible = ref(false)
+const uninstallingCore = ref(false)
+
 watch(() => props.interval, (v) => {
   snapshotInterval.value = v
 })
@@ -289,9 +345,24 @@ const columns = [
 
 const externalPlugins = computed(() => plugins.value.filter(p => p.external_db_path))
 
-const notInstalledMessage = computed(() => (props.enableAsaPlugin
-    ? '本实例已开启「启用ASA插件」，但 server-files 中没有安装 ArkApi 主程序（找不到 AsaApiLoader.exe），实例将以原版服务端启动。'
-    : '未安装 ArkApi 主程序（server-files 中找不到 AsaApiLoader.exe）。'))
+const coreSourceText = computed(() => {
+  const c = core.value
+  if (c.installed && c.managed) return `本程序安装 · ${formatTime(c.installed_at)}`
+  if (c.installed) return '手工安装（不是通过本面板安装的，版本未知）'
+  if (c.managed) return '安装记录还在，但 server-files 中找不到 AsaApiLoader.exe'
+  return 'server-files 中没有 AsaApiLoader.exe'
+})
+
+// 清单里、却在安装之后被外部改动或删掉的文件（例如 Steam 校验换回了游戏自带的 msvcp140.dll）
+const coreChangedText = computed(() => {
+  const modified = core.value.modified_files ?? []
+  const missing = core.value.missing_files ?? []
+  if (!modified.length && !missing.length) return ''
+  const parts = []
+  if (modified.length) parts.push(`被改动：${modified.join('、')}`)
+  if (missing.length) parts.push(`被删掉：${missing.join('、')}`)
+  return `主程序安装之后有文件被外部改动过（${parts.join('；')}）。重新上传同一个主程序包即可恢复。`
+})
 
 const emptyMessage = computed(() => {
   if (layout.value !== 'instance') return '未检测到 ArkApi 插件（ArkApi/Plugins 目录下没有插件）。'
@@ -316,7 +387,20 @@ const load = async () => {
   }
 }
 
-watch(() => props.instanceName, () => load(), {immediate: true})
+const loadCore = async () => {
+  try {
+    const res = await getArkApiStatus()
+    core.value = res.data ?? {}
+    coreLoaded.value = true
+  } catch (e) {
+    MessagePlugin.error(`读取 ArkApi 主程序状态失败: ${e.message ?? e}`)
+  }
+}
+
+// 主程序装卸之后两边都要刷新：插件列表里的 arkapi_installed 决定能不能上传插件
+const refreshAll = () => Promise.all([load(), loadCore()])
+
+watch(() => props.instanceName, () => refreshAll(), {immediate: true})
 
 // 启用/禁用只作用于本实例（方案 §1.1）。运行中只改配置，列表里会标「待生效」
 const toggleEnabled = async (row, enabled) => {
@@ -340,6 +424,33 @@ const openInstall = (expect) => {
 const openUninstall = (row) => {
   uninstallTarget.value = row.name
   uninstallVisible.value = true
+}
+
+// 主程序全局一份：卸载影响所有实例，确认框里要写明（方案 §9.1）
+const confirmUninstallCore = () => {
+  const dialog = DialogPlugin.confirm({
+    header: '卸载 ArkApi 主程序',
+    body: '影响所有实例：开启了「启用ASA插件」的实例下次启动将以原版服务端启动，运行中的实例不受影响。' +
+        '各实例的插件、配置与数据都不会改动，重新安装主程序后原样可用。被移除的文件进入备份，被覆盖过的游戏文件会还原。',
+    confirmBtn: {content: '确认卸载', theme: 'danger'},
+    cancelBtn: '取消',
+    onConfirm: async () => {
+      dialog.hide()
+      uninstallingCore.value = true
+      try {
+        const res = await uninstallArkApi()
+        MessagePlugin.success(res.message || 'ArkApi 主程序已卸载')
+        for (const w of res.data?.warnings ?? []) {
+          MessagePlugin.warning(w, 10000)
+        }
+      } catch (e) {
+        MessagePlugin.error(`卸载主程序失败: ${e.message ?? e}`)
+      } finally {
+        uninstallingCore.value = false
+        await refreshAll()
+      }
+    }
+  })
 }
 
 const openConfig = async (row) => {
@@ -400,7 +511,7 @@ const formatTime = (iso) => (iso ? new Date(iso).toLocaleString() : '无')
 const fileListText = (files) =>
     files.map(f => `${f.name} (${formatSize(f.size)})`).join('\n')
 
-defineExpose({reload: load})
+defineExpose({reload: refreshAll})
 </script>
 
 <style scoped>
@@ -412,6 +523,40 @@ defineExpose({reload: load})
 
 .panel-hint {
   margin: 0;
+}
+
+.core-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 16px;
+  border: 1px solid var(--td-component-border, #dcdcdc);
+  border-radius: 8px;
+  background: var(--td-bg-color-container, #fff);
+}
+
+.core-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.core-title {
+  font-weight: 500;
+}
+
+.core-row .spacer {
+  flex: 1;
+}
+
+.core-note {
+  font-size: 13px;
+  color: var(--td-warning-color, #e37318);
+}
+
+.small {
+  font-size: 12px;
 }
 
 .instance-settings {

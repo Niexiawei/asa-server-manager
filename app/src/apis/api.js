@@ -391,7 +391,9 @@ export function uploadArkApiPackage(kind, file, {expect, onProgress} = {}) {
     })
 }
 
-// 确认安装。插件包：{targets: ['a', 'b'], restore_from_backup: true}。结果按实例分别报告
+// 确认安装。结果按实例分别报告。
+// 插件包：{targets: ['a', 'b'], restore_from_backup: true}，targets 必须显式给出；
+// 主程序包：{version: '2.03', bundled: {Permissions: ['a']}}，附带插件不列就不装
 export function applyArkApiPackage(token, body) {
     return apiClient.post(`/api/arkapi/packages/${token}/apply`, body)
 }
@@ -409,6 +411,16 @@ export function getPluginInstances(plugin) {
 // 从所选实例卸载插件。targets 必须显式给出，接口不存在「默认全部」
 export function uninstallPlugin(plugin, targets) {
     return apiClient.post(`/api/arkapi/plugins/${encodeURIComponent(plugin)}/uninstall`, {targets})
+}
+
+// ArkApi 主程序状态：是否安装、版本（本程序装的才知道）、安装后被外部改动的文件、server-files 是否正忙
+export function getArkApiStatus() {
+    return apiClient.get('/api/arkapi')
+}
+
+// 卸载 ArkApi 主程序（全局，影响所有实例）。各实例的插件目录不动，被覆盖过的游戏文件会还原
+export function uninstallArkApi() {
+    return apiClient.delete('/api/arkapi')
 }
 
 // ==================== 资源指标历史 ====================
