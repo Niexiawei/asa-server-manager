@@ -3,6 +3,7 @@ package webapi
 import (
 	"asa-server/app"
 	"asa-server/internal/appconfig"
+	"asa-server/internal/arkapimanage"
 	"asa-server/internal/auth"
 	"asa-server/internal/batchmanage"
 	"asa-server/internal/certmgr"
@@ -170,6 +171,8 @@ func (s *APIServer) Start() error {
 	// ArkApi 插件目录的一次性迁移必须赶在调度器之前：定时任务可能马上拉起实例。
 	// StartServer 自己也会迁移（兜底升级时正在运行的实例），两边由实例级锁串行化。
 	instancepkg.MigratePluginLayouts()
+	// 插件包的暂存登记只在内存里，上一个进程留下的暂存目录已经没人认领
+	arkapimanage.ClearStaging()
 
 	// 定时调度必须在状态管理器之后启动：批量启停依赖 state 的 CAS
 	if sched := schedule.GetGlobalScheduler(); sched != nil {

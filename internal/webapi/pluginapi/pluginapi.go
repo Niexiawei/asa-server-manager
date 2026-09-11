@@ -9,8 +9,10 @@
 package pluginapi
 
 import (
+	"fmt"
 	"net/http"
 
+	"asa-server/internal/arkapimanage"
 	"asa-server/internal/installer"
 	"asa-server/internal/plugindata"
 	"asa-server/internal/webapi/apiresp"
@@ -28,11 +30,51 @@ func (h *Handler) RegisterRouter(r *gin.Engine) {
 		plugins.GET("/:name", h.listPlugins)
 		plugins.GET("/:name/:plugin/config", h.getPluginConfig)
 		plugins.PUT("/:name/:plugin/config", h.updatePluginConfig)
+		// 启用/禁用与编辑实例配置同级，不要求管理员（方案 §8.2）
+		plugins.PUT("/:name/:plugin/enabled", h.setPluginEnabled)
 	}
+	h.registerArkApiRoutes(r)
 }
 
 type PluginConfigRequest struct {
 	Content string `json:"content" binding:"required"`
+}
+
+type PluginEnabledRequest struct {
+	Enabled *bool `json:"enabled" binding:"required"`
+}
+
+func (h *Handler) setPluginEnabled(c *gin.Context) {
+	name := c.Param("name")
+	if err := apiresp.ValidateInstanceName(name); err != nil {
+		c.JSON(http.StatusBadRequest, apiresp.StatusResponse{Success: false, Error: err.Error()})
+		return
+	}
+	var req PluginEnabledRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, apiresp.StatusResponse{Success: false, Error: err.Error()})
+		return
+	}
+
+	plugin := c.Param("plugin")
+	applied, err := arkapimanage.SetPluginEnabled(name, plugin, *req.Enabled)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, apiresp.StatusResponse{Success: false, Error: err.Error()})
+		return
+	}
+	action := "启用"
+	if !*req.Enabled {
+		action = "禁用"
+	}
+	msg := fmt.Sprintf("已%s插件 %s，将在下次启动该实例时生效", action, plugin)
+	if !applied {
+		msg = fmt.Sprintf("已%s插件 %s。实例运行中或正在启动，将在下次启动该实例时生效", action, plugin)
+	}
+	c.JSON(http.StatusOK, apiresp.StatusResponse{
+		Success: true,
+		Message: msg,
+		Data:    gin.H{"applied": applied},
+	})
 }
 
 func (h *Handler) listPlugins(c *gin.Context) {
