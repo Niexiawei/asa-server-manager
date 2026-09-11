@@ -76,6 +76,8 @@ apiClient.interceptors.response.use(
             const err = new Error(errorMessage)
             err.status = error.response.status
             err.code = errorData.code
+            // 有些失败响应在 data 里带着结构化结果（例如插件包校验失败的 422 报告）
+            err.data = errorData.data
             return Promise.reject(err)
         } else if (error.request) {
             // 请求已发出，但没有收到响应

@@ -352,12 +352,11 @@ export function ignorePendingRestore() {
     return apiClient.delete('/api/schedule/pending-restore')
 }
 
-// ==================== ArkApi 插件数据隔离 ====================
-// 插件的配置与运行期数据（典型是 Permissions 的权限库）按实例隔离存放在
-// instances/{name}/plugins/ 下，启动前注入镜像、停止后回收。
-// 详见 docs/ARKAPI_PLUGIN_DATA_PLAN.md。
+// ==================== ArkApi 插件（每实例独立） ====================
+// 每个实例的插件（dll、配置、运行期数据）都在 instances/{name}/ArkApi/Plugins/ 下，
+// 镜像里的 ArkApi/Plugins 是指向它的 junction。详见 docs/ARKAPI_PLUGIN_INSTALL_PLAN.md。
 
-// 列出某实例的插件隔离状态（是否已隔离、数据文件、快照、是否被 DbPathOverride 接管）
+// 列出某实例的插件：元数据、启用状态、数据文件、快照、是否被 DbPathOverride 接管
 export function listInstancePlugins(name) {
     return apiClient.get(`/api/plugins/${name}`)
 }
@@ -371,6 +370,45 @@ export function getPluginConfig(name, plugin) {
 // 保存插件配置（写入实例目录，下次启动该实例时注入镜像生效）
 export function updatePluginConfig(name, plugin, content) {
     return apiClient.put(`/api/plugins/${name}/${plugin}/config`, {content})
+}
+
+// 启用/禁用某实例的一个插件，只作用于这一个实例。
+// 实例运行中或正在启动时只写配置，响应 data.applied=false，下次启动时生效。
+export function setInstancePluginEnabled(name, plugin, enabled) {
+    return apiClient.put(`/api/plugins/${name}/${encodeURIComponent(plugin)}/enabled`, {enabled})
+}
+
+// 上传 ArkApi 包（两段式的第一段）：服务端解压并校验，返回报告与目标实例表，token 30 分钟有效。
+// 校验失败是 422，错误对象的 data 是同样形状的报告（token 为空）。
+export function uploadArkApiPackage(kind, file, {expect, onProgress} = {}) {
+    const form = new FormData()
+    form.append('file', file)
+    return apiClient.post('/api/arkapi/packages', form, {
+        params: expect ? {kind, expect} : {kind},
+        // 默认头是 application/json，axios 1.x 在这个头下会把 FormData 序列化成 JSON
+        headers: {'Content-Type': 'multipart/form-data'},
+        onUploadProgress: (e) => onProgress?.(e.total ? Math.round((e.loaded * 100) / e.total) : 0),
+    })
+}
+
+// 确认安装。插件包：{targets: ['a', 'b'], restore_from_backup: true}。结果按实例分别报告
+export function applyArkApiPackage(token, body) {
+    return apiClient.post(`/api/arkapi/packages/${token}/apply`, body)
+}
+
+// 放弃暂存的包（关掉确认对话框时调用）
+export function discardArkApiPackage(token) {
+    return apiClient.delete(`/api/arkapi/packages/${token}`)
+}
+
+// 装有某插件的全部实例（含禁用状态的），供卸载对话框使用
+export function getPluginInstances(plugin) {
+    return apiClient.get(`/api/arkapi/plugins/${encodeURIComponent(plugin)}/instances`)
+}
+
+// 从所选实例卸载插件。targets 必须显式给出，接口不存在「默认全部」
+export function uninstallPlugin(plugin, targets) {
+    return apiClient.post(`/api/arkapi/plugins/${encodeURIComponent(plugin)}/uninstall`, {targets})
 }
 
 // ==================== 资源指标历史 ====================

@@ -31,7 +31,9 @@
         </t-tooltip>
       </div>
 
-      <div v-if="running" class="running-hint">实例运行中，以上设置将在下次启动该实例时生效。</div>
+      <div v-if="running" class="running-hint">
+        实例运行中：以上设置和插件的启用开关在下次启动时生效；安装、更新、卸载插件需要先停止实例。
+      </div>
     </div>
 
     <t-alert
@@ -43,8 +45,19 @@
     <t-alert
         v-if="loaded && layout === 'legacy'"
         theme="warning"
-        message="该实例仍在使用旧的全局插件（升级时它正在运行）。停止后，下次启动前会自动迁移为本实例独立的插件目录；在此之前这里显示的是全局插件。"
+        message="该实例仍在使用旧的全局插件（升级时它正在运行）。停止后，下次启动前会自动迁移为本实例独立的插件目录；在此之前这里只读，显示的是全局插件。"
     />
+
+    <div v-if="loaded" class="toolbar">
+      <span class="title">本实例的插件（{{ plugins.length }}）</span>
+      <t-tooltip v-if="canManage" :content="uploadDisabledReason" :disabled="!uploadDisabledReason">
+        <span>
+          <t-button size="small" theme="primary" :disabled="!!uploadDisabledReason" @click="openInstall('')">
+            上传插件
+          </t-button>
+        </span>
+      </t-tooltip>
+    </div>
 
     <t-alert
         v-if="loaded && arkApiInstalled && plugins.length === 0"
@@ -91,6 +104,21 @@
           <span v-else class="muted">—</span>
         </template>
 
+        <template #enabled="{ row }">
+          <div class="enabled-cell">
+            <t-switch
+                size="small"
+                :value="row.enabled"
+                :loading="togglingPlugin === row.name"
+                :disabled="layout !== 'instance'"
+                @change="(v) => toggleEnabled(row, v)"
+            />
+            <t-tooltip v-if="row.pending" content="实例运行中改的，下次启动该实例时生效">
+              <t-tag theme="warning" variant="light" size="small">待生效</t-tag>
+            </t-tooltip>
+          </div>
+        </template>
+
         <template #data_files="{ row }">
           <span v-if="row.external_db_path" class="muted">—</span>
           <span v-else-if="!row.data_files.length" class="muted">无</span>
@@ -117,6 +145,34 @@
           >
             编辑配置
           </t-button>
+          <template v-if="canManage">
+            <t-tooltip :content="writeDisabledReason" :disabled="!writeDisabledReason">
+              <span>
+                <t-button
+                    size="small"
+                    variant="text"
+                    theme="primary"
+                    :disabled="!!writeDisabledReason"
+                    @click="openInstall(row.name)"
+                >
+                  更新
+                </t-button>
+              </span>
+            </t-tooltip>
+            <t-tooltip :content="writeDisabledReason" :disabled="!writeDisabledReason">
+              <span>
+                <t-button
+                    size="small"
+                    variant="text"
+                    theme="danger"
+                    :disabled="!!writeDisabledReason"
+                    @click="openUninstall(row)"
+                >
+                  卸载
+                </t-button>
+              </span>
+            </t-tooltip>
+          </template>
         </template>
       </t-table>
 
@@ -137,6 +193,20 @@
         :saving="saving"
         @save="saveConfig"
     />
+
+    <plugin-install-dialog
+        v-model:visible="installVisible"
+        :instance-name="instanceName"
+        :expect="installExpect"
+        @done="load"
+    />
+
+    <plugin-uninstall-dialog
+        v-model:visible="uninstallVisible"
+        :instance-name="instanceName"
+        :plugin="uninstallTarget"
+        @done="load"
+    />
   </div>
 </template>
 
@@ -145,7 +215,10 @@ import {computed, ref, watch} from 'vue'
 import {MessagePlugin} from 'tdesign-vue-next'
 import {HelpCircleIcon} from 'tdesign-icons-vue-next'
 import ConfigEditor from '@/components/ConfigEditor.vue'
-import {getPluginConfig, listInstancePlugins, updatePluginConfig} from '@/apis/api'
+import PluginInstallDialog from '@/components/PluginInstallDialog.vue'
+import PluginUninstallDialog from '@/components/PluginUninstallDialog.vue'
+import {getPluginConfig, listInstancePlugins, setInstancePluginEnabled, updatePluginConfig} from '@/apis/api'
+import {authState, isAdmin} from '@/store/authStore.js'
 
 const props = defineProps({
   instanceName: {type: String, required: true},
@@ -176,18 +249,42 @@ const editingPlugin = ref('')
 const editingContent = ref('')
 const editingSeeded = ref(true)
 const openingPlugin = ref('')
+const togglingPlugin = ref('')
+
+const installVisible = ref(false)
+const installExpect = ref('')
+const uninstallVisible = ref(false)
+const uninstallTarget = ref('')
 
 watch(() => props.interval, (v) => {
   snapshotInterval.value = v
 })
 
+// 往服务器上放 dll 等同于在服务器上执行代码，安装/更新/卸载只给管理员（服务端同样校验）。
+// 没开鉴权时服务端不拦，这里也不隐藏。
+const canManage = computed(() => !authState.authEnabled || isAdmin.value)
+
+const uploadDisabledReason = computed(() => {
+  if (!arkApiInstalled.value) return '安装 ArkApi 主程序后才能添加插件'
+  if (layout.value !== 'instance') return '该实例尚未迁移到独立插件目录，停止后下次启动时会自动迁移'
+  return ''
+})
+
+// 运行中的 ArkApi 占着插件 dll，覆盖、删除都会失败（方案 D2）
+const writeDisabledReason = computed(() => {
+  if (layout.value !== 'instance') return '该实例尚未迁移到独立插件目录'
+  if (props.running) return '实例运行中，请先停止实例'
+  return ''
+})
+
 const columns = [
-  {colKey: 'name', title: '插件', width: 220},
-  {colKey: 'version', title: '版本', width: 90},
+  {colKey: 'name', title: '插件', width: 200},
+  {colKey: 'version', title: '版本', width: 80},
   {colKey: 'description', title: '描述', ellipsis: true},
-  {colKey: 'data_files', title: '实例数据', width: 150},
-  {colKey: 'snapshots', title: '最近快照', width: 170},
-  {colKey: 'op', title: '操作', width: 110}
+  {colKey: 'enabled', title: '启用', width: 110},
+  {colKey: 'data_files', title: '实例数据', width: 130},
+  {colKey: 'snapshots', title: '最近快照', width: 160},
+  {colKey: 'op', title: '操作', width: 210}
 ]
 
 const externalPlugins = computed(() => plugins.value.filter(p => p.external_db_path))
@@ -196,9 +293,11 @@ const notInstalledMessage = computed(() => (props.enableAsaPlugin
     ? '本实例已开启「启用ASA插件」，但 server-files 中没有安装 ArkApi 主程序（找不到 AsaApiLoader.exe），实例将以原版服务端启动。'
     : '未安装 ArkApi 主程序（server-files 中找不到 AsaApiLoader.exe）。'))
 
-const emptyMessage = computed(() => (layout.value === 'instance'
-    ? `本实例还没有 ArkApi 插件（插件目录：${pluginsDir.value}）。`
-    : '未检测到 ArkApi 插件（ArkApi/Plugins 目录下没有插件）。'))
+const emptyMessage = computed(() => {
+  if (layout.value !== 'instance') return '未检测到 ArkApi 插件（ArkApi/Plugins 目录下没有插件）。'
+  const how = canManage.value ? '点击「上传插件」添加，或' : ''
+  return `本实例还没有 ArkApi 插件。${how}手工把插件目录放进 ${pluginsDir.value}。`
+})
 
 const load = async () => {
   if (!props.instanceName) return
@@ -218,6 +317,30 @@ const load = async () => {
 }
 
 watch(() => props.instanceName, () => load(), {immediate: true})
+
+// 启用/禁用只作用于本实例（方案 §1.1）。运行中只改配置，列表里会标「待生效」
+const toggleEnabled = async (row, enabled) => {
+  togglingPlugin.value = row.name
+  try {
+    const res = await setInstancePluginEnabled(props.instanceName, row.name, enabled)
+    MessagePlugin.success(res.message || '已保存')
+    await load()
+  } catch (e) {
+    MessagePlugin.error(`切换插件状态失败: ${e.message ?? e}`)
+  } finally {
+    togglingPlugin.value = ''
+  }
+}
+
+const openInstall = (expect) => {
+  installExpect.value = expect
+  installVisible.value = true
+}
+
+const openUninstall = (row) => {
+  uninstallTarget.value = row.name
+  uninstallVisible.value = true
+}
 
 const openConfig = async (row) => {
   openingPlugin.value = row.name
@@ -322,7 +445,18 @@ defineExpose({reload: load})
   color: var(--td-warning-color, #e37318);
 }
 
-.plugin-name {
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.toolbar .title {
+  font-weight: 500;
+}
+
+.plugin-name,
+.enabled-cell {
   display: flex;
   align-items: center;
   gap: 6px;
