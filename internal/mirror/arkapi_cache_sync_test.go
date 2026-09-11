@@ -1,5 +1,3 @@
-//go:build windows
-
 package mirror
 
 import (
@@ -13,33 +11,7 @@ import (
 	"asa-server/pkg/arkcache"
 )
 
-const (
-	arkApiCacheDirRel = win64RelPath + "/ArkApi/Cache"
-	keyFileName       = "cached_key.cache"
-)
-
-// seedSourceArkApiCache 在**源目录**里造一份对当前 exe 有效的 offsets cache，
-// 也就是 pkg/arkcache 预取成功后的形态。返回 exe 哈希与 generation 相对路径。
-func seedSourceArkApiCache(t *testing.T) (string, string) {
-	t.Helper()
-	exe := filepath.Join(cfgpkg.ServerFilesDir, filepath.FromSlash(win64RelPath), "ArkAscendedServer.exe")
-	hash, err := arkcache.ExeHash(exe)
-	if err != nil {
-		t.Fatalf("算 exe 哈希: %v", err)
-	}
-	genRel := fmt.Sprintf("generations/%s-1-2-0", hash)
-
-	srcCache := filepath.Join(cfgpkg.ServerFilesDir, filepath.FromSlash(arkApiCacheDirRel))
-	writeAt(t, filepath.Join(srcCache, filepath.FromSlash(genRel), "cached_offsets.cache"), "offsets-v1")
-	writeAt(t, filepath.Join(srcCache, filepath.FromSlash(genRel), "cached_bitfields.cache"), "bitfields-v1")
-	writeAt(t, filepath.Join(srcCache, keyFileName), fmt.Sprintf(
-		`{"version":1,"executable_hash":%q,"last_modified":"LM-v1","cache_directory":%q}`, hash, genRel))
-
-	if res, err := arkcache.Inspect(srcCache, hash); err != nil || !res.Ready {
-		t.Fatalf("造出来的源缓存自己就不合格: %v %s", err, res.Reason)
-	}
-	return hash, genRel
-}
+// arkApiCacheDirRel / keyFileName / seedSourceArkApiCache 在 helpers_test.go。
 
 // 源缓存由我们接管之后，源目录就是权威 —— 守卫必须让开，否则两个静默故障：
 // 镜像里的 cached_key.cache 永远不被更新（还指向旧哈希的 generation，ArkApi 判定

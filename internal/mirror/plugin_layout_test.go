@@ -1,22 +1,25 @@
-//go:build windows
-
 package mirror
 
 import (
+	"fmt"
 	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	cfgpkg "asa-server/internal/config"
 	"asa-server/internal/plugindata"
+	"asa-server/pkg/arkcache"
 )
 
-// 这些用例都在 Windows 上用**真 NTFS junction** 跑（createJunction）：junction 与 symlink
-// 在 Lstat/Mode 上的表现不同，只在 symlink 上测会漏掉只在 Windows 上出现的问题。
+// 这些用例两个平台都跑，链接都由 createJunction 建出：Windows 上是**真 NTFS junction**，
+// Linux 上是 symlink（WSL2 下用 `wsl -e zsh -lc 'cd /mnt/d/golang/asa-server && go test ./internal/mirror/'`）。
+// 两者在 Lstat/Mode 上的表现不同，只在一边测会漏掉只在另一边出现的问题。
+// 「盘上是不是链接」的判断走 isLinkOnDisk（linkattr_{windows,linux}_test.go），不经过被测对象。
 // 见 docs/ARKAPI_PLUGIN_INSTALL_PLAN.md §12。
 
 const layoutInst = "layoutinst"
@@ -92,11 +95,11 @@ func TestArkApiPluginsLinkedToInstanceDir(t *testing.T) {
 	migrateAndSync(t, cfg)
 
 	mp := mirrorPluginsPath()
-	if !hasReparsePointAttr(t, mp) {
+	if !isLinkOnDisk(t, mp) {
 		t.Fatal("镜像里的 ArkApi/Plugins 应是 junction")
 	}
 	arkDir := filepath.Dir(mp)
-	if hasReparsePointAttr(t, arkDir) {
+	if isLinkOnDisk(t, arkDir) {
 		t.Error("ArkApi 目录本身应是真实目录：主程序文件仍从 server-files 复制，全局一份")
 	}
 	if got := readAt(t, filepath.Join(arkDir, "AsaApi.dll")); got != "api v1" {
@@ -117,7 +120,7 @@ func TestArkApiPluginsLinkedToInstanceDir(t *testing.T) {
 	if _, err := SyncInstanceMirror(layoutInst, cfg); err != nil {
 		t.Fatal(err)
 	}
-	if !hasReparsePointAttr(t, mp) {
+	if !isLinkOnDisk(t, mp) {
 		t.Fatal("第二轮同步后 junction 不见了")
 	}
 	rel := win64RelPath + "/ArkApi/Plugins"
@@ -140,7 +143,8 @@ func TestArkApiPluginsLinkedToInstanceDir(t *testing.T) {
 }
 
 // 旧版本建出来的镜像里 Plugins 是真实目录，且留着上一轮的活数据：
-// 迁移 + 同步之后它变成 junction，数据一样不少地进了实例目录。
+// 迁移 + 同步之后它变成 junction，数据一样不少地进了实例目录；
+// 而镜像独有的**非数据**文件与旧流程一样被丢弃，不会被带进实例目录。
 func TestLegacyMirrorPluginsMigratedIntoInstanceDir(t *testing.T) {
 	cfg := setupArkApiLayout(t)
 	if err := ensureInstanceDirs(layoutInst); err != nil {
@@ -149,6 +153,10 @@ func TestLegacyMirrorPluginsMigratedIntoInstanceDir(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(cfgpkg.ServerFilesDir, filepath.FromSlash(win64SharedRelPath)), 0755); err != nil {
 		t.Fatal(err)
 	}
+	// 复刻真实数据里的情形：Chat 插件上次同步时还在，之后用户从 server-files 删掉了它的 dll
+	srcChat := filepath.Join(serverWin64(), "ArkApi", "Plugins", "Chat")
+	writeAt(t, filepath.Join(srcChat, "Chat.dll"), "MZ chat")
+	writeAt(t, filepath.Join(srcChat, "PluginInfo.json"), `{"FullName":"Chat"}`)
 
 	// 模拟旧版本：建镜像时还没有 Plugins 这条例外
 	legacyTargets := buildExceptionTargets(layoutInst, cfg)
@@ -158,17 +166,20 @@ func TestLegacyMirrorPluginsMigratedIntoInstanceDir(t *testing.T) {
 		t.Fatal(err)
 	}
 	mp := mirrorPluginsPath()
-	if hasReparsePointAttr(t, mp) {
+	if isLinkOnDisk(t, mp) {
 		t.Fatal("用例前提不成立：旧镜像里的 Plugins 应是真实目录")
 	}
 	writeAt(t, filepath.Join(mp, "Permissions", "ArkDB.db"), sqliteHeader+"live-from-last-run")
 	writeAt(t, filepath.Join(mp, "Permissions", "ArkDB.db-wal"), "unflushed")
 	writeAt(t, filepath.Join(mp, "Permissions", "stray.txt"), "runtime-note")
 	writeAt(t, filepath.Join(cfgpkg.InstancesDir, layoutInst, "plugins", "Permissions", "config.json"), `{"UseMysql":true}`)
+	if err := os.Remove(filepath.Join(srcChat, "Chat.dll")); err != nil {
+		t.Fatal(err)
+	}
 
 	migrateAndSync(t, cfg)
 
-	if !hasReparsePointAttr(t, mp) {
+	if !isLinkOnDisk(t, mp) {
 		t.Fatal("同步后镜像里的 Plugins 应已换成 junction")
 	}
 	inst := filepath.Join(plugindata.InstancePluginsDir(layoutInst), "Permissions")
@@ -176,12 +187,56 @@ func TestLegacyMirrorPluginsMigratedIntoInstanceDir(t *testing.T) {
 		"ArkDB.db":        sqliteHeader + "live-from-last-run",
 		"ArkDB.db-wal":    "unflushed",
 		"config.json":     `{"UseMysql":true}`,
-		"stray.txt":       "runtime-note",
 		"Permissions.dll": "MZ v1",
 	} {
 		if got := readAt(t, filepath.Join(inst, name)); got != want {
 			t.Errorf("%s = %q，期望 %q", name, got, want)
 		}
+	}
+	// 与旧流程一致：镜像独有的非数据文件在旧流程里会被同步当成多余条目删掉，这里不能被带进实例目录
+	if _, err := os.Stat(filepath.Join(inst, "stray.txt")); !os.IsNotExist(err) {
+		t.Error("镜像独有的非数据文件被带进了实例目录（旧流程会删掉它）")
+	}
+	instChat := filepath.Join(plugindata.InstancePluginsDir(layoutInst), "Chat")
+	if _, err := os.Stat(filepath.Join(instChat, "Chat.dll")); !os.IsNotExist(err) {
+		t.Error("server-files 里已删除的 Chat.dll 被旧镜像复活进了实例目录——迁移后这个插件会重新被加载")
+	}
+	if got := readAt(t, filepath.Join(instChat, "PluginInfo.json")); got != `{"FullName":"Chat"}` {
+		t.Errorf("Chat 的其余文件应照 server-files 迁移，实际 %q", got)
+	}
+}
+
+// 未迁移的实例（正常启动路径不会这样同步，这里防的是任何绕过了迁移的同步）必须维持旧的镜像行为：
+// 不建 Plugins junction，镜像真实目录里的插件数据照旧受同步保护。
+// 若在这种状态下建了 junction，目标是个空目录，镜像里的活数据会随真实目录一起被删掉。
+func TestUnmigratedInstanceKeepsLegacyMirrorBehavior(t *testing.T) {
+	cfg := setupArkApiLayout(t)
+	if _, err := SyncInstanceMirror(layoutInst, cfg); err != nil {
+		t.Fatal(err)
+	}
+	mp := mirrorPluginsPath()
+	if isLinkOnDisk(t, mp) {
+		t.Fatal("未迁移的实例不能建 Plugins junction：它的数据还在镜像的真实目录里")
+	}
+
+	db := filepath.Join(mp, "Permissions", "ArkDB.db")
+	wal := filepath.Join(mp, "Permissions", "ArkDB.db-wal")
+	writeAt(t, db, sqliteHeader+"live")
+	writeAt(t, wal, "wal")
+	if _, err := SyncInstanceMirror(layoutInst, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if got := readAt(t, db); got != sqliteHeader+"live" {
+		t.Errorf("未迁移实例镜像里的插件数据被同步改动了: %q", got)
+	}
+	if _, err := os.Stat(wal); err != nil {
+		t.Errorf("未迁移实例镜像里的 -wal 被同步删掉了: %v", err)
+	}
+	if _, err := os.Stat(plugindata.InstancePluginsDir(layoutInst)); !os.IsNotExist(err) {
+		t.Error("未迁移的实例不该被建出新布局的插件目录")
+	}
+	if slices.Contains(ExceptionTargets(layoutInst, cfg), plugindata.InstancePluginsDir(layoutInst)) {
+		t.Error("未迁移的实例的 ExceptionTargets 不该包含新布局的插件目录")
 	}
 }
 
@@ -218,7 +273,7 @@ func TestUninstallingCoreKeepsInstancePlugins(t *testing.T) {
 	if _, err := SyncInstanceMirror(layoutInst, cfg); err != nil {
 		t.Fatal(err)
 	}
-	if !hasReparsePointAttr(t, mirrorPluginsPath()) {
+	if !isLinkOnDisk(t, mirrorPluginsPath()) {
 		t.Fatal("主程序装回后 junction 应恢复")
 	}
 	if got := readAt(t, filepath.Join(mirrorPluginsPath(), "Permissions", "ArkDB.db")); got != sqliteHeader+"keep-me" {
@@ -247,11 +302,67 @@ func TestCleanupLeavesInstancePluginsAlone(t *testing.T) {
 	}
 }
 
+// Plugins 链接在场时，ArkApi/Cache 的两条既有规则都不能变：接管后源目录是权威、要对账；
+// 没接管时 Cache 里是 ArkApi 运行期自己写的东西、不删不比对（arkapi_cache_sync_test.go 的两个用例
+// 用的是手工拼的例外清单，没有这条链接，覆盖不到这里）。
+// Win64/ArkApi 从「Win64 下的普通真实目录」变成了「有例外子路径的中间目录」，两种身份下
+// 它都是真实目录，Cache 的相对路径判定也不变——这里用结果钉住。
+func TestArkApiCacheRulesUnaffectedByPluginsJunction(t *testing.T) {
+	t.Run("managed", func(t *testing.T) {
+		cfg := setupArkApiLayout(t)
+		hash, genRel := seedSourceArkApiCache(t)
+		migrateAndSync(t, cfg)
+
+		mirrorCache := filepath.Join(InstanceMirrorDir(layoutInst), filepath.FromSlash(arkApiCacheDirRel))
+		staleHash := strings.Repeat("a", 64)
+		staleGen := fmt.Sprintf("generations/%s-1-1-0", staleHash)
+		writeAt(t, filepath.Join(mirrorCache, filepath.FromSlash(staleGen), "cached_offsets.cache"), "old")
+		writeAt(t, filepath.Join(mirrorCache, keyFileName), fmt.Sprintf(
+			`{"version":1,"executable_hash":%q,"last_modified":"LM-old","cache_directory":%q}`, staleHash, staleGen))
+
+		if _, err := SyncInstanceMirror(layoutInst, cfg); err != nil {
+			t.Fatal(err)
+		}
+		if res, err := arkcache.Inspect(mirrorCache, hash); err != nil || !res.Ready || res.Generation != genRel {
+			t.Errorf("接管后镜像里的 cached_key.cache 应被回写: %v %+v", err, res)
+		}
+		if _, err := os.Stat(filepath.Join(mirrorCache, filepath.FromSlash(staleGen))); err == nil {
+			t.Error("接管后镜像里的旧 generation 应被删掉")
+		}
+		if !isLinkOnDisk(t, mirrorPluginsPath()) {
+			t.Error("Cache 对账之后 Plugins junction 不见了")
+		}
+	})
+
+	t.Run("unmanaged", func(t *testing.T) {
+		cfg := setupArkApiLayout(t)
+		writeAt(t, filepath.Join(cfgpkg.ServerFilesDir, filepath.FromSlash(arkApiCacheDirRel), keyFileName), "source-side-key")
+		migrateAndSync(t, cfg)
+
+		mirrorCache := filepath.Join(InstanceMirrorDir(layoutInst), filepath.FromSlash(arkApiCacheDirRel))
+		runtimeFile := filepath.Join(mirrorCache, "generations", "runtime-gen", "cached_offsets.cache")
+		writeAt(t, runtimeFile, "downloaded-by-arkapi")
+		writeAt(t, filepath.Join(mirrorCache, keyFileName), "written-by-arkapi")
+
+		if _, err := SyncInstanceMirror(layoutInst, cfg); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Stat(runtimeFile); err != nil {
+			t.Errorf("未接管时 ArkApi 运行期写入的文件被删了: %v", err)
+		}
+		if got := readAt(t, filepath.Join(mirrorCache, keyFileName)); got != "written-by-arkapi" {
+			t.Errorf("未接管时 ArkApi 自己的 cached_key.cache 被源版本覆盖了: %q", got)
+		}
+	})
+}
+
 // 结构性关断的「镜像里是链接」这一条判据，单独拎出来测：去掉迁移标记，只剩它在起作用。
 //
 // 这是 §12 要求的变异验证点：把 shuttleRetired 里的 fsutil.IsLink 换成 ModeSymlink 判定，
 // 或者干脆去掉这条判据，本用例都必须失败——Inject 会拿旧目录里的过期副本穿过 junction
 // 覆盖活数据，Rescue/Reclaim 会把活数据搬进已退役的旧目录。
+// 注意「换成 ModeSymlink」只在 Windows 上会失败：Linux 上链接是 symlink，ModeSymlink 本来就对，
+// 这正是这个 bug 只在 Windows 上出现的原因；「去掉判据」则两个平台都会失败。
 func TestShuttleDoesNotRunThroughPluginsJunction(t *testing.T) {
 	cfg := setupArkApiLayout(t)
 	migrateAndSync(t, cfg)

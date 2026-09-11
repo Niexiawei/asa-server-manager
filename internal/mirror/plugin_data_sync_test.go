@@ -1,5 +1,3 @@
-//go:build windows
-
 package mirror
 
 import (
@@ -77,11 +75,7 @@ func TestCleanupRescuesPluginDataFirst(t *testing.T) {
 	}
 }
 
-// ---------- 脚手架 ----------
-
-// sqliteHeader 是 SQLite 数据库文件头。识别走的是魔数而不是扩展名，
-// 所以测试里不需要真的建库。
-const sqliteHeader = "SQLite format 3\x00"
+// ---------- 脚手架（writeAt / readAt / sqliteHeader 在 helpers_test.go） ----------
 
 // setupPluginMirror 造一个装了 ArkApi 插件的源目录并建好镜像。
 func setupPluginMirror(t *testing.T) (string, map[string]string) {
@@ -122,23 +116,4 @@ func setupPluginMirror(t *testing.T) (string, map[string]string) {
 		t.Fatalf("创建镜像失败: %v", err)
 	}
 	return mirrorDir, exceptionTargets
-}
-
-func writeAt(t *testing.T, path, content string) {
-	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		t.Fatalf("建目录 %s: %v", filepath.Dir(path), err)
-	}
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-		t.Fatalf("写文件 %s: %v", path, err)
-	}
-}
-
-func readAt(t *testing.T, path string) string {
-	t.Helper()
-	b, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("读文件 %s: %v", path, err)
-	}
-	return string(b)
 }
