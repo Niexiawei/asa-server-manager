@@ -273,26 +273,25 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 		PrepareArkApiCache(ctx)
 	}
 
-	// 一次性的插件目录迁移（docs/ARKAPI_PLUGIN_INSTALL_PLAN.md §4.4），必须在同步镜像**之前**：
-	// 同步会把镜像里的 Plugins 真实目录换成指向实例目录的 junction，换之前要先把镜像里
-	// 上一轮遗留的数据和旧的 plugins/ 迁进实例目录。启动前实例必然已停止，正是唯一允许
-	// 迁移的时机；已迁移的实例这里只是 stat 一下标记文件。
-	// 迁移失败就中止启动：带着一个没迁完的目录去同步，镜像里的旧内容会被粗暴合并进去。
-	if err := plugindata.MigrateInstance(instanceName, mirror.InstanceMirrorDir(instanceName)); err != nil {
-		startErr = fmt.Errorf("迁移实例 %s 的 ArkApi 插件目录失败，已中止启动（原有数据未改动）: %w", instanceName, err)
-		return startErr
-	}
-
-	// 同步实例镜像目录（增量）
-	mirrorDir, err = mirror.SyncInstanceMirror(instanceName, config)
-	if err != nil {
-		wrappedErr := fmt.Errorf("failed to setup instance mirror: %w", err)
-		startErr = wrappedErr
-		return wrappedErr
-	}
-
-	// 校验镜像关键路径完整性，不完整时自动重建
-	mirrorDir, err = mirror.VerifyAndRepairInstanceMirror(instanceName, config, mirrorDir)
+	// 插件目录准备与镜像同步在同一把实例级锁下完成（docs/ARKAPI_PLUGIN_INSTALL_PLAN.md §7）：
+	//   1. 一次性的插件目录迁移（§4.4），必须在同步镜像**之前**——同步会把镜像里的 Plugins
+	//      真实目录换成指向实例目录的 junction，换之前要先把镜像里上一轮遗留的数据和旧的
+	//      plugins/ 迁进实例目录。启动前实例必然已停止，正是唯一允许迁移的时机；
+	//   2. 按禁用列表把插件目录落位（§4.5）：运行中拨过的开关在这里生效；
+	//   3. 同步并校验镜像。
+	// 持锁到同步结束，安装/卸载插件就不会在同步到一半时换掉 junction 那头的目录。
+	// 迁移或落位失败都中止启动，理由见 PrepareForStart。
+	err = plugindata.PrepareForStart(instanceName, mirror.InstanceMirrorDir(instanceName), config.DisabledArkApiPlugins, func() error {
+		var syncErr error
+		// 同步实例镜像目录（增量）
+		mirrorDir, syncErr = mirror.SyncInstanceMirror(instanceName, config)
+		if syncErr != nil {
+			return fmt.Errorf("failed to setup instance mirror: %w", syncErr)
+		}
+		// 校验镜像关键路径完整性，不完整时自动重建
+		mirrorDir, syncErr = mirror.VerifyAndRepairInstanceMirror(instanceName, config, mirrorDir)
+		return syncErr
+	})
 	if err != nil {
 		startErr = err
 		return err

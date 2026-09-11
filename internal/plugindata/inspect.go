@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -28,6 +29,10 @@ type PluginInfo struct {
 	Version       string `json:"version"`
 	Description   string `json:"description"`
 	MinApiVersion string `json:"min_api_version"`
+	// Enabled 取自实例配置的禁用列表（启用状态的唯一真相）。旧布局下恒为 true。
+	Enabled bool `json:"enabled"`
+	// Pending 表示开关改过了、但插件目录还没挪到对应位置（实例运行中改的），下次启动时生效。
+	Pending bool `json:"pending"`
 	// DllMissing 表示插件目录里没有 <目录名>.dll。ArkApi 按这个名字加载插件，
 	// 缺了它这个插件实际不会被加载（典型是卸载后残留的配置与数据）。
 	DllMissing bool `json:"dll_missing"`
@@ -62,37 +67,57 @@ func SourcePluginsDir() string {
 
 // ListInstancePlugins 列出某个实例的插件。
 //
-// 已迁移的实例以它自己的插件目录为准；尚未迁移的（升级时正在运行）仍按旧布局，
-// 以 server-files 里的全局插件为准。
+// 已迁移的实例以它自己的插件目录为准（Plugins 与 PluginsDisabled 两处）；尚未迁移的
+// （升级时正在运行）仍按旧布局，以 server-files 里的全局插件为准。
 func ListInstancePlugins(instanceName string) ([]PluginInfo, error) {
-	root := InstancePluginsDir(instanceName)
-	describe := describeInstancePlugin
 	if !IsMigrated(instanceName) {
-		root = SourcePluginsDir()
-		describe = describeLegacyPlugin
+		return listLegacyPlugins(instanceName)
 	}
 
-	entries, err := os.ReadDir(root)
+	disabled := DisabledPlugins(instanceName)
+	out := []PluginInfo{}
+	seen := map[string]bool{}
+	for _, loc := range []struct {
+		root      string
+		inEnabled bool
+	}{
+		{InstancePluginsDir(instanceName), true},
+		{InstanceDisabledPluginsDir(instanceName), false},
+	} {
+		for _, plugin := range subdirNames(loc.root) {
+			if seen[plugin] {
+				continue // 两处都有同名目录：落位时会报错让用户处理，列表里只列 Plugins 那份
+			}
+			seen[plugin] = true
+			info := describeInstancePlugin(instanceName, plugin, filepath.Join(loc.root, plugin))
+			info.Enabled = !slices.Contains(disabled, plugin)
+			info.Pending = info.Enabled != loc.inEnabled
+			out = append(out, info)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}
+
+func listLegacyPlugins(instanceName string) ([]PluginInfo, error) {
+	entries, err := os.ReadDir(SourcePluginsDir())
 	if err != nil {
 		if os.IsNotExist(err) {
 			return []PluginInfo{}, nil
 		}
 		return nil, err
 	}
-
 	out := make([]PluginInfo, 0, len(entries))
 	for _, e := range entries {
-		if !e.IsDir() {
-			continue
+		if e.IsDir() {
+			out = append(out, describeLegacyPlugin(instanceName, e.Name()))
 		}
-		out = append(out, describe(instanceName, e.Name()))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
 }
 
-func describeInstancePlugin(instanceName, plugin string) PluginInfo {
-	dir := filepath.Join(InstancePluginsDir(instanceName), plugin)
+func describeInstancePlugin(instanceName, plugin, dir string) PluginInfo {
 	info := newPluginInfo(plugin, dir)
 	if external, path := hasExternalDBPath(dir, dir); external {
 		info.ExternalDBPath = path
@@ -109,6 +134,7 @@ func describeLegacyPlugin(instanceName, plugin string) PluginInfo {
 	instPlugin := filepath.Join(legacyPluginsDir(instanceName), plugin)
 
 	info := newPluginInfo(plugin, srcPlugin)
+	info.Enabled = true
 	if _, err := os.Stat(filepath.Join(instPlugin, configFileName)); err == nil {
 		info.HasConfig = true
 	}
@@ -178,12 +204,16 @@ func listSnapshotFiles(dir string) []FileInfo {
 // 旧布局下实例侧还没有（首次启动之前）时回落到源服务端自带的那一份，并以 seeded=false
 // 告知调用方：展示出来的是默认值，还没有成为这个实例的配置。
 func ReadPluginConfig(instanceName, plugin string) (content string, seeded bool, err error) {
-	if err := validatePluginName(plugin); err != nil {
+	if err := ValidatePluginName(plugin); err != nil {
 		return "", false, err
 	}
 
 	if IsMigrated(instanceName) {
-		data, err := os.ReadFile(filepath.Join(InstancePluginsDir(instanceName), plugin, configFileName))
+		dir, _, ok := FindInstancePlugin(instanceName, plugin)
+		if !ok {
+			return "", false, fmt.Errorf("本实例没有安装插件 %s", plugin)
+		}
+		data, err := os.ReadFile(filepath.Join(dir, configFileName))
 		if err != nil {
 			return "", false, fmt.Errorf("插件 %s 没有配置文件: %w", plugin, err)
 		}
@@ -210,7 +240,7 @@ func ReadPluginConfig(instanceName, plugin string) (content string, seeded bool,
 //
 // 内容必须是合法的 JSON 对象 —— 写坏了插件会加载失败，而那要到开服时才发现。
 func WritePluginConfig(instanceName, plugin, content string) error {
-	if err := validatePluginName(plugin); err != nil {
+	if err := ValidatePluginName(plugin); err != nil {
 		return err
 	}
 	if !json.Valid([]byte(content)) {
@@ -225,9 +255,10 @@ func WritePluginConfig(instanceName, plugin, content string) error {
 	defer mu.Unlock()
 
 	if IsMigrated(instanceName) {
-		dir := filepath.Join(InstancePluginsDir(instanceName), plugin)
-		// 不替不存在的插件建目录：那会凭空多出一个没有 dll 的「插件」
-		if !isDir(dir) {
+		// 不替不存在的插件建目录：那会凭空多出一个没有 dll 的「插件」。
+		// 被禁用的插件同样可以改配置，改的是 PluginsDisabled 里那份，启用时随目录一起回去。
+		dir, _, ok := FindInstancePlugin(instanceName, plugin)
+		if !ok {
 			return fmt.Errorf("本实例没有安装插件 %s", plugin)
 		}
 		return writeFileAtomic(filepath.Join(dir, configFileName), []byte(content))
@@ -240,12 +271,14 @@ func WritePluginConfig(instanceName, plugin, content string) error {
 	return writeFileAtomic(filepath.Join(dir, configFileName), []byte(content))
 }
 
-// validatePluginName 挡住路径穿越：插件名直接来自 URL。
-func validatePluginName(plugin string) error {
+// ValidatePluginName 校验插件目录名。插件名直接来自 URL 或上传的包，所以首先要挡住路径穿越；
+// 另外不许含逗号（禁用列表在 instance_config.ini 里是逗号分隔的一行）、不许以 . 开头
+// （实例插件目录下 .xxx 是本程序的临时目录）。
+func ValidatePluginName(plugin string) error {
 	if plugin == "" {
 		return fmt.Errorf("插件名不能为空")
 	}
-	if strings.ContainsAny(plugin, `/\:`) || strings.Contains(plugin, "..") {
+	if strings.ContainsAny(plugin, `/\:,`) || strings.Contains(plugin, "..") || strings.HasPrefix(plugin, ".") {
 		return fmt.Errorf("非法的插件名: %q", plugin)
 	}
 	return nil

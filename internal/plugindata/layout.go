@@ -22,7 +22,9 @@ import (
 //
 //	instances/{name}/ArkApi/
 //	├── Plugins/          ← junction 目标，ArkApi 实际加载这里
+//	├── PluginsDisabled/  ← 被禁用的插件（不在 junction 之下，ArkApi 看不到，见 enable.go）
 //	├── PluginSnapshots/  ← SQLite 在线快照
+//	├── Backups/          ← 被更新或卸载替换下来的插件目录
 //	└── .plugin-layout    ← 迁移标记
 //
 // 插件直接读写实例目录，不再需要启停搬运（plugindata.go），也就没有崩溃窗口。
@@ -31,7 +33,9 @@ import (
 const (
 	instanceArkApiDirName    = "ArkApi"
 	instancePluginsDirName   = "Plugins"
+	instanceDisabledDirName  = "PluginsDisabled"
 	instanceSnapshotsDirName = "PluginSnapshots"
+	instanceBackupsDirName   = "Backups"
 	migratingDirName         = "Plugins.migrating"
 
 	layoutMarkerName    = ".plugin-layout"
@@ -46,8 +50,9 @@ const (
 	LayoutLegacy   = "legacy"
 )
 
-// instanceLocks 串行化同一个实例上的布局变更（迁移、写配置）。
-// 程序启动时的批量迁移与 StartServer 里的兜底迁移可能撞在同一个实例上。
+// instanceLocks 串行化同一个实例上的插件目录变更：迁移、写配置、启用/禁用落位、安装/更新/卸载。
+// StartServer 在「迁移 → 落位 → 同步镜像」期间持有它（PrepareForStart），插件操作用
+// TryLockInstance，拿不到就报「实例正在启动」（docs/ARKAPI_PLUGIN_INSTALL_PLAN.md §4.6）。
 var instanceLocks sync.Map
 
 func instanceLock(instanceName string) *sync.Mutex {
@@ -125,7 +130,11 @@ func MigrateInstance(instanceName, mirrorDir string) error {
 	mu := instanceLock(instanceName)
 	mu.Lock()
 	defer mu.Unlock()
+	return migrateInstance(instanceName, mirrorDir)
+}
 
+// migrateInstance 是 MigrateInstance 的本体，调用方持有实例级锁。
+func migrateInstance(instanceName, mirrorDir string) error {
 	if IsMigrated(instanceName) {
 		retireLegacyInstanceDir(instanceName) // 上一次在「写标记」与「旧目录改名」之间中断
 		return nil
