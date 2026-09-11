@@ -869,3 +869,49 @@ StopServer
   `UpdateInstanceConfigRequest` 只有 `instanceapi` 一个使用方。
 - **回归用例**：`internal/config/config_update_test.go`，走 JSON 解码，覆盖「没传不改」和「传空串清空」两条。
   做过变异验证：恢复旧的赋值语义后用例失败，准确报出密码与 Mod 列表被清空。
+
+### 16.3 P3（2026-09-11 已实施）
+
+| 位置 | 落地内容 |
+|---|---|
+| `pkg/fsutil` | `IsLink`（`os.Readlink`）。`mirror.isJunctionOrSymlink` 改为调用它，两边共用一份实现 |
+| `internal/plugindata/layout.go`（新） | 目录布局（`ArkApi/Plugins`、`ArkApi/PluginSnapshots`）、`IsMigrated` / `LayoutOf`、`MigrateInstance`（含 `DbPathOverride` 改写）、`InitInstanceLayout`、`RetireLegacyServerPlugins`、实例级锁 |
+| `internal/plugindata/meta.go`（新） | `ReadPluginMeta`：`PluginInfo.json` 文件名不区分大小写、剥 BOM、数字版本号保留原文 |
+| `internal/plugindata` 其余 | `plugindata.go`：旧目录改名 `legacyPluginsDir`，`harvest` / `Inject` 开头加 `shuttleRetired` 关断。`inspect.go`：列表、读写配置按布局分流，列表带元数据与 `dll_missing`；`SourcePluginsRelPath` 按盘上实际大小写拼路径。`snapshot.go`：改为扫描实例目录，写进 `PluginSnapshots`，`StartSnapshots` 去掉 `mirrorDir` 参数 |
+| `internal/mirror` | `buildExceptionTargets` 新增 Plugins 例外（只在主程序已安装时，路径按实际大小写）；`ensureArkApiPluginDirs` 备好源侧目录与 junction 目标；`removeMirrorEntry` 删除真实目录前先 `removeLinksUnder` |
+| `internal/instance` | `StartServer` 在同步镜像前调用 `MigrateInstance`，迁移失败即中止启动；删除 Rescue / Inject 调用；新增 `pluginlayout.go`：`MigratePluginLayouts` 迁移全部未运行的实例，全部迁完才退役全局插件 |
+| `internal/webapi` | `APIServer.Start` 在调度器启动之前调用 `MigratePluginLayouts`；新建实例时调用 `InitInstanceLayout`；列表接口增加 `layout`、`plugins_dir` |
+| 其他 | `backup` 恢复备份时若需要新建实例，同样调用 `InitInstanceLayout`；`verify-arkapi` 的提示改为「只验证加载器本身，不加载插件」 |
+| 前端 | `PluginDataPanel.vue`：新增版本、描述列，`FullName` 与目录名不同时副行显示，`dll_missing` 显示为「文件不完整」；增加旧布局提示；空状态显示本实例插件目录路径；去掉「已隔离」列 |
+
+**与方案不一致之处**：
+
+1. **迁移标记改用文件 `ArkApi/.plugin-layout`**，不再以「`ArkApi/Plugins` 目录存在」作为判据（方案 §4.4 原写法）。
+   原因：`ensureArkApiPluginDirs` 会在同步镜像时先把 junction 的目标目录建出来，拿目录当判据会让迁移被永久跳过。
+   变异验证 M3 实测证实了这一点。
+2. **停止路径保留 `Reclaim` 调用**，方案 §4.3 原本写的是删除。
+   原因：升级那一刻正在运行的实例还是旧布局，它停止时照旧要把数据收回旧目录，下次启动再迁移。
+   对已迁移的实例，`Reclaim` 在关断下是空操作。
+3. **`shuttleRetired` 有两条判据**：镜像里的 Plugins 是链接，**或者**实例已迁移。方案只写了前者。
+   后者覆盖「已迁移、但镜像还没同步成 junction」的窗口，例如迁移后、同步前就调用了 `CleanupInstanceMirror`。
+4. **实例级锁在 P3 中只由 `MigrateInstance`、`InitInstanceLayout`、`WritePluginConfig` 内部持有**，
+   `StartServer` 没有在整个同步过程中持锁。那是 P6（安装、卸载要与启动互斥）才需要的，届时再扩展。
+5. **恢复备份时新建实例**的路径也调用了 `InitInstanceLayout`（方案 §8.1 只提到面板上的新建）。
+
+**变异验证**（每项都实测失败后恢复）：
+
+| # | 改坏什么 | 失败的用例 | 失败表现 |
+|---|---|---|---|
+| M1 | `shuttleRetired` 的链接判定换成 `ModeSymlink` | `TestShuttleDoesNotRunThroughPluginsJunction`（Windows 真 junction） | `Inject` 穿过 junction，用旧副本覆盖了活数据 |
+| M2 | 去掉「已迁移」判据 | `TestShuttleRetiredAfterMigration` | 已迁移实例的镜像内容被收回了旧目录 |
+| M3 | `IsMigrated` 改为以目录存在为判据 | `TestMigrateResumesAfterInterruption` | 迁移被跳过，插件一个都没迁进来 |
+
+`removeLinksUnder` 这一层加固**无法用变异验证证明其必要性**：Go 1.27 的 `RemoveAll` 本身就不会穿透链接，去掉加固后用例依然通过。
+它是纵深防御，由 `TestUninstallingCoreKeepsInstancePlugins` 守住最终结果。
+
+**P3 到 P6 之间的已知缺口**：面板上还没有安装入口。
+
+- 新建的实例没有插件，要么等 P6，要么手工把插件目录放进 `instances/<实例名>/ArkApi/Plugins`（面板空状态会显示这个路径）。
+- 所有实例迁移完成后，server-files 里的全局插件会在程序启动时被移入 `{BaseDir}/arkapi/backups/`。
+  之后再有人按老习惯把插件放进 server-files，下次程序启动时它也会被移走（日志里有 WARN 提示）。
+- **真机验证尚未进行**：迁移、junction 在真实 ArkApi 下能否正常加载插件，都还没在 meijue-pve 上实际跑过。
