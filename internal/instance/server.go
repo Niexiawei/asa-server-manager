@@ -273,6 +273,16 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 		PrepareArkApiCache(ctx)
 	}
 
+	// 一次性的插件目录迁移（docs/ARKAPI_PLUGIN_INSTALL_PLAN.md §4.4），必须在同步镜像**之前**：
+	// 同步会把镜像里的 Plugins 真实目录换成指向实例目录的 junction，换之前要先把镜像里
+	// 上一轮遗留的数据和旧的 plugins/ 迁进实例目录。启动前实例必然已停止，正是唯一允许
+	// 迁移的时机；已迁移的实例这里只是 stat 一下标记文件。
+	// 迁移失败就中止启动：带着一个没迁完的目录去同步，镜像里的旧内容会被粗暴合并进去。
+	if err := plugindata.MigrateInstance(instanceName, mirror.InstanceMirrorDir(instanceName)); err != nil {
+		startErr = fmt.Errorf("迁移实例 %s 的 ArkApi 插件目录失败，已中止启动（原有数据未改动）: %w", instanceName, err)
+		return startErr
+	}
+
 	// 同步实例镜像目录（增量）
 	mirrorDir, err = mirror.SyncInstanceMirror(instanceName, config)
 	if err != nil {
@@ -287,12 +297,8 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 		startErr = err
 		return err
 	}
-	// 插件的配置与运行期数据必须在镜像同步与校验**之后**才能注入：
-	// 放在之前会被同步的 MD5 回写覆盖掉。
-	// 先 Rescue 再 Inject 的顺序不能颠倒 —— 上一轮若是崩溃退出，镜像里留着的
-	// 才是最新数据，先抢救回实例目录，再拿实例目录那一份注入。
-	plugindata.Rescue(instanceName, mirrorDir)
-	plugindata.Inject(instanceName, mirrorDir)
+	// 插件不再需要注入：镜像里的 ArkApi/Plugins 是指向实例插件目录的 junction，
+	// 插件直接读写实例目录（docs/ARKAPI_PLUGIN_INSTALL_PLAN.md §4.3）。
 
 	// The mirror was just (re)built as root; on Linux the game process runs
 	// dropped to a dedicated non-root user, which must own this tree to write
@@ -657,9 +663,9 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 		logger.Warnf("Failed to save PID for instance %s: %v", instanceName, err)
 	}
 
-	// 进程起来了就开始给插件数据库做在线快照：回收只在正常停止时执行，
-	// 崩溃、断电、管理器被杀这些路径靠快照把最坏损失收窄到一个周期。
-	plugindata.StartSnapshots(instanceName, mirrorDir, pluginSnapshotInterval(config))
+	// 进程起来了就开始给插件数据库做在线快照：插件 bug 或断电把库写坏时，
+	// 手里总有一份不超过一个周期的一致副本。
+	plugindata.StartSnapshots(instanceName, pluginSnapshotInterval(config))
 
 	logger.Infof("Server started for instance: %s. It should be fully operational in approximately 60 seconds.", instanceName)
 	logger.Infof("Game log file: %s", gameLogPath)
@@ -846,6 +852,8 @@ func stopServerInternal(instanceName string) error {
 		}
 	}
 
+	// 只对旧布局实例生效：升级时正在运行的实例，活数据还在镜像的真实 Plugins 目录里，
+	// 照旧收回旧的 plugins/，下次启动再迁移。已迁移的实例上它是空操作（结构性关断）。
 	// 进程已完全退出，此时才能安全地整组拷回 SQLite 文件 ——
 	// 运行中拷会拷出主库与 -wal 互相撕裂的组合。
 	plugindata.Reclaim(instanceName, mirror.InstanceMirrorDir(instanceName))

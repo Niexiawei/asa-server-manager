@@ -3,6 +3,7 @@ package backup
 import (
 	"archive/tar"
 	cfgpkg "asa-server/internal/config"
+	"asa-server/internal/plugindata"
 	procpkg "asa-server/internal/process"
 	"asa-server/pkg/logger"
 	"fmt"
@@ -178,6 +179,10 @@ func RestoreInstanceWorld(instanceName string, backupFile string) error {
 		config := cfgpkg.CreateDefaultInstanceConfig(instanceName)
 		if err := cfgpkg.SaveInstanceConfig(instanceName, config); err != nil {
 			return fmt.Errorf("failed to create default instance config: %w", err)
+		}
+		// 与面板上新建实例一致：直接采用每实例插件目录（默认没有插件），不走迁移
+		if err := plugindata.InitInstanceLayout(instanceName); err != nil {
+			logger.Warnf("Failed to initialize ArkApi plugin layout for instance '%s': %v", instanceName, err)
 		}
 		logger.Infof("Instance '%s' created successfully", instanceName)
 	}

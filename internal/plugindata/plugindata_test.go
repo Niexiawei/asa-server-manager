@@ -161,7 +161,7 @@ func TestReplaceGroupRemovesStaleCompanions(t *testing.T) {
 func TestRescueRecoversCrashedRunData(t *testing.T) {
 	inst, mirrorDir := setupEnv(t)
 	mirrorPlugin := filepath.Join(MirrorPluginsDir(mirrorDir), "Permissions")
-	instPlugin := filepath.Join(InstancePluginsDir(inst), "Permissions")
+	instPlugin := filepath.Join(legacyPluginsDir(inst), "Permissions")
 
 	old := time.Now().Add(-2 * time.Hour)
 	writeSQLite(t, filepath.Join(instPlugin, "ArkDB.db"), "old-instance-copy")
@@ -190,7 +190,7 @@ func TestRescueRecoversCrashedRunData(t *testing.T) {
 func TestRescueKeepsNewerInstanceData(t *testing.T) {
 	inst, mirrorDir := setupEnv(t)
 	mirrorPlugin := filepath.Join(MirrorPluginsDir(mirrorDir), "Permissions")
-	instPlugin := filepath.Join(InstancePluginsDir(inst), "Permissions")
+	instPlugin := filepath.Join(legacyPluginsDir(inst), "Permissions")
 
 	old := time.Now().Add(-2 * time.Hour)
 	writeSQLite(t, filepath.Join(mirrorPlugin, "ArkDB.db"), "old-mirror")
@@ -208,7 +208,7 @@ func TestRescueKeepsNewerInstanceData(t *testing.T) {
 func TestFirstRunSeedsFromMirror(t *testing.T) {
 	inst, mirrorDir := setupEnv(t)
 	mirrorPlugin := filepath.Join(MirrorPluginsDir(mirrorDir), "Permissions")
-	instPlugin := filepath.Join(InstancePluginsDir(inst), "Permissions")
+	instPlugin := filepath.Join(legacyPluginsDir(inst), "Permissions")
 
 	writeSQLite(t, filepath.Join(mirrorPlugin, "ArkDB.db"), "shipped-default")
 	writeFile(t, filepath.Join(mirrorPlugin, configFileName), `{"UseMysql":false}`)
@@ -238,7 +238,7 @@ func TestInstancesAreIsolated(t *testing.T) {
 	}
 
 	for _, tc := range []struct{ inst, payload string }{{"a", "perm-a"}, {"b", "perm-b"}} {
-		p := filepath.Join(InstancePluginsDir(tc.inst), "Permissions", "ArkDB.db")
+		p := filepath.Join(legacyPluginsDir(tc.inst), "Permissions", "ArkDB.db")
 		if got := readFile(t, p); !strings.HasSuffix(got, tc.payload) {
 			t.Errorf("实例 %s 的数据被串了: %q", tc.inst, got)
 		}
@@ -252,7 +252,7 @@ func TestInstancesAreIsolated(t *testing.T) {
 func TestExternalDBPathSkipsDataTransfer(t *testing.T) {
 	inst, mirrorDir := setupEnv(t)
 	mirrorPlugin := filepath.Join(MirrorPluginsDir(mirrorDir), "Permissions")
-	instPlugin := filepath.Join(InstancePluginsDir(inst), "Permissions")
+	instPlugin := filepath.Join(legacyPluginsDir(inst), "Permissions")
 
 	external := filepath.Join(t.TempDir(), "elsewhere")
 	writeFile(t, filepath.Join(instPlugin, configFileName),
@@ -270,7 +270,7 @@ func TestExternalDBPathSkipsDataTransfer(t *testing.T) {
 func TestOverrideInsideInstanceDirStillTransfers(t *testing.T) {
 	inst, mirrorDir := setupEnv(t)
 	mirrorPlugin := filepath.Join(MirrorPluginsDir(mirrorDir), "Permissions")
-	instPlugin := filepath.Join(InstancePluginsDir(inst), "Permissions")
+	instPlugin := filepath.Join(legacyPluginsDir(inst), "Permissions")
 
 	writeFile(t, filepath.Join(instPlugin, configFileName),
 		`{"DbPathOverride":"`+strings.ReplaceAll(instPlugin, `\`, `\\`)+`"}`)

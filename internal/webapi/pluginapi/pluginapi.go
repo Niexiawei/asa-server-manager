@@ -1,10 +1,11 @@
-// Package pluginapi 暴露 ArkApi 插件的**每实例**配置与运行期数据。
+// Package pluginapi 暴露 ArkApi 插件的**每实例**状态与配置。
 //
-// 所有写操作落到实例目录（{BaseDir}/instances/{name}/plugins/{Plugin}/），
-// 而不是镜像目录 —— 镜像随时会被重建，写进去等于白写。
-// 实例目录里的这一份在下次启动时由 plugindata.Inject 注入镜像。
+// 插件整个放在实例目录（{BaseDir}/instances/{name}/ArkApi/Plugins/）下，镜像里的
+// ArkApi/Plugins 是指向它的 junction，所以配置直接读写实例目录即可。尚未迁移的实例
+// （升级时正在运行）仍按旧布局读写 instances/{name}/plugins/，下次启动迁移时带过去。
+// 两种情况都不写镜像：镜像随时会被重建。
 //
-// 设计背景见 docs/ARKAPI_PLUGIN_DATA_PLAN.md。
+// 设计背景见 docs/ARKAPI_PLUGIN_INSTALL_PLAN.md。
 package pluginapi
 
 import (
@@ -54,6 +55,9 @@ func (h *Handler) listPlugins(c *gin.Context) {
 			"plugins":          plugins,
 			"count":            len(plugins),
 			"arkapi_installed": installer.ArkApiInstalled(),
+			// layout=legacy：实例升级时正在运行、尚未迁移，列出的是 server-files 里的全局插件
+			"layout":      plugindata.LayoutOf(name),
+			"plugins_dir": plugindata.InstancePluginsDir(name),
 		},
 	})
 }

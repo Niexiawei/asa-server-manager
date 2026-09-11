@@ -19,6 +19,11 @@
 // 这样 mirror 可以反过来依赖本包，在销毁镜像前先做一次抢救性回收。
 //
 // 设计与取舍详见 docs/ARKAPI_PLUGIN_DATA_PLAN.md。
+//
+// ⚠️ 这套启停搬运正在退役：插件已改为每个实例一份独立目录，镜像里的
+// ArkApi/Plugins 是指向它的 junction，插件直接读写实例目录（layout.go，
+// docs/ARKAPI_PLUGIN_INSTALL_PLAN.md）。本文件的搬运函数只对尚未迁移的旧布局实例
+// 生效，由 shuttleRetired 做结构性关断；Rescue 另作为迁移的第一步使用。
 package plugindata
 
 import (
@@ -32,20 +37,39 @@ import (
 )
 
 const (
-	// pluginsRelPath 是 ArkApi 插件目录在服务端文件树里的相对位置。
-	pluginsRelPath = "ShooterGame/Binaries/Win64/ArkApi/Plugins"
+	// win64RelPath 是服务端可执行文件所在目录在服务端文件树里的相对位置。
+	win64RelPath = "ShooterGame/Binaries/Win64"
+	// pluginsRelPath 是 ArkApi 插件目录在服务端文件树（以及镜像）里的相对位置。
+	pluginsRelPath = win64RelPath + "/ArkApi/Plugins"
 
 	configFileName   = "config.json"
 	configBackupName = "config.json.bak"
 	snapshotsDirName = "snapshots"
 
-	// instancePluginsDirName 是实例目录下存放插件配置与数据的子目录。
-	instancePluginsDirName = "plugins"
+	// legacyPluginsDirName 是**旧布局**（启停搬运）下实例目录里存放插件配置与数据的子目录。
+	legacyPluginsDirName = "plugins"
 )
 
-// InstancePluginsDir 返回实例的插件数据根目录：{BaseDir}/instances/{name}/plugins
-func InstancePluginsDir(instanceName string) string {
-	return filepath.Join(cfgpkg.InstancesDir, instanceName, instancePluginsDirName)
+// legacyPluginsDir 返回旧布局的实例插件数据目录：{BaseDir}/instances/{name}/plugins。
+//
+// 新布局（layout.go）下它只是迁移的输入，迁移完成后改名为 plugins.legacy-<时间戳>。
+func legacyPluginsDir(instanceName string) string {
+	return filepath.Join(cfgpkg.InstancesDir, instanceName, legacyPluginsDirName)
+}
+
+// shuttleRetired 报告「启停搬运」对这个实例是否已经退役
+// （docs/ARKAPI_PLUGIN_INSTALL_PLAN.md §4.3）。两个判据任一成立即退役，都是结构性的：
+//
+//   - 镜像里的 Plugins 是链接：它穿过 junction 指向实例的活数据目录。此时再搬运，
+//     Rescue 会把活数据拷进已退役的旧目录，Inject 会拿旧目录里的过期副本整组覆盖活数据。
+//     listMirrorPlugins 用的 os.ReadDir 会跟随链接，不能指望「Walk 不穿透」来保护。
+//   - 实例已迁移：镜像里即便还是真实目录（迁移之后、下一次同步之前），那份内容也已经
+//     迁走了，再收回旧目录只会凭空造出一份陈旧副本。
+//
+// 判断链接必须用 fsutil.IsLink（os.Readlink）。用 ModeSymlink 会在 Windows 上漏判真
+// junction（Go 1.23 起报 ModeIrregular），关断随之失效，而且只在 Windows 上失效。
+func shuttleRetired(instanceName, mirrorDir string) bool {
+	return fsutil.IsLink(MirrorPluginsDir(mirrorDir)) || IsMigrated(instanceName)
 }
 
 // MirrorPluginsDir 返回镜像里的 ArkApi 插件目录。
@@ -95,9 +119,12 @@ func Reclaim(instanceName, mirrorDir string) {
 // harvest 把镜像侧的插件文件收回实例侧。force=true 表示无条件收回（正常停止后），
 // false 表示只在镜像侧更新时收回（抢救）。
 func harvest(instanceName, mirrorDir string, force bool) {
+	if shuttleRetired(instanceName, mirrorDir) {
+		return
+	}
 	for _, plugin := range listMirrorPlugins(mirrorDir) {
 		mirrorPlugin := filepath.Join(MirrorPluginsDir(mirrorDir), plugin)
-		instPlugin := filepath.Join(InstancePluginsDir(instanceName), plugin)
+		instPlugin := filepath.Join(legacyPluginsDir(instanceName), plugin)
 
 		external, overridePath := hasExternalDBPath(instPlugin, mirrorPlugin)
 
@@ -142,9 +169,12 @@ func mirrorGroupIsNewer(mirrorPlugin, instPlugin string, g fileGroup) bool {
 // 放在之前会被同步的 MD5 回写覆盖掉。调用方还应先跑一次 Rescue，
 // 让上一轮崩溃遗留在镜像里的新数据先回到实例侧，否则这里会用旧副本盖掉它。
 func Inject(instanceName, mirrorDir string) {
+	if shuttleRetired(instanceName, mirrorDir) {
+		return
+	}
 	for _, plugin := range listMirrorPlugins(mirrorDir) {
 		mirrorPlugin := filepath.Join(MirrorPluginsDir(mirrorDir), plugin)
-		instPlugin := filepath.Join(InstancePluginsDir(instanceName), plugin)
+		instPlugin := filepath.Join(legacyPluginsDir(instanceName), plugin)
 
 		if _, err := os.Stat(instPlugin); err != nil {
 			// 实例侧还没有这个插件的数据：以镜像（即源服务端自带的那一份）为初值播种。

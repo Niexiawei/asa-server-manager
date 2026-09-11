@@ -39,12 +39,11 @@ var (
 
 // StartSnapshots 为一个已启动的实例开启插件数据库的定时在线快照。
 //
-// 快照解决的是「回收没能执行」的场景：ARK 崩溃、断电、管理器被杀。
-// 那些情况下 Rescue 仍会优先抢救镜像里真实的文件组 —— 快照是**兜底，不是首选**
-// （见 snapshotOnce 的说明）。
+// 插件直接读写实例目录之后，崩溃已经不会丢掉「整个会话」的数据；快照防的是插件 bug
+// 或断电把库写坏——手里总有一份不超过一个周期的一致副本。快照是**兜底，不是首选**。
 //
 // interval <= 0 表示用默认周期；调用方传负值可用于关闭。重复调用会先停掉旧的。
-func StartSnapshots(instanceName, mirrorDir string, interval time.Duration) {
+func StartSnapshots(instanceName string, interval time.Duration) {
 	if interval < 0 {
 		StopSnapshots(instanceName)
 		return
@@ -71,7 +70,7 @@ func StartSnapshots(instanceName, mirrorDir string, interval time.Duration) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				snapshotOnce(instanceName, mirrorDir)
+				snapshotOnce(instanceName)
 			}
 		}
 	}()
@@ -98,21 +97,34 @@ func StopSnapshots(instanceName string) {
 // ⚠️ 绝不能用朴素的定时文件复制来实现这件事。运行期文件组一直在变，
 // 逐文件拷会拷出主库与 -wal 互不一致的组合，得到的是**损坏的快照**，比没有更糟。
 // 所以必须走 SQLite 自己的在线备份（VACUUM INTO）而不是 fsutil.CopyFile。
-func snapshotOnce(instanceName, mirrorDir string) {
-	for _, plugin := range listMirrorPlugins(mirrorDir) {
-		mirrorPlugin := filepath.Join(MirrorPluginsDir(mirrorDir), plugin)
-		instPlugin := filepath.Join(InstancePluginsDir(instanceName), plugin)
+func snapshotOnce(instanceName string) {
+	// 只处理已迁移的实例：旧布局实例的活数据还在镜像里，下次启动迁移之后才轮到它。
+	// StartSnapshots 只在启动时调用，而启动必然先迁移，这里只是防御。
+	if !IsMigrated(instanceName) {
+		return
+	}
+	root := InstancePluginsDir(instanceName)
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		plugin := e.Name()
+		dir := filepath.Join(root, plugin)
 
-		if external, path := hasExternalDBPath(instPlugin, mirrorPlugin); external {
+		if external, path := hasExternalDBPath(dir, dir); external {
 			logger.Debugf("插件 %s 的数据库路径由用户接管（%s），跳过快照", plugin, path)
 			continue
 		}
 
-		for _, g := range scanPluginDir(mirrorPlugin, plugin) {
+		for _, g := range scanPluginDir(dir, plugin) {
 			if !g.IsSQLite {
 				continue
 			}
-			src := filepath.Join(mirrorPlugin, filepath.FromSlash(g.Base))
+			src := filepath.Join(dir, filepath.FromSlash(g.Base))
 			if fi, err := os.Stat(src); err != nil || fi.Size() > maxSnapshotDBBytes {
 				if err == nil {
 					logger.Warnf(
@@ -121,7 +133,7 @@ func snapshotOnce(instanceName, mirrorDir string) {
 				}
 				continue
 			}
-			dstDir := filepath.Join(instPlugin, snapshotsDirName)
+			dstDir := filepath.Join(InstanceSnapshotsDir(instanceName), plugin)
 			if err := snapshotDB(src, filepath.Join(dstDir, slashBase(g.Base))); err != nil {
 				logger.Warnf("为插件 %s 的 %s 生成快照失败: %v", plugin, g.Base, err)
 			}

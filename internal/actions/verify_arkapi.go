@@ -95,14 +95,10 @@ func printArkApiPrerequisites() bool {
 	}
 
 	win64 := filepath.Join(cfgpkg.ServerFilesDir, "ShooterGame", "Binaries", "Win64")
-	pluginsDir := filepath.Join(win64, "ArkApi", "Plugins")
-	if fi, err := os.Stat(pluginsDir); err == nil && fi.IsDir() {
-		entries, _ := os.ReadDir(pluginsDir)
-		fmt.Printf("  ✔ 插件目录: %s（%d 个条目）\n", pluginsDir, len(entries))
-	} else {
-		// 不算失败：没装插件也能验证加载器本身。
-		fmt.Printf("  · 插件目录不存在（%s）—— 只验证加载器本身\n", pluginsDir)
-	}
+
+	// 插件按实例存放（instances/<实例名>/ArkApi/Plugins），迁移后 server-files 里的插件目录是空的。
+	// 本命令从 server-files 直接拉起加载器，验证的是主程序本身，本来就不加载任何实例的插件。
+	fmt.Println("  · 只验证加载器本身，不加载插件（插件按实例存放在 instances/<实例名>/ArkApi/Plugins）")
 
 	if runtime.GOOS != "linux" {
 		fmt.Println()

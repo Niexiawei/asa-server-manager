@@ -4,6 +4,7 @@ import (
 	cfgpkg "asa-server/internal/config"
 	instancepkg "asa-server/internal/instance"
 	"asa-server/internal/mirror"
+	"asa-server/internal/plugindata"
 	procpkg "asa-server/internal/process"
 	"asa-server/internal/runner"
 	statepkg "asa-server/internal/state"
@@ -188,6 +189,12 @@ func (h *Handler) createInstance(c *gin.Context) {
 			Error:   err.Error(),
 		})
 		return
+	}
+
+	// 新实例直接采用每实例插件目录（默认没有插件），因此永远不会走迁移。
+	// 失败也不阻断创建：最坏情况是首次启动时按旧实例处理、走一次迁移。
+	if err := plugindata.InitInstanceLayout(req.Name); err != nil {
+		logger.Warnf("Failed to initialize ArkApi plugin layout for instance '%s': %v", req.Name, err)
 	}
 
 	c.JSON(http.StatusCreated, apiresp.StatusResponse{

@@ -8,6 +8,7 @@ import (
 	"asa-server/internal/certmgr"
 	cfgpkg "asa-server/internal/config"
 	"asa-server/internal/frpmanage"
+	instancepkg "asa-server/internal/instance"
 	"asa-server/internal/parseserver"
 	"asa-server/internal/realtime"
 	"asa-server/internal/runner"
@@ -165,6 +166,10 @@ func (s *APIServer) Start() error {
 
 	s.startStateChangeDispatcher(s.serverCtx)
 	startAuthHousekeeping(s.serverCtx)
+
+	// ArkApi 插件目录的一次性迁移必须赶在调度器之前：定时任务可能马上拉起实例。
+	// StartServer 自己也会迁移（兜底升级时正在运行的实例），两边由实例级锁串行化。
+	instancepkg.MigratePluginLayouts()
 
 	// 定时调度必须在状态管理器之后启动：批量启停依赖 state 的 CAS
 	if sched := schedule.GetGlobalScheduler(); sched != nil {
