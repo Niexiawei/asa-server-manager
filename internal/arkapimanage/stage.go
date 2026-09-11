@@ -29,7 +29,7 @@ const (
 	kindPlugin = "plugin"
 )
 
-var errStageGone = errors.New("暂存的安装包不存在或已过期（30 分钟），请重新上传")
+var ErrStageGone = errors.New("暂存的安装包不存在或已过期（30 分钟），请重新上传")
 
 type stagedPackage struct {
 	token     string
@@ -37,7 +37,10 @@ type stagedPackage struct {
 	dir       string
 	expiresAt time.Time
 	plugin    *PluginReport
-	timer     *time.Timer
+	core      *CoreReport
+	// source 是上传时的文件名，主程序清单里记录它
+	source string
+	timer  *time.Timer
 }
 
 var (
@@ -109,15 +112,37 @@ func register(sp *stagedPackage) {
 // take 取出一个暂存包用于 apply：从登记里摘掉，于是它不会被过期清理，也不能被重复 apply。
 // 调用方用完负责 remove。
 func take(token, kind string) (*stagedPackage, error) {
+	return takeIf(token, kind, nil)
+}
+
+// takeIf 同 take，但先用 check 检查请求；check 失败时暂存包原样留在登记里，用户改了选择可以再确认。
+// check 在登记锁内执行，不能做 I/O。
+func takeIf(token, kind string, check func(*stagedPackage) error) (*stagedPackage, error) {
 	stagingMu.Lock()
 	defer stagingMu.Unlock()
 	sp, ok := staged[token]
 	if !ok || sp.kind != kind {
-		return nil, errStageGone
+		return nil, ErrStageGone
+	}
+	if check != nil {
+		if err := check(sp); err != nil {
+			return nil, err
+		}
 	}
 	delete(staged, token)
 	sp.timer.Stop()
 	return sp, nil
+}
+
+// StagedKind 返回暂存包的类型（plugin 或 core），不存在或已过期时返回空串。
+// apply 接口据此决定按哪种包解析请求。
+func StagedKind(token string) string {
+	stagingMu.Lock()
+	defer stagingMu.Unlock()
+	if sp, ok := staged[token]; ok {
+		return sp.kind
+	}
+	return ""
 }
 
 // Discard 丢弃一个暂存包（用户关掉了确认对话框，或已过期）。不存在时什么都不做。

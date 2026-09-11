@@ -356,13 +356,13 @@ func TestStagingTokenLifecycle(t *testing.T) {
 	}
 	// 上面那次在取出暂存包之前就失败了，token 应仍然有效
 	mustApply(t, st, []string{"a"}, false)
-	if _, err := ApplyPlugin(st.Token, []string{"a"}, false); !errors.Is(err, errStageGone) {
+	if _, err := ApplyPlugin(st.Token, []string{"a"}, false); !errors.Is(err, ErrStageGone) {
 		t.Errorf("token 只能用一次，第二次 err=%v", err)
 	}
 
 	st2 := mustStage(t, pluginZip(t, "P", "2", nil), "")
 	Discard(st2.Token)
-	if _, err := ApplyPlugin(st2.Token, []string{"a"}, false); !errors.Is(err, errStageGone) {
+	if _, err := ApplyPlugin(st2.Token, []string{"a"}, false); !errors.Is(err, ErrStageGone) {
 		t.Errorf("丢弃后不能再 apply，err=%v", err)
 	}
 	if entries, _ := os.ReadDir(stagingRoot()); len(entries) != 0 {

@@ -1,7 +1,6 @@
 package arkapimanage
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -28,14 +27,7 @@ func newBackupPath(instanceName, plugin string) (string, error) {
 	if err := os.MkdirAll(root, 0755); err != nil {
 		return "", err
 	}
-	base := filepath.Join(root, plugin+"-"+time.Now().Format("20060102-150405"))
-	p := base
-	for i := 2; ; i++ {
-		if _, err := os.Lstat(p); os.IsNotExist(err) {
-			return p, nil
-		}
-		p = fmt.Sprintf("%s-%d", base, i)
-	}
+	return uniquePath(filepath.Join(root, plugin+"-"+time.Now().Format("20060102-150405"))), nil
 }
 
 // pluginBackups 返回插件的全部备份目录，旧的在前。

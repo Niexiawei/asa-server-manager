@@ -50,7 +50,9 @@ type PluginStage struct {
 
 // Result 是一个实例上的执行结果。
 type Result struct {
-	Instance string   `json:"instance"`
+	Instance string `json:"instance"`
+	// Plugin 只在主程序包附带插件的结果里出现：一次确认可能装好几个插件
+	Plugin   string   `json:"plugin,omitempty"`
 	OK       bool     `json:"ok"`
 	Action   string   `json:"action,omitempty"`
 	Error    string   `json:"error,omitempty"`
@@ -79,6 +81,7 @@ func StagePlugin(src io.Reader, uploadName, expect string) (*PluginStage, error)
 		rep = ValidatePluginPackage(sp.extractDir(), entries, PluginCheck{
 			Expect:        expect,
 			CoreInstalled: installer.ArkApiInstalled(),
+			CoreVersion:   installedCoreVersion(),
 		})
 	}
 	stage := &PluginStage{Kind: kindPlugin, PluginReport: rep, Targets: []PluginTarget{}}
