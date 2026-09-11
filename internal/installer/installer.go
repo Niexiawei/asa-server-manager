@@ -10,6 +10,7 @@ import (
 	"asa-server/pkg/netutil"
 	"asa-server/pkg/procx"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -38,6 +39,10 @@ func beginServerFilesUpdate() error {
 	updateMu.Lock()
 	defer updateMu.Unlock()
 
+	// 标记只有一个布尔，两个写者重叠时先结束的那个会把它清掉，后一个就在「没有标记」的状态下改写
+	if updateInFlight {
+		return errServerFilesBusy
+	}
 	if alive := procpkg.ListAliveInstances(); len(alive) > 0 {
 		return fmt.Errorf(
 			"cannot update server files: instance(s) still running: %s; stop them first",
@@ -47,6 +52,24 @@ func beginServerFilesUpdate() error {
 
 	updateInFlight = true
 	return nil
+}
+
+var errServerFilesBusy = errors.New("server-files 正在被改写（Steam 更新、安装校验或 ArkApi 主程序操作），请稍后再试")
+
+// BeginArkApiWrite 为 ArkApi 主程序的安装/更新/卸载占用 server-files（docs/ARKAPI_PLUGIN_INSTALL_PLAN.md §4.6）。
+//
+// 与 Steam 更新共用同一个「更新中」标记，于是两者互斥，启动侧的 IsUpdatingServerFiles 也会拒绝启动。
+// 与 beginServerFilesUpdate 不同的是**不要求实例全部停止**：主程序只落在 Win64 里，
+// 而镜像里的 Win64 是真实拷贝，运行中的实例用的是自己那份，下次启动才同步到新版本。
+// 成功时调用方必须调用返回的 end。
+func BeginArkApiWrite() (end func(), err error) {
+	updateMu.Lock()
+	defer updateMu.Unlock()
+	if updateInFlight {
+		return nil, errServerFilesBusy
+	}
+	updateInFlight = true
+	return endServerFilesUpdate, nil
 }
 
 // endServerFilesUpdate 清除「更新中」标记。
