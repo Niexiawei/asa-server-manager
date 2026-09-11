@@ -182,16 +182,6 @@
           </t-form-item>
         </t-col>
       </t-row>
-
-      <t-divider>其他设置</t-divider>
-
-      <t-row :gutter="8">
-        <t-col :span="6">
-          <t-form-item name="EnableAsaPlugin" label="启用ASA插件">
-            <t-switch v-model="editingConfig.EnableAsaPlugin"/>
-          </t-form-item>
-        </t-col>
-      </t-row>
     </t-form>
   </div>
 </template>
@@ -213,16 +203,15 @@ const formRef = ref()
 const FIELDS = [
   'ServerName', 'ServerPassword', 'ServerAdminPassword', 'MaxPlayers', 'MapName',
   'Port', 'RCONPort', 'ModIDs', 'SaveDir', 'ClusterID', 'CustomStartParameters',
-  'EnableAsaPlugin', 'BindDomain', 'MessageOfTheDay', 'MessageOfTheDayDuration',
+  'BindDomain', 'MessageOfTheDay', 'MessageOfTheDayDuration',
 ]
 
+// 「启用ASA插件」已移到插件配置面板（PluginDataPanel），这里既不投影也不提交它。
+// 后端对 EnableAsaPlugin 是「不传就不改」，所以保存基础配置不会把它清掉。
 const projectConfig = (src) => {
   const src0 = src || {}
   const out = {}
-  for (const k of FIELDS) {
-    if (k === 'EnableAsaPlugin') out[k] = src0[k] || false
-    else out[k] = src0[k] ?? ''
-  }
+  for (const k of FIELDS) out[k] = src0[k] ?? ''
   return out
 }
 
@@ -327,7 +316,6 @@ const buildPayload = () => ({
   SaveDir: editingConfig.value.SaveDir,
   ClusterID: editingConfig.value.ClusterID,
   CustomStartParameters: editingConfig.value.CustomStartParameters,
-  EnableAsaPlugin: editingConfig.value.EnableAsaPlugin,
   BindDomain: editingConfig.value.BindDomain,
   MessageOfTheDay: editingConfig.value.MessageOfTheDay,
   MessageOfTheDayDuration: toNumber(editingConfig.value.MessageOfTheDayDuration),

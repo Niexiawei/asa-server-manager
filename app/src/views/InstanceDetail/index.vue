@@ -142,7 +142,11 @@
                   ref="pluginPanelRef"
                   :instance-name="instanceName"
                   :interval="instanceData?.config?.PluginSnapshotInterval || 0"
+                  :enable-asa-plugin="!!instanceData?.config?.EnableAsaPlugin"
+                  :saving-enable="savingAsaPlugin"
+                  :running="isRunning"
                   @update:interval="saveSnapshotInterval"
+                  @update:enableAsaPlugin="saveEnableAsaPlugin"
               />
             </div>
           </t-tab-panel>
@@ -419,6 +423,28 @@ const saveSnapshotInterval = async (minutes) => {
     }
   } catch (err) {
     MessagePlugin.error(`保存快照周期失败: ${err.message ?? err}`)
+  }
+}
+
+// 「启用ASA插件」开关（在插件配置面板里）。只提交这一个字段，其余字段后端不改；
+// 运行中也允许修改，下次启动该实例时生效。
+const savingAsaPlugin = ref(false)
+const saveEnableAsaPlugin = async (enabled) => {
+  savingAsaPlugin.value = true
+  try {
+    const data = await updateInstanceConfig(instanceName, {EnableAsaPlugin: enabled})
+    if (data?.success) {
+      if (instanceData.value?.config) {
+        instanceData.value.config.EnableAsaPlugin = enabled
+      }
+      MessagePlugin.success(`已${enabled ? '开启' : '关闭'} ASA 插件，将在下次启动该实例时生效`)
+    } else {
+      MessagePlugin.error(data?.error || '保存失败')
+    }
+  } catch (err) {
+    MessagePlugin.error(`保存失败: ${err.message ?? err}`)
+  } finally {
+    savingAsaPlugin.value = false
   }
 }
 

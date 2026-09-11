@@ -1,20 +1,19 @@
 <template>
   <div class="plugin-data-panel">
-    <t-alert
-        v-if="!loading && plugins.length === 0"
-        theme="info"
-        message="未检测到 ArkApi 插件（server-files 下没有 ArkApi/Plugins 目录）。"
-    />
+    <div class="instance-settings">
+      <div class="setting-row">
+        <span class="label">启用ASA插件</span>
+        <t-switch
+            :value="enableAsaPlugin"
+            :loading="savingEnable"
+            @change="(v) => emit('update:enableAsaPlugin', v)"
+        />
+        <t-tooltip content="开启后该实例经 AsaApiLoader.exe 启动并加载 ArkApi 插件；关闭则以原版服务端启动。">
+          <HelpCircleIcon class="hint-icon"/>
+        </t-tooltip>
+      </div>
 
-    <template v-else>
-      <t-alert theme="info" class="panel-hint">
-        <template #message>
-          插件的配置与运行期数据（如 Permissions 的权限库）按实例独立存放，
-          启动前注入服务端目录、停止后收回。<strong>在这里保存的配置会在下次启动该实例时生效。</strong>
-        </template>
-      </t-alert>
-
-      <div class="snapshot-interval-row">
+      <div class="setting-row">
         <span class="label">数据库在线快照周期</span>
         <t-input-number
             v-model="snapshotInterval"
@@ -31,6 +30,29 @@
           <HelpCircleIcon class="hint-icon"/>
         </t-tooltip>
       </div>
+
+      <div v-if="running" class="running-hint">实例运行中，以上设置将在下次启动该实例时生效。</div>
+    </div>
+
+    <t-alert
+        v-if="loaded && !arkApiInstalled"
+        :theme="enableAsaPlugin ? 'warning' : 'info'"
+        :message="notInstalledMessage"
+    />
+
+    <t-alert
+        v-if="loaded && arkApiInstalled && plugins.length === 0"
+        theme="info"
+        message="未检测到 ArkApi 插件（ArkApi/Plugins 目录下没有插件）。"
+    />
+
+    <template v-if="plugins.length > 0">
+      <t-alert theme="info" class="panel-hint">
+        <template #message>
+          插件的配置与运行期数据（如 Permissions 的权限库）按实例独立存放，
+          启动前注入服务端目录、停止后收回。<strong>在这里保存的配置会在下次启动该实例时生效。</strong>
+        </template>
+      </t-alert>
 
       <t-table
           :data="plugins"
@@ -105,14 +127,22 @@ import {getPluginConfig, listInstancePlugins, updatePluginConfig} from '@/apis/a
 const props = defineProps({
   instanceName: {type: String, required: true},
   // 来自实例配置的 PluginSnapshotInterval（分钟）
-  interval: {type: Number, default: 0}
+  interval: {type: Number, default: 0},
+  // 来自实例配置的 EnableAsaPlugin。开关是受控的：父组件保存成功后回写，
+  // 这里才跟着变——保存失败时开关停在原位，不会显示一个没生效的状态。
+  enableAsaPlugin: {type: Boolean, default: false},
+  savingEnable: {type: Boolean, default: false},
+  running: {type: Boolean, default: false}
 })
 
-const emit = defineEmits(['update:interval'])
+const emit = defineEmits(['update:interval', 'update:enableAsaPlugin'])
 
 const loading = ref(false)
+// 首次加载成功之前不下「没装主程序 / 没有插件」的结论，免得一闪而过的误报
+const loaded = ref(false)
 const saving = ref(false)
 const plugins = ref([])
+const arkApiInstalled = ref(true)
 const snapshotInterval = ref(props.interval)
 
 const editorVisible = ref(false)
@@ -135,12 +165,18 @@ const columns = [
 
 const externalPlugins = computed(() => plugins.value.filter(p => p.external_db_path))
 
+const notInstalledMessage = computed(() => (props.enableAsaPlugin
+    ? '本实例已开启「启用ASA插件」，但 server-files 中没有安装 ArkApi 主程序（找不到 AsaApiLoader.exe），实例将以原版服务端启动。'
+    : '未安装 ArkApi 主程序（server-files 中找不到 AsaApiLoader.exe）。'))
+
 const load = async () => {
   if (!props.instanceName) return
   loading.value = true
   try {
     const res = await listInstancePlugins(props.instanceName)
     plugins.value = res.data?.plugins ?? []
+    arkApiInstalled.value = res.data?.arkapi_installed ?? true
+    loaded.value = true
   } catch (e) {
     MessagePlugin.error(`加载插件列表失败: ${e.message ?? e}`)
   } finally {
@@ -222,19 +258,35 @@ defineExpose({reload: load})
   margin: 0;
 }
 
-.snapshot-interval-row {
+.instance-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 16px;
+  border: 1px solid var(--td-component-border, #dcdcdc);
+  border-radius: 8px;
+  background: var(--td-bg-color-container, #fff);
+}
+
+.setting-row {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.snapshot-interval-row .label {
+.setting-row .label {
+  min-width: 132px;
   font-size: 13px;
 }
 
-.snapshot-interval-row .unit {
+.setting-row .unit {
   font-size: 13px;
   color: var(--td-text-color-secondary);
+}
+
+.running-hint {
+  font-size: 13px;
+  color: var(--td-warning-color, #e37318);
 }
 
 .hint-icon {
