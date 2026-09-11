@@ -117,6 +117,15 @@ type mirrorEntry struct {
 // mirrorSyncMu 序列化所有实例的镜像同步操作，避免并发 Walk ServerFilesDir 时相互干扰
 var mirrorSyncMu sync.Mutex
 
+// WithSyncLock 在镜像同步锁下执行 fn。ArkApi 主程序换位时用它：换位是逐文件进行的，
+// 同步若在中途 Walk server-files，会给某个实例同步出一半新一半旧的主程序。
+// 换位只是几次 rename，持锁时间很短（docs/ARKAPI_PLUGIN_INSTALL_PLAN.md §4.6）。
+func WithSyncLock(fn func() error) error {
+	mirrorSyncMu.Lock()
+	defer mirrorSyncMu.Unlock()
+	return fn()
+}
+
 // InstanceMirrorDir 返回实例镜像目录路径
 func InstanceMirrorDir(instanceName string) string {
 	return filepath.Join(cfgpkg.BaseDir, mirrorDirPrefix+instanceName)
