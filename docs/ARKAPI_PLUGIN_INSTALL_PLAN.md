@@ -915,3 +915,96 @@ StopServer
 - 所有实例迁移完成后，server-files 里的全局插件会在程序启动时被移入 `{BaseDir}/arkapi/backups/`。
   之后再有人按老习惯把插件放进 server-files，下次程序启动时它也会被移走（日志里有 WARN 提示）。
 - **真机验证尚未进行**：迁移、junction 在真实 ArkApi 下能否正常加载插件，都还没在 meijue-pve 上实际跑过。
+
+### 16.4 对镜像既有逻辑的影响核查（2026-09-11，P3 提交之后）
+
+**方法**：
+
+1. 逐行复核提交 0e1709f 里 `mirror.go` 的 diff。
+2. **真实数据只读预演**：对 `E:\asa_server_data` 的两个真实镜像（jibian、meijue），分别用改动前后的例外清单
+   算出增量同步的完整动作清单，逐条比对。预演复刻了 `syncMirrorEntries` 的全部分支判定，但只计算、不执行。
+   预演用的是临时测试文件，用完已删除，没有提交。
+3. 补测试，并做变异验证。
+
+**预演结论**：Plugins 之外**没有任何差异**。
+
+| 实例 | 改动前 | 改动后 | 只在改动前出现的动作 | 只在改动后出现的动作 | Plugins 之外的差异 |
+|---|---|---|---|---|---|
+| jibian | CHECK 415 | CHECK 388 | 27 条，全部在 Plugins 下 | 0 | 0 |
+| meijue | ADD 5 / CHECK 415 / REMOVE 2 | ADD 3 / CHECK 388 / REMOVE 1 | 30 条，全部在 Plugins 下 | 0 | 0 |
+
+- 改动后少掉的都是 Plugins 下插件文件的比对与补拷：这些文件现在在 junction 那一头，本来就不该再同步。
+- 改动后唯一的删除动作，是 meijue 镜像里一个过期的 ArkApi Cache generation。它在改动前同样存在，属于既有的 Cache 接管逻辑。
+- `Win64/ArkApi` 的类型前后都是真实目录，不会被删掉重建。
+- `ExceptionTargets` 的唯一下游是启动前的 `runner.PrepareSharedTree`（Linux 上施加共享 ACL，Windows 上为空操作）。
+  多出的实例插件目录因此自动获得了降权游戏进程所需的写权限，这正是预期。
+
+**发现并修复的问题**：
+
+1. **迁移会复活已被移除的插件文件**（在真实数据上发现）。
+   - 现象：meijue 的镜像里还留着 `CrosschatAscended/CrosschatAscended.dll`，而 server-files 里已经没有这个 dll
+     （jibian 的镜像同步过，也已经没有）。改动前，下一次启动的同步会把它从镜像删掉；改动后，
+     `migrateExceptionJunctions` 的 `mergeMissingInto` 会把它补进实例目录，**迁移后 CrosschatAscended 在 meijue 上会重新被加载**。
+   - 修复：Plugins 这条例外**不做「镜像独有内容晋升」**。数据文件已由迁移第一步抢救并迁走；镜像独有的其余文件，
+     与改动前一样丢弃。
+   - 本条**取代 §4.4 第 5 步与 §14 第 4 条的描述**。
+2. **junction 的建立条件缺了「实例已迁移」**。
+   - 原先只要主程序已安装就建。若有任何路径绕过迁移直接同步，junction 会指向一个空目录，
+     镜像真实 Plugins 目录里的活数据会被 `migrateExceptionJunctions` / `reconcileEntry` 连同目录一起删除。
+     正常启动路径总是先迁移再同步，不会触发，但这是一条没有防护的路径。
+   - 修复：新增 `pluginsExceptionFor`，条件改为「主程序已安装 **且** 实例已迁移」。
+     `buildExceptionTargets` 与 `ensureArkApiPluginDirs` 都改用它；未迁移的实例完全维持旧的镜像行为。
+3. 次要：`removeLinksUnder` 遍历出错时改为跳过，不再中断。这样删除失败时的表现与改动前直接 `RemoveAll` 一致。
+
+**用例调整**：
+
+- 新增 `TestUnmigratedInstanceKeepsLegacyMirrorBehavior`、`TestArkApiCacheRulesUnaffectedByPluginsJunction`。
+  后者覆盖 Plugins junction 在场时 Cache 的接管与未接管两种情况；原有的两个 Cache 用例用的是手工拼的例外清单，覆盖不到这里。
+- 修正 `TestLegacyMirrorPluginsMigratedIntoInstanceDir`：原先断言镜像独有的 `stray.txt` 会被带进实例目录，
+  这恰好把问题 1 的错误行为固化成了预期。现在改为按真实场景构造「server-files 删掉了 dll、旧镜像里还留着」，
+  断言 dll 不会被复活。
+
+**变异验证**（每项都实测失败后恢复）：
+
+| # | 改坏什么 | 失败的用例 | 失败表现 |
+|---|---|---|---|
+| M4 | 对 Plugins 也做镜像独有内容晋升 | `TestLegacyMirrorPluginsMigratedIntoInstanceDir` | server-files 里已删除的 dll 被复活进实例目录；非数据文件被带进实例目录 |
+| M5 | `pluginsExceptionFor` 不看实例是否已迁移 | `TestUnmigratedInstanceKeepsLegacyMirrorBehavior` | 未迁移的实例被建出 Plugins junction |
+
+**对真实数据的预期**：meijue 迁移后，CrosschatAscended 的目录里没有 dll，面板上会显示「文件不完整」。
+这与改动前「同步后镜像里留下一个没有 dll 的目录」的结果一致。
+
+### 16.5 Linux（WSL2）验证（2026-09-11）
+
+**方式**：`wsl -e zsh -lc 'cd /mnt/d/golang/asa-server && go test ...'`，已写入项目 CLAUDE.md 的「Linux 测试（WSL2）」一节。
+环境：WSL2 内核 6.18，Go 1.27.0 linux/amd64，`/tmp` 为 ext4，运行身份为 root。
+
+**测试调整**：镜像布局用例原先带 `//go:build windows`，在 Linux 上根本不编译，所以 Linux 的 symlink 路径等于完全没测过。现改为两个平台都跑：
+
+- `plugin_layout_windows_test.go` 改名为 `plugin_layout_test.go`，去掉平台标签。
+- 「盘上是不是链接」的判断改用 `isLinkOnDisk`，按平台拆在 `linkattr_{windows,linux}_test.go`：
+  Windows 读 `FILE_ATTRIBUTE_REPARSE_POINT`，Linux 用 `Lstat` 的 `ModeSymlink`。两者都不经过被测的 `fsutil.IsLink`。
+- 共用的测试辅助函数移到 `helpers_test.go`。
+- `plugin_data_sync_test.go` 与 `arkapi_cache_sync_test.go` 也去掉了 windows 标签。那个标签是 mirror 在 Linux 上还编译不过时留下的，
+  去掉后它们在 Linux 上也全部通过。`sync_safety_test.go` 直接调用 Windows API，保留 windows 标签。
+
+**结果**：
+
+- Linux：mirror（19 个用例）、plugindata、fsutil 全部通过，`-race` 也通过。其中 7 个镜像布局用例是第一次在 Linux 上实际运行。
+- Windows：同样全部通过。
+
+**变异验证 M6**：去掉 `shuttleRetired` 里「镜像里的 Plugins 是链接」这条判据后，
+`TestShuttleDoesNotRunThroughPluginsJunction` 在 Linux 与 Windows 上**都失败**（Inject 穿过链接，用旧副本覆盖了活数据）。
+这证明该用例在 Linux 的 symlink 上同样有效，不是空转。
+
+作为对照，§16.3 的 M1（把判据换成 `ModeSymlink`）只会在 Windows 上失败，这是预期：
+Linux 上 `ModeSymlink` 判断 symlink 本来就是对的，这个 bug 只存在于 Windows 的 junction 上。
+
+**顺带修正一个既有的测试 bug**：`override_linux_test.go` 的 `TestPathWithin_CaseSensitiveOnLinux` 断言写错了。
+`/instances/foo/DB` 本来就在 `/instances/foo` 之内，与大小写无关，所以这个用例在 Linux 上恒失败。
+它在 P3 之前就存在（由 7661f37 引入，P3 没有改动相关文件），现改为测试「根目录大小写不同」的情形。
+
+**仍未覆盖的部分**：
+
+- WSL 里是 root，降权与权限相关的路径（junction 目标的共享 ACL 等）在 root 下通过，不代表在降权的普通用户下也成立。
+- 在 Linux 上经 Wine/Proton 真实拉起 ArkApi 并加载实例目录里的插件，尚未验证。
