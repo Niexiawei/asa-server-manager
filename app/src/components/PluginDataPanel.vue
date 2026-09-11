@@ -25,7 +25,7 @@
         />
         <span class="unit">分钟</span>
         <t-tooltip
-            content="服务器崩溃或断电时回收来不及执行，快照把最坏损失收窄到一个周期。0 = 默认 5 分钟，-1 = 关闭。"
+            content="定时为插件的 SQLite 数据库做一份一致的在线副本，插件出错或断电把库写坏时可用它恢复。0 = 默认 5 分钟，-1 = 关闭。"
         >
           <HelpCircleIcon class="hint-icon"/>
         </t-tooltip>
@@ -41,16 +41,22 @@
     />
 
     <t-alert
+        v-if="loaded && layout === 'legacy'"
+        theme="warning"
+        message="该实例仍在使用旧的全局插件（升级时它正在运行）。停止后，下次启动前会自动迁移为本实例独立的插件目录；在此之前这里显示的是全局插件。"
+    />
+
+    <t-alert
         v-if="loaded && arkApiInstalled && plugins.length === 0"
         theme="info"
-        message="未检测到 ArkApi 插件（ArkApi/Plugins 目录下没有插件）。"
+        :message="emptyMessage"
     />
 
     <template v-if="plugins.length > 0">
-      <t-alert theme="info" class="panel-hint">
+      <t-alert v-if="layout === 'instance'" theme="info" class="panel-hint">
         <template #message>
-          插件的配置与运行期数据（如 Permissions 的权限库）按实例独立存放，
-          启动前注入服务端目录、停止后收回。<strong>在这里保存的配置会在下次启动该实例时生效。</strong>
+          插件文件、配置与运行期数据都存放在本实例的独立目录（{{ pluginsDir }}），各实例互不影响。
+          <strong>在这里保存的配置会在下次启动该实例时生效。</strong>
         </template>
       </t-alert>
 
@@ -62,10 +68,27 @@
           :loading="loading"
           bordered
       >
-        <template #isolated="{ row }">
-          <t-tag v-if="row.external_db_path" theme="warning" variant="light">用户接管</t-tag>
-          <t-tag v-else-if="row.isolated" theme="success" variant="light">已隔离</t-tag>
-          <t-tag v-else theme="default" variant="light">尚未启动过</t-tag>
+        <template #name="{ row }">
+          <div class="plugin-name">
+            <span>{{ row.name }}</span>
+            <t-tooltip
+                v-if="row.dll_missing"
+                :content="`插件目录里没有 ${row.name}.dll，ArkApi 不会加载这个插件`"
+            >
+              <t-tag theme="danger" variant="light" size="small">文件不完整</t-tag>
+            </t-tooltip>
+          </div>
+          <div v-if="row.full_name && row.full_name !== row.name" class="full-name">{{ row.full_name }}</div>
+        </template>
+
+        <template #version="{ row }">
+          <span v-if="row.version">{{ row.version }}</span>
+          <span v-else class="muted">—</span>
+        </template>
+
+        <template #description="{ row }">
+          <span v-if="row.description">{{ row.description }}</span>
+          <span v-else class="muted">—</span>
         </template>
 
         <template #data_files="{ row }">
@@ -102,7 +125,7 @@
           :key="row.name"
           theme="warning"
           class="panel-hint"
-          :message="`${row.name} 的数据库路径已由你手工设为 ${row.external_db_path}，管理器不再为它做隔离、回收与快照。`"
+          :message="`${row.name} 的数据库路径已由你手工设为 ${row.external_db_path}，它不在插件目录里，管理器不再为它做快照。`"
       />
     </template>
 
@@ -143,6 +166,9 @@ const loaded = ref(false)
 const saving = ref(false)
 const plugins = ref([])
 const arkApiInstalled = ref(true)
+// instance：本实例独立的插件目录；legacy：升级时实例正在运行、尚未迁移，列的是全局插件
+const layout = ref('instance')
+const pluginsDir = ref('')
 const snapshotInterval = ref(props.interval)
 
 const editorVisible = ref(false)
@@ -156,10 +182,11 @@ watch(() => props.interval, (v) => {
 })
 
 const columns = [
-  {colKey: 'name', title: '插件', width: 200},
-  {colKey: 'isolated', title: '状态', width: 130},
-  {colKey: 'data_files', title: '实例数据', width: 160},
-  {colKey: 'snapshots', title: '最近快照', width: 180},
+  {colKey: 'name', title: '插件', width: 220},
+  {colKey: 'version', title: '版本', width: 90},
+  {colKey: 'description', title: '描述', ellipsis: true},
+  {colKey: 'data_files', title: '实例数据', width: 150},
+  {colKey: 'snapshots', title: '最近快照', width: 170},
   {colKey: 'op', title: '操作', width: 110}
 ]
 
@@ -169,6 +196,10 @@ const notInstalledMessage = computed(() => (props.enableAsaPlugin
     ? '本实例已开启「启用ASA插件」，但 server-files 中没有安装 ArkApi 主程序（找不到 AsaApiLoader.exe），实例将以原版服务端启动。'
     : '未安装 ArkApi 主程序（server-files 中找不到 AsaApiLoader.exe）。'))
 
+const emptyMessage = computed(() => (layout.value === 'instance'
+    ? `本实例还没有 ArkApi 插件（插件目录：${pluginsDir.value}）。`
+    : '未检测到 ArkApi 插件（ArkApi/Plugins 目录下没有插件）。'))
+
 const load = async () => {
   if (!props.instanceName) return
   loading.value = true
@@ -176,6 +207,8 @@ const load = async () => {
     const res = await listInstancePlugins(props.instanceName)
     plugins.value = res.data?.plugins ?? []
     arkApiInstalled.value = res.data?.arkapi_installed ?? true
+    layout.value = res.data?.layout ?? 'instance'
+    pluginsDir.value = res.data?.plugins_dir ?? ''
     loaded.value = true
   } catch (e) {
     MessagePlugin.error(`加载插件列表失败: ${e.message ?? e}`)
@@ -195,7 +228,7 @@ const openConfig = async (row) => {
     editingPlugin.value = row.name
     editorVisible.value = true
     if (!editingSeeded.value) {
-      // 实例侧还没有独立配置，这里展示的是源服务端自带的默认值
+      // 旧布局下实例侧还没有独立配置，这里展示的是源服务端自带的默认值
       MessagePlugin.info('该实例还没有独立的插件配置，当前显示的是默认值，保存后才会成为本实例的配置')
     }
   } catch (e) {
@@ -287,6 +320,17 @@ defineExpose({reload: load})
 .running-hint {
   font-size: 13px;
   color: var(--td-warning-color, #e37318);
+}
+
+.plugin-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.full-name {
+  font-size: 12px;
+  color: var(--td-text-color-secondary);
 }
 
 .hint-icon {
