@@ -13,13 +13,15 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// ArkApi 包的上传安装与插件的跨实例操作（docs/ARKAPI_PLUGIN_INSTALL_PLAN.md §8.2）。
+// ArkApi 主程序、包的上传安装与插件的跨实例操作（docs/ARKAPI_PLUGIN_INSTALL_PLAN.md §8.2）。
 //
 // 写操作一律要求管理员：往服务器上放 dll 等同于在服务器上执行代码。
 
 func (h *Handler) registerArkApiRoutes(r *gin.Engine) {
 	g := r.Group("/api/arkapi")
 	{
+		g.GET("", h.coreStatus)
+		g.DELETE("", authapi.RequireAdmin(), h.uninstallCore)
 		g.POST("/packages", authapi.RequireAdmin(), h.uploadPackage)
 		g.POST("/packages/:token/apply", authapi.RequireAdmin(), h.applyPackage)
 		g.DELETE("/packages/:token", authapi.RequireAdmin(), h.discardPackage)
@@ -28,12 +30,35 @@ func (h *Handler) registerArkApiRoutes(r *gin.Engine) {
 	}
 }
 
+func (h *Handler) coreStatus(c *gin.Context) {
+	st, err := arkapimanage.Status()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, apiresp.StatusResponse{Success: false, Error: err.Error(), Data: st})
+		return
+	}
+	c.JSON(http.StatusOK, apiresp.StatusResponse{Success: true, Data: st})
+}
+
+func (h *Handler) uninstallCore(c *gin.Context) {
+	res, err := arkapimanage.UninstallCore()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, apiresp.StatusResponse{Success: false, Error: err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, apiresp.StatusResponse{
+		Success: true,
+		Message: "ArkApi 主程序已卸载，各实例的插件目录没有改动",
+		Data:    res,
+	})
+}
+
 // multipartOverhead 是 multipart 封装本身（边界、part 头）的余量
 const multipartOverhead = 1 << 20
 
 func (h *Handler) uploadPackage(c *gin.Context) {
-	if kind := c.DefaultQuery("kind", "plugin"); kind != "plugin" {
-		c.JSON(http.StatusBadRequest, apiresp.StatusResponse{Success: false, Error: "暂不支持上传该类型的包: " + kind})
+	kind := c.DefaultQuery("kind", "plugin")
+	if kind != "plugin" && kind != "core" {
+		c.JSON(http.StatusBadRequest, apiresp.StatusResponse{Success: false, Error: "不支持的包类型: " + kind})
 		return
 	}
 
@@ -57,17 +82,35 @@ func (h *Handler) uploadPackage(c *gin.Context) {
 		if part.FormName() != "file" {
 			continue
 		}
-		stage, err := arkapimanage.StagePlugin(part, part.FileName(), c.Query("expect"))
-		if err != nil {
-			respondUploadError(c, err)
+
+		var (
+			data   any
+			errs   []string
+			stgErr error
+		)
+		if kind == "core" {
+			st, err := arkapimanage.StageCore(part, part.FileName())
+			if err == nil {
+				data, errs = st, st.Errors
+			}
+			stgErr = err
+		} else {
+			st, err := arkapimanage.StagePlugin(part, part.FileName(), c.Query("expect"))
+			if err == nil {
+				data, errs = st, st.Errors
+			}
+			stgErr = err
+		}
+		if stgErr != nil {
+			respondUploadError(c, stgErr)
 			return
 		}
-		if len(stage.Errors) > 0 {
+		if len(errs) > 0 {
 			// 422 且 data 形状与成功时相同（token 为空），前端据此展示逐条错误
-			c.JSON(http.StatusUnprocessableEntity, apiresp.StatusResponse{Success: false, Error: stage.Errors[0], Data: stage})
+			c.JSON(http.StatusUnprocessableEntity, apiresp.StatusResponse{Success: false, Error: errs[0], Data: data})
 			return
 		}
-		c.JSON(http.StatusOK, apiresp.StatusResponse{Success: true, Data: stage})
+		c.JSON(http.StatusOK, apiresp.StatusResponse{Success: true, Data: data})
 		return
 	}
 }
@@ -84,9 +127,14 @@ func respondUploadError(c *gin.Context, err error) {
 	c.JSON(http.StatusInternalServerError, apiresp.StatusResponse{Success: false, Error: "接收上传失败: " + err.Error()})
 }
 
+// ApplyPackageRequest 是确认安装的请求体。按暂存包的类型取用其中一组字段。
 type ApplyPackageRequest struct {
+	// 插件包：装进哪些实例（必须显式给出，没有「默认全部」）
 	Targets           []string `json:"targets"`
 	RestoreFromBackup bool     `json:"restore_from_backup"`
+	// 主程序包：版本号（不传则沿用从文件名提取的），以及附带插件各自装进哪些实例（不传则都不装）
+	Version *string             `json:"version"`
+	Bundled map[string][]string `json:"bundled"`
 }
 
 func (h *Handler) applyPackage(c *gin.Context) {
@@ -95,16 +143,69 @@ func (h *Handler) applyPackage(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, apiresp.StatusResponse{Success: false, Error: err.Error()})
 		return
 	}
+	token := c.Param("token")
+	switch arkapimanage.StagedKind(token) {
+	case "plugin":
+		h.applyPlugin(c, token, &req)
+	case "core":
+		h.applyCore(c, token, &req)
+	default:
+		c.JSON(http.StatusBadRequest, apiresp.StatusResponse{Success: false, Error: arkapimanage.ErrStageGone.Error()})
+	}
+}
+
+func (h *Handler) applyPlugin(c *gin.Context, token string, req *ApplyPackageRequest) {
 	if err := validateTargets(req.Targets); err != nil {
 		c.JSON(http.StatusBadRequest, apiresp.StatusResponse{Success: false, Error: err.Error()})
 		return
 	}
-	results, err := arkapimanage.ApplyPlugin(c.Param("token"), req.Targets, req.RestoreFromBackup)
+	results, err := arkapimanage.ApplyPlugin(token, req.Targets, req.RestoreFromBackup)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, apiresp.StatusResponse{Success: false, Error: err.Error()})
 		return
 	}
 	respondResults(c, results)
+}
+
+func (h *Handler) applyCore(c *gin.Context, token string, req *ApplyPackageRequest) {
+	for plugin, targets := range req.Bundled {
+		for _, t := range targets {
+			if err := apiresp.ValidateInstanceName(t); err != nil {
+				c.JSON(http.StatusBadRequest, apiresp.StatusResponse{
+					Success: false, Error: fmt.Sprintf("附带插件 %s 的目标实例名 %q 无效: %v", plugin, t, err),
+				})
+				return
+			}
+		}
+	}
+	res, err := arkapimanage.ApplyCore(token, req.Version, req.Bundled, req.RestoreFromBackup)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, apiresp.StatusResponse{Success: false, Error: err.Error()})
+		return
+	}
+
+	version := res.Version
+	if version == "" {
+		version = "（版本未知）"
+	}
+	verb := "安装"
+	if res.Action == "update" {
+		verb = "更新"
+	}
+	msg := fmt.Sprintf("ArkApi 主程序 %s 已%s，各实例下次启动时生效", version, verb)
+	failed := 0
+	for _, r := range res.Results {
+		if !r.OK {
+			failed++
+		}
+	}
+	if len(res.Results) > 0 {
+		msg += fmt.Sprintf("；附带插件完成 %d 项", len(res.Results)-failed)
+		if failed > 0 {
+			msg += fmt.Sprintf("，%d 项失败", failed)
+		}
+	}
+	c.JSON(http.StatusOK, apiresp.StatusResponse{Success: failed == 0, Message: msg, Data: res})
 }
 
 func (h *Handler) discardPackage(c *gin.Context) {

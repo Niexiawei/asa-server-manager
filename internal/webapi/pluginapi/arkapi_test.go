@@ -183,8 +183,11 @@ func TestUploadRequestErrors(t *testing.T) {
 	setupArkApiEnv(t)
 	r := newArkApiRouter()
 
-	if code, env := do(t, r, uploadRequest(t, "?kind=core", "file", []byte("x"))); code != http.StatusBadRequest {
-		t.Errorf("kind=core 尚未开放，应返回 400: %d %s", code, env.Error)
+	if code, env := do(t, r, uploadRequest(t, "?kind=bogus", "file", []byte("x"))); code != http.StatusBadRequest {
+		t.Errorf("未知的包类型应返回 400: %d %s", code, env.Error)
+	}
+	if code, env := do(t, r, uploadRequest(t, "?kind=core", "file", []byte("x"))); code != http.StatusUnprocessableEntity {
+		t.Errorf("不是 zip 的主程序包应返回 422: %d %s", code, env.Error)
 	}
 	if code, env := do(t, r, uploadRequest(t, "", "attachment", []byte("x"))); code != http.StatusBadRequest || !strings.Contains(env.Error, "file") {
 		t.Errorf("没有 file 字段应返回 400: %d %s", code, env.Error)
@@ -203,6 +206,82 @@ func TestRespondUploadErrorMapsTooLarge(t *testing.T) {
 	respondUploadError(c, &http.MaxBytesError{Limit: 1})
 	if w.Code != http.StatusRequestEntityTooLarge || !strings.Contains(w.Body.String(), "256 MiB") {
 		t.Errorf("%d %s", w.Code, w.Body.String())
+	}
+}
+
+func coreZipBytes(t *testing.T) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	for p, data := range map[string][]byte{
+		"AsaApi_9/AsaApiLoader.exe":  minimalPE(),
+		"AsaApi_9/AsaApiLoader.pdb":  []byte("pdb"),
+		"AsaApi_9/ArkApi/AsaApi.dll": minimalPE(),
+		"AsaApi_9/ArkApi/AsaApi.pdb": []byte("pdb"),
+		"AsaApi_9/Lib/AsaApi.lib":    []byte("lib"),
+	} {
+		w, err := zw.Create(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := w.Write(data); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+// 主程序：上传 → 按 token 的类型走主程序的 apply（改版本号）→ 状态 → 卸载。
+// setupArkApiEnv 里已有一个手工放的加载器，所以这里是「更新手工安装的主程序」。
+func TestCoreLifecycleOverHTTP(t *testing.T) {
+	setupArkApiEnv(t)
+	r := newArkApiRouter()
+
+	code, env := do(t, r, uploadRequest(t, "?kind=core", "file", coreZipBytes(t)))
+	if code != http.StatusOK || !env.Success {
+		t.Fatalf("合格的主程序包应返回 200: %d %s", code, env.Error)
+	}
+	var stage struct {
+		Token  string `json:"token"`
+		Kind   string `json:"kind"`
+		Action string `json:"action"`
+	}
+	if err := json.Unmarshal(env.Data, &stage); err != nil {
+		t.Fatal(err)
+	}
+	if stage.Token == "" || stage.Kind != "core" || stage.Action != "update" {
+		t.Fatalf("报告 = %+v", stage)
+	}
+
+	// 主程序包的 apply 不要求 targets：附带插件不选就不装
+	apply := httptest.NewRequest(http.MethodPost, "/api/arkapi/packages/"+stage.Token+"/apply", strings.NewReader(`{"version":"9.9"}`))
+	apply.Header.Set("Content-Type", "application/json")
+	if code, env = do(t, r, apply); code != http.StatusOK || !env.Success {
+		t.Fatalf("apply = %d %s", code, env.Error)
+	}
+
+	code, env = do(t, r, httptest.NewRequest(http.MethodGet, "/api/arkapi", nil))
+	var st struct {
+		Installed bool   `json:"installed"`
+		Managed   bool   `json:"managed"`
+		Version   string `json:"version"`
+	}
+	if err := json.Unmarshal(env.Data, &st); err != nil || code != http.StatusOK {
+		t.Fatalf("status = %d %v", code, err)
+	}
+	if !st.Installed || !st.Managed || st.Version != "9.9" {
+		t.Errorf("状态 = %+v", st)
+	}
+
+	if code, env = do(t, r, httptest.NewRequest(http.MethodDelete, "/api/arkapi", nil)); code != http.StatusOK || !env.Success {
+		t.Fatalf("卸载 = %d %s", code, env.Error)
+	}
+	_, env = do(t, r, httptest.NewRequest(http.MethodGet, "/api/arkapi", nil))
+	if strings.Contains(string(env.Data), `"installed":true`) {
+		t.Errorf("卸载后状态应为未安装: %s", env.Data)
 	}
 }
 
