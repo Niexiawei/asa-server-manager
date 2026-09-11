@@ -9,6 +9,24 @@ import (
 	"path/filepath"
 )
 
+// IsLink reports whether path is itself a link — a symlink, or on Windows an
+// NTFS junction (mount point). It never follows the link.
+//
+// The test is os.Readlink, deliberately not Lstat's Mode: since Go 1.23 a
+// Windows junction reports ModeIrregular rather than ModeSymlink, and Lstat
+// reports IsDir()==false for it. Readlink succeeds for both kinds of link and
+// fails for regular files and directories, independent of how Mode semantics
+// drift across Go versions. See docs/MIRROR_JUNCTION_AND_WEBAUTHN_REMOVAL_PLAN.md §1.3.
+//
+// Keep this the single implementation: both the mirror sync and the ArkApi
+// plugin shuttle guard decide what to touch based on it, and a second copy
+// sooner or later regresses to ModeSymlink — which silently misses junctions
+// on Windows only.
+func IsLink(path string) bool {
+	_, err := os.Readlink(path)
+	return err == nil
+}
+
 // FileExists reports whether the given path exists.
 func FileExists(path string) bool {
 	_, err := os.Stat(path)

@@ -139,6 +139,9 @@ func SyncInstanceMirror(instanceName string, cfg *cfgpkg.InstanceConfig) (string
 	if err := ensureInstanceDirs(instanceName); err != nil {
 		return "", err
 	}
+	if err := ensureArkApiPluginDirs(instanceName); err != nil {
+		return "", err
+	}
 
 	exceptionTargets := buildExceptionTargets(instanceName, cfg)
 
@@ -316,6 +319,13 @@ func buildExceptionTargets(instanceName string, cfg *cfgpkg.InstanceConfig) map[
 	// 但落到镜像里同样是一条 junction，走同一套 exception 处理即可。
 	targets[win64SharedRelPath] = filepath.Join(cfgpkg.ServerFilesDir, filepath.FromSlash(win64SharedRelPath))
 
+	// ArkApi 插件目录指向实例目录：每个实例一份独立的插件（dll、配置、运行期数据），
+	// 主程序（ArkApi/ 下其余文件）仍随 Win64 从 server-files 复制，全局一份。
+	// 见 docs/ARKAPI_PLUGIN_INSTALL_PLAN.md §4.2。
+	if rel := pluginsExceptionRelPath(); rel != "" {
+		targets[rel] = plugindata.InstancePluginsDir(instanceName)
+	}
+
 	return targets
 }
 
@@ -466,9 +476,82 @@ func processFile(srcPath, mirrorPath, relPath string, info os.FileInfo) error {
 // 归成 EntryTypeFile，与源侧意图的 EntryTypeSymlink 对不上，于是每轮同步都把所有
 // junction 删掉重建，reconcileEntry 还会对着目录调 CopyFile 报错并触发整体重建。
 // Readlink 对两种链接都成功、对普通文件和目录都失败，且不依赖 Mode 语义在 Go 版本间的稳定性。
+//
+// 判定本身在 fsutil.IsLink：plugindata 的结构性关断用的是同一个实现，两份各写各的，
+// 迟早会有一份退化成 ModeSymlink。
 func isJunctionOrSymlink(path string) bool {
-	_, err := os.Readlink(path)
-	return err == nil
+	return fsutil.IsLink(path)
+}
+
+// asaApiLoaderName 是 ArkApi 加载器的文件名。它在 server-files 里存在才算装了主程序
+// （与 installer.ArkApiInstalled 同一判据；mirror 不依赖 installer）。
+const asaApiLoaderName = "AsaApiLoader.exe"
+
+// pluginsExceptionRelPath 返回 ArkApi 插件目录那条例外 junction 在镜像里的相对路径；
+// 主程序未安装时返回 ""，不建这条链接。
+//
+// 只在主程序已安装时才建：否则 createInstanceMirror / syncMirrorEntries 末尾补建例外的逻辑
+// 会在 server-files 里凭空建出 ArkApi/Plugins，arkApiInstalled() 随之误判为已安装。
+// 路径按盘上的实际大小写给出（plugindata.SourcePluginsRelPath）：例外清单按字符串精确匹配
+// Walk 出来的相对路径，大小写对不上时这条例外永远不命中。见 docs/ARKAPI_PLUGIN_INSTALL_PLAN.md §4.2。
+func pluginsExceptionRelPath() string {
+	loader := filepath.Join(cfgpkg.ServerFilesDir, filepath.FromSlash(win64RelPath), asaApiLoaderName)
+	if fi, err := os.Stat(loader); err != nil || fi.IsDir() {
+		return ""
+	}
+	return plugindata.SourcePluginsRelPath()
+}
+
+// ensureArkApiPluginDirs 为 ArkApi 插件目录那条例外 junction 备好两头（主程序未安装时什么都不做）：
+//
+//   - 源侧目录必须存在（同 Mods）：否则增量同步会把镜像里这条 junction 判成「源里没有」
+//     先删掉，再被补建逻辑重建，每次启动白折腾一轮；
+//   - junction 的目标必须存在：Windows 的 createJunction 不创建目标，目标不存在就是一条悬空链接。
+func ensureArkApiPluginDirs(instanceName string) error {
+	rel := pluginsExceptionRelPath()
+	if rel == "" {
+		return nil
+	}
+	for _, dir := range []string{
+		filepath.Join(cfgpkg.ServerFilesDir, filepath.FromSlash(rel)),
+		plugindata.InstancePluginsDir(instanceName),
+	} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return fmt.Errorf("failed to create ArkApi plugins directory %s: %w", dir, err)
+		}
+	}
+	return nil
+}
+
+// removeLinksUnder 删除 root 之下（不含 root 本身）所有链接的**链接本身**，不碰链接目标。
+// filepath.Walk 不会跟随链接下钻（Lstat 对 junction 与 symlink 都不报 IsDir），
+// 所以摘到的都是真实目录里直接挂着的链接。
+func removeLinksUnder(root string) error {
+	var links []string
+	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
+			return err
+		}
+		if path != root && isJunctionOrSymlink(path) {
+			links = append(links, path)
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	for _, l := range links {
+		if err := os.Remove(l); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("failed to unlink %s: %w", l, err)
+		}
+	}
+	return nil
 }
 
 // CleanupInstanceMirror 安全删除实例镜像目录
@@ -991,7 +1074,16 @@ func removeMirrorEntry(mirrorDir string, entry mirrorEntry) error {
 		return ignoreMissing(os.Remove(mirrorPath))
 	}
 
-	// 真实目录：游戏运行时可能在此写入文件，使用 RemoveAll 强制清除
+	// 真实目录：游戏运行时可能在此写入文件，使用 RemoveAll 强制清除。
+	//
+	// 删之前先摘掉其中的链接：目录里可能挂着指向实例活数据的 junction —— 主程序卸载后，
+	// 镜像里的 Win64/ArkApi 会被当作多余条目整个删除，而其中的 Plugins 指向
+	// instances/<实例>/ArkApi/Plugins。RemoveAll 今天不会穿透链接，靠的是标准库对子条目
+	// 先尝试 os.Remove 的实现细节；实例数据的安全不押在它上面
+	// （docs/ARKAPI_PLUGIN_INSTALL_PLAN.md §4.2 约束 4）。
+	if err := removeLinksUnder(mirrorPath); err != nil {
+		return ignoreMissing(err)
+	}
 	return ignoreMissing(os.RemoveAll(mirrorPath))
 }
 
