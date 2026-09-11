@@ -322,7 +322,7 @@ func buildExceptionTargets(instanceName string, cfg *cfgpkg.InstanceConfig) map[
 	// ArkApi 插件目录指向实例目录：每个实例一份独立的插件（dll、配置、运行期数据），
 	// 主程序（ArkApi/ 下其余文件）仍随 Win64 从 server-files 复制，全局一份。
 	// 见 docs/ARKAPI_PLUGIN_INSTALL_PLAN.md §4.2。
-	if rel := pluginsExceptionRelPath(); rel != "" {
+	if rel := pluginsExceptionFor(instanceName); rel != "" {
 		targets[rel] = plugindata.InstancePluginsDir(instanceName)
 	}
 
@@ -338,6 +338,7 @@ func buildExceptionTargets(instanceName string, cfg *cfgpkg.InstanceConfig) map[
 //
 // 全程 best-effort：迁移失败只记日志，后续同步仍按原样跑，不阻断启动。
 func migrateExceptionJunctions(mirrorDir string, exceptionTargets map[string]string) {
+	pluginsRel := pluginsExceptionRelPath()
 	for relPath, target := range exceptionTargets {
 		mirrorPath := filepath.Join(mirrorDir, filepath.FromSlash(relPath))
 
@@ -351,13 +352,21 @@ func migrateExceptionJunctions(mirrorDir string, exceptionTargets map[string]str
 
 		logger.Infof("Migrating shared mirror dir to junction: %s -> %s", mirrorPath, target)
 
-		// 镜像里独有的内容（典型是实例运行期下载的新版 mod）先晋升到源，
-		// 免得迁移把它删掉、服务器下次启动再下载一遍
 		if err := os.MkdirAll(target, 0755); err != nil {
 			logger.Warnf("Failed to create junction target %s: %v", target, err)
 			continue
 		}
-		mergeMissingInto(mirrorPath, target)
+		// 镜像里独有的内容（典型是实例运行期下载的新版 mod）先晋升到源，
+		// 免得迁移把它删掉、服务器下次启动再下载一遍。
+		//
+		// ArkApi 插件目录除外：那里二进制的权威是 server-files，数据文件已由
+		// plugindata.MigrateInstance 第一步抢救并迁进实例目录。镜像独有的其余文件，旧流程里
+		// 本来就会被同步当成多余条目删掉；晋升它们反而会复活已被移除的东西——真实数据上实测：
+		// server-files 里删掉了 CrosschatAscended.dll，一个还没重新同步过的旧镜像里仍留着它，
+		// 晋升会让这个插件在迁移后重新被加载（docs/ARKAPI_PLUGIN_INSTALL_PLAN.md §16.4）。
+		if relPath != pluginsRel {
+			mergeMissingInto(mirrorPath, target)
+		}
 
 		if err := os.RemoveAll(mirrorPath); err != nil {
 			logger.Warnf("Failed to remove legacy mirror dir %s: %v", mirrorPath, err)
@@ -502,13 +511,27 @@ func pluginsExceptionRelPath() string {
 	return plugindata.SourcePluginsRelPath()
 }
 
-// ensureArkApiPluginDirs 为 ArkApi 插件目录那条例外 junction 备好两头（主程序未安装时什么都不做）：
+// pluginsExceptionFor 返回这个实例该不该有 Plugins 那条例外 junction：主程序已安装，
+// **并且实例已迁移到每实例插件目录**，才返回相对路径。
+//
+// 未迁移的实例必须维持旧的镜像行为：它的活数据还在镜像的真实 Plugins 目录里。
+// 这时候建 junction，目标是一个空目录，而 migrateExceptionJunctions / reconcileEntry
+// 会把那个真实目录连同数据一起删掉。正常启动路径总是先迁移再同步，这一条防的是
+// 任何绕过了迁移的同步——junction 只能在迁移把数据搬走之后出现。
+func pluginsExceptionFor(instanceName string) string {
+	if !plugindata.IsMigrated(instanceName) {
+		return ""
+	}
+	return pluginsExceptionRelPath()
+}
+
+// ensureArkApiPluginDirs 为 ArkApi 插件目录那条例外 junction 备好两头（不建这条例外时什么都不做）：
 //
 //   - 源侧目录必须存在（同 Mods）：否则增量同步会把镜像里这条 junction 判成「源里没有」
 //     先删掉，再被补建逻辑重建，每次启动白折腾一轮；
 //   - junction 的目标必须存在：Windows 的 createJunction 不创建目标，目标不存在就是一条悬空链接。
 func ensureArkApiPluginDirs(instanceName string) error {
-	rel := pluginsExceptionRelPath()
+	rel := pluginsExceptionFor(instanceName)
 	if rel == "" {
 		return nil
 	}
@@ -526,14 +549,14 @@ func ensureArkApiPluginDirs(instanceName string) error {
 // removeLinksUnder 删除 root 之下（不含 root 本身）所有链接的**链接本身**，不碰链接目标。
 // filepath.Walk 不会跟随链接下钻（Lstat 对 junction 与 symlink 都不报 IsDir），
 // 所以摘到的都是真实目录里直接挂着的链接。
+//
+// 遍历出错（读不了的子目录等）一律跳过、不中断：随后的 RemoveAll 会如实报告真正删不掉的东西，
+// 这样删除失败时的表现与加这一步之前完全一致。
 func removeLinksUnder(root string) error {
 	var links []string
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			if os.IsNotExist(err) {
-				return nil
-			}
-			return err
+			return nil
 		}
 		if path != root && isJunctionOrSymlink(path) {
 			links = append(links, path)
