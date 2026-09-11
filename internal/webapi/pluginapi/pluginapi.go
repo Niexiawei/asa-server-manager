@@ -10,6 +10,7 @@ package pluginapi
 import (
 	"net/http"
 
+	"asa-server/internal/installer"
 	"asa-server/internal/plugindata"
 	"asa-server/internal/webapi/apiresp"
 
@@ -45,7 +46,16 @@ func (h *Handler) listPlugins(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, apiresp.StatusResponse{Success: false, Error: err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"plugins": plugins, "count": len(plugins)})
+	// arkapi_installed 让前端区分「没装主程序」与「装了但还没有插件」——
+	// 两者的插件列表都是空的，而用户该做的事完全不同。
+	c.JSON(http.StatusOK, apiresp.StatusResponse{
+		Success: true,
+		Data: gin.H{
+			"plugins":          plugins,
+			"count":            len(plugins),
+			"arkapi_installed": installer.ArkApiInstalled(),
+		},
+	})
 }
 
 func (h *Handler) getPluginConfig(c *gin.Context) {
@@ -62,7 +72,10 @@ func (h *Handler) getPluginConfig(c *gin.Context) {
 	}
 	// seeded=false 表示实例侧还没有独立配置，展示的是源服务端自带的默认值。
 	// 前端应当据此提示「保存后才会成为本实例的配置」。
-	c.JSON(http.StatusOK, gin.H{"content": content, "seeded": seeded})
+	c.JSON(http.StatusOK, apiresp.StatusResponse{
+		Success: true,
+		Data:    gin.H{"content": content, "seeded": seeded},
+	})
 }
 
 func (h *Handler) updatePluginConfig(c *gin.Context) {
