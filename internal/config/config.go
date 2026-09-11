@@ -46,23 +46,27 @@ type InstanceConfig struct {
 	PluginSnapshotInterval int
 }
 
+// UpdateInstanceConfigRequest 是实例配置的**部分更新**：没传的字段一律不改。
+//
+// ServerPassword / ModIDs 是指针：它们允许被清空（空串是合法取值），
+// 所以不能像其他字符串字段那样按「非空才更新」处理，只能靠 nil 区分「没传」与「传了空串」。
 type UpdateInstanceConfigRequest struct {
-	ServerName              string `json:"ServerName,omitempty"`
-	ServerPassword          string `json:"ServerPassword,omitempty"`
-	ServerAdminPassword     string `json:"ServerAdminPassword,omitempty"`
-	MaxPlayers              *int   `json:"MaxPlayers,omitempty"`
-	MapName                 string `json:"MapName,omitempty"`
-	RCONPort                *int   `json:"RCONPort,omitempty"`
-	Port                    *int   `json:"Port,omitempty"`
-	ModIDs                  string `json:"ModIDs,omitempty"`
-	SaveDir                 string `json:"SaveDir,omitempty"`
-	ClusterID               string `json:"ClusterID,omitempty"`
-	CustomStartParameters   string `json:"CustomStartParameters,omitempty"`
-	EnableAsaPlugin         *bool  `json:"EnableAsaPlugin,omitempty"`
-	BindDomain              string `json:"BindDomain,omitempty"`
-	MessageOfTheDay         string `json:"MessageOfTheDay,omitempty"`
-	MessageOfTheDayDuration *int   `json:"MessageOfTheDayDuration,omitempty"`
-	PluginSnapshotInterval  *int   `json:"PluginSnapshotInterval,omitempty"`
+	ServerName              string  `json:"ServerName,omitempty"`
+	ServerPassword          *string `json:"ServerPassword,omitempty"`
+	ServerAdminPassword     string  `json:"ServerAdminPassword,omitempty"`
+	MaxPlayers              *int    `json:"MaxPlayers,omitempty"`
+	MapName                 string  `json:"MapName,omitempty"`
+	RCONPort                *int    `json:"RCONPort,omitempty"`
+	Port                    *int    `json:"Port,omitempty"`
+	ModIDs                  *string `json:"ModIDs,omitempty"`
+	SaveDir                 string  `json:"SaveDir,omitempty"`
+	ClusterID               string  `json:"ClusterID,omitempty"`
+	CustomStartParameters   string  `json:"CustomStartParameters,omitempty"`
+	EnableAsaPlugin         *bool   `json:"EnableAsaPlugin,omitempty"`
+	BindDomain              string  `json:"BindDomain,omitempty"`
+	MessageOfTheDay         string  `json:"MessageOfTheDay,omitempty"`
+	MessageOfTheDayDuration *int    `json:"MessageOfTheDayDuration,omitempty"`
+	PluginSnapshotInterval  *int    `json:"PluginSnapshotInterval,omitempty"`
 }
 
 // EnsureDirectories creates the standard subdirectory tree under baseDir.
@@ -258,8 +262,14 @@ func UpdateInstanceConfig(instanceName string, req UpdateInstanceConfigRequest) 
 		return fmt.Errorf("failed to apply config updates: %w", err)
 	}
 
-	currentConfig.ServerPassword = req.ServerPassword
-	currentConfig.ModIDs = req.ModIDs
+	// 曾经在这里无条件赋值，于是只提交部分字段的请求（只改快照周期、只改启动参数）
+	// 会把服务器密码和 Mod 列表一并清空。
+	if req.ServerPassword != nil {
+		currentConfig.ServerPassword = *req.ServerPassword
+	}
+	if req.ModIDs != nil {
+		currentConfig.ModIDs = *req.ModIDs
+	}
 
 	if req.MaxPlayers != nil {
 		currentConfig.MaxPlayers = *req.MaxPlayers
