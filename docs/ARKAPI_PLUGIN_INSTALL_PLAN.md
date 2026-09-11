@@ -1008,3 +1008,142 @@ Linux 上 `ModeSymlink` 判断 symlink 本来就是对的，这个 bug 只存在
 
 - WSL 里是 root，降权与权限相关的路径（junction 目标的共享 ACL 等）在 root 下通过，不代表在降权的普通用户下也成立。
 - 在 Linux 上经 Wine/Proton 真实拉起 ArkApi 并加载实例目录里的插件，尚未验证。
+
+### 16.6 P4、P5、P6（2026-09-11 已实施）
+
+| 阶段 | 落地位置 |
+|---|---|
+| P4 | `internal/config`：`DisabledArkApiPlugins`（ini 里一行逗号分隔，写在 `MessageOfTheDay` 之前）；新增 `ModifyInstanceConfig`（实例级锁下读-改-写），`UpdateInstanceConfig` 改为经它执行。`internal/plugindata/enable.go`（新）：`PluginsDisabled` / `Backups` 目录、`TryLockInstance`、`PrepareForStart`、`ReconcileLocked`、`FindInstancePlugin`、`DisabledPlugins`。`inspect.go`：列表扫描两处目录，新增 `enabled` / `pending`；读写配置对禁用的插件同样有效；`ValidatePluginName` 导出并加严（不许逗号、不许以 `.` 开头）。`internal/instance/server.go`：「迁移 → 落位 → 同步镜像 → 校验镜像」改由 `PrepareForStart` 在实例级锁下完成。`internal/arkapimanage`（新包）：`SetPluginEnabled`；接口 `PUT /api/plugins/:name/:plugin/enabled`。前端：插件表新增「启用」列与「待生效」标记 |
+| P5 | `pkg/archive/zip.go`（新）：`ExtractZip`。`internal/arkapimanage/validate.go`（新）：插件包与主程序包的校验器。主程序包的校验器已写好并有用例，供 P7 使用 |
+| P6 | `arkapimanage/stage.go`（暂存与 token）、`plugin.go`（多实例 apply、卸载、目标实例表）、`backup.go`（备份，每个插件保留 3 份）。`plugindata/carryover.go`（新）：`CarryOverPluginState`，更新与「从备份恢复」共用。`internal/webapi/pluginapi/arkapi.go`（新）：五个路由；`webapi.Start` 启动时清空暂存区。前端：`PluginInstallDialog.vue`、`PluginUninstallDialog.vue`、`PluginResultList.vue`（新）；`PluginDataPanel.vue` 增加「上传插件」和行内「更新」「卸载」；`api.js` 新增 6 个函数；`http.js` 的错误对象带上 `data`（422 的校验报告要用） |
+
+**与方案不一致之处**：
+
+1. **`DisabledArkApiPlugins` 不在 `UpdateInstanceConfigRequest` 里**（方案 §4.5 原写法是「更新请求用指针字段」）。
+   唯一的写入口是专用的启用/禁用接口和卸载。通用的配置 PATCH 如果能改它，就会绕过落位，出现「配置说禁用、插件照样加载」的状态。
+   用例 `TestPartialUpdateKeepsDisabledPlugins` 钉住：请求里带了这个字段也不生效。
+2. **启用/禁用时，「只写配置、不落位」的条件扩大了**：实例级锁拿不到、实例不在可启动状态、或进程存活，三者任一成立都算。
+   正在启动的实例同样只写配置，由它这一次或下一次的 `PrepareForStart` 落位。响应里的 `applied` 区分两种情况。
+3. **落位失败会中止启动**（方案只说「由 StartServer 落位」）。该禁用的插件挪不出去还照常启动，等于加载了用户明确禁用的插件。
+4. **旧布局实例**（升级时正在运行、尚未迁移）一律不能启用、禁用、安装、卸载，报 `ErrLegacyLayout`。方案只说列表只读。
+5. **API 版本按十进制小数比较，插件版本按点分段比较**。`MinApiVersion` 是 JSON 数字（1.19、2），主程序是 2.03，
+   所以 2.1 表示 2.10、高于 2.03；按点分段比较会得出相反的结论。首轮测试 `TestValidatePluginWarnings` 抓到了这个错误。
+   插件版本只用于「重装或降级」的提示，判断错了也不阻断。
+6. **安装时的临时组装目录放在实例的 `ArkApi/.install-*` 下**，不放在 `Plugins/` 里：放在 `Plugins/` 里的话，中途崩溃留下的半成品会被 ArkApi 当成一个插件去加载。
+7. 上传用 `MultipartReader` 把 file 字段直接流进暂存区，不经 gin 的 `FormFile`（那会先在系统临时目录落一份）。
+8. `kind=core` 的上传返回 400，主程序安装留给 P7。
+9. **`MinApiVersion` 警告目前不会出现**：主程序版本要等 P7 的安装清单才知道，`StagePlugin` 传的 `CoreVersion` 为空。
+10. `ExtractZip` 的错误一律作为校验错误返回（422），不区分「zip 本身损坏」和「条目不安全」。
+
+**变异验证**（每项都实测失败后恢复）：
+
+| # | 改坏什么 | 失败的用例 | 失败表现 |
+|---|---|---|---|
+| M7 | `PrepareForStart` 在调用 `syncMirror` 之前释放锁 | `TestPrepareForStartReconcilesThenSyncsUnderLock` | 同步镜像期间实例级锁没被持有 |
+| M8 | 备份目录名只看「插件名-」前缀，不严格匹配时间戳 | `TestBackupsPrunedWithoutTouchingOtherPlugins` | 插件 `P-1` 的备份被当成 `P` 最旧的一份删掉 |
+| M9 | `take` 不从登记里摘掉暂存包 | `TestStagingTokenLifecycle` | 同一个 token 可以 apply 第二次 |
+| M10 | `lockForPluginWrite` 去掉「实例是否在运行」的检查 | `TestApplyFailureIsolatedPerInstance`、`TestUninstallRejectsRunningInstance` | 运行中的实例被装上插件、被卸载插件 |
+
+M8 第一次**没有失败**：原用例里另一个插件叫 `P-Bar`，它的备份按名字排在所有时间戳之后，被当成「最新的一份」，裁剪永远轮不到它。
+用例改为 `P-1`（按名字排在最前）之后，变异才失败。
+
+**测试**：
+
+- 新增用例：`pkg/archive/zip_test.go`、`internal/arkapimanage/{validate,plugin}_test.go`、`internal/plugindata/{enable,carryover}_test.go`、
+  `internal/config/config_plugins_test.go`、`internal/webapi/pluginapi/arkapi_test.go`（HTTP 层：multipart 流式接收、422 带报告、413、targets 必须显式给出）。
+- Windows（PowerShell，`-race`）与 WSL Linux（`-race`）：archive、arkapimanage、plugindata、mirror、pluginapi 全部通过；config 在 Windows 上全部通过。
+- config 在 Linux 上有一个既有失败 `Test_SetMessageOfTheDay`：它读 `ASA_BASEDIR` 下写死的实例 `ces99`，属于 CLAUDE.md 记录的环境耦合用例，与本次改动无关。
+  本次新增的 config 用例在 Linux 上通过。
+- 前端 `npm run build` 通过。
+
+**仍未覆盖的部分**：
+
+- 前端没有自动化测试。三个对话框和面板的交互只经过构建检查，还没有在浏览器里实际操作过。
+- 真机：在 meijue-pve 上上传 TidyDamsASA、更新、卸载、从备份恢复，以及在游戏内确认启用/禁用确实生效，都还没有做。
+- 落位用的是 `os.Rename`。Windows 上插件目录里有文件被占用（杀毒软件、资源管理器）时会失败，启动随之中止并报出原因。
+
+### 16.7 P7（2026-09-11 已实施）
+
+| 位置 | 落地内容 |
+|---|---|
+| `internal/installer` | `BeginArkApiWrite`：与 Steam 更新共用「更新中」标记，只做互斥与置位、不检查存活实例（§4.6）。`beginServerFilesUpdate` 也改为标记已置位时拒绝（见下第 8 条） |
+| `internal/mirror` | `WithSyncLock`：主程序换位在 `mirrorSyncMu` 下执行 |
+| `internal/arkapimanage/manifest.go`（新） | 清单读写（原子写，`Core` 为空时删除文件）、`Status`（按 sha256 比对，哈希按路径+大小+修改时间缓存）、`installedCoreVersion` |
+| `internal/arkapimanage/core.go`（新） | `StageCore` / `ApplyCore` / `UninstallCore`；`coreTxn`：每一次搬动记日志，失败时倒序搬回，新建的空目录一并撤掉 |
+| `internal/arkapimanage` 其余 | `stage.go`：暂存包增加 `core` 类型，新增 `takeIf`、`StagedKind`，`ErrStageGone` 导出。`plugin.go`：`Result.Plugin`；`StagePlugin` 传入主程序版本，§16.6 第 9 条的 `MinApiVersion` 警告自此生效 |
+| `internal/webapi/pluginapi/arkapi.go` | `GET /api/arkapi`、`DELETE /api/arkapi`；上传接受 `kind=core`；apply 按 token 登记的类型分派 |
+| 前端 | `ArkApiCoreDialog.vue`（新）：上传、校验报告、可改的版本号、会被覆盖的游戏文件、附带插件逐个选择目标实例。`PluginDataPanel.vue` 顶部新增主程序卡片（状态、上传、卸载确认，写明「影响所有实例」），「未安装主程序」的提示只在本实例开着「启用ASA插件」时出现。`PluginResultList.vue` 显示插件名。`api.js` 新增 `getArkApiStatus`、`uninstallArkApi` |
+
+**与方案不一致之处**：
+
+1. **被覆盖的游戏原件存在 `{BaseDir}/arkapi/originals/`**，不放在 §6.5 示例里的 `backups/core-<时间戳>/overwritten/`。
+   `backups` 只保留最近 3 份，原件却要一直留到卸载：放在一起的话，更新几次之后唯一的原件就被裁掉了。
+   更新时原件路径从旧清单原样带过去，不重复备份。
+2. **`ArkApi/` 下也是逐文件替换**，没有按 §6.1「整目录组装后换位」。`ArkApi/` 里还有 `Cache/`（缓存预取，可达数百 MB）
+   和 `Plugins/`（junction 的源侧目录，未迁移实例的全局插件也在这里），整目录换位得把它们搬进新目录。
+   逐文件搬动加日志回滚，对 Win64 根目录与 `ArkApi/` 一视同仁。
+3. **卸载时，被覆盖过的游戏文件如果安装之后又被外部换过，就保留现状**，原件移入这次的备份（§6.2 原文是无条件还原）。
+   这种情况多半是 Steam 校验已经还原了游戏版本，拿旧原件覆盖只会把游戏文件退回旧版。判据是当前文件的哈希与清单不同。
+4. **卸载时 server-files 的 `ArkApi/Plugins/` 不空就保留不动**（§6.2 原文是 `ArkApi/` 整体移入备份）：
+   不空说明还有实例没迁移、正从这里加载插件。空的照常移走。
+5. **安装范围**：只装包根下的文件、`ArkApi/`（除 `Plugins/`、`Cache/`）、`Lib/`。包根下的其他目录不装，在报告里警告。
+   §6.1 的表格没有覆盖这些路径，照搬的话，包里一个 `ShooterGame/` 目录就会写进 Win64 下共享的 Mods 目录。
+6. **`ArkApi/`、`Lib/` 两级目录名取盘上的实际大小写**，把 §4.2 约束 5 延伸到了安装：否则在 Linux 上，
+   手工解压出来的 `arkapi/` 旁边会再多出一个 `ArkApi/`，镜像里出现两份主程序。卸载同样按实际大小写找。
+7. **清单里不记 `layout.legacy_server_plugins_retired_at`**（§6.5 示例）。退役全局插件的是 `plugindata`，
+   而 `plugindata` 不能依赖 `arkapimanage`。退役时间已经体现在备份目录名 `legacy-server-plugins-<时间戳>` 和 WARN 日志里。
+8. **`beginServerFilesUpdate` 也在标记已置位时拒绝**，原来不检查。两个写者共用一个布尔，先结束的一方会把标记清掉，
+   后一方就在「没有标记」的状态下改写 server-files，启动侧的 `IsUpdatingServerFiles` 随之失效。
+   这是 §4.6 互斥成立的前提；Steam 更新与 `VerifyServerInstallation` 之间原本也有同样的问题，一并修掉。
+9. **主程序 apply 在两种情况下保留暂存包**：附带插件的选择不合法（`takeIf` 在锁内先检查再取出），以及 server-files 正忙
+   （先拿写锁再取暂存包）。用户改了选择或等空闲后可以再确认。插件包 apply 仍然是「用过即删」。
+10. **apply 仍是一个接口**，按 token 登记的类型分派（`StagedKind`），请求体里两种包的字段并存，各取所需。
+11. 状态接口的 `modified_files` 不含 `config.json`：它本来就是给用户改的。
+12. 首次安装的结果里 `backup` 为空：没有换下任何 ArkApi 文件，游戏原件在 `originals/`，不在备份里。
+
+**变异验证**（每项都实测失败后恢复）：
+
+| # | 改坏什么 | 失败的用例 | 失败表现 |
+|---|---|---|---|
+| M11 | 覆盖游戏文件前不存原件 | `TestCoreInstallBacksUpGameFileAndUninstallRestoresIt` | 卸载后 msvcp140.dll 不是游戏原版 |
+| M12 | 失败时不回滚 | `TestCoreInstallRollsBackOnFailure` | server-files 停在半新半旧的状态 |
+| M13 | 卸载时不看原件是否被外部换过 | `TestCoreUninstallKeepsGameFileReplacedAfterInstall` | Steam 还原过的游戏文件被旧原件覆盖 |
+| M14 | `BeginArkApiWrite` 不检查标记 | `TestArkApiWriteExcludesServerFilesUpdate` | 两个主程序操作并行；Steam 更新期间允许主程序操作 |
+| M15 | `beginServerFilesUpdate` 不检查标记 | `TestArkApiWriteExcludesServerFilesUpdate` | 主程序操作期间允许开始 Steam 更新 |
+| M16 | 附带插件的选择被拒时也取走暂存包 | `TestCoreBundledPluginsOnlyIntoListedInstances` | 改了选择再确认时报「暂存的安装包不存在或已过期」 |
+| M17 | 卸载时连非空的全局 `Plugins/` 一起移走 | `TestCoreUninstallLeavesLegacyServerPlugins` | 未迁移实例正在用的全局插件被移走 |
+| M18 | 目录名不取盘上大小写 | `TestCoreInstallFollowsOnDiskCaseOfArkApiDir` | **只在 Linux（WSL）上失败**：多出第二个 `ArkApi/` 目录 |
+
+M18 在 Windows 上存活是预期的：NTFS 不区分大小写，`ArkApi/` 与 `arkapi/` 本来就是同一个目录。
+
+**测试**：
+
+- 新增 `internal/arkapimanage/core_test.go`（11 个用例：安装与还原、更新合并配置、两种回滚、外部改动、无清单卸载、
+  保留全局插件、附带插件只装进所列实例、server-files 正忙、版本号与 `MinApiVersion`、状态、盘上大小写），
+  `internal/installer/arkapi_write_test.go`，`pluginapi` 的 `TestCoreLifecycleOverHTTP`。
+  `TestUploadRequestErrors` 随之调整：`kind=core` 已开放，改为用未知类型测 400，另测非 zip 的主程序包返回 422。
+- Windows（PowerShell，`-race`）与 WSL Linux（`-race`）：arkapimanage、pluginapi、mirror、plugindata、installer（相关用例）全部通过；
+  `go build ./...` 与 `GOOS=linux CGO_ENABLED=0 go build ./...` 通过；前端 `npm run build` 通过。
+- **真实安装包**：用一个临时用例（跑完即删，没有提交），在 Windows 与 WSL 上把真实的 `AsaApi_2.03.zip`、`TidyDamsASA.zip`
+  走了一遍完整链路：主程序包 17 个文件，装进 Win64 11 个，没有被忽略的；`msvcp140.dll` 列为会被覆盖的游戏文件；
+  附带的 Permissions 校验通过，带 `FullName` 警告（D1）；安装时 Permissions 只装进所列实例 a，TidyDamsASA 只装进实例 b；
+  卸载主程序时移除 10 个文件、还原 1 个游戏文件，Win64 与安装前**逐文件一致**，两个实例的插件完好。
+
+**仍未覆盖的部分**：
+
+- 前端的主程序卡片、安装对话框、卸载确认都只经过构建检查，还没有在浏览器里实际操作过。
+- 真机：在 `E:\asa_server_data` 上用面板更新已有的手工安装、卸载再装回，确认各实例的插件 junction 随之移除和恢复、
+  游戏内插件照常加载，都还没有做。
+- 「先手工装过 ArkApi、再用面板更新」时，如果 `msvcp140.dll` 已经是 ArkApi 的版本，它会被当成游戏原件存下，
+  卸载时还原的也是它（与 D3 对无清单卸载「不删」的效果相同）。本机的 `msvcp140.dll` 是游戏版（557,136 字节，§3.5），不受影响。
+- 「更新中」标记只在进程内有效：另开一个进程跑 CLI（例如 `verify-arkapi`）看不到服务进程的标记。这与 Steam 更新的既有行为相同。
+
+### 16.8 P8（2026-09-11 已实施）
+
+| 文档 | 内容 |
+|---|---|
+| `docs/API_REFERENCE.md` | 新增「ArkApi 插件」一节：`/api/plugins/*` 4 个、`/api/arkapi/*` 7 个接口的请求、返回、权限与错误码；目录与端点统计随之更新（REST 45 → 56，合计 56 → 67） |
+| `CLAUDE.md` | 目录树加入 `plugindata/`、`arkapimanage/`、`webapi/pluginapi/`，`pkg/archive` 补上 `ExtractZip`；分层依赖加入 `plugindata`、`arkapimanage`；运行时目录加入 `instances/{name}/ArkApi/` 与 `{BaseDir}/arkapi/`；接口表加入两组路由 |
+| `docs/ARKAPI_PLUGIN_DATA_PLAN.md` | 末尾追加 §12，逐条对照被取代、被推翻、继续有效的部分（§15） |
+
+§13 的「后续」三项仍未开始：运行中实例的插件操作排队到下次启动执行；插件数据纳入备份；删除已退役的搬运代码。

@@ -418,3 +418,27 @@ func rescuePluginFiles(instanceName string) {
 | 2 | `override.go:85` 的 `strings.ToLower` | 路径包含判定折叠了大小写，Linux 上会把 `/a/DB` 与 `/a/db` 判为同一路径，导致 `DbPathOverride` 被误判成「指向实例目录内」而继续搬运。同样只在支持 ArkApi 后成为真 bug |
 | 3 | `webapi/pluginapi` 与 `PluginDataPanel.vue` | Linux 上应回执明确的「本平台不支持 ArkApi」而**不是空数据** —— 空数据会让用户以为是自己配错了。前端据此隐藏整个面板 |
 | 4 | `PluginSnapshotInterval` | Linux 上读写正常但永不生效。**保持存在不要删** —— 实例配置在两平台间迁移时字段消失更难解释 |
+
+---
+
+## 12. 已被 `ARKAPI_PLUGIN_INSTALL_PLAN.md` 取代的部分（2026-09-11 追加）
+
+本文的核心机制已被 [`ARKAPI_PLUGIN_INSTALL_PLAN.md`](./ARKAPI_PLUGIN_INSTALL_PLAN.md) 取代，并已实施：插件整个放进实例目录
+`instances/{name}/ArkApi/Plugins/`，镜像里的 `Win64/ArkApi/Plugins` 是指向它的例外 junction，插件直接读写实例目录，
+不再需要启停搬运，也就没有崩溃窗口。按「PLAN 文档只增不改」的惯例，上文原样保留，逐条对照如下：
+
+| 本文内容 | 现状 |
+|---|---|
+| §1、§4.3–§4.5、§4.7 启停搬运（Inject / Reclaim / Rescue） | **取代**。启动路径不再调用 Inject；Rescue 只供一次性迁移使用；`harvest` / `Inject` 开头有结构性关断（镜像里的 Plugins 是链接，或实例已迁移，就直接返回）。Reclaim 仍在停止路径上，只为升级那一刻正在运行、尚未迁移的实例服务，对已迁移的实例是空操作 |
+| §5 同步例外 `IsProtectedRelPath` | 保留但不再起作用：同步走到 junction 就 `SkipDir`，进不到 Plugins。随搬运代码一起删除 |
+| §6「不采纳整目录 junction」 | **推翻**，理由见该文 §3.4：镜像的 Win64 本来就是每实例一份真实拷贝，磁盘占用不变；「更新时回灌非数据文件」正是按实例安装、更新插件这个功能本身 |
+| §4.2 文件分类（SQLite 按文件头识别、文件组推导） | 继续有效：插件更新与「从备份恢复」时据此决定哪些数据文件要带过去 |
+| §4.6 保序递归配置合并 | 继续有效：插件更新与 ArkApi 主程序 `config.json` 更新时使用 |
+| §4.8 `DbPathOverride` 识别 | 继续有效，仅用于展示；「指向实例内部」的判定根目录改为 `ArkApi/Plugins/{P}`。指向旧 `plugins/{P}` 的值在迁移时被清空或改写（该文 §4.4 第 2 步第 5 项） |
+| §4.9 在线快照 | 继续有效，改为扫描实例的 `ArkApi/Plugins/`，写进 `ArkApi/PluginSnapshots/{P}/` |
+| §8 第 8 条「库大到搬运不可接受时改用 junction」 | 已经提前成为默认 |
+| §10.2「源侧配置更新到不了镜像」 | 随之消失：插件更新时 `config.json` 在实例目录里就地合并，新版本的配置键立刻可见 |
+| §11 表格第 3 条「Linux 上 pluginapi 应回执本平台不支持」 | 已被 `LINUX_COMPATIBILITY_PLAN.md` 推翻（ArkApi 在 Linux 上已经是目标），**不要照做**；第 1、2 条已实施 |
+
+迁移之后，实例目录里旧的 `plugins/` 被改名为 `plugins.legacy-<时间戳>/` 保留，不再读写；server-files 里的全局插件在所有实例都
+迁移完之后，移入 `{BaseDir}/arkapi/backups/legacy-server-plugins-<时间戳>/`。
