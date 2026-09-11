@@ -7,9 +7,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jinzhu/copier"
@@ -44,6 +46,13 @@ type InstanceConfig struct {
 	// PluginSnapshotInterval 是 ArkApi 插件 SQLite 数据库在线快照的周期（分钟）。
 	// 0 表示用默认值（5 分钟），负数表示关闭。详见 internal/plugindata。
 	PluginSnapshotInterval int
+	// DisabledArkApiPlugins 是本实例禁用的 ArkApi 插件（插件目录名）。它是启用状态的唯一真相，
+	// 插件目录在 ArkApi/Plugins 与 ArkApi/PluginsDisabled 之间的位置由它推导
+	// （docs/ARKAPI_PLUGIN_INSTALL_PLAN.md §4.5）。
+	//
+	// 只经 plugindata / arkapimanage 的专用入口修改，**不在** UpdateInstanceConfigRequest 里，
+	// 也**不参与**实例间配置同步——插件的启用状态严格按实例（方案 §1.1）。
+	DisabledArkApiPlugins []string
 }
 
 // UpdateInstanceConfigRequest 是实例配置的**部分更新**：没传的字段一律不改。
@@ -170,6 +179,8 @@ func LoadInstanceConfig(instanceName string) (*InstanceConfig, error) {
 			if val, err := strconv.Atoi(value); err == nil {
 				config.PluginSnapshotInterval = val
 			}
+		case "DisabledArkApiPlugins":
+			config.DisabledArkApiPlugins = splitPluginList(value)
 		}
 	}
 
@@ -209,6 +220,7 @@ EnableAsaPlugin=%v
 BindDomain=%s
 MessageOfTheDayDuration=%d
 PluginSnapshotInterval=%d
+DisabledArkApiPlugins=%s
 MessageOfTheDay=%s
 `,
 		config.ServerName,
@@ -226,6 +238,7 @@ MessageOfTheDay=%s
 		config.BindDomain,
 		config.MessageOfTheDayDuration,
 		config.PluginSnapshotInterval,
+		strings.Join(config.DisabledArkApiPlugins, ","),
 		config.MessageOfTheDay,
 	)
 
@@ -236,14 +249,48 @@ MessageOfTheDay=%s
 	return nil
 }
 
-// UpdateInstanceConfig updates the configuration for an instance with partial updates
-func UpdateInstanceConfig(instanceName string, req UpdateInstanceConfigRequest) error {
-	// Load current config
-	currentConfig, err := LoadInstanceConfig(instanceName)
+// splitPluginList 解析 DisabledArkApiPlugins 的逗号分隔列表，去空白、去空项、去重。
+func splitPluginList(value string) []string {
+	var out []string
+	for _, p := range strings.Split(value, ",") {
+		p = strings.TrimSpace(p)
+		if p != "" && !slices.Contains(out, p) {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// instanceConfigLocks 串行化同一个实例上的「读-改-写」。instance_config.ini 是整文件重写的，
+// 两个并发的部分更新（例如面板上拨插件开关的同时卸载插件）各自读到旧内容再写回，
+// 后写的会把先写的改动冲掉。
+var instanceConfigLocks sync.Map
+
+// ModifyInstanceConfig 在实例级锁下加载配置、交给 fn 修改、再写回。fn 返回错误时不写。
+func ModifyInstanceConfig(instanceName string, fn func(*InstanceConfig) error) error {
+	v, _ := instanceConfigLocks.LoadOrStore(instanceName, &sync.Mutex{})
+	mu := v.(*sync.Mutex)
+	mu.Lock()
+	defer mu.Unlock()
+
+	cfg, err := LoadInstanceConfig(instanceName)
 	if err != nil {
 		return fmt.Errorf("failed to load current config: %w", err)
 	}
+	if err := fn(cfg); err != nil {
+		return err
+	}
+	return SaveInstanceConfig(instanceName, cfg)
+}
 
+// UpdateInstanceConfig updates the configuration for an instance with partial updates
+func UpdateInstanceConfig(instanceName string, req UpdateInstanceConfigRequest) error {
+	return ModifyInstanceConfig(instanceName, func(currentConfig *InstanceConfig) error {
+		return applyConfigUpdate(currentConfig, req)
+	})
+}
+
+func applyConfigUpdate(currentConfig *InstanceConfig, req UpdateInstanceConfigRequest) error {
 	stringUpdates := struct {
 		ServerName            string
 		ServerAdminPassword   string
@@ -289,9 +336,7 @@ func UpdateInstanceConfig(instanceName string, req UpdateInstanceConfigRequest) 
 	if req.PluginSnapshotInterval != nil {
 		currentConfig.PluginSnapshotInterval = *req.PluginSnapshotInterval
 	}
-
-	// Save updated config
-	return SaveInstanceConfig(instanceName, currentConfig)
+	return nil
 }
 
 // GetAvailableInstances returns a list of all available instances
