@@ -119,6 +119,31 @@
   }
 }
 
+.t-dialog__modal-default.t-dialog__fullscreen {
+  display: flex;
+  flex-direction: column;
+
+  .t-dialog__footer--fullscreen {
+    padding: var(--td-comp-paddingLR-l);
+    min-height: unset !important;
+    flex: 0 0 auto;
+    border-top: 1px solid rgba(229, 229, 229, 1);
+  }
+
+  .t-dialog__header--fullscreen {
+    padding: 0 var(--td-comp-paddingLR-xl) !important;
+    min-height: unset !important;
+    flex: 0 0 var(--td-comp-size-xxxl);
+  }
+
+  .t-dialog__body--fullscreen {
+    padding: var(--td-comp-paddingLR-l) var(--td-comp-paddingTB-l) !important;
+    height: unset !important;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+}
+
 .t-dialog--default {
   padding: var(--td-comp-paddingTB-l) var(--td-comp-paddingLR-l);
 
