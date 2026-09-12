@@ -5,17 +5,42 @@
       @confirm="handleConfirm"
       @close="handleCancel"
       :confirm-loading="saving"
-      mode="full-screen"
+      :mode="mode"
+      :width="width"
+      :top="top"
   >
-    <div ref="editorContainer" style="width: 100%; height: 100%"></div>
+    <div ref="editorContainer" :style="editorContainerStyle"></div>
   </t-dialog>
 </template>
 
 <script setup>
-import {ref, watch, nextTick, onUnmounted} from 'vue'
+import {ref, watch, nextTick, onUnmounted, computed} from 'vue'
 import * as monaco from 'monaco-editor'
 
+const editorContainerStyle = computed(() => {
+  if (props.mode === 'full-screen') {
+    return "width: 100%; height: 100%"
+  }
+  return `width: 100%; height: ${props.containerHeight}`
+})
+
 const props = defineProps({
+  containerHeight: {
+    type: String,
+    default: "65vh",
+  },
+  top: {
+    type: String,
+    default: "5vh",
+  },
+  mode: {
+    type: String,
+    default: 'full-screen',
+  },
+  width: {
+    type: String,
+    default: "840px",
+  },
   visible: {
     type: Boolean,
     default: false

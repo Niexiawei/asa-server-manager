@@ -231,6 +231,8 @@
         :content="editingContent"
         language="json"
         :saving="saving"
+        mode="modal"
+        width="65vw"
         @save="saveConfig"
     />
 
