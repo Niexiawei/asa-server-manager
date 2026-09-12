@@ -210,3 +210,37 @@ func ListAliveInstances() []string {
 	}
 	return alive
 }
+
+// RunningInstance 是一个在跑的实例及其游戏进程 PID。
+type RunningInstance struct {
+	Name string
+	PID  int
+}
+
+// RunningInstances 列出当前在跑的实例，并把游戏进程 PID 一并带出来。
+//
+// 与 ListAliveInstances 的差别只在于那个 PID：调用方（资源采样器的目标源、
+// /api/server/all-info 的载荷组装）都要按 PID 去采样，各自再读一遍 PID 文件是白读。
+// 判据同 IsInstanceProcessAlive 的方法 2（PID 文件 + 进程存活 + 镜像名/cmdline 核对），
+// **不含端口判据**——端口只能回答「在不在跑」，给不出 PID。
+// 读取实例列表失败时返回 nil，调用方据此不阻断。
+func RunningInstances() []RunningInstance {
+	instances, err := cfgpkg.GetAvailableInstances()
+	if err != nil {
+		return nil
+	}
+
+	var running []RunningInstance
+	for _, name := range instances {
+		pid, err := GetInstancePID(name)
+		if err != nil || pid <= 0 {
+			continue
+		}
+		exited, err := procx.IsProcessExited(uint32(pid))
+		if err != nil || exited || !isExpectedProcess(uint32(pid)) {
+			continue
+		}
+		running = append(running, RunningInstance{Name: name, PID: pid})
+	}
+	return running
+}

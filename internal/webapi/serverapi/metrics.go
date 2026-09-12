@@ -1,9 +1,7 @@
 package serverapi
 
 import (
-	cfgpkg "asa-server/internal/config"
 	procpkg "asa-server/internal/process"
-	"asa-server/pkg/procx"
 	"asa-server/pkg/serverinfo"
 	"fmt"
 	"net/http"
@@ -15,34 +13,15 @@ import (
 
 // buildAllInstancesPayload 组装 /api/server/all-info 的一帧。
 //
-// 采样全部来自 serverinfo 的单例采样器：handler 只负责「哪些实例在跑」这件领域事，
-// 再把 PID 告诉采样器。以前这里每个 SSE 连接每轮都要自己 cpu.Percent(200ms) 阻塞一次、
-// 各自 NewProcess 取「创建至今的平均 CPU」，多客户端下是重复且不准的。
+// 采样全部来自 serverinfo 的单例采样器，handler 只做 JSON 组装。以前这里每个 SSE
+// 连接每轮都要自己 cpu.Percent(200ms) 阻塞一次、各自 NewProcess 取「创建至今的平均
+// CPU」，多客户端下是重复且不准的。
+//
+// 「哪些实例在跑」由 procpkg.RunningInstances 回答，采样器的目标源
+// （internal/webapi/actions.go）问的是**同一个函数**：各写一份判据的话，会出现
+// 「载荷里显示在跑、曲线却是空洞」这种只能靠对时间轴才发现的错位。
 func buildAllInstancesPayload() (map[string]any, error) {
-	instances, err := cfgpkg.GetAvailableInstances()
-	if err != nil {
-		return nil, fmt.Errorf("Failed to get instances: %v", err)
-	}
-
-	type runningInstance struct {
-		name string
-		pid  int
-	}
-	running := make([]runningInstance, 0, len(instances))
-	targets := make([]serverinfo.Target, 0, len(instances))
-	for _, name := range instances {
-		pid, err := procpkg.GetInstancePID(name)
-		if err != nil {
-			continue
-		}
-		exited, err := procx.IsProcessExited(uint32(pid))
-		if err != nil || exited {
-			continue
-		}
-		running = append(running, runningInstance{name: name, pid: pid})
-		targets = append(targets, serverinfo.Target{Name: name, PID: int32(pid)})
-	}
-	serverinfo.SetTargets(targets)
+	running := procpkg.RunningInstances()
 
 	snap := serverinfo.Snapshot()
 	if snap == nil {
@@ -52,12 +31,12 @@ func buildAllInstancesPayload() (map[string]any, error) {
 	cores := snap.Host.CoreCount
 	instancesData := make([]any, 0, len(running))
 	for _, ri := range running {
-		rates, ok := snap.ByName[ri.name]
+		rates, ok := snap.ByName[ri.Name]
 		if !ok {
-			// 实例刚启动，采样器还没赶上这一轮（目标是本次才登记的）。
+			// 实例刚启动，采样器还没赶上这一轮（它下一个周期才会发现这个目标）。
 			// 直接补一次一次性采样，保证载荷结构永远完整——前端的
 			// formatInstanceData 会对 cpu_percent 调 toFixed，给 null 会当场抛异常。
-			info, err := serverinfo.GetProcessInfo(int32(ri.pid))
+			info, err := serverinfo.GetProcessInfo(int32(ri.PID))
 			if err != nil {
 				continue
 			}
@@ -76,9 +55,9 @@ func buildAllInstancesPayload() (map[string]any, error) {
 		}
 
 		instanceData := map[string]any{
-			"instance":          ri.name,
+			"instance":          ri.Name,
 			"running":           true,
-			"pid":               ri.pid,
+			"pid":               ri.PID,
 			"cpu_percent":       rates.CPUPercent,
 			"cpu_total_percent": cpuTotal,
 			"memory_used":       rates.MemoryUsed,

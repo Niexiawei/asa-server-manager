@@ -26,8 +26,9 @@ const (
 	// 曲线上每个点只代表最近一个采样窗口，中间的字节数被丢弃，那是抽样不是平均。
 	SampleInterval = 2 * time.Second
 
-	// targetTTL 目标进程的存活期。多个 SSE 连接会各自调用 SetTargets，
-	// 取并集 + TTL 收敛，避免两个连接互相抹掉对方的目标。
+	// targetTTL 目标进程的存活期。目标源每轮给的是全量，取并集 + TTL 收敛：
+	// 某一轮漏报（读 PID 文件失败、目录暂时读不到）不会立刻丢掉跟踪状态，
+	// 而丢状态的代价是下一轮要重建 CPU 基线（procStateLocked 首次 Percent(0) 恒为 0）。
 	targetTTL = 3 * SampleInterval
 )
 
@@ -81,6 +82,17 @@ type Rates struct {
 	ByName    map[string]ProcRates
 }
 
+// TargetSource 回答「现在有哪些进程需要盯着」，由采样器**每个周期**调用一次。
+//
+// 由组合根注入而非采样器自己去找：采样器不认识「实例」「PID 文件」这些领域概念，
+// 同 NetSource（netsource.go）。注入而非由外部推送则是为了让采集与前端连接解耦——
+// 以前目标全靠 /api/server/all-info 的 SSE handler 每轮推，没人看面板时目标为空，
+// 实例级历史整段是空的（见 docs/METRICS_HISTORY_ALWAYS_ON_PLAN.md §1）。
+//
+// ⚠️ 它跑在采样 goroutine 上：一旦阻塞，整轮 host 采样跟着晚点，时间轴就不均匀了。
+// 实现里只许有「读目录 + 读 PID 文件 + 存活判断」这类立即返回的判据。
+type TargetSource func() []Target
+
 // Options 采样器的可选依赖。全部可为零值。
 type Options struct {
 	// History 为历史数据的持久化后端（Badger 实现在 internal/state）。
@@ -89,6 +101,9 @@ type Options struct {
 
 	// Interval 采样周期，零值取 SampleInterval。
 	Interval time.Duration
+
+	// Targets 为目标源，为 nil 时采样器没有任何目标，只采 host 指标。
+	Targets TargetSource
 }
 
 type trackedTarget struct {
@@ -129,7 +144,8 @@ type netCounters struct {
 }
 
 type Sampler struct {
-	interval time.Duration
+	interval  time.Duration
+	targetSrc TargetSource
 
 	mu      sync.Mutex
 	targets map[string]trackedTarget
@@ -163,11 +179,12 @@ func StartSampler(ctx context.Context, opts Options) *Sampler {
 			interval = SampleInterval
 		}
 		s := &Sampler{
-			interval: interval,
-			targets:  make(map[string]trackedTarget),
-			procs:    make(map[int32]*procState),
-			hist:     newHistory(opts.History, interval),
-			done:     make(chan struct{}),
+			interval:  interval,
+			targetSrc: opts.Targets,
+			targets:   make(map[string]trackedTarget),
+			procs:     make(map[int32]*procState),
+			hist:      newHistory(opts.History, interval),
+			done:      make(chan struct{}),
 		}
 		if n, err := cpu.Counts(true); err == nil {
 			s.coreCount = n
@@ -201,13 +218,15 @@ func Snapshot() *Rates {
 	return s.latest.Load()
 }
 
-// SetTargets 告知采样器「现在需要盯着哪些进程」。
-// 多个 SSE 连接会各自每轮调用，语义是并集 + TTL（见 targetTTL）。
-func SetTargets(targets []Target) {
-	s := globalSampler.Load()
-	if s == nil {
+// refreshTargets 向目标源要一次全量，语义是并集 + TTL（见 targetTTL）。
+func (s *Sampler) refreshTargets() {
+	if s.targetSrc == nil {
 		return
 	}
+	s.applyTargets(s.targetSrc())
+}
+
+func (s *Sampler) applyTargets(targets []Target) {
 	now := time.Now()
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -244,6 +263,10 @@ func (s *Sampler) run(ctx context.Context) {
 }
 
 func (s *Sampler) sample() {
+	// 先问目标源再采：拉取周期必须等于采样周期。降频会让目标在两次发现之间
+	// 撞上 targetTTL（只有 3 个周期）过期，曲线变成断续锯齿。
+	s.refreshTargets()
+
 	now := time.Now()
 
 	s.mu.Lock()

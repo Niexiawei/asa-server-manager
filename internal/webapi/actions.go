@@ -11,6 +11,7 @@ import (
 	"asa-server/internal/frpmanage"
 	instancepkg "asa-server/internal/instance"
 	"asa-server/internal/parseserver"
+	procpkg "asa-server/internal/process"
 	"asa-server/internal/realtime"
 	"asa-server/internal/runner"
 	"asa-server/internal/schedule"
@@ -162,7 +163,10 @@ func (s *APIServer) Start() error {
 
 	// 资源采样器必须排在状态管理器之后：历史数据借的就是那个 Badger 实例。
 	// 它是 all-info / metrics 接口的唯一数据源，SSE handler 不再自己采样。
-	serverinfo.StartSampler(s.serverCtx, serverinfo.Options{History: statepkg.MetricsStore()})
+	serverinfo.StartSampler(s.serverCtx, serverinfo.Options{
+		History: statepkg.MetricsStore(),
+		Targets: runningInstanceTargets,
+	})
 	startProcNet()
 
 	s.startStateChangeDispatcher(s.serverCtx)
@@ -298,6 +302,24 @@ func (s *APIServer) Stop() error {
 	}
 
 	return nil
+}
+
+// runningInstanceTargets 是资源采样器的目标源：每个采样周期回答一次
+// 「现在有哪些实例在跑」。
+//
+// 接在组合根而不是让 pkg/serverinfo 自己去找：它不认识实例与 PID 文件（同 NetSource）。
+// 这样采集与前端连接彻底解耦——以前目标全靠 /api/server/all-info 的 SSE handler 每轮推，
+// 没人开面板时实例级历史整段是空的，见 docs/METRICS_HISTORY_ALWAYS_ON_PLAN.md。
+//
+// 与 all-info 载荷组装（serverapi/metrics.go）问的是同一个 procpkg.RunningInstances，
+// 两处判据必须同源。
+func runningInstanceTargets() []serverinfo.Target {
+	running := procpkg.RunningInstances()
+	targets := make([]serverinfo.Target, 0, len(running))
+	for _, ri := range running {
+		targets = append(targets, serverinfo.Target{Name: ri.Name, PID: int32(ri.PID)})
+	}
+	return targets
 }
 
 // startAuthHousekeeping 周期性清理过期的令牌吊销记录并裁剪审计日志。
