@@ -227,7 +227,14 @@ func SetTrackedPIDs(pids []int32) { ... }
   由 handler 按「距上次发布的 Δt」自行求速率。
 - **`SetTrackedPIDs` 的所有权与并发**：多条 SSE 连接会并发调用，语义定为**「本轮全量覆盖」**且
   以**并集 + TTL（如 3 个采样周期未再出现即淘汰）**收敛，避免两个连接互相抹掉对方的 PID。
-  没有任何客户端时列表为空，采样器**只保留 host 指标的采集**（或整体转入空闲，见下条）。
+  ~~没有任何客户端时列表为空，采样器**只保留 host 指标的采集**（或整体转入空闲，见下条）。~~
+
+  > **2026-09-12 订正（本条最后一句已被推翻）**：「没有客户端就只采 host」的直接后果是
+  > **没人开面板时实例级 30 分钟历史整段是空的**——环形缓冲里压根没有实例条目，落盘时
+  > 全 NaN 的块又被 `allNaN` 跳过，于是盘上也没有。目标来源已从「SSE handler 每轮推」
+  > 改为「采样器每轮向注入的 `TargetSource` 拉」（`Options.Targets`，组合根在
+  > `internal/webapi/actions.go` 注入 `runningInstanceTargets`），导出的 `SetTargets` 随之删除。
+  > 采集从此与前端连接无关。见 `docs/METRICS_HISTORY_ALWAYS_ON_PLAN.md`。
 - **首帧必然缺速率**：handler 是「先 `SetTrackedPIDs` 再 `Snapshot()`」，新 PID 至少要等一个采样周期
   才有 prev 可做差。**约定首帧该 PID 的 `disk_io`/`net_io` 为 `null`**，前端按断点处理（§4.3）。
 - **`Snapshot()` 返回的对象一经发布即只读**：`ByPID` map 不得在发布后写入（并发读写 map 会直接崩）。
@@ -235,6 +242,8 @@ func SetTrackedPIDs(pids []int32) { ... }
 - **空闲策略**：无 SSE 客户端时采样器仍每 2s 打一次 `disk.IOCounters` + `net.IOCounters`。
   可接受（开销极小），但要写明是**有意为之**（保证下一个客户端接入时立刻有 prev 可做差），
   否则容易被后人「优化」成 lazy 而丢掉首帧。
+  **2026-09-12 起这条扩大到实例级**：无客户端时同样每 2s 枚举在跑实例并采样，理由同上
+  且更强——实例历史本身就是要给「打开面板之前那 30 分钟」用的。
 - **生命周期接线点**：`StartSampler` 在 `internal/webapi/actions.go` 的 `APIServer.Start()`（约 :134）
   调一次，`APIServer.Stop()`（约 :224）里停采样并 `procnet.Close()`。
   注意 **Windows 服务模式与 GUI 模式走的不是同一条启动路径**；`internal/gui/gui.go:111` 直接调
@@ -694,7 +703,7 @@ P1–P2（后端）与 P3（前端封装）可并行。P4 只依赖 CPU/内存�
 
 | 文件 | 内容 |
 |---|---|
-| `pkg/serverinfo/sampler.go` | 单例采样器：2s 周期、host 磁盘/网络速率、每目标进程 CPU/内存/IO、`Snapshot()`/`SetTargets()`/`StartSampler()`/`StopSampler()` |
+| `pkg/serverinfo/sampler.go` | 单例采样器：2s 周期、host 磁盘/网络速率、每目标进程 CPU/内存/IO、`Snapshot()`/`SetTargets()`/`StartSampler()`/`StopSampler()`（**`SetTargets` 已于 2026-09-12 删除，改为注入 `Options.Targets`**，见 `docs/METRICS_HISTORY_ALWAYS_ON_PLAN.md`） |
 | `pkg/serverinfo/history.go` | 30 分钟环形缓冲 + 每 5 分钟分块落盘 + 启动恢复 + `GetHistory()`；`HistoryStore` 接口在此定义 |
 | `pkg/serverinfo/filter_{windows,linux}.go` | 磁盘/网卡筛选（Linux 走 `/sys/block`、`/sys/class/net` 的 realpath 判据） |
 | `pkg/serverinfo/netsource.go` | `NetSource` 注入点，P7 的 eBPF 实现挂这里；未注入时实例网络恒 `null` |
