@@ -1,8 +1,15 @@
-# 用 ark-asa-file-sync 替换 Syncthing 的可行性评估与实施计划
+# 用 simple-file-sync 替换 Syncthing 的可行性评估与实施计划
 
-> 状态：**评估稿**，尚未开工。评估对象是 `D:\golang\ark-asa-file-sync`
-> （go.mod 模块名 **`github.com/Niexiawei/simple-file-sync`**，远端 `git@github.com:Niexiawei/simple-file-sync.git`）
+> 状态：**评估稿**，尚未开工。评估对象是同步库 **simple-file-sync**（本机工作副本 `D:\golang\ark-asa-file-sync`，目录名是历史遗留；
+> go.mod 模块名 **`github.com/Niexiawei/simple-file-sync`**，远端 `git@github.com:Niexiawei/simple-file-sync.git`）
 > 在本仓库 2026-09-12 时点的代码，以及本仓库 `internal/syncthingmanage/` 的现状。
+>
+> **2026-09-14 更新：同步库已去 ARK 化并统一改名**（破坏性变更，接入以 `v0.3.0`+ 为准，详见 §7-12）。
+> 该库定位为与 syncthing 同类的**通用文件同步库**，不再包含任何 ARK 专属的命名、默认值或逻辑：
+> proto 包 `filesync.v1`、环境变量 `FILESYNC_*`、指标 `filesync_*`、agent 元数据目录 `.filesync/`、协调端数据库 `filesync.db`。
+> 本文里所有 ARK 专属的取舍——clusters 参数、存档 Root 与实例生命周期绑定、排除哪些 ARK 文件——
+> 都是**本仓库 `internal/filesyncmanage` 的职责**，用同步库的通用 SDK 能力（`AddRoot`/`RemoveRoot`、`Exclude`、
+> `MaxFileBytes`、`FlushNow`/`WaitApplied`）实现，**不要推回同步库**。
 >
 > ⚠️ 评估时**不要读同步库的 `CLAUDE.md` §"Known limitations"**——那一段严重过时
 > （声称"无 TLS、无删除传播、无冲突策略、无周期扫描"，这四项全部已实现）。
@@ -42,7 +49,7 @@
 
 ---
 
-## 3. ark-asa-file-sync 现状盘点（实测）
+## 3. simple-file-sync 现状盘点（实测）
 
 **本机实测（2026-09-12，Windows）**：`go build ./...` 通过；
 `go test ./pkg/... ./internal/agent/ ./internal/coordinator/ -count=1` 全部 `ok`
@@ -54,7 +61,11 @@
 
 已实现（M0–M4，逐条对过源码）：
 
-- **mTLS 强制**（`RequireAndVerifyClientCert`）+ 集群共享客户端证书 + 集群 token 双重鉴权；`internal/pki` 提供 CA/证书/token 的生成与热重载。
+- **mTLS 强制**（`RequireAndVerifyClientCert`）；`internal/pki` 提供 CA/证书的生成与热重载。
+  ⚠️ **鉴权模型正在被替换**（2026-09-12 拍板，同步库 `docs/证书自动续期计划.md` M7-4）：
+  原先是"集群共享客户端证书 + 集群 token"双重鉴权，新模型是**引导证书（人工分发，只能换证）
+  + 每节点证书（协调端签发，绑 `node_id`）**，**集群 token 整体删除**。
+  本文下面凡是提到 token 的地方都已按新模型改写。
 - **删除传播**（墓碑）、**冲突裁决**（CAS + LWW + `*.sync-conflict-*` 副本，`MaxConflicts` 默认 3）、**周期性全量扫描兜底**（`ScanInterval`）、**变更事件聚合器**（`WatchDelay` 静默期 / `WatchTimeout` 硬上限）。
 - **断点续传**：上传偏移量落 SQLite（`next_offset`），下载落本地 `.part`；**SHA-256 全文校验**后才原子替换。
 - **崩溃自愈**：`store_epoch` 机制能识别"Coordinator 从旧备份恢复"，触发全量核对而不是静默覆盖。
@@ -68,7 +79,7 @@
 
 ## 4. 与 Syncthing 的能力对照
 
-| 维度 | Syncthing | ark-asa-file-sync | 对本项目的影响 |
+| 维度 | Syncthing | simple-file-sync | 对本项目的影响 |
 |---|---|---|---|
 | 拓扑 | P2P 直连 + NAT 打洞，中继兜底 | **必须**经 Coordinator 中转 | ⚠️ 要自建公网节点，带宽=同步量×(节点数-1) |
 | 部署形态 | 独立进程 + XML 配置 | **库内调用**，配置由宿主定义 | ✅ 与 frpmanage 一致 |
@@ -78,7 +89,7 @@
 | 初始同步 | 新设备加入会拉全量 | **收不到历史文件** | ⚠️ 阻断项，见 §6.1 |
 | 版本保留 | 多种 versioning 策略 | 只保留当前版本（GC 删历史对象） | 可接受：本程序自己有 `backup` |
 | 进度可见性 | 自带 GUI | `Stats()` 结构化数据，可直接渲染 | ✅ 比现在强得多 |
-| 鉴权 | 自成体系 | 集群共享证书 + token，由宿主保管 | ✅ 可并入本程序 `auth` |
+| 鉴权 | 自成体系 | 引导证书人工分发一次，之后每节点一张协调端签发的证书（M7-4 后） | ✅ 可并入本程序 `auth`；表单只需粘一行 join blob |
 | 迁移编排 | 无 | `FlushNow` + `WaitApplied` | ✅ 本项目独有需求，syncthing 给不了 |
 
 ---
@@ -135,7 +146,7 @@
 
 ### 6.2 没有任何忽略/包含规则 🔴
 
-`manifest.Scan` 只排除三类：目录、非常规文件、`*.sync-conflict-*`；`watch()` 另外跳过 `.ark-sync` 元数据目录。
+`manifest.Scan` 只排除三类：目录、非常规文件、`*.sync-conflict-*`；`watch()` 另外跳过 `.filesync` 元数据目录（`v0.3.0` 之前叫 `.ark-sync`）。
 **没有 `.stignore` 等价物，没有 include/exclude，没有大小上限。**
 
 **对本项目意味着什么**：
@@ -145,6 +156,12 @@
 
 **修复方向**：`RootConfig` 加 `Exclude []string`（glob 或前缀），在 `manifest.Scan`、`watch()`、
 以及**下载落盘前**三处同时生效（只在扫描侧过滤会被对端推来的文件绕过）。
+
+**✅ 已于 2026-09-12 修复**（同步库 M5-2 + M5-3，见 `simple-file-sync/docs/功能迭代.md`）。
+实际落地比这里写的多三处：除扫描/watch/落盘外，还有 watch 建 watcher 时对被排除目录 `SkipDir`、
+单文件重扫、以及**删除上报**。最后那处是本节没想到的——漏掉它，被排除的文件被删除时仍会上报删除，
+在协调端凭空生成墓碑，再扩散去删掉**其他节点上真实存在的同名文件**。
+大小闸门同期完成：Agent 侧 `MaxFileBytes` + 协调端 `--max-file-bytes`，两道语义不同、都要。
 
 ### 6.3 向"运行中"实例的存档目录落盘会失败或损坏存档 🔴
 
@@ -167,10 +184,11 @@
 
 **结论**：这条直接支持 §1 的"首个落地范围只做 clusters"——集群文件是 KB 级，量级差三个数量级。
 
-**存档同步的出路已立项**：同步库 `docs/功能迭代.md` 的 **M6 块级增量传输**（参考 syncthing 的
+**存档同步的出路已立项**：同步库的 **M6 块级增量传输**，实施方案已定稿于同步库 `docs/M6块级增量传输实现方案.md`（参考 syncthing 的
 分块 + `blockDiff` + 本地旧版本块复用，对象仍按整文件哈希寻址所以 GC/冲突/补发都不用改）。
-注意 **M6-0 是一道门禁**：先拿两次连续的真实 `.ark` 存档测块复用率，低于 30% 就说明 UE 是整文件重写，
-届时存档同步要改走"停机迁移 + `WaitApplied`"那条路而不是硬做增量。**这个测量需要本程序提供真机存档样本。**
+~~注意 M6-0 是一道门禁~~——**2026-09-14 已改**：同步库按格式无关的通用库设计，M6-0 降为**非门禁**的基准测量，
+不会因为某一类负载（包括 ARK 存档）复用率低就不做块级增量。补充一个事实：**ASA 的 `.ark` 是原地页更新的 SQLite 库**
+（ASE 才是整体序列化），对块级复用偏利好；但运行中同步会拿到事务中途的库，所以存档同步在本仓库侧仍应走"停机迁移 + `WaitApplied`"那条路（与块级增量叠加，不是二选一）。**同步库的 M6-0 基准测量仍欢迎本程序提供真机存档样本**，作为"原地页更新"这一类负载的样本之一。
 
 ---
 
@@ -179,16 +197,17 @@
 | # | 事项 | 说明 |
 |---|---|---|
 | 1 | Coordinator 不可嵌入 | §5.1。要么独立部署，要么向该库提"把 coordinator 也提到 `pkg/`"。 |
-| 2 | ~~依赖引入方式待定~~ ✅ 已定 | **GOPRIVATE**（同 `go-arkparser`）。同步库当前**没有任何 git tag**，接入前需先打 `v0.1.0`——见同步库 `docs/功能迭代.md` M5-4。 |
+| 2 | ~~依赖引入方式待定~~ ✅ 已定 | **GOPRIVATE**（同 `go-arkparser`）。同步库已打 `v0.1.0` / `v0.2.0`；去 ARK 化改名之后接入以 `v0.3.0`+ 为准（§7-12）。 |
 | 3 | 新增依赖面 | 净新增 `google.golang.org/grpc` + `genproto`（protobuf 本仓已有 indirect，sqlite 1.57→1.58，fsnotify/urfave/cli 版本一致）。可接受。 |
 | 4 | 日志接线 | 库走 `log/slog`，本仓 `pkg/logger` 是 zap 包级函数。需要一层 **slog.Handler → zap** 适配，并给记录打 `[filesync]` 前缀，前端才能复用现有日志过滤面板。 |
-| 5 | Windows 无 SIGHUP | Coordinator 部署在 Linux 已解决其一半；但**本程序自己是 Windows 上的 agent**，换客户端证书目前必须重建 `client.Node`。同步库侧已立项：`docs/功能迭代.md` M5-5（fsnotify 监视 + `GetClientCertificate`）。 |
-| 6 | 证书不自动续期 | 共享客户端证书默认 5 年，到期就是**静默停摆**。更糟的是库里那个 `EventCertificateExpiringSoon` **只在 `client.New` 时检查一次**，长跑进程永远收不到——同步库侧已立项修复：`docs/证书自动续期计划.md` M7-0/M7-1。本程序仍需把该事件接进告警/前端红点。 |
-| 7 | 单节点吊销能力弱 | 共享证书模型下只能 `node revoke` 封 `node_id`，同机换 id 可重连。真要隔离得靠防火墙。 |
+| 5 | ~~Windows 无 SIGHUP~~ ✅ 已解决 | 同步库 M5-5 已落地：凭据热重载改为**文件监视 + `ReloadCredentials` RPC**，Windows 上同样生效；agent 侧 `Config.CertificateSource` 支持不重建 `client.Node` 换证。 |
+| 6 | ~~证书不自动续期~~ ✅ 已实现（同步库 M7-5，2026-09-13） | `EventCertificateExpiringSoon` 只在 `client.New` 检查一次这个缺陷**已修**（M7-0，分 90/30/7/1d 档位重复提醒）。真正的自动续期走新信任模型：节点证书有效期 **1 年**、到期前 90 天由库**自动**向协调端续期并重连（M7-5）。本程序仍需把该事件接进告警/前端红点。 |
+| 7 | ~~单节点吊销能力弱~~ → M7-4 后解决 | 每节点一张绑定 `node_id` 的证书之后，`coordinator node revoke` 是**真正的单节点吊销**（协调端是唯一 relying party，下次连接即拒绝）。**新增运维负担**：机器换盘、丢私钥、或离线超过 1 年导致证书过期，都必须人工执行一次 `coordinator node reset <id>`——这是"不留身份抢占路径"的有意取舍。 |
 | 8 | 目录批量删除不保证逐文件传播 | fsnotify 事件被聚合成目录级时只记一条 WARN。对 clusters 用例影响小。 |
 | 9 | Linux 降权属主 | 同步写进 `instances/<name>/Save`、`clusters/<id>` 的新文件属主是 asa-server（root），**游戏以降权用户跑就写不了**。必须在落盘后走 `runner.ChownTreeForRuntime` / `pkg/shareacl` 那条既有链路。 |
 | 10 | Coordinator 写路径单连接 | SQLite `MaxOpenConns(1)`，节点多时是瓶颈。小规模无所谓。 |
-| 11 | 文档里的模块名过时 | `user-guide.md` §5.1 写 `import "ark-asa-file-sync/pkg/client"`，实际 go.mod 是 `github.com/Niexiawei/simple-file-sync`。以 go.mod 为准。 |
+| 11 | ~~文档里的模块名过时~~ ✅ 已修（同步库 M5-4） | `user-guide.md` §5.1 写 `import "ark-asa-file-sync/pkg/client"`，实际 go.mod 是 `github.com/Niexiawei/simple-file-sync`。以 go.mod 为准。 |
+| 12 | **同步库去 ARK 化改名**（2026-09-14，破坏性） | proto 包 `ark.sync.v1` → `filesync.v1`（生成包 import 路径 `github.com/Niexiawei/simple-file-sync/filesync/v1`）；环境变量 `ARK_SYNC_*` → `FILESYNC_*`；指标 `ark_sync_*` → `filesync_*`；agent 元数据目录 `.ark-sync/` → `.filesync/`；协调端数据库 `ark-sync.db` → `filesync.db`；CLI 名 `filesync-agent` / `filesync-coordinator`。**不做旧名兼容与迁移**：旧节点要重新 enroll、旧协调端数据目录不会被识别、新旧版本无法互通。本程序尚未写接入代码，所以影响只在本文与后续 P2 的命名：`filesyncmanage` 里的路径、指标、环境变量一律按新名写。 |
 
 ---
 
@@ -206,7 +225,7 @@
       （私有库走 SSH），接入时把 GOPRIVATE 扩成 `github.com/Niexiawei/*` 即可。
 - [x] **首个落地范围**：**只做 `clusters/`**。存档同步推迟，§6.3、§6.4 因此从"必须解决"降为"避开"。
 
-### P1 — 修同步库的三个阻断项（在 `ark-asa-file-sync` 仓库里做）
+### P1 — 修同步库的三个阻断项（在同步库 `simple-file-sync` 仓库里做）
 
 > **详细实施计划已落地**：`D:\golang\ark-asa-file-sync\docs\功能迭代.md`（M5-0～M5-4，含协议改动、
 > 插入点清单、影响文件与逐条验收用例）。本节只保留出口条件，具体设计以那份文档为准。
@@ -214,23 +233,50 @@
 - [x] §6.1 订阅时补建全量 download 任务（含幂等：对端已有同哈希文件不重推）。**已完成 2026-09-12**
       （同步库 M5-1：新增 `RequestBackfill` 协议消息 + `Store.BackfillDownloads`；
       验收用例做过反向对照，关掉修复后确实失败）。
-- [ ] §6.2 `RootConfig.Exclude` + 扫描/watch/落盘三处生效。
-      **验收**：被排除的路径既不上报、也拒绝被对端推入。
-- [ ] （可选，提升可运维性）单文件大小上限 / 组总量上限，防误配置打满中心节点。
-- [ ] 全程 `go test -race ./...` 保持通过（该库的标准验证命令）。
+- [x] §6.2 `RootConfig.Exclude` + 扫描/watch/落盘三处生效。
+      **验收**：被排除的路径既不上报、也拒绝被对端推入。**已完成 2026-09-12**
+      （同步库 M5-2：新增 `internal/agent/exclude.go`，实际落到**六处**插入点而不是三处——扫描 walk、
+      watch 建 watcher、watch 事件过滤、单文件重扫、删除上报，以及收方向唯一的 choke point
+      `Root.localPath`。模式语义采用 gitignore 的锚定规则：不含 `/` 的模式匹配任意层级的文件名，
+      否则 `*.tmp` 挡不住 `Saved/a.tmp`；坏模式让 `AddRoot` 直接失败，不静默忽略。
+      **排除是本地策略不是组策略**——组内配置不一致时，排除方会拒收并最终产生死信任务，这是有意为之：
+      宁可让配置错误可见，也不把用户明确排除的文件静默写进他的盘）。
+- [x] （可选，提升可运维性）单文件大小上限 / 组总量上限，防误配置打满中心节点。
+      **已完成 2026-09-12**（同步库 M5-3：Agent 侧 `RootConfig.MaxFileBytes` 在哈希**之前**用 stat 判断、
+      超限记一条 WARN 跳过，不重试不算失败；协调端侧 `--max-file-bytes` 在 `QueueUpload` 之前拒收。
+      两道语义不同：节点的限额由各自部署者设定、协调端不能信任它，**协调端那道才是真正的资源保护**）。
+      **组总量上限有意未做**：需要持续记账与配额回收，复杂度远高于本期收益；磁盘水位用 `/metrics` 的
+      `filesync_objects_bytes`（`v0.3.0` 之前叫 `ark_sync_objects_bytes`）监控（M3-3 已有）。
+- [x] 全程 `go test -race ./...` 保持通过（该库的标准验证命令）。**2026-09-12 全绿**
+      （另：`buf lint` 通过，`buf generate` 无未提交的生成物 diff）。
+
+> P1 的阻断项全部完成，M5-4/M5-5 也已完成。信任模型变更（`docs/证书自动续期计划.md`
+> M7-0/M7-1/M7-3/M7-4）已于 **2026-09-12 落地**：删 token、协调端启动自举 PKI、
+> 引导证书 + 每节点证书 enroll，全量 `go test -race ./...` 通过。
+>
+> **P2 的剩余解锁条件：同步库打出 `v0.3.0` tag**。`v0.2.0` 已打；之后的去 ARK 化改名又是一次破坏性变更（§7-12），
+> P2 直接按 `v0.3.0` 的命名接入，不要先对着 `v0.2.0` 写再返工。
+> M7-5（节点证书自动续期）已于 2026-09-13 落地：配了 `NodeCertificates` 的节点到期前 90 天自动续期并重连。
+> ⚠️ **协调端与 agent 必须同版本升级**，新旧之间无法通信。
 
 ### P2 — 本仓库新增 `internal/filesyncmanage`（照抄 frpmanage 的形态）
 
 依赖层级：`filesyncmanage` 依赖 `config`(cfgpkg) + `appconfig` + `pkg/logger`；被 `webapi` 依赖。
 **不**依赖 `instance`（避免成环）；"实例停了才挂存档 Root"那条规则由 `webapi`/`countdown` 侧调用它来实现。
 
-- [ ] `config.go`：结构化配置落 `{BaseDir}/filesync/config.json`（0600，含 token），
-      与 `frpmanage` 同构——**表单不是文件编辑器**。字段：
-      `{server_addr, server_port, token, label, cert_pem/key_pem/ca_pem, roots:[{kind, target, group_id, watch_delay, scan_interval, exclude[]}]}`。
-      沿用 `ErrNotConfigured` 哨兵：没配过就只记 INFO，不刷 ERROR。
+- [ ] `config.go`：结构化配置落 `{BaseDir}/filesync/config.json`（0600，含引导证书私钥），
+      与 `frpmanage` 同构——**表单不是文件编辑器**。字段（**已按 M7-4 新信任模型更新**）：
+      `{server_addr, server_port, label, bootstrap_cert_pem/bootstrap_key_pem/ca_pem, roots:[{kind, target, group_id, watch_delay, scan_interval, exclude[]}]}`。
+      **没有 `token` 字段了**；原 `cert_pem/key_pem` 语义从"共享客户端证书"变成"**引导**证书"
+      （只用于首次接入换证，之后可以删掉）。沿用 `ErrNotConfigured` 哨兵：没配过就只记 INFO，不刷 ERROR。
+- [ ] **节点证书存储**：实现同步库的 `NodeCertificateStore` 接口，落
+      `{BaseDir}/filesync/node.crt` / `node.key`（0600）。这是本机 enroll 得到的**身份**凭据，
+      与引导证书不是一回事，**不要放进 `config.json`**（它会被备份/导出，身份私钥不应跟着走）。
 - [ ] `manager.go`：持有唯一 `*client.Node`；`Initialize/Start/Stop/Restart/Status`；
       `client.NewFileIdentityStore({BaseDir}/filesync/node-id)` 提供稳定 node id；
-      `OnEvent` 落日志 + 推 WS 事件（尤其 `EventCertificateExpiringSoon`/`EventAuthenticationFailed`/`EventNodeIDConflict` 三个终态）。
+      `OnEvent` 落日志 + 推 WS 事件（尤其 `EventCertificateExpiringSoon`/`EventAuthenticationFailed`/
+      `EventNodeIDConflict`/`EventEnrolled` 四个）。`EventNodeIDConflict` 在新模型下多一层含义：
+      同一 `node_id` 两个活跃会话 = **节点私钥可能被复制到了另一台机器**，值得在前端标红而不只是记日志。
       **Root 增删走 `AddRoot`/`RemoveRoot` 热操作，不重启节点**（对照：改 frp 端口规则走 `UpdateConfigSource`）。
 - [ ] `logbridge.go`：slog.Handler → `pkg/logger`，记录带 `[filesync]` 前缀（§7-4）。
 - [ ] `perm_linux.go` 钩子：落盘后对受影响子树调 `runner.ChownTreeForRuntime`（§7-9）；Windows 空实现。
@@ -243,7 +289,9 @@
       pending/in-flight/failed、在途传输的 path/size/offset/bps/ETA）、`POST /api/filesync/{start,stop,restart}`、
       `POST /api/filesync/roots`（增删 Root）。
 - [ ] `app/src/views/FileSyncManager.vue`：**表单 + 状态面板**（照 `FRPManager.vue`，不是 Monaco）。
-      左栏：中心节点地址/token/证书三件套上传、Root 列表（实例/集群下拉选，不让用户手填绝对路径）；
+      左栏：**粘贴一行 join blob**（协调端自举后打印，含地址 + CA + 引导证书，见 M7-3）——
+      不再是"地址/token/证书三件套"分别填；Root 列表（实例/集群下拉选，不让用户手填绝对路径）；
+      另加一行**接入状态**：未接入 / 已接入（节点证书剩余 N 天），过期或临期标红；
       右栏：实时传输进度 + 按 `[filesync]` 过滤的日志。
       别忘 `App.vue` 的**三处**联动（菜单项、`watch(route.path)` 高亮、`handleMenuClick` 分支）。
 
@@ -266,20 +314,28 @@
 
 | 风险 | 缓解 |
 |---|---|
-| 公网 Coordinator 挂了 ⇒ 全组停止同步 | Agent 自动重连（指数退避，上限 10s），本地文件不受影响；`Root.State().Failed` 接进前端红点。Coordinator 的 `ark-sync.db` + `objects/` 要**同盘一起备份**。 |
+| 公网 Coordinator 挂了 ⇒ 全组停止同步 | Agent 自动重连（指数退避，上限 10s），本地文件不受影响；`Root.State().Failed` 接进前端红点。Coordinator 的 `filesync.db` + `objects/` 要**同盘一起备份**。 |
 | 从旧备份恢复 Coordinator | 库有 `store_epoch` 机制，会触发全量重扫核对而不是静默丢数据——但会有一次全量开销，要在文档里写清这是正常现象。 |
 | 双写同一文件 | LWW + `*.sync-conflict-*` 副本（`MaxConflicts` 建议保持 3）。ASA 存档几百 MB，副本数一定要有上限。 |
 | 私有仓库依赖导致他人构建失败 | §7-2 在 P0 阶段就定下来，不要拖到 P2 才发现 CI 拉不到。 |
+| **协调端与 agent 版本不匹配** | M7-4 是破坏性协议变更（删 token、换鉴权），**不能灰度**：升级协调端就必须同时升级本程序内嵌的库版本，反之亦然。锁死在 `go.mod` 的同一个 tag（`v0.3.0`+）上，并在前端状态面板把"连不上"与"版本不匹配"区分开（后者表现为握手成功但 `Hello` 被拒）。 |
+| **节点证书过期需人工干预** | 离线超过 1 年（或换盘丢私钥）的机器回来后连不上，必须有人在协调端 `node reset`。前端要**提前**显示剩余天数，别等到连不上才发现。 |
 | 回滚 | syncthing 全程在位；`filesync` 未配置时 `ErrNotConfigured` 短路，零副作用。回滚 = 前端不用那个页面。 |
 
 ---
 
-## 10. 已定的三件事（2026-09-12）
+## 10. 已定的四件事（2026-09-12）
 
 1. **Coordinator**：Linux 独立机器，用户自行部署运维。
 2. **依赖**：GOPRIVATE，同 `go-arkparser`。
 3. **首期范围**：只做 `clusters/`，存档同步不在本期。
+4. **信任模型**（本日新增，见同步库 `docs/证书自动续期计划.md`）：
+   协调端启动时**自举 PKI**（M7-3）；**删除集群 token**；agent 用人工分发的**引导证书**首次接入，
+   在 mTLS 连接上 enroll 一张**绑定 `node_id` 的节点证书**（M7-4，签 CSR、私钥不出本机）；
+   节点证书 **1 年**有效、到期前 90 天**自动续期**（M7-5）。
+   身份被占用的唯一恢复路径是人工 `coordinator node reset`——**不做"证书过期即可重新 enroll"的自愈**。
 
-执行顺序：**先在同步库里做完 `docs/功能迭代.md` 的 M5（三个阻断项 + 打 tag），再回到本文 P2/P3/P4
-做 asa-server 侧的迭代**。P1 未完成之前不要开始 P2——`filesyncmanage` 的配置结构里要落
-`Exclude`/`MaxFileBytes` 两个字段，那是 M5-2/M5-3 才定型的接口。
+执行顺序：**先在同步库里做完 M7-3 / M7-1 / M7-4 / M7-5 并打出 `v0.2.0`（已完成；接入以去 ARK 化改名后的 `v0.3.0` 为准），再回到本文 P2/P3/P4
+做 asa-server 侧的迭代**。M5 的三个阻断项与 M5-4/M5-5 都已完成（`v0.1.0` 已打 tag），
+但 **P2 不要在 `v0.3.0` 之前开始**：M7-4 会改掉 `pkg/client.Config` 的字段与协议，
+提前写的 `filesyncmanage` 配置结构与接线要整段返工。
