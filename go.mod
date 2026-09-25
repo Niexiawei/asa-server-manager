@@ -5,6 +5,7 @@ go 1.27
 require (
 	fyne.io/fyne/v2 v2.8.1
 	github.com/Niexiawei/go-arkparser v0.0.0-20260902030924-4ac01788244a
+	github.com/Niexiawei/simple-file-sync v0.4.0
 	github.com/aymanbagabas/go-pty v0.2.3
 	github.com/cilium/ebpf v0.22.0
 	github.com/dgraph-io/badger/v4 v4.9.6
@@ -26,12 +27,13 @@ require (
 	github.com/urfave/cli/v3 v3.11.0
 	github.com/yusufpapurcu/wmi v1.2.4
 	go.uber.org/zap v1.28.0
-	golang.org/x/crypto v0.55.0
+	golang.org/x/crypto v0.56.0
 	golang.org/x/image v0.45.0
-	golang.org/x/sys v0.47.0
-	golang.org/x/term v0.45.0
+	golang.org/x/sys v0.48.0
+	golang.org/x/term v0.46.0
+	google.golang.org/grpc v1.83.2
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
-	modernc.org/sqlite v1.57.0
+	modernc.org/sqlite v1.58.0
 	znkr.io/diff v1.0.1
 )
 
@@ -137,17 +139,18 @@ require (
 	golang.org/x/arch v0.30.0 // indirect
 	golang.org/x/net v0.58.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
-	golang.org/x/sync v0.22.0 // indirect
-	golang.org/x/text v0.41.0 // indirect
+	golang.org/x/sync v0.23.0 // indirect
+	golang.org/x/text v0.42.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2 // indirect
 	golang.zx2c4.com/wireguard v0.0.0-20260522210424-ecfc5a8d5446 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260918162117-cecb64721679 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 	gopkg.in/ini.v1 v1.67.3 // indirect
 	k8s.io/apimachinery v0.37.0 // indirect
 	k8s.io/klog/v2 v2.140.0 // indirect
 	k8s.io/utils v0.0.0-20260707023825-cf1189d6abe3 // indirect
-	modernc.org/libc v1.75.6 // indirect
+	modernc.org/libc v1.75.7 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
 	sigs.k8s.io/json v0.0.0-20250730193827-2d320260d730 // indirect
