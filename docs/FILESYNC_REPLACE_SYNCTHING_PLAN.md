@@ -1,11 +1,11 @@
 # 用 simple-file-sync 替换 Syncthing 的可行性评估与实施计划
 
-> 状态：**P1 完成，P2 设计已细化（§8），待拍板 §11 的两个决策后开工**。
+> 状态：**P2 设计已细化（§8），决策已拍板（§10、§11）**。下一步：同步库补 M7-6 join blob 并发 `v0.4.0`，然后开始 P2。
 > 评估对象是同步库 **simple-file-sync**（本机工作副本 `D:\golang\ark-asa-file-sync`，目录名是历史遗留；
 > go.mod 模块名 **`github.com/Niexiawei/simple-file-sync`**，远端 `git@github.com:Niexiawei/simple-file-sync.git`），
 > 以及本仓库 `internal/syncthingmanage/` 的现状。
 >
-> **接入版本：`v0.3.1`（2026-09-25）。不要用 `v0.3.0`**——它有一个回归：新增的同步根可能永远收不到组内已有内容
+> **接入版本：`v0.4.0`**（M7-6 join blob 发布后；截至 2026-09-25 的最新版是 `v0.3.1`）。**不要用 `v0.3.0`**——它有一个回归：新增的同步根可能永远收不到组内已有内容
 > （订阅与补发请求走两条发送队列、可能乱序，见 §3.2）。各版本变化见同步库根目录的 `CHANGELOG.md`。
 >
 > 同步库定位为与 syncthing 同类的**通用文件同步库**，不含任何 ARK 专属的命名、默认值或逻辑：
@@ -26,7 +26,7 @@
 | **最大收益** | 干掉一个独立 exe 进程、一份 30MB 的按需下载，以及让用户手改 XML 的配置方式；换成**库内调用 + 表单配置**，与 `frpmanage` 的既有形态一致。 |
 | **最大代价** | 需要**自建并长期运营一个公网 Coordinator**，而且它是**数据面**（所有字节都经它中转、落盘）。M6 块级增量把流量成本降了一个量级（§6.4），但"要自己运维一台公网机器"这件事没变，这也是唯一不可逆的决策点。 |
 | **首期落地范围** | **只同步 `{BaseDir}/clusters/<ClusterID>/`**（集群传输数据），不碰存档。 |
-| **开工前还差什么** | §11 的两个决策。其中**接入凭据怎么填**直接决定表单与配置结构：原计划的"粘贴一行 join blob"**同步库并未实现**（§7-13）。 |
+| **开工前还差什么** | 同步库补上 join blob（M7-6，§7-13）。接入凭据两种方式都做、页面上切换（§10-7）。 |
 
 ---
 
@@ -180,7 +180,7 @@
 | # | 事项 | 说明 |
 |---|---|---|
 | 1 | Coordinator 不可嵌入 | §5.1，已接受：独立部署。 |
-| 2 | 依赖引入方式 ✅ 已定 | **GOPRIVATE**（同 `go-arkparser`），`go env -w GOPRIVATE=github.com/Niexiawei/*`，然后 `go get github.com/Niexiawei/simple-file-sync@v0.3.1`。 |
+| 2 | 依赖引入方式 ✅ 已定 | **GOPRIVATE**（同 `go-arkparser`），`go env -w GOPRIVATE=github.com/Niexiawei/*`，然后 `go get github.com/Niexiawei/simple-file-sync@v0.4.0`。 |
 | 3 | 新增依赖面 | 净新增 `google.golang.org/grpc` + `genproto`；**`modernc.org/sqlite` 会从 1.57 升到 1.58**，而本仓库的 `auth.db` 在用它——升级后要回归 `internal/auth` 的测试与 `asa-server db verify`。 |
 | 4 | 日志接线 | 库走 `log/slog`，本仓库 `pkg/logger` 是 zap 包级函数。需要一层 `slog.Handler` → `pkg/logger` 适配，记录带 `[filesync]` 前缀，前端复用现有日志过滤。通过 `client.Config.Logger` 按节点注入，**不调用**同步库的 `logger.SetDefault`（那是进程级的）。 |
 | 5 | ~~Windows 无 SIGHUP~~ ✅ | 凭据热重载已改为文件监视 + `ReloadCredentials` RPC。 |
@@ -191,7 +191,7 @@
 | 10 | Coordinator 写路径单连接 | SQLite `MaxOpenConns(1)`，小规模无所谓。 |
 | 11 | ~~模块名文档过时~~ ✅ | |
 | 12 | 同步库去 ARK 化改名 ✅ | `v0.3.0` 起的命名，本程序按新名写，不存在迁移问题（尚未写过接入代码）。 |
-| 13 | ⚠️ **join blob 未实现** | 原计划前端"粘贴一行 join blob（地址 + CA + 引导证书）"就能接入。同步库 `docs/证书自动续期计划.md` M7-3 把它推迟到 M7-4，**M7-4 落地时也没有做**（`docs/user-guide.md` 末尾仍写着"M7-3 的 join blob 仍未实现"）。协调端现在只会在 `<data_dir>/client-bundle/` 下生成 `ca.crt`、`client.crt`、`client.key` 三个文件。**这是 P2 开工前要拍板的事**，见 §11-1。 |
+| 13 | ⚠️ **join blob 未实现** | 原计划前端"粘贴一行 join blob（地址 + CA + 引导证书）"就能接入。同步库 `docs/证书自动续期计划.md` M7-3 把它推迟到 M7-4，**M7-4 落地时也没有做**（`docs/user-guide.md` 末尾仍写着"M7-3 的 join blob 仍未实现"）。协调端现在只会在 `<data_dir>/client-bundle/` 下生成 `ca.crt`、`client.crt`、`client.key` 三个文件。**已决定**：同步库补 M7-6，同时保留三文件方式，页面上切换（§10-7、§11）。 |
 | 14 | `MaxConflicts` 零值语义变了 | `v0.3.0` 起零值 = 默认保留 10 份（原来零值是直接丢弃）。本程序不设这个字段，用默认值。 |
 | 15 | 冲突副本落在 clusters 目录里 | 冲突副本命名为 `<名字>.sync-conflict-<时间>-<节点>.<扩展名>`，扩展名保留在末尾。**游戏会不会把它当成一个可下载的角色**，需要在 P5 真机验证。会的话，本程序要在收到 `EventConflictCopySaved` 后把副本挪出 clusters 目录（例如挪到 `{BaseDir}/filesync/conflicts/`）。 |
 
@@ -212,7 +212,8 @@
 - [x] 新信任模型（M7-0/M7-1/M7-3/M7-4/M7-5），`v0.2.0`。
 - [x] 去 ARK 化改名、块级增量（M6）、冲突与版本历史（M9）、配置文件启动 / 服务模式 / 网页界面 / 远程指令（M10），`v0.3.0`。
 - [x] 接入前质量核对：Windows + Linux 全量 `-race`，修复 §3.2 的四个缺陷，新增 `CHANGELOG.md`，**`v0.3.1`**。
-- [ ] ~~M7-3 join blob~~ —— 未实现，见 §7-13 / §11-1。
+- [ ] **M7-6 join blob**（§10-7）：设计已写进同步库 `docs/证书自动续期计划.md` M7-6——新包 `pkg/joinblob`（零依赖编解码）
+      + `coordinator join-blob` 子命令，发 **`v0.4.0`**（纯新增）。P2 接入 `v0.4.0`。
 
 ### P2 — 本仓库新增 `internal/filesyncmanage`（照 `frpmanage` 的形态）
 
@@ -229,7 +230,8 @@ type Config struct {
     Enabled bool   `json:"enabled"`           // 关闭时 Start 不连协调端，但保留配置
     Address string `json:"address"`           // 协调端 host:port
     Label   string `json:"label,omitempty"`   // 显示名，只给协调端界面看
-    // 引导凭据：只用于首次接入换取节点证书。接入成功后可以清掉，节点照常工作（§11-1 决定怎么填）。
+    // 引导凭据：只用于首次接入换取节点证书。接入成功后可以清掉，节点照常工作。
+    // 两种填法（§10-7）落到同样这三个字段 + Address：join blob 在 API 层用 pkg/joinblob 解开，不单独存。
     CAPEM            string `json:"ca_pem"`
     BootstrapCertPEM string `json:"bootstrap_cert_pem,omitempty"`
     BootstrapKeyPEM  string `json:"bootstrap_key_pem,omitempty"`
@@ -249,6 +251,12 @@ type ClusterRoot struct {
   `EnableHashCache=false`、`MaxConflicts` 取默认、`Exclude` 取本程序统一的一份（首期为空，§6.2 说明了为什么必须统一）。
 - 没配过 → `ErrNotConfigured`，与 `frpmanage` 相同：只记 INFO，不刷 ERROR。
 - `GET` 接口**永不回传** `bootstrap_key_pem`，只回 `has_bootstrap: true/false`；`PUT` 时字段为空表示"不修改"。
+- `PUT` 的请求体支持两种凭据写法，**二选一，同时给就报 400**：
+  - `join_blob`：服务端 `joinblob.Decode`，解出的 `Address` 与三份 PEM 覆盖进配置（表单里的地址框随之更新）；
+  - `ca_pem` / `bootstrap_cert_pem` / `bootstrap_key_pem`：直接写入，与 `address` 字段一起提交。
+    服务端做与 `joinblob.Decode` 相同的结构校验（密钥对配对、证书由 CA 签发），两种写法的出错信息一致。
+- 另给一个只读的 `POST /api/filesync/join-blob/inspect`：解码但不保存，返回地址、CA 指纹、引导证书到期时间，
+  供前端在"保存"前预览"将连接到哪里"。
 
 #### P2-2 身份与凭据存储
 
@@ -309,7 +317,7 @@ Windows 上恒为空操作。
 
 #### P2-8 依赖与测试
 
-- `go.mod`：`github.com/Niexiawei/simple-file-sync v0.3.1`；回归 `internal/auth`（sqlite 1.58，§7-3）。
+- `go.mod`：`github.com/Niexiawei/simple-file-sync v0.4.0`；回归 `internal/auth`（sqlite 1.58，§7-3）。
 - 单元测试：配置校验与 JSON 往返、`GET` 不回传私钥、差量策略（哪些变化热更新、哪些重建）、日志适配器、状态映射。
 - **集成测试写不了进程内协调端**：`coordapp` 在同步库的 `internal/` 下，本仓库 import 不到。端到端放到 P5，
   用真实部署的协调端验证；如果以后需要自动化，就在测试里拉起同步库的 `coordinator` 二进制。
@@ -322,7 +330,11 @@ Windows 上恒为空操作。
       `GET /api/filesync/clusters`（从各实例配置里收集已有的 `ClusterID`，供下拉选择）。
       **写操作挂 `authapi.RequireAdmin()`**（`frp` 的写路由目前没挂，那是另一个问题，不在本期范围）。
 - [ ] `app/src/views/FileSyncManager.vue`：**表单 + 状态面板**（照 `FRPManager.vue`，不用 Monaco）。
-      左栏：协调端地址 + 接入凭据（形式取决于 §11-1）+ 集群下拉多选 + 限速；**接入状态**一行：
+      左栏：**接入方式切换**（`t-radio-group`，§10-7）——
+      「粘贴接入字符串」：一个多行输入框，失焦时调 `inspect` 预览地址与 CA 指纹；
+      「上传证书文件」：协调端地址 + `ca.crt` / `client.crt` / `client.key` 三个文件选择（前端 `FileReader` 读成文本，
+      随 JSON 提交，不走 multipart）。已保存过凭据时两种方式都显示"已配置，留空则不修改"。
+      然后是集群下拉多选 + 限速；**接入状态**一行：
       未接入 / 已接入（节点证书剩余 N 天），临期或失败标红。
       右栏：连接状态、每个集群的待处理/在途/失败、实时传输进度 + 按 `[filesync]` 过滤的日志。
       别忘了 `App.vue` 的**三处**联动（菜单项、`watch(route.path)` 高亮、`handleMenuClick` 分支）。
@@ -369,25 +381,20 @@ Windows 上恒为空操作。
    身份被占用的唯一恢复路径是人工 `node reset`。（2026-09-12）
 5. **远程指令**：`Config.RemoteCommands` 首期**只开 `status` 与 `rescan`**。`request_backfill` 与 `list_conflict_copies`
    不开：前者有排序约束，后者会把本机的文件清单暴露给协调端。（2026-09-25）
-6. **接入版本**：`v0.3.1`。（2026-09-25）
+6. **接入版本**：~~`v0.3.1`~~ → **`v0.4.0`**（M7-6 join blob 发布后）。（2026-09-25）
+7. **接入凭据两种方式都做，页面上切换**：粘贴 join blob（同步库补 M7-6），或上传三个证书文件。两者落到同一份配置。（2026-09-25）
+8. **冲突副本先不挪**，只记日志、推前端；是否挪出 clusters 目录等 P5 验证游戏是否识别副本后再定（§7-15）。（2026-09-25）
 
 ---
 
-## 11. 开工前待拍板
+## 11. 开工前的决策（已拍板，2026-09-25）
 
-### 11-1 接入凭据怎么填（决定 P2-1 的配置结构与 P3 的表单）
+- **11-1 接入凭据**：原先在"A. 先在同步库补 join blob"与"B. 表单直接填三个 PEM"之间二选一，
+  结论是**两种都做，页面上切换**（§10-7）。两者落到同一份 `Config`，受影响的只有 P3 的表单与 P2-1 的 `PUT` 请求体。
+  同步库侧的 join blob 设计见其 `docs/证书自动续期计划.md` M7-6，与原设想有两处不同：
+  编解码放在零依赖的新包 `pkg/joinblob` 而不是 `pkg/client`；协调端**自举时不打印** blob（会把引导私钥写进日志文件），
+  改为提示运行 `coordinator join-blob`。
+- **11-2 冲突副本**：**先不挪**，只记日志、推前端（§10-8）。挪动本身会被同步库视为一次本地删除；冲突副本本来就不参与同步，
+  所以挪走应当是安全的，但要等 P5 有结论、真要挪时再用测试证实。
 
-join blob 没有实现（§7-13）。两条路：
-
-| 方案 | 做法 | 优点 | 代价 |
-|---|---|---|---|
-| **A. 先在同步库补 join blob**（推荐） | 同步库加 `coordinator join-blob` 子命令（打印一行 base64：地址 + CA + 引导证书），`pkg/client` 加 `ParseJoinBlob`；发 `v0.4.0`（纯新增，非破坏）。本程序表单只有一个输入框 | 这是当初"配置简单"的核心卖点；格式由同步库定义，协调端、网页界面与其他嵌入方都能复用 | 同步库再走一个版本周期（约 100 行代码 + 测试）；P2 要等它 |
-| B. 表单直接填三个 PEM | 表单上放地址 + `ca.crt` / `client.crt` / `client.key` 三个文件上传（或粘贴框），对应 P2-1 的三个字段 | 今天就能开工，不依赖同步库 | 用户要从协调端机器上拷三个文件；以后再加 join blob 时，表单要改一次 |
-
-P2-1 的 `Config` 结构**两种方案都适用**（blob 只是在接口层解析成那三个字段），所以真正受影响的只有 P3 的表单与一个解析接口。
-
-### 11-2 冲突副本放在哪
-
-如果 P5 验证出游戏会把 `*.sync-conflict-*` 当成角色（§7-15），是**默认就挪走**，还是等验证后再加？
-推荐：**P2 先不挪**，只记日志与推前端；P5 有结论后再决定。挪动本身会被同步库视为一次本地删除，这一点要在实现时注意
-（冲突副本本来就不参与同步，所以挪走是安全的，但需要测试证实）。
+**执行顺序**：同步库 M7-6 → 打 `v0.4.0` → 本仓库 P2（`go get ...@v0.4.0`）→ P3。
