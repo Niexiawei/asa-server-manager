@@ -1,11 +1,11 @@
 # 用 simple-file-sync 替换 Syncthing 的可行性评估与实施计划
 
-> 状态：**P2 设计已细化（§8），决策已拍板（§10、§11）**。下一步：同步库补 M7-6 join blob 并发 `v0.4.0`，然后开始 P2。
+> 状态：**P2、P3 代码完成（2026-09-25），接入同步库 `v0.4.0`**。下一步是 P5 真机验收（含浏览器人工验收），之后才谈 P4 与 syncthing 退场。
 > 评估对象是同步库 **simple-file-sync**（本机工作副本 `D:\golang\ark-asa-file-sync`，目录名是历史遗留；
 > go.mod 模块名 **`github.com/Niexiawei/simple-file-sync`**，远端 `git@github.com:Niexiawei/simple-file-sync.git`），
 > 以及本仓库 `internal/syncthingmanage/` 的现状。
 >
-> **接入版本：`v0.4.0`**（M7-6 join blob 发布后；截至 2026-09-25 的最新版是 `v0.3.1`）。**不要用 `v0.3.0`**——它有一个回归：新增的同步根可能永远收不到组内已有内容
+> **接入版本：`v0.4.0`**（2026-09-25，含 M7-6 join blob；`go.mod` 已锁定）。**不要用 `v0.3.0`**——它有一个回归：新增的同步根可能永远收不到组内已有内容
 > （订阅与补发请求走两条发送队列、可能乱序，见 §3.2）。各版本变化见同步库根目录的 `CHANGELOG.md`。
 >
 > 同步库定位为与 syncthing 同类的**通用文件同步库**，不含任何 ARK 专属的命名、默认值或逻辑：
@@ -26,7 +26,7 @@
 | **最大收益** | 干掉一个独立 exe 进程、一份 30MB 的按需下载，以及让用户手改 XML 的配置方式；换成**库内调用 + 表单配置**，与 `frpmanage` 的既有形态一致。 |
 | **最大代价** | 需要**自建并长期运营一个公网 Coordinator**，而且它是**数据面**（所有字节都经它中转、落盘）。M6 块级增量把流量成本降了一个量级（§6.4），但"要自己运维一台公网机器"这件事没变，这也是唯一不可逆的决策点。 |
 | **首期落地范围** | **只同步 `{BaseDir}/clusters/<ClusterID>/`**（集群传输数据），不碰存档。 |
-| **开工前还差什么** | 同步库补上 join blob（M7-6，§7-13）。接入凭据两种方式都做、页面上切换（§10-7）。 |
+| **进度** | P1～P3 完成（同步库 `v0.4.0` + `internal/filesyncmanage` + API + 页面），见 §8 各节状态。下一步是 P5 真机验收。 |
 
 ---
 
@@ -322,14 +322,37 @@ Windows 上恒为空操作。
 - **集成测试写不了进程内协调端**：`coordapp` 在同步库的 `internal/` 下，本仓库 import 不到。端到端放到 P5，
   用真实部署的协调端验证；如果以后需要自动化，就在测试里拉起同步库的 `coordinator` 二进制。
 
+**P2 状态：✅ 代码与单元测试完成（2026-09-25）**。`internal/filesyncmanage` 与 `internal/webapi/filesyncapi` 的测试在
+Windows（`-race`）与 WSL Linux（`-race`）都通过；`internal/auth` 在 sqlite 1.58 下回归通过；`GOOS=linux` 交叉编译通过。
+与上面设计的偏离：
+
+- **新增：暂时性失败的退避重建**（设计里没有）。单测发现：**还没接入过的机器**首次 `Run` 要先调 Enroll，
+  协调端不可达时同步库**直接从 `Run` 返回 `Unavailable`**，而不是像已接入节点那样退避重连。照原设计把它当终态，
+  本程序开机时网络/协调端恰好不通，同步就永久停着。现在 `Unavailable` / `DeadlineExceeded` 按 10s 起翻倍、上限 5 分钟
+  重建节点，期间状态显示"连接中"并注明下次重试时间；鉴权失败、node_id 冲突仍是终态。
+  **这其实是同步库可以改进的地方**（让 `Run` 对 Enroll 的暂时性失败也退避重试，独立 agent 同样受益），
+  本程序这层重试届时仍无害，保留即可。见 `manager.go` 的 `onRunExit` 与 `TestTransientEnrollmentFailureIsRetried`（有反向对照）。
+- **P2-6 属主处理改为整棵集群目录**：`EventFileApplied` 只带任务 id、**不带路径**，没法定位单个文件。集群目录只有几个小文件，
+  收到事件就对 `clusters/<ClusterID>` 调既有的 `runner.ChownTreeForRuntime`（已属于运行时用户的文件不会被改动）。
+  于是 `runner` 不需要新增单文件入口，P2-6 里写的 `ChownPathForRuntime` 没有加。
+- **`Validate` 总是检查地址格式**：原先只在有引导凭据时经 `joinblob.Describe` 顺带检查，已接入、删掉了引导凭据的机器能存进一个没有端口的地址。
+- **状态里带"最近告警"**（环形 20 条）：`Status.Recent`，与 WS 推送（事件类型 `filesync`）同源，前端不必另开 WS 就能看到。
+- **依赖**：`go mod tidy` 报 `genproto/googleapis/rpc/errdetails` 歧义导入——本仓库依赖图里有 2019 年的单体
+  `google.golang.org/genproto`（经老版 grpc/envoy 引入），与 gRPC 需要的拆分模块提供同一个包。把单体升到最新
+  （已不含该包）后 tidy 把它整个剪掉，`go.mod` 里不再出现。
+- 环境注记：Git Bash 下 `go build ./...` 会在 Fyne 的 `go-gl` cgo 包上失败，PowerShell 正常——与 `-race` 同类的 shell 环境问题。
+
 ### P3 — API 与前端
 
-- [ ] `internal/webapi/filesyncapi/`（按领域拆子包，与 `pluginapi` 等一致；不照抄 `frpmanage` 把路由放在领域包里的做法）：
+**P3 状态：✅ 代码完成，`npm run build` 通过（2026-09-25）；浏览器人工验收未做**（见 P5）。菜单名用「集群同步」，
+与并存的 Syncthing 页「文件同步」区分；路由 `/filesync-manager`。另加了 `POST /api/filesync/join-blob/inspect`（P2-1 已列）。
+
+- [x] `internal/webapi/filesyncapi/`（按领域拆子包，与 `pluginapi` 等一致；不照抄 `frpmanage` 把路由放在领域包里的做法）：
       `GET/PUT /api/filesync/config`、`GET /api/filesync/status`、`GET /api/filesync/status/stream`（SSE，2s）、
       `POST /api/filesync/{start,stop,restart}`、`POST /api/filesync/identity/reset`、
       `GET /api/filesync/clusters`（从各实例配置里收集已有的 `ClusterID`，供下拉选择）。
       **写操作挂 `authapi.RequireAdmin()`**（`frp` 的写路由目前没挂，那是另一个问题，不在本期范围）。
-- [ ] `app/src/views/FileSyncManager.vue`：**表单 + 状态面板**（照 `FRPManager.vue`，不用 Monaco）。
+- [x] `app/src/views/FileSyncManager.vue`：**表单 + 状态面板**（照 `FRPManager.vue`，不用 Monaco）。
       左栏：**接入方式切换**（`t-radio-group`，§10-7）——
       「粘贴接入字符串」：一个多行输入框，失焦时调 `inspect` 预览地址与 CA 指纹；
       「上传证书文件」：协调端地址 + `ca.crt` / `client.crt` / `client.key` 三个文件选择（前端 `FileReader` 读成文本，
