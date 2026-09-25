@@ -78,8 +78,7 @@ func (m *Manager) Status() Status {
 	case m.cfg == nil:
 		st.State = StateNotConfigured
 		return st
-	case m.node != nil, m.retry != nil:
-		// 等待重建（暂时连不上协调端）也算"连接中"：它会自己恢复，不需要人处理。
+	case m.node != nil:
 		st.State = StateConnecting
 	case m.failure != nil && !errors.Is(m.failure, ErrNotConfigured):
 		st.State = StateFailed

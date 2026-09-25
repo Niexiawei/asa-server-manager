@@ -5,7 +5,7 @@ go 1.27
 require (
 	fyne.io/fyne/v2 v2.8.1
 	github.com/Niexiawei/go-arkparser v0.0.0-20260902030924-4ac01788244a
-	github.com/Niexiawei/simple-file-sync v0.4.0
+	github.com/Niexiawei/simple-file-sync v0.4.1
 	github.com/aymanbagabas/go-pty v0.2.3
 	github.com/cilium/ebpf v0.22.0
 	github.com/dgraph-io/badger/v4 v4.9.6

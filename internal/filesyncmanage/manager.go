@@ -21,8 +21,6 @@ import (
 	"time"
 
 	"github.com/Niexiawei/simple-file-sync/pkg/client"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 
 	"asa-server/internal/runner"
 	"asa-server/pkg/logger"
@@ -35,14 +33,7 @@ const (
 
 	// statsReportInterval 让协调端界面能看到本节点的下载进度（库默认不上报）。
 	statsReportInterval = 5 * time.Second
-
-	// maxRetryDelay 是暂时性失败后重建节点的退避上限。
-	maxRetryDelay = 5 * time.Minute
 )
-
-// initialRetryDelay 是暂时性失败后第一次重试的等待时间，之后每次翻倍到 maxRetryDelay。
-// 变量而非常量，测试里调短。
-var initialRetryDelay = 10 * time.Second
 
 // remoteCommands 是允许协调端对本机下发的远程指令（§10-5）：只开只读的 status
 // 与无害的 rescan。request_backfill 有排序约束，list_conflict_copies 会把本机的
@@ -80,12 +71,10 @@ type Manager struct {
 	// 用原子量是因为事件回调在同步库的协程里、不持锁读它：回调若要抢锁，
 	// 而 Shutdown 恰好在持锁等待，就会互相卡住。
 	generation atomic.Int64
-	// failure 是节点停下的原因。终态错误（鉴权失败、node_id 冲突、凭据无法解析……）
-	// 是配置问题，不重试；暂时性错误见 retry。
+	// failure 是节点停下的原因。Run 只在终态错误（鉴权失败、node_id 冲突……）时返回——
+	// 连不上协调端，无论接入前后，同步库都自己退避重试（v0.4.1 起也包括首次接入）——
+	// 所以它们都是配置问题，本程序不重试。
 	failure error
-	// retry 非 nil 表示节点因暂时性错误停下、已安排了重建（见 onRunExit）。
-	retry      *time.Timer
-	retryDelay time.Duration
 }
 
 var globalManager *Manager
@@ -133,7 +122,6 @@ func (m *Manager) Start() error {
 
 // startLocked 建节点、挂同步根、起 Run 协程。
 func (m *Manager) startLocked(cfg *Config) error {
-	m.cancelRetryLocked()
 	m.failure = nil
 	if err := cfg.Validate(); err != nil {
 		m.failure = err
@@ -203,12 +191,7 @@ func (m *Manager) addRootLocked(ctx context.Context, clusterID string) {
 	delete(m.rootErr, clusterID)
 }
 
-// onRunExit 处理 Run 协程的返回。Run 在 ctx 取消（正常停止）或出错时返回。
-//
-// 出错分两类。终态错误（证书被拒、node_id 冲突）是配置问题，停下等人处理。
-// 暂时性错误——典型的是**还没接入过的机器在首次 Enroll 时连不上协调端**：
-// 同步库只对已接入节点的连接做退避重连，接入这一步失败就直接从 Run 返回——
-// 本程序开机时网络或协调端恰好不通，不能因此让同步永远停着，所以按退避重建节点。
+// onRunExit 处理 Run 协程的返回。Run 在 ctx 取消（正常停止）或终态错误时返回。
 func (m *Manager) onRunExit(generation int64, err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -216,56 +199,10 @@ func (m *Manager) onRunExit(generation int64, err error) {
 		return // 已被 Stop/Restart 换掉
 	}
 	m.shutdownLocked()
-	if err == nil {
-		return
-	}
-	if !retryable(err) {
+	if err != nil {
 		m.failure = err
 		logger.Errorf("%s同步节点已停止: %v", logPrefix, err)
-		return
 	}
-	m.retryDelay = min(max(m.retryDelay*2, initialRetryDelay), maxRetryDelay)
-	delay := m.retryDelay
-	m.failure = fmt.Errorf("暂时连不上协调端，%s 后重试: %w", delay, err)
-	logger.Warnf("%s%v", logPrefix, m.failure)
-	scheduled := m.generation.Load()
-	m.retry = time.AfterFunc(delay, func() { m.retryStart(scheduled) })
-}
-
-// retryable 报告 Run 的错误是否值得重试：只认网络层面的暂时性失败。
-func retryable(err error) bool {
-	switch status.Code(err) {
-	case codes.Unavailable, codes.DeadlineExceeded:
-		return true
-	}
-	return false
-}
-
-// retryStart 是退避到期后的重建。期间有人 Stop/Restart/改配置时，generation 已变，放弃。
-func (m *Manager) retryStart(scheduled int64) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if scheduled != m.generation.Load() || m.retry == nil || m.node != nil {
-		return
-	}
-	m.retry = nil
-	if m.cfg == nil || !m.cfg.Enabled {
-		return
-	}
-	delay := m.retryDelay // startLocked 会清掉它，重试路径要保留退避进度
-	if err := m.startLocked(m.cfg); err != nil {
-		logger.Warnf("%s重试启动失败: %v", logPrefix, err)
-	}
-	m.retryDelay = delay
-}
-
-// cancelRetryLocked 取消尚未触发的重建，并重置退避。
-func (m *Manager) cancelRetryLocked() {
-	if m.retry != nil {
-		m.retry.Stop()
-		m.retry = nil
-	}
-	m.retryDelay = 0
 }
 
 // shutdownLocked 关掉当前节点，容忍"本来就没在跑"。库约定 Shutdown 之后节点不可复用，
@@ -289,14 +226,7 @@ func (m *Manager) shutdownLocked() {
 func (m *Manager) Stop() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	pendingRetry := m.retry != nil
-	m.cancelRetryLocked()
 	if m.node == nil {
-		if pendingRetry {
-			m.failure = nil
-			logger.Infof("%s已取消待重试的文件同步", logPrefix)
-			return nil
-		}
 		return errors.New("文件同步未在运行")
 	}
 	m.shutdownLocked()
@@ -308,7 +238,6 @@ func (m *Manager) Stop() error {
 func (m *Manager) Restart() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.cancelRetryLocked()
 	m.shutdownLocked()
 	if m.cfg == nil {
 		return ErrNotConfigured
@@ -355,7 +284,6 @@ func (m *Manager) SetConfig(next *Config) error {
 
 	switch {
 	case !next.Enabled:
-		m.cancelRetryLocked()
 		m.shutdownLocked()
 		m.failure = nil
 		return nil
@@ -400,7 +328,6 @@ func (m *Manager) ResetIdentity() error {
 	if !m.cfg.hasBootstrap() {
 		return errors.New("重置身份后需要用引导凭据重新接入，请先提供接入字符串或证书文件")
 	}
-	m.cancelRetryLocked()
 	m.shutdownLocked()
 	for _, path := range []string{m.nodeCertPath(), m.nodeKeyPath()} {
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {

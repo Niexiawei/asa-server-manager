@@ -1,11 +1,11 @@
 # 用 simple-file-sync 替换 Syncthing 的可行性评估与实施计划
 
-> 状态：**P2、P3 代码完成（2026-09-25），接入同步库 `v0.4.0`**。下一步是 P5 真机验收（含浏览器人工验收），之后才谈 P4 与 syncthing 退场。
+> 状态：**P2、P3 代码完成（2026-09-25），接入同步库 `v0.4.1`**。下一步是 P5 真机验收（含浏览器人工验收），之后才谈 P4 与 syncthing 退场。
 > 评估对象是同步库 **simple-file-sync**（本机工作副本 `D:\golang\ark-asa-file-sync`，目录名是历史遗留；
 > go.mod 模块名 **`github.com/Niexiawei/simple-file-sync`**，远端 `git@github.com:Niexiawei/simple-file-sync.git`），
 > 以及本仓库 `internal/syncthingmanage/` 的现状。
 >
-> **接入版本：`v0.4.0`**（2026-09-25，含 M7-6 join blob；`go.mod` 已锁定）。**不要用 `v0.3.0`**——它有一个回归：新增的同步根可能永远收不到组内已有内容
+> **接入版本：`v0.4.1`**（2026-09-25，含 M7-6 join blob 与首次接入重试；`go.mod` 已锁定）。**不要用 `v0.3.0`**——它有一个回归：新增的同步根可能永远收不到组内已有内容
 > （订阅与补发请求走两条发送队列、可能乱序，见 §3.2）。各版本变化见同步库根目录的 `CHANGELOG.md`。
 >
 > 同步库定位为与 syncthing 同类的**通用文件同步库**，不含任何 ARK 专属的命名、默认值或逻辑：
@@ -26,7 +26,7 @@
 | **最大收益** | 干掉一个独立 exe 进程、一份 30MB 的按需下载，以及让用户手改 XML 的配置方式；换成**库内调用 + 表单配置**，与 `frpmanage` 的既有形态一致。 |
 | **最大代价** | 需要**自建并长期运营一个公网 Coordinator**，而且它是**数据面**（所有字节都经它中转、落盘）。M6 块级增量把流量成本降了一个量级（§6.4），但"要自己运维一台公网机器"这件事没变，这也是唯一不可逆的决策点。 |
 | **首期落地范围** | **只同步 `{BaseDir}/clusters/<ClusterID>/`**（集群传输数据），不碰存档。 |
-| **进度** | P1～P3 完成（同步库 `v0.4.0` + `internal/filesyncmanage` + API + 页面），见 §8 各节状态。下一步是 P5 真机验收。 |
+| **进度** | P1～P3 完成（同步库 `v0.4.1` + `internal/filesyncmanage` + API + 页面），见 §8 各节状态。下一步是 P5 真机验收。 |
 
 ---
 
@@ -180,7 +180,7 @@
 | # | 事项 | 说明 |
 |---|---|---|
 | 1 | Coordinator 不可嵌入 | §5.1，已接受：独立部署。 |
-| 2 | 依赖引入方式 ✅ 已定 | **GOPRIVATE**（同 `go-arkparser`），`go env -w GOPRIVATE=github.com/Niexiawei/*`，然后 `go get github.com/Niexiawei/simple-file-sync@v0.4.0`。 |
+| 2 | 依赖引入方式 ✅ 已定 | **GOPRIVATE**（同 `go-arkparser`），`go env -w GOPRIVATE=github.com/Niexiawei/*`，然后 `go get github.com/Niexiawei/simple-file-sync@v0.4.1`。 |
 | 3 | 新增依赖面 | 净新增 `google.golang.org/grpc` + `genproto`；**`modernc.org/sqlite` 会从 1.57 升到 1.58**，而本仓库的 `auth.db` 在用它——升级后要回归 `internal/auth` 的测试与 `asa-server db verify`。 |
 | 4 | 日志接线 | 库走 `log/slog`，本仓库 `pkg/logger` 是 zap 包级函数。需要一层 `slog.Handler` → `pkg/logger` 适配，记录带 `[filesync]` 前缀，前端复用现有日志过滤。通过 `client.Config.Logger` 按节点注入，**不调用**同步库的 `logger.SetDefault`（那是进程级的）。 |
 | 5 | ~~Windows 无 SIGHUP~~ ✅ | 凭据热重载已改为文件监视 + `ReloadCredentials` RPC。 |
@@ -212,7 +212,7 @@
 - [x] 新信任模型（M7-0/M7-1/M7-3/M7-4/M7-5），`v0.2.0`。
 - [x] 去 ARK 化改名、块级增量（M6）、冲突与版本历史（M9）、配置文件启动 / 服务模式 / 网页界面 / 远程指令（M10），`v0.3.0`。
 - [x] 接入前质量核对：Windows + Linux 全量 `-race`，修复 §3.2 的四个缺陷，新增 `CHANGELOG.md`，**`v0.3.1`**。
-- [ ] **M7-6 join blob**（§10-7）：设计已写进同步库 `docs/证书自动续期计划.md` M7-6——新包 `pkg/joinblob`（零依赖编解码）
+- [x] **M7-6 join blob**（§10-7）：设计已写进同步库 `docs/证书自动续期计划.md` M7-6——新包 `pkg/joinblob`（零依赖编解码）
       + `coordinator join-blob` 子命令，发 **`v0.4.0`**（纯新增）。P2 接入 `v0.4.0`。
 
 ### P2 — 本仓库新增 `internal/filesyncmanage`（照 `frpmanage` 的形态）
@@ -317,7 +317,7 @@ Windows 上恒为空操作。
 
 #### P2-8 依赖与测试
 
-- `go.mod`：`github.com/Niexiawei/simple-file-sync v0.4.0`；回归 `internal/auth`（sqlite 1.58，§7-3）。
+- `go.mod`：`github.com/Niexiawei/simple-file-sync v0.4.1`；回归 `internal/auth`（sqlite 1.58，§7-3）。
 - 单元测试：配置校验与 JSON 往返、`GET` 不回传私钥、差量策略（哪些变化热更新、哪些重建）、日志适配器、状态映射。
 - **集成测试写不了进程内协调端**：`coordapp` 在同步库的 `internal/` 下，本仓库 import 不到。端到端放到 P5，
   用真实部署的协调端验证；如果以后需要自动化，就在测试里拉起同步库的 `coordinator` 二进制。
@@ -326,12 +326,12 @@ Windows 上恒为空操作。
 Windows（`-race`）与 WSL Linux（`-race`）都通过；`internal/auth` 在 sqlite 1.58 下回归通过；`GOOS=linux` 交叉编译通过。
 与上面设计的偏离：
 
-- **新增：暂时性失败的退避重建**（设计里没有）。单测发现：**还没接入过的机器**首次 `Run` 要先调 Enroll，
-  协调端不可达时同步库**直接从 `Run` 返回 `Unavailable`**，而不是像已接入节点那样退避重连。照原设计把它当终态，
-  本程序开机时网络/协调端恰好不通，同步就永久停着。现在 `Unavailable` / `DeadlineExceeded` 按 10s 起翻倍、上限 5 分钟
-  重建节点，期间状态显示"连接中"并注明下次重试时间；鉴权失败、node_id 冲突仍是终态。
-  **这其实是同步库可以改进的地方**（让 `Run` 对 Enroll 的暂时性失败也退避重试，独立 agent 同样受益），
-  本程序这层重试届时仍无害，保留即可。见 `manager.go` 的 `onRunExit` 与 `TestTransientEnrollmentFailureIsRetried`（有反向对照）。
+- **首次接入时协调端不可达的问题，已在同步库修复（`v0.4.1`）**。单测发现：**还没接入过的机器**首次 `Run`
+  要先调 Enroll，协调端不可达时同步库**直接从 `Run` 返回 `Unavailable`**，而不是像已接入节点那样退避重连——
+  本程序开机时网络/协调端恰好不通，同步就会永久停着。P2 最初在 `filesyncmanage` 里加了一层退避重建来绕过；
+  随后在同步库里根治（`ba23a43`：Enroll 失败 1s 起翻倍、上限 1 分钟重试，原因写进 `NodeState.LastConnectErr`，
+  协调端**拒绝**接入时发 `EventAuthenticationFailed`），本程序升到 `v0.4.1` 并删掉了那层重试，
+  改由 `TestUnenrolledNodeKeepsTryingAnUnreachableCoordinator` 守住行为（对 `v0.4.0` 反向对照会失败）。
 - **P2-6 属主处理改为整棵集群目录**：`EventFileApplied` 只带任务 id、**不带路径**，没法定位单个文件。集群目录只有几个小文件，
   收到事件就对 `clusters/<ClusterID>` 调既有的 `runner.ChownTreeForRuntime`（已属于运行时用户的文件不会被改动）。
   于是 `runner` 不需要新增单文件入口，P2-6 里写的 `ChownPathForRuntime` 没有加。
@@ -404,7 +404,7 @@ Windows（`-race`）与 WSL Linux（`-race`）都通过；`internal/auth` 在 sq
    身份被占用的唯一恢复路径是人工 `node reset`。（2026-09-12）
 5. **远程指令**：`Config.RemoteCommands` 首期**只开 `status` 与 `rescan`**。`request_backfill` 与 `list_conflict_copies`
    不开：前者有排序约束，后者会把本机的文件清单暴露给协调端。（2026-09-25）
-6. **接入版本**：~~`v0.3.1`~~ → **`v0.4.0`**（M7-6 join blob 发布后）。（2026-09-25）
+6. **接入版本**：~~`v0.3.1`~~ → ~~`v0.4.0`~~（M7-6 join blob）→ **`v0.4.1`**（首次接入重试）。（2026-09-25）
 7. **接入凭据两种方式都做，页面上切换**：粘贴 join blob（同步库补 M7-6），或上传三个证书文件。两者落到同一份配置。（2026-09-25）
 8. **冲突副本先不挪**，只记日志、推前端；是否挪出 clusters 目录等 P5 验证游戏是否识别副本后再定（§7-15）。（2026-09-25）
 

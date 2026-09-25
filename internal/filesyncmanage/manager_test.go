@@ -2,7 +2,6 @@ package filesyncmanage
 
 import (
 	"errors"
-	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -10,9 +9,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 // unreachableAddress 返回一个没有人监听的本机地址：节点会一直尝试连接，
@@ -40,8 +36,8 @@ func newTestManager(t *testing.T) *Manager {
 
 // markEnrolled 在 m 的目录里放一张"节点证书"（借用 cfg 的引导证书，它同样由该 CA 签发），
 // 让节点跳过 Enroll、直接进入同步库的断线重连循环——连不上协调端时节点一直活着，
-// 这是测 Manager 热更新逻辑需要的稳定状态。没接入过的机器连不上时走的是另一条路，
-// 见 TestTransientEnrollmentFailureIsRetried。
+// 这是测 Manager 热更新逻辑需要的稳定状态（没接入过的机器会先反复重试 Enroll，
+// 见 TestUnenrolledNodeKeepsTryingAnUnreachableCoordinator）。
 func markEnrolled(t *testing.T, m *Manager, cfg *Config) {
 	t.Helper()
 	if err := os.WriteFile(m.nodeCertPath(), []byte(cfg.BootstrapCertPEM), 0o600); err != nil {
@@ -223,48 +219,19 @@ func TestResetIdentityNeedsBootstrapAndRemovesTheNodeCertificate(t *testing.T) {
 	}
 }
 
-// TestTransientEnrollmentFailureIsRetried：还没接入过的机器开机时连不上协调端，
-// 同步库的 Run 会直接返回 Unavailable。这不能变成"同步永久停止"，要按退避重建节点；
-// 而用户一旦手动 Stop，待执行的重建必须取消。
-func TestTransientEnrollmentFailureIsRetried(t *testing.T) {
-	previous := initialRetryDelay
-	initialRetryDelay = 20 * time.Millisecond
-	t.Cleanup(func() { initialRetryDelay = previous })
-
+// TestUnenrolledNodeKeepsTryingAnUnreachableCoordinator：还没接入过的机器开机时连不上协调端，
+// 同步库（v0.4.1 起）自己退避重试 Enroll。这里要求的是：节点不会停下变成 failed，
+// 状态停在"连接中"，而且连不上的原因能在 last_connect_error 里看到。
+func TestUnenrolledNodeKeepsTryingAnUnreachableCoordinator(t *testing.T) {
 	m := newTestManager(t)
 	if err := m.SetConfig(validConfig(t, unreachableAddress(t))); err != nil {
 		t.Fatal(err)
 	}
-	waitUntil(t, "a retry to be scheduled", func() bool {
-		st := m.Status()
-		return st.State == StateConnecting && strings.Contains(st.Message, "重试")
+	waitUntil(t, "the enrollment failure to be reported", func() bool {
+		return m.Status().LastConnectErr != ""
 	})
-	first := m.generation.Load()
-	waitUntil(t, "the node to be rebuilt", func() bool { return m.generation.Load() > first+1 })
-
-	if err := m.Stop(); err != nil {
-		t.Fatalf("Stop should cancel a pending retry: %v", err)
-	}
-	stopped := m.generation.Load()
-	time.Sleep(200 * time.Millisecond) // 远大于退避，给一次不该发生的重建留足时间
-	if m.generation.Load() != stopped || m.Status().State != StateStopped {
-		t.Fatalf("the node kept being rebuilt after Stop (state %s)", m.Status().State)
-	}
-}
-
-func TestRetryableOnlyForTransientFailures(t *testing.T) {
-	wrap := func(code codes.Code) error {
-		return fmt.Errorf("client: enroll node %q: %w", "n", status.Error(code, "x"))
-	}
-	for code, want := range map[codes.Code]bool{
-		codes.Unavailable: true, codes.DeadlineExceeded: true,
-		codes.PermissionDenied: false, codes.AlreadyExists: false, codes.Unauthenticated: false,
-	} {
-		if got := retryable(wrap(code)); got != want {
-			t.Errorf("retryable(%s) = %v, want %v", code, got, want)
-		}
-	}
-	if retryable(errors.New("not a gRPC error")) {
-		t.Error("a plain error must not be retried")
+	time.Sleep(200 * time.Millisecond) // 足够让一个"首次失败就退出"的节点退出
+	if st := m.Status(); st.State != StateConnecting || m.node == nil {
+		t.Fatalf("state = %s (message %q), want the node still connecting", st.State, st.Message)
 	}
 }
