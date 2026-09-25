@@ -3,7 +3,7 @@
 本文件记录 ASA Server Manager 每个版本面向使用者的变化。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 设计与取舍的细节在 `docs/` 下对应的计划文档里，这里只写结论；条目后括注的文档名即出处。
 
-## [Unreleased]
+## [0.1.0] - 2026-09-25
 
 `v0.0.1`（2026-06-22）之后的全部变化，按领域归类。
 
@@ -110,5 +110,5 @@
 以及 Windows 服务注册。支持多实例的创建、启动 / 停止 / 重启、INI 配置编辑、存档备份与恢复、RCON、日志查看、服务端更新，
 基于镜像目录的多实例共享服务端文件，以及 FRP 端口映射与 Syncthing 文件同步的集成。
 
-[Unreleased]: https://github.com/Niexiawei/asa-server-manager/compare/v0.0.1...HEAD
+[0.1.0]: https://github.com/Niexiawei/asa-server-manager/compare/v0.0.1...v0.1.0
 [0.0.1]: https://github.com/Niexiawei/asa-server-manager/releases/tag/v0.0.1
