@@ -21,6 +21,9 @@
               <t-menu-item value="syncthing-manager">
                 <span>文件同步</span>
               </t-menu-item>
+              <t-menu-item value="filesync-manager">
+                <span>集群同步</span>
+              </t-menu-item>
               <t-menu-item value="schedule-manager">
                 <span>定时任务</span>
               </t-menu-item>
@@ -135,6 +138,8 @@ watch(() => route.path, (newPath) => {
     currentRoute.value = 'frp-manager';
   } else if (newPath === '/syncthing-manager') {
     currentRoute.value = 'syncthing-manager';
+  } else if (newPath === '/filesync-manager') {
+    currentRoute.value = 'filesync-manager';
   } else if (newPath === '/schedule-manager') {
     currentRoute.value = 'schedule-manager';
   } else if (newPath === '/server-resource') {
@@ -165,6 +170,11 @@ const handleMenuClick = (value) => {
     case "syncthing-manager":
       router.push({
         path: '/syncthing-manager'
+      })
+      break
+    case "filesync-manager":
+      router.push({
+        path: '/filesync-manager'
       })
       break
     case "schedule-manager":

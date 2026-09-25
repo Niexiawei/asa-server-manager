@@ -174,6 +174,52 @@ export function restartFRP() {
     return apiClient.post('/api/frp/restart')
 }
 
+// 集群文件同步（simple-file-sync）管理接口，见 docs/FILESYNC_REPLACE_SYNCTHING_PLAN.md §8 P3
+//
+// GET 返回的配置不含任何 PEM：
+// { configured, enabled, address, label, has_ca, has_bootstrap,
+//   credential: { address, ca_fingerprint, cert_not_after } | null,
+//   upload_limit_kbps, download_limit_kbps, clusters: [{cluster_id}] }
+export function getFileSyncConfig() {
+    return apiClient.get('/api/filesync/config')
+}
+
+// 保存配置。凭据二选一：join_blob，或 ca_pem / bootstrap_cert_pem / bootstrap_key_pem（留空表示不修改）。
+export function updateFileSyncConfig(config) {
+    return apiClient.put('/api/filesync/config', config)
+}
+
+// 解开接入字符串但不保存，返回 { address, ca_fingerprint, cert_not_after }
+export function inspectJoinBlob(joinBlob) {
+    return apiClient.post('/api/filesync/join-blob/inspect', {join_blob: joinBlob})
+}
+
+export function getFileSyncStatus() {
+    return apiClient.get('/api/filesync/status')
+}
+
+export function startFileSync() {
+    return apiClient.post('/api/filesync/start')
+}
+
+export function stopFileSync() {
+    return apiClient.post('/api/filesync/stop')
+}
+
+export function restartFileSync() {
+    return apiClient.post('/api/filesync/restart')
+}
+
+// 删除本机节点证书，用引导凭据重新接入（协调端要先对本机执行 node reset）
+export function resetFileSyncIdentity() {
+    return apiClient.post('/api/filesync/identity/reset')
+}
+
+// 各实例配置里已有的 ClusterID：[{ cluster_id, instances: [] }]
+export function getFileSyncClusters() {
+    return apiClient.get('/api/filesync/clusters')
+}
+
 
 // Syncthing 管理接口
 // 获取 Syncthing 配置

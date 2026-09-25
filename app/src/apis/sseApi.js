@@ -212,6 +212,36 @@ export function streamFRPStatus(onStatus, onError, onClose) {
     }
 }
 
+// 流式获取集群文件同步状态：与 GET /api/filesync/status 同形的 Status 对象
+// { state, message, node_id, address, has_bootstrap, enrolled, cert_not_after,
+//   remote_addr, reconnects, address_changes, last_connect_error,
+//   rx_bytes_per_second, tx_bytes_per_second, clusters: [...], recent: [...] }
+export function streamFileSyncStatus(onStatus, onError, onClose) {
+    const eventSource = new EventSource(buildEventSourceUrl('/api/filesync/status/stream'))
+
+    eventSource.onmessage = (event) => {
+        try {
+            onStatus(JSON.parse(event.data))
+        } catch (error) {
+            console.error('Failed to parse filesync status event:', error)
+        }
+    }
+
+    eventSource.onerror = (error) => {
+        console.error('SSE connection error:', error)
+        if (onError) {
+            onError(error)
+        }
+        eventSource.close()
+        if (onClose) onClose()
+    }
+
+    return () => {
+        eventSource.close()
+        if (onClose) onClose()
+    }
+}
+
 // 流式获取 Syncthing 状态变化（SSE - 保持 EventSource）
 export function streamSyncthingStatus(onStatus, onError, onClose) {
     const eventSource = new EventSource(buildEventSourceUrl('/api/syncthing/status/stream'))

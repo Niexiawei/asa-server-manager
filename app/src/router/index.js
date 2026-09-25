@@ -38,6 +38,13 @@ const routes = [
         component: () => import('@/views/SyncthingManager.vue'),
     },
     {
+        // 集群传输目录的同步（simple-file-sync），与上面的 Syncthing 页并存，
+        // 见 docs/FILESYNC_REPLACE_SYNCTHING_PLAN.md §8 P3
+        path: '/filesync-manager',
+        name: 'FileSyncManager',
+        component: () => import('@/views/FileSyncManager.vue'),
+    },
+    {
         path: '/schedule-manager',
         name: 'ScheduleManager',
         component: () => import('@/views/ScheduleManager.vue'),
