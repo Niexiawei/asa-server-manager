@@ -8,6 +8,7 @@ import (
 	"asa-server/internal/batchmanage"
 	"asa-server/internal/certmgr"
 	cfgpkg "asa-server/internal/config"
+	"asa-server/internal/filesyncmanage"
 	"asa-server/internal/frpmanage"
 	instancepkg "asa-server/internal/instance"
 	"asa-server/internal/parseserver"
@@ -21,6 +22,7 @@ import (
 	"asa-server/internal/webapi/authapi"
 	"asa-server/internal/webapi/backupapi"
 	"asa-server/internal/webapi/configapi"
+	"asa-server/internal/webapi/filesyncapi"
 	"asa-server/internal/webapi/iconapi"
 	"asa-server/internal/webapi/instanceapi"
 	"asa-server/internal/webapi/logapi"
@@ -156,6 +158,17 @@ func (s *APIServer) Start() error {
 			logger.Errorf("Failed to start syncthing: %v", err)
 		}
 	}
+	// 文件同步（simple-file-sync，逐步替换 syncthing，两者并存）。
+	// 没配过是常规状态，同 frp 只记 INFO。
+	if fsMgr := filesyncmanage.GetGlobalManager(); fsMgr != nil {
+		if err := fsMgr.Start(); err != nil {
+			if errors.Is(err, filesyncmanage.ErrNotConfigured) {
+				logger.Infof("文件同步尚未配置，跳过自动启动")
+			} else {
+				logger.Errorf("文件同步启动失败: %v", err)
+			}
+		}
+	}
 
 	if err := statepkg.InitStateManager(cfgpkg.BaseDir); err != nil {
 		panic(err)
@@ -259,6 +272,10 @@ func (s *APIServer) Stop() error {
 		if err := syncthingMgr.Stop(); err != nil {
 			logger.Warnf("Error stopping syncthing: %v", err)
 		}
+	}
+	// 没在跑时 Stop 会返回错误，那是常规情况，不记。
+	if fsMgr := filesyncmanage.GetGlobalManager(); fsMgr != nil {
+		_ = fsMgr.Stop()
 	}
 
 	// Stop the schedule loop before the batch manager: a tick could otherwise
@@ -391,6 +408,7 @@ func (s *APIServer) setupRoutes() {
 	scheduleapi.NewHandler().RegisterRouter(s.engine)
 	pluginapi.NewHandler().RegisterRouter(s.engine)
 	systemapi.NewHandler().RegisterRouter(s.engine)
+	filesyncapi.NewHandler().RegisterRouter(s.engine)
 
 	// WebSocket endpoints。
 	// AuthGate 是纵深防御：中间件已经拦过一道，但 handler 内部还会周期性复查，
@@ -442,6 +460,9 @@ func InitializationBasicComponents() {
 	}
 	// Initialize syncthing manager
 	if _, err := syncthingmanage.Initialize(cfgpkg.BaseDir); err != nil {
+		log.Fatal(err)
+	}
+	if _, err := filesyncmanage.Initialize(cfgpkg.BaseDir); err != nil {
 		log.Fatal(err)
 	}
 	// Initialize batch manager
