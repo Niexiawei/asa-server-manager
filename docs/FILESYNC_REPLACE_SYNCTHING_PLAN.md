@@ -372,6 +372,7 @@ Windows（`-race`）与 WSL Linux（`-race`）都通过；`internal/auth` 在 sq
 ### P5 — 真机验收与 syncthing 退场
 
 - [ ] 在 Linux 机器上部署协调端（`service install` + systemd），顺带完成同步库 M10-2 的 Ubuntu 验收项。
+      操作步骤见同步库 `docs/coordinator-linux-deployment.md`。
 - [ ] 两台真实机器、同一 `ClusterID`、跨服角色传输闭环跑通，**含"B 服后加入"**（§6.1）。
 - [ ] 冲突副本是否会被游戏识别为角色（§7-15）。
 - [ ] Linux 降权运行时，游戏能读写、删除同步进来的文件（§7-9）。
