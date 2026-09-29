@@ -78,6 +78,20 @@ type UpdateInstanceConfigRequest struct {
 	PluginSnapshotInterval  *int    `json:"PluginSnapshotInterval,omitempty"`
 }
 
+// SetDirectories 只把 BaseDir 及各派生目录变量指向 baseDir，不在磁盘上创建任何东西。
+//
+// 给「配置文件还没生成、数据目录还没选定」的启动路径用（setup / GUI 首次启动，见
+// docs/SETUP_FLOW_OPTIMIZATION_PLAN.md Part 2 §P2-3.2）：这时建目录会在 exe 旁边
+// 留下一堆用户根本不想要的空目录，但变量不能留空——空的 InstancesDir 会让读实例
+// 列表的代码去读当前工作目录。
+func SetDirectories(baseDir string) {
+	BaseDir = baseDir
+	InstancesDir = filepath.Join(BaseDir, "instances")
+	ServerFilesDir = filepath.Join(BaseDir, "server-files")
+	SteamCmdDir = filepath.Join(BaseDir, "steamcmd")
+	BackupsDir = filepath.Join(BaseDir, "backups")
+}
+
 // EnsureDirectories creates the standard subdirectory tree under baseDir.
 //
 // BaseDir 解析不是这个函数的职责，也不再有任何自解析兜底：调用方（main.go）必须先
@@ -85,11 +99,7 @@ type UpdateInstanceConfigRequest struct {
 // 解析权威（见 docs/APPCONFIG_BASEDIR_PLAN.md），这里再留一套自己的兜底规则只会
 // 制造出两个可能对不上的答案。baseDir 是必须的入参，这个函数只管拿它建目录。
 func EnsureDirectories(baseDir string) error {
-	BaseDir = baseDir
-	InstancesDir = filepath.Join(BaseDir, "instances")
-	ServerFilesDir = filepath.Join(BaseDir, "server-files")
-	SteamCmdDir = filepath.Join(BaseDir, "steamcmd")
-	BackupsDir = filepath.Join(BaseDir, "backups")
+	SetDirectories(baseDir)
 	dirs := []string{InstancesDir, ServerFilesDir, SteamCmdDir, BackupsDir}
 	for _, dir := range dirs {
 		if err := os.MkdirAll(dir, 0755); err != nil {
