@@ -1,7 +1,7 @@
 # `pkg/umuruntime`：Wine/Proton 运行时独立成包 + 运行时组件插件化
 
-> 状态：🚧 **阶段 0–2b 已完成**（2026-09-29，分支 `refactor/umuruntime-plugins`，`6f36c3b`..`654c841`）；
-> 阶段 3–6 未开始。实施中与设计的偏离见 §13「实施记录」。
+> 状态：🚧 **阶段 0–4 已完成**（2026-09-29，分支 `refactor/umuruntime-plugins`，`6f36c3b`..`ec8f871`）；
+> 阶段 5–6 未开始。实施中与设计的偏离见 §13「实施记录」。
 > 相关文档：`docs/UMU_PREFIX_PLAN.md`（prefix 模式与已知缺陷）、`docs/XVFB_DISPLAY_PLAN.md`（显示解析与自管 Xvfb）、
 > `docs/ARKAPI_LINUX_VCREDIST_PLAN.md`（VC++ 运行时）、`docs/RUNNER_INSTANCE_PACKAGE_SPLIT_PLAN.md`（上一轮拆包，本文是它的续篇）。
 > 用户原话里的包名是 `pkg/umnruntime`，按拼写错误处理，本文统一写作 **`pkg/umuruntime`**（见 §12 第 1 条）。
@@ -677,6 +677,57 @@ wsl -e zsh -lc 'cd /mnt/d/golang/asa-server && go test -race ./pkg/umuruntime/..
 12. **`planDisplay` 保留**（`vcRedistStatus` 与 runner 的接线单测在用），`acquireDisplay` 删除；`stopManagedDisplay`
     改为 `Host.Close()`。`runner.DisplayStatus`/`StopManagedDisplay`/`Options.NeedsDisplay` 按计划留到阶段 4。
 13. `hostFor(cfg)` 先刷新显示插件的配置再刷新宿主：宿主从不配置别人交给它的插件，组合根是唯一让它们跟上 `cfg` 的地方。
+
+### 13.3 阶段 3–4（2026-09-29）
+
+| 阶段 | 提交 | 内容 |
+|---|---|---|
+| 3 | `36862d8` | `PrefixProvisioner`/`PrefixInspector`/`Outcome`；`plugins/vcrt`；`pkg/wineprefix` 四个 VC++ 字段 → `Provision`/`Pending` 钩子；`Host.Provision`（内含共享写守卫）；`Host.CheckNeeds`/`CapabilityStatus`/`Probe` |
+| 4 | `ec8f871` | `runner.Options.Needs`、`CheckNeeds`/`DescribeUnmet`/`Provision`/`PluginStatuses`/`CapabilityStatus`/`Close`；`installer.ArkApiNeeds`；迁移 instance / installer / actions / systemapi / svcmgr / webapi |
+
+验证：Windows `go build ./...` / `go vet` / `go test`（umuruntime、runner、installer、actions）；WSL2 `go vet ./internal/...`、
+`go test`（umuruntime 及两个插件、xvfb、vcredist、wineprefix、umu、runner、instance、installer、actions、webapi/...、svcmgr）
+与 `-race`（umuruntime/...、runner、instance）全过。
+
+**真机只读冒烟**：在 WSL2 里一份已停止的真实部署（`/opt/asa-server`，`prefix_mode: overlay`，ArkApi 与 VC++ 均已装好）上，
+用新构建的二进制与部署中的旧二进制各跑一次 `asa-server verify-arkapi --check-only`，**输出逐字相同**，且没有拉起任何 Xvfb。
+这条命令走的正是阶段 4 改写的三段（`CheckRuntime`、`CapabilityStatus(win32.gui)`、`CapabilityStatus(win32.msvcrt)`）。
+⚠️ 第一次跑时 `ASA_CFG` 指错了目录，`appconfig.Load` 在 `basedir/` 里生成了一份默认 `config.yaml`（部署真正读的是
+`/opt/asa-server/config.yaml`，不受影响）；已确认是本次生成的文件并删除，部署目录恢复原状。
+
+**仍未做**：§10.3 里会真正改动环境的几项 —— 全新机器 `setup`（有/无 Xvfb）、三种 prefix 模式下的 ArkApi 实例启动、
+overlay 下实例运行中执行 `verify-arkapi --install-vcredist` 应被拒绝。单测覆盖了后者的守卫**位置**（`Host.Provision` 内），
+但 overlay 挂载在单测里造不出来，拒绝路径本身只有真机能验。
+
+### 13.4 阶段 3–4 与设计的偏离
+
+1. **新增只读接口 `PrefixInspector`**（§4.2 没有）：`verify-arkapi` 要看的 VC++ 状态是「某个 prefix + 某个游戏目录」的，
+   而 `Statuser.Report()` 没有参数。`InspectPrefix(InspectContext{Prefix, ExeDir, Probe})` 里的 `ExeDir` 是通用概念
+   （Windows 先从应用目录解析 DLL），`Probe` 让插件能只读地问别的能力（VC++ 要报「安装器会用哪个显示」）。
+   `Host.Status()` 对实现了它的插件改问共享前缀。
+2. **`EnvProvider.Probe` 的第二个返回值改为 `detail`**：可用时说「会用哪个」（候选链头一档的 How），不可用时说原因。
+   阶段 2b 只返回原因；VC++ 诊断的「安装器将使用的显示」需要前者。xdisplay 的对应单测随之更新。
+3. **`Fingerprint` 没有进 `PrefixProvisioner`**：它只在阶段 5（底层指纹）有用，届时再加，免得先放一个没有调用方的方法。
+4. **`Outcome.Kind` 多了 `Failed`**，`Outcome` 多了 `Key`：可选插件失败要经 `OnOutcome` 报出去，且措辞要区分
+   共享前缀与某个实例的前缀。
+5. **失败策略按调用方式分两档**：`Ensure`/`EnsurePrefix`（隐式）只把 `Required` 插件的失败当错误返回，其余走 `OnOutcome`；
+   `Host.Provision`（显式，「现在就装」）不论可选与否都返回失败，且不再经 `OnOutcome` 重复报一次。
+6. **`wineprefix` 里 VC++ 失败的日志措辞统一了**：原来快路径说「补装……失败」、新建路径说「安装……失败」，
+   都由 `pkg/wineprefix` 打印。现在由 runner 的 `describeOutcome` 统一说「实例 X 的 Wine 前缀里安装 VC++ 运行时失败」；
+   `pkg/wineprefix` 只在钩子返回错误（即 `Required` 插件失败）时让 `EnsurePrefix` 失败，不再自己打 VC++ 字样的日志。
+7. **`runner.PluginStatus()` 叫 `PluginStatuses()`**：`PluginStatus` 已是类型别名的名字。
+8. **导出符号数没有降到 §7.3 估计的约 33 个，而是持平**：删了 9 个按组件命名的函数/类型
+   （`DisplayStatus`/`DisplayInfo`/`StopManagedDisplay`/`EnsurePrefixVCRedist`/`PrefixHasVCRedist`/`VCRedistStatus`/
+   `VCRedistInfo`/`VCRedistDLLInfo`/`DLLOrigin`）和 3 个 `DLL*` 常量，加了 9 个按能力命名的函数/类型
+   （`Capability`/`Unmet`/`PluginStatus`/`CheckNeeds`/`DescribeUnmet`/`Provision`/`PluginStatuses`/`CapabilityStatus`/`Close`）
+   和 2 个 `Cap*` 常量。§7.3 那个数字估错了；要紧的是后一句仍然成立：**再加运行时组件不再增加导出符号**。
+9. **VC++ 的实例启动告警多了一个「在」字**（「……但在 Wine 前缀里没有检测到……」）：`DescribeUnmet` 返回的是接在
+   「但」后面的从句，原文「但 Wine 前缀里」靠一个半角空格衔接，做成通用接口后改成了自然的衔接字。显示那条逐字未变，有单测钉住。
+10. **`verify-arkapi --install-vcredist` 在 `install_vcredist: false` 时**：原来是直接跳过；现在会先过共享写守卫
+    （overlay 下可能卸载空闲可写层）再由插件报「未启用」而跳过。runner 的 `provision` 没有为 VC++ 单开早退，
+    因为那会把组件名重新写回通用入口。影响只在「显式要求安装、却又关掉了安装」这个自相矛盾的组合上。
+11. **`runner.Close()` 取代 `StopManagedDisplay()`**，实现是 `Host.Close()`（逆拓扑序关所有 `Closer`）；
+    `vcredist_windows.go` 更名为 `plugins_windows.go`，Windows 上五个桩全部是「平台原生满足」。
 
 ---
 
