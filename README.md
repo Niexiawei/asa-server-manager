@@ -24,7 +24,7 @@ A comprehensive ARK Server Ascended (ASA) server management tool built with Go a
 
 ## System Requirements
 
-- **Operating System**: Windows 10/11 (64-bit)
+- **Operating System**: Windows 10/11 (64-bit) natively; or Linux (x86_64) via umu + GE-Proton + Wine
 - **Go Version**: 1.26 or higher (for development)
 - **Node.js**: 16.x or higher (for frontend development)
 - **Disk Space**: Minimum 20GB for server files and instances
@@ -202,41 +202,52 @@ packages below; pure utilities live under `pkg/`. See
 [docs/PACKAGE_RESTRUCTURE_PLAN.md](docs/PACKAGE_RESTRUCTURE_PLAN.md) for the rationale.
 
 ```
+```
 asa-server/
-├── main.go              # Entry point: CLI, GUI, Windows service detection
+├── main.go                  # Entry point: CLI, GUI, OS service detection
+├── main_windows.go          # Windows-specific entry point
+├── main_linux.go            # Linux-specific entry point
 │
-│  ── Domain packages (bottom-up, no cycles) ──
-├── pkg/                 # Leaf utilities: fsutil, procx (process primitives), netutil, tail,
-│                        #   console, iox, proctree (process tree mgmt), serverinfo (gopsutil metrics),
-│                        #   logger (Zap + lumberjack, see docs/LOGGER_REDESIGN_PLAN.md)
-├── config/              # Directory layout, InstanceConfig, INI read/write, config sync
-├── certmgr/             # Local CA + leaf certificate, Windows trusted root store (HTTPS/h2)
-├── process/             # PID store + IsServerRunning (breaks the state <-> instance cycle)
-├── rconx/               # RCON connection & command execution (retries, sentinel errors)
-├── realtime/            # WebSocket hub: server events + interactive RCON
-├── state/               # BadgerDB instance state persistence (CAS state machine)
-├── installer/           # SteamCMD download / ARK server update
-├── mirror/              # Per-instance NTFS junction mirrors
-├── instance/            # Lifecycle: Start/Stop/Restart, saves, mod extraction, ASA version
-├── countdown/           # Delayed stop/restart orchestration: countdown + in-game announcements
-├── batchmanage/         # Batch start/stop/restart across instances (see docs/BATCH_OPERATION.md)
-├── schedule/            # Cron-like scheduled tasks (restart / update)
-├── updatemanage/        # Server update task singleton
+│  ── Domain packages (bottom-up, no cycles; now all under internal/) ──
+├── internal/
+│   ├── config/              # Directory layout, InstanceConfig, INI read/write, config sync
+│   ├── appconfig/           # config.yaml application config + validation
+│   ├── process/             # PID store + IsServerRunning (breaks the state <-> instance cycle)
+│   ├── certmgr/             # Local CA + leaf certificate, trusted root store (HTTPS/h2)
+│   ├── rconx/               # RCON connection & command execution (retries, sentinel errors)
+│   ├── realtime/            # WebSocket hub: server events + interactive RCON
+│   ├── state/               # BadgerDB instance state persistence (CAS state machine)
+│   ├── installer/           # SteamCMD download / ARK server update
+│   ├── mirror/              # Per-instance mirror (NTFS junction / Linux symlink)
+│   ├── instance/            # Lifecycle: Start/Stop/Restart, saves, mod extraction, ASA version
+│   ├── runner/              # Cross-platform launcher: Windows native / Linux (umu + Proton + Wine)
+│   ├── arkapimanage/        # ArkApi core + per-instance plugin install/update/uninstall
+│   ├── plugindata/          # Plugin data & config isolation (layout, migration, classification)
+│   ├── countdown/           # Delayed stop/restart orchestration: countdown + announcements
+│   ├── batchmanage/         # Batch start/stop/restart across instances
+│   ├── schedule/            # Cron-like scheduled tasks (restart / update)
+│   ├── updatemanage/        # Server update task singleton
+│   ├── filesyncmanage/      # File sync management
+│   ├── backup/              # tar+zstd backup/restore with functional options
+│   ├── frpmanage/           # FRP reverse proxy management
+│   ├── syncthingmanage/     # Syncthing file sync management
+│   ├── parseserver/         # ARK save file parsing
+│   ├── auth/                # Auth: login, rate limit, TOTP, audit log
+│   │
+│   │  ── Interfaces ──
+│   ├── webapi/              # HTTP API, split by domain: instanceapi, serverapi, backupapi,
+│   │                        #   configapi, saveapi, logapi, iconapi, authapi, scheduleapi, apiresp
+│   ├── gui/                 # Fyne desktop GUI (system tray, service mgmt, log viewer)
+│   ├── svcmgr/              # OS service integration (kardianos/service: Windows SCM / Linux systemd)
+│   └── actions/             # CLI command handlers (update / setup / perms / prefix / netmon)
 │
-│  ── Interfaces ──
-├── webapi/              # HTTP API, split by domain: instanceapi, serverapi, backupapi,
-│                        #   configapi, saveapi, logapi, iconapi, apiresp
-├── app/                 # Embedded Vue.js frontend (//go:embed dist)
-├── gui/                 # Fyne desktop GUI (system tray, service mgmt, log viewer)
-├── svcmgr/              # OS service integration (kardianos/service: Windows SCM / Linux systemd)
-├── actions/             # CLI command handlers
-│
-│  ── Supporting ──
-├── backup/              # tar+zstd backup/restore with functional options
-├── frpmanage/           # FRP reverse proxy management (embedded frpc.exe)
-├── syncthingmanage/     # Syncthing file sync management (embedded syncthing.exe)
-├── parseserver/         # ARK save file parsing
-└── docs/                # Documentation (see index below)
+├── pkg/                     # Leaf utilities, zero domain deps:
+│                            #   archive asaversion console download fsutil iox linuxdeps logger
+│                            #   netutil problem procmatch procnet proctree procx pyfinder
+│                            #   resourcegate serverinfo shareacl steamrt sysuser tail umu
+│                            #   vcredist wineprefix winnetetw xvfb arkcache display
+├── app/                     # Embedded Vue.js frontend (//go:embed dist)
+└── docs/                    # Documentation (see index below)
 ```
 
 ### Instance Directory Structure
@@ -377,6 +388,9 @@ Chinese overview, or jump straight to a topic below.
 | [HTTP2_CONNECTION_OPTIMIZATION.md](docs/HTTP2_CONNECTION_OPTIMIZATION.md) | HTTP/2 plan to lift the browser's 6-connection-per-origin cap on SSE |
 | [instance-manager-daemon.md](docs/instance-manager-daemon.md) | Instance manager daemon design |
 | [LOGGER_REDESIGN_PLAN.md](docs/LOGGER_REDESIGN_PLAN.md) | `logger` package redesign (implemented, now `pkg/logger`): console/file multi-sink, chainable `WithConsole()`, full call-site migration |
+| [INTERNAL_LAYOUT_MIGRATION.md](docs/INTERNAL_LAYOUT_MIGRATION.md) | 包目录整体收进 `internal/` 的迁移记录（包名与分层不变） |
+| [RUNNER_INSTANCE_PACKAGE_SPLIT_PLAN.md](docs/RUNNER_INSTANCE_PACKAGE_SPLIT_PLAN.md) | `internal/runner` + `internal/instance` 拆包：机制下沉 `pkg/`、分层无环，含后续 Gap 清单与拆分审阅 |
+| [WINNET_ETW_PLAN.md](docs/WINNET_ETW_PLAN.md) | 实例级网络监控（ETW）：`pkg/winnetetw` 设计、`pkg/procnet` 门面委托、迭代与真机验收清单 |
 
 ### Linux Compatibility
 
@@ -384,6 +398,15 @@ Chinese overview, or jump straight to a topic below.
 |----------|----------------|
 | [LINUX_COMPATIBILITY_PLAN.md](docs/LINUX_COMPATIBILITY_PLAN.md) | Linux compatibility design: coupling points, abstraction layers, phased implementation record (P0–P5 done) |
 | [LINUX_DEPLOYMENT.md](docs/LINUX_DEPLOYMENT.md) | Linux deployment guide: dependencies, install steps, systemd service, troubleshooting |
+| [UMU_PREFIX_PLAN.md](docs/UMU_PREFIX_PLAN.md) | Wine prefix 三模式（shared / per-instance / overlay）：两道闸、启动闸门、`PROTON_VERB`，与 prefix 初始化失败排查（D0–D6） |
+| [LINUX_RUNTIME_PRIVILEGE_PLAN.md](docs/LINUX_RUNTIME_PRIVILEGE_PLAN.md) | 降权运行时用户 `asa-umu-runtime`、共享写权限（组 + setgid + 默认 ACL + chown 兜底）、Python 解释器探测 |
+| [XVFB_DISPLAY_PLAN.md](docs/XVFB_DISPLAY_PLAN.md) | 跨发行版虚拟显示：自管 Xvfb、显示候选链、WSL `/tmp/.X11-unix` remount、关掉 Xalia |
+| [ARKAPI_LINUX_VCREDIST_PLAN.md](docs/ARKAPI_LINUX_VCREDIST_PLAN.md) | 把 VC++ 运行时装进 Wine prefix（DLL override + 微软安装器） |
+| [ARKAPI_CACHE_PREFETCH_PLAN.md](docs/ARKAPI_CACHE_PREFETCH_PLAN.md) | ArkApi offsets cache 预取：多 CDN、断点续传、`validateSerializedMap` 格式复刻 |
+| [ARKAPI_LINUX_LOGGING_AND_PID_PLAN.md](docs/ARKAPI_LINUX_LOGGING_AND_PID_PLAN.md) | ArkApi 日志转抄与游戏 PID 识别（`GameThread` comm 判据） |
+| [ARKAPI_PLUGIN_PLAN.md](docs/ARKAPI_PLUGIN_PLAN.md) | ArkApi 插件按实例独立安装 / 更新 / 卸载，与插件数据、配置隔离 |
+| [SETUP_FLOW_OPTIMIZATION_PLAN.md](docs/SETUP_FLOW_OPTIMIZATION_PLAN.md) | 环境未初始化时的引导：`setup` 跨平台化、`api`/`service install` 就绪门禁、Windows GUI 带实时进度的初始化面板（已实施） |
+| [PLAN_IMPLEMENTATION_AUDIT_2026-09-29.md](docs/PLAN_IMPLEMENTATION_AUDIT_2026-09-29.md) | 上述 Linux / umu / ArkApi 计划的**只读代码审计**：P0×3 / P1×23，附修复排期、文档合并说明与路径对照 |
 
 ### Features
 

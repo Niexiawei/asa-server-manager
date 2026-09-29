@@ -24,7 +24,7 @@
 
 ## 系统要求
 
-- **操作系统**：Windows 10/11（64位）
+- **操作系统**：Windows 10/11（64位）原生；或 Linux（x86_64，经 umu + GE-Proton + Wine）
 - **Go 版本**：1.26 或更高（用于开发）
 - **Node.js**：16.x 或更高（用于前端开发）
 - **磁盘空间**：服务器文件和实例至少需要 20GB
@@ -200,41 +200,52 @@ https://localhost:19193
 拆分理由见 [docs/PACKAGE_RESTRUCTURE_PLAN.md](docs/PACKAGE_RESTRUCTURE_PLAN.md)。
 
 ```
+```
 asa-server/
-├── main.go              # 入口：CLI 命令、GUI、Windows 服务检测
+├── main.go                  # 入口：CLI 命令、GUI、OS 服务检测
+├── main_windows.go          # Windows 平台专属入口
+├── main_linux.go            # Linux 平台专属入口
 │
-│  ── 领域包（自底向上，无环）──
-├── pkg/                 # 叶子工具：fsutil、procx（跨平台进程原语）、netutil、tail、console、iox、
-│                        #   proctree（进程树管理）、serverinfo（gopsutil 指标）、
-│                        #   logger（Zap + lumberjack，见 docs/LOGGER_REDESIGN_PLAN.md）
-├── config/              # 目录布局、InstanceConfig、INI 读写、配置同步
-├── process/             # PID 文件存储 + IsServerRunning（解 state ↔ instance 环的关键层）
-├── certmgr/             # 本地 CA + 叶子证书、Windows 受信任根存储（HTTPS/h2）
-├── rconx/               # RCON 连接与命令执行（重试、哨兵错误）
-├── realtime/            # WebSocket 中枢：服务器事件 + 交互式 RCON
-├── state/               # BadgerDB 实例状态持久化（CAS 状态机）
-├── installer/           # SteamCMD 下载 / ARK 服务器更新
-├── mirror/              # 实例镜像 / NTFS junction 管理
-├── instance/            # 生命周期 Start/Stop/Restart、存档、Mod 提取、ASA 版本
-├── countdown/           # 延迟停止/重启编排：倒计时 + 游戏内公告
-├── batchmanage/         # 多实例批量启停（详见 docs/BATCH_OPERATION.md）
-├── schedule/            # 定时任务（重启 / 更新）
-├── updatemanage/        # 服务器更新任务单例
+│  ── 领域包（自底向上，无环；已整体收进 internal/）──
+├── internal/
+│   ├── config/              # 目录布局、InstanceConfig、INI 读写、配置同步
+│   ├── appconfig/           # config.yaml 应用配置与校验
+│   ├── process/             # PID 文件存储 + IsServerRunning（解 state ↔ instance 环的关键层）
+│   ├── certmgr/             # 本地 CA + 叶子证书、受信任根存储（HTTPS/h2）
+│   ├── rconx/               # RCON 连接与命令执行（重试、哨兵错误）
+│   ├── realtime/            # WebSocket 中枢：服务器事件 + 交互式 RCON
+│   ├── state/               # BadgerDB 实例状态持久化（CAS 状态机）
+│   ├── installer/           # SteamCMD 下载 / ARK 服务器更新
+│   ├── mirror/              # 实例镜像 / junction（Linux 为 symlink）管理
+│   ├── instance/            # 生命周期 Start/Stop/Restart、存档、Mod 提取、ASA 版本
+│   ├── runner/              # 跨平台实例启动器：Windows 原生 / Linux（umu + Proton + Wine）组合根
+│   ├── arkapimanage/        # ArkApi 主程序与插件（每实例）安装 / 更新 / 卸载
+│   ├── plugindata/          # 插件数据与配置隔离（布局、迁移、分类）
+│   ├── countdown/           # 延迟停止/重启编排：倒计时 + 游戏内公告 + 登记表
+│   ├── batchmanage/         # 多实例批量启停（详见 BATCH_OPERATION.md）
+│   ├── schedule/            # 定时任务（重启 / 更新）
+│   ├── updatemanage/        # 服务器更新任务单例
+│   ├── filesyncmanage/      # 文件同步管理
+│   ├── backup/              # tar+zstd 备份/恢复（函数选项模式）
+│   ├── frpmanage/           # FRP 反向代理管理
+│   ├── syncthingmanage/     # Syncthing 文件同步管理
+│   ├── parseserver/         # ARK 存档解析
+│   ├── auth/                # 鉴权：登录、限流、TOTP、审计日志
+│   │
+│   │  ── 交互层 ──
+│   ├── webapi/              # HTTP API，按领域拆子包：instanceapi、serverapi、backupapi、
+│   │                        #   configapi、saveapi、logapi、iconapi、authapi、scheduleapi、apiresp
+│   ├── gui/                 # Fyne 桌面 GUI（系统托盘、服务管理、日志查看）
+│   ├── svcmgr/              # OS 服务集成（kardianos/service：Windows SCM / Linux systemd）
+│   └── actions/             # CLI 命令处理器（update / setup / perms / prefix / netmon 等）
 │
-│  ── 交互层 ──
-├── webapi/              # HTTP API，按领域拆子包：instanceapi、serverapi、backupapi、
-│                        #   configapi、saveapi、logapi、iconapi、apiresp
-├── app/                 # 内嵌 Vue.js 前端（//go:embed dist）
-├── gui/                 # Fyne 桌面 GUI（系统托盘、服务管理、日志查看）
-├── svcmgr/              # OS 服务集成（kardianos/service：Windows SCM / Linux systemd）
-├── actions/             # CLI 命令处理器
-│
-│  ── 支撑 ──
-├── backup/              # tar+zstd 备份/恢复（函数选项模式）
-├── frpmanage/           # FRP 反向代理管理（内嵌 frpc.exe）
-├── syncthingmanage/     # Syncthing 文件同步管理（内嵌 syncthing.exe）
-├── parseserver/         # ARK 存档解析
-└── docs/                # 文档（索引见下）
+├── pkg/                     # 叶子工具，零领域依赖：
+│                            #   archive asaversion console download fsutil iox linuxdeps logger
+│                            #   netutil problem procmatch procnet proctree procx pyfinder
+│                            #   resourcegate serverinfo shareacl steamrt sysuser tail umu
+│                            #   vcredist wineprefix winnetetw xvfb arkcache display
+├── app/                     # 内嵌 Vue.js 前端（//go:embed dist）
+└── docs/                    # 文档（索引见下）
 ```
 
 ### 实例目录结构
@@ -374,6 +385,9 @@ Syncthing 集成允许跨多个服务器轻松同步配置文件。
 | [HTTP2_CONNECTION_OPTIMIZATION.md](docs/HTTP2_CONNECTION_OPTIMIZATION.md) | HTTP/2 连接数优化方案（SSE 挤占浏览器 6 条额度） |
 | [instance-manager-daemon.md](docs/instance-manager-daemon.md) | 实例管理守护进程设计 |
 | [LOGGER_REDESIGN_PLAN.md](docs/LOGGER_REDESIGN_PLAN.md) | `logger` 包重构方案（已实施，现为 `pkg/logger`）：console/file 多路 sink、`WithConsole` 链式调用、调用点全量迁移 |
+| [INTERNAL_LAYOUT_MIGRATION.md](docs/INTERNAL_LAYOUT_MIGRATION.md) | 包目录整体收进 `internal/` 的迁移记录（包名与分层不变） |
+| [RUNNER_INSTANCE_PACKAGE_SPLIT_PLAN.md](docs/RUNNER_INSTANCE_PACKAGE_SPLIT_PLAN.md) | `internal/runner` + `internal/instance` 拆包：机制下沉 `pkg/`、分层无环，含后续 Gap 清单与拆分审阅 |
+| [WINNET_ETW_PLAN.md](docs/WINNET_ETW_PLAN.md) | 实例级网络监控（ETW）：`pkg/winnetetw` 设计、`pkg/procnet` 门面委托、迭代与真机验收清单 |
 
 ### Linux 兼容
 
@@ -381,6 +395,15 @@ Syncthing 集成允许跨多个服务器轻松同步配置文件。
 |------|------|
 | [LINUX_COMPATIBILITY_PLAN.md](docs/LINUX_COMPATIBILITY_PLAN.md) | Linux 兼容改造方案：耦合点清单、抽象层设计、分阶段实施记录（P0–P5 已实施） |
 | [LINUX_DEPLOYMENT.md](docs/LINUX_DEPLOYMENT.md) | Linux 部署指南：依赖清单、安装步骤、systemd 服务化、故障排查 |
+| [UMU_PREFIX_PLAN.md](docs/UMU_PREFIX_PLAN.md) | Wine prefix 三模式（shared / per-instance / overlay）：两道闸、启动闸门、`PROTON_VERB`，与 prefix 初始化失败排查（D0–D6） |
+| [LINUX_RUNTIME_PRIVILEGE_PLAN.md](docs/LINUX_RUNTIME_PRIVILEGE_PLAN.md) | 降权运行时用户 `asa-umu-runtime`、共享写权限（组 + setgid + 默认 ACL + chown 兜底）、Python 解释器探测 |
+| [XVFB_DISPLAY_PLAN.md](docs/XVFB_DISPLAY_PLAN.md) | 跨发行版虚拟显示：自管 Xvfb、显示候选链、WSL `/tmp/.X11-unix` remount、关掉 Xalia |
+| [ARKAPI_LINUX_VCREDIST_PLAN.md](docs/ARKAPI_LINUX_VCREDIST_PLAN.md) | 把 VC++ 运行时装进 Wine prefix（DLL override + 微软安装器） |
+| [ARKAPI_CACHE_PREFETCH_PLAN.md](docs/ARKAPI_CACHE_PREFETCH_PLAN.md) | ArkApi offsets cache 预取：多 CDN、断点续传、`validateSerializedMap` 格式复刻 |
+| [ARKAPI_LINUX_LOGGING_AND_PID_PLAN.md](docs/ARKAPI_LINUX_LOGGING_AND_PID_PLAN.md) | ArkApi 日志转抄与游戏 PID 识别（`GameThread` comm 判据） |
+| [ARKAPI_PLUGIN_PLAN.md](docs/ARKAPI_PLUGIN_PLAN.md) | ArkApi 插件按实例独立安装 / 更新 / 卸载，与插件数据、配置隔离 |
+| [SETUP_FLOW_OPTIMIZATION_PLAN.md](docs/SETUP_FLOW_OPTIMIZATION_PLAN.md) | 环境未初始化时的引导：`setup` 跨平台化、`api`/`service install` 就绪门禁、Windows GUI 带实时进度的初始化面板（已实施） |
+| [PLAN_IMPLEMENTATION_AUDIT_2026-09-29.md](docs/PLAN_IMPLEMENTATION_AUDIT_2026-09-29.md) | 上述 Linux / umu / ArkApi 计划的**只读代码审计**：P0×3 / P1×23，附修复排期、文档合并说明与路径对照 |
 
 ### 功能设计
 
