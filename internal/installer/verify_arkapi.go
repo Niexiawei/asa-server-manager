@@ -25,6 +25,16 @@ func AsaApiLoaderPath() string {
 	return filepath.Join(cfgpkg.ServerFilesDir, filepath.FromSlash(asaApiLoaderRelPath))
 }
 
+// ArkApiNeeds 是 AsaApiLoader.exe（ArkApi）对运行环境的全部要求：它会创建真正的
+// Win32 窗口（CapGUI），并加载微软 VC++ 运行时（CapMSVCRT）。ArkAscendedServer.exe
+// 本身两样都不要。
+//
+// 实例启动（internal/instance）与 verify-arkapi 的启动验证共用这一份 —— 两边以前各写
+// 一个 NeedsDisplay: true，靠一句「与实例启动同一个开关」的注释保持一致；少一处，
+// 这条命令就会「验证通过」一条实例走不通的路。放在这里而不是 runner：runner 刻意
+// 不区分这两个 exe（见其包注释）。见 docs/UMU_RUNTIME_PLUGIN_PLAN.md §7.1。
+var ArkApiNeeds = []runner.Capability{runner.CapGUI, runner.CapMSVCRT}
+
 // ArkApiInstalled 报告 server-files 里有没有装 ArkApi。
 func ArkApiInstalled() bool {
 	fi, err := os.Stat(AsaApiLoaderPath())
@@ -132,10 +142,8 @@ func VerifyArkApiInstallation(ctx context.Context, outputCallback ...io.Writer) 
 		// 那就不是在验证同一条路径了。
 		Dir: filepath.Dir(asaApiExe),
 		PTY: true,
-		// AsaApiLoader.exe 要图形显示，没有就静默退出码 3（见
-		// docs/ARKAPI_LINUX_VCREDIST_PLAN.md §9）。与实例启动同一个开关，
-		// 否则这条命令会"验证通过"一条实例走不通的路。
-		NeedsDisplay: true,
+		// 与实例启动同一份需求（图形显示 + VC++），见 ArkApiNeeds。
+		Needs: ArkApiNeeds,
 	})
 	if err != nil {
 		return fmt.Errorf("启动 AsaApiLoader.exe 失败: %w", err)

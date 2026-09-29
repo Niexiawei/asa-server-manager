@@ -70,9 +70,10 @@ func (p *program) Start(s service.Service) error {
 // Stop stops the service
 func (p *program) Stop(s service.Service) error {
 	log.Printf("Stopping %s service \n", ServiceName)
-	// 与 webapi.ActionAPI 的收尾同源：停掉自管的 Xvfb。放在最前面是因为它与
-	// apiServer 是否初始化无关 —— 下面那个 nil 分支会直接 return。
-	runner.StopManagedDisplay()
+	// 与 webapi.ActionAPI 的收尾同源：关掉运行时插件持有的进程级资源（自管的
+	// Xvfb）。放在最前面是因为它与 apiServer 是否初始化无关 —— 下面那个 nil
+	// 分支会直接 return。
+	runner.Close()
 	if p.apiServer == nil {
 		log.Printf("API server not initialized, nothing to stop\n")
 		return nil

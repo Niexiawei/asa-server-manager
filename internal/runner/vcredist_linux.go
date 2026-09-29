@@ -15,10 +15,8 @@ package runner
 // OnUnverifiedDownload 钩子），文案全部在这里拼。见 docs/UMU_RUNTIME_PLUGIN_PLAN.md §6。
 
 import (
-	"context"
 	"errors"
 	"fmt"
-	"io"
 	"path/filepath"
 
 	"asa-server/pkg/umuruntime"
@@ -103,41 +101,4 @@ func describeVCRedistError(err error) error {
 			noDownload.Dest, noDownload.URL)
 	}
 	return err
-}
-
-// ensurePrefixVCRedist 是 runner.EnsurePrefixVCRedist 的实现。
-//
-// 写共享前缀之前的守卫（PrepareSharedWrite）在 Host.Provision 里 —— 以前是调用方
-// 自觉，而 `verify-arkapi --install-vcredist` 这第四个调用方漏了它
-// （docs/UMU_PREFIX_PLAN.md 的 P0）。
-func ensurePrefixVCRedist(ctx context.Context, prefixKey string, progress io.Writer) error {
-	cfg := getConfig()
-	if !cfg.InstallVCRedist {
-		return nil
-	}
-	err := hostFor(cfg).Provision(ctx, prefixKey, progressLogger(progress), umuruntime.CapMSVCRT)
-	return describeVCRedistError(err)
-}
-
-// prefixHasVCRedist 只读判断某个 prefix 里有没有微软原生 VC++ 运行时。
-// 不联网、不改动，可以放心在实例启动这种热路径上调。判据见 vcredist.InstalledIn。
-func prefixHasVCRedist(prefixKey string) bool {
-	cfg := getConfig()
-	return vcrtFor(cfg).Satisfied(hostFor(cfg).Prefixes().Dir(prefixKey)).OK
-}
-
-// --- 诊断 ---------------------------------------------------------------------
-
-// vcRedistStatus 汇总 prefix 的 VC++ 运行时现状，供 `asa-server verify-arkapi` 展示。
-// 只读，不联网。gameDir 传游戏 exe 所在目录（可为空则跳过那一列）。
-//
-// 显示那两个字段由插件经 Host 的只读 Probe 填：**只问计划不动手**，
-// `verify-arkapi --check-only` 不该顺手起个 X 服务。
-func vcRedistStatus(prefixKey, gameDir string) VCRedistInfo {
-	for _, st := range hostFor(getConfig()).CapabilityStatus(umuruntime.CapMSVCRT, prefixKey, gameDir) {
-		if info, ok := st.Data.(vcredist.Info); ok {
-			return info
-		}
-	}
-	return VCRedistInfo{}
 }

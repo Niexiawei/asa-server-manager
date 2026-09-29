@@ -85,3 +85,12 @@ type Readiness struct {
 	// caller's own wording.
 	Detail string
 }
+
+// Unmet is one capability a launch needs that is not currently available
+// (see Host.CheckNeeds).
+type Unmet struct {
+	Cap Capability
+	// Plugin is the first provider consulted; empty when there is none.
+	Plugin    string
+	Readiness Readiness
+}

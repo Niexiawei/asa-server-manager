@@ -154,8 +154,8 @@ func arkApiConflictError(self, other string) error {
 // 才看得到。
 //
 // 只收三类都满足的检查：**确定性**（不含启发式，不会误拦）、**无副作用**
-// （不起进程、不建目录——所以这里不问 DisplayStatus 之外的任何东西，也不碰
-// acquireDisplay）、**启动路径上同样会拦**（这里放行、那里拦下，才是权威顺序）。
+// （不起进程、不建目录——所以运行时能力最多只能问只读的 runner.CheckNeeds，
+// 绝不能去真的拿一个显示）、**启动路径上同样会拦**（这里放行、那里拦下，才是权威顺序）。
 func PrecheckStart(instanceName string) error {
 	// 自己不跑 ArkApi 就与这条冲突无关。判据取 server-files 里的加载器而不是
 	// 镜像里的那份：此刻镜像可能还没同步出来（首次启动），而镜像本来就是从

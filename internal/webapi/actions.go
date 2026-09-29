@@ -553,9 +553,9 @@ func ActionAPI(ctx context.Context, cmd *cli.Command) error {
 
 	<-ctx2.Done()
 	log.Printf("shutting down... \n")
-	// 收掉自管的 Xvfb（Linux/ArkApi 才有，其余情况是空操作）。需要显示的实例挂在
-	// PTY 上，本进程一走它们也跟着走，留下 X 服务端保不住任何东西 ——
-	// 见 runner.StopManagedDisplay。
-	runner.StopManagedDisplay()
+	// 收掉运行时插件持有的进程级资源——自管的 Xvfb（Linux/ArkApi 才有，其余情况
+	// 是空操作）。需要显示的实例挂在 PTY 上，本进程一走它们也跟着走，留下 X 服务端
+	// 保不住任何东西 —— 见 runner.Close。
+	runner.Close()
 	return apiServer.Stop()
 }

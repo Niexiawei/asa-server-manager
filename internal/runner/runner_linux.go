@@ -126,24 +126,9 @@ func umuCommandLine(ctx context.Context, exePath string, args []string, opt Opti
 	c, err := hostFor(getConfig()).Command(ctx, exePath, args, umuruntime.LaunchSpec{
 		PrefixKey: opt.PrefixKey,
 		Env:       opt.Env,
-		Needs:     launchNeeds(opt),
+		Needs:     opt.Needs,
 	})
 	return c, withSetupHint(err)
-}
-
-// launchNeeds translates Options into the capabilities the launch needs.
-//
-// AsaApiLoader.exe creates real Win32 windows, so under Wine it needs an X
-// display even though the workload is a headless game server: without one
-// CreateWindow fails and the loader exits with code 3 having written nothing
-// at all — no console output, not even its own logs/ directory (measured
-// 2026-08-30, see the xdisplay package doc). The host acquires it after the
-// runtime-user env rewrite, on purpose — see umuruntime.Host.Command.
-func launchNeeds(opt Options) []umuruntime.Capability {
-	if opt.NeedsDisplay {
-		return []umuruntime.Capability{umuruntime.CapGUI}
-	}
-	return nil
 }
 
 // describeLaunchError puts this program's words on a capability the launch

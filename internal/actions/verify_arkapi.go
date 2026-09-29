@@ -4,6 +4,8 @@ import (
 	cfgpkg "asa-server/internal/config"
 	"asa-server/internal/installer"
 	"asa-server/internal/runner"
+	"asa-server/pkg/umuruntime/plugins/xdisplay"
+	"asa-server/pkg/vcredist"
 	"context"
 	"fmt"
 	"os"
@@ -53,7 +55,9 @@ func ActionVerifyArkApi(ctx context.Context, cmd *cli.Command) error {
 	if cmd.Bool("install-vcredist") {
 		fmt.Println()
 		fmt.Println("正在准备 VC++ 运行时...")
-		if err := runner.EnsurePrefixVCRedist(ctx, "", os.Stdout); err != nil {
+		// 写共享前缀之前的守卫在 runner.Provision 内部：overlay 模式下有实例的可写层
+		// 挂在它上面时会拒绝，而不是往一个活的 lowerdir 里写（docs/UMU_PREFIX_PLAN.md 的 P0）。
+		if err := runner.Provision(ctx, "", os.Stdout, runner.CapMSVCRT); err != nil {
 			// 不直接失败：下面的诊断会把现状原原本本列出来，比这里一句错误有用得多。
 			fmt.Printf("VC++ 运行时安装失败: %v\n", err)
 		}
@@ -121,7 +125,7 @@ func printArkApiPrerequisites() bool {
 	// （退出码 3，零输出）。见 docs/ARKAPI_LINUX_VCREDIST_PLAN.md §9。
 	fmt.Println()
 	fmt.Println("[3] 图形显示（AsaApiLoader.exe 会创建 Win32 窗口，Wine 下必需）")
-	if d := runner.DisplayStatus(); d.Available {
+	if d := displayInfo(); d.Available {
 		fmt.Printf("  ✔ %s\n", d.How)
 		// 候选链的其余各档：只有头一档拿不到时才轮得到它们。列出来是因为
 		// 「这次到底用的是哪个显示」在回退发生时是排障的第一个问题。
@@ -147,7 +151,7 @@ func printArkApiPrerequisites() bool {
 
 // printVCRedistStatus 打印 prefix 的 VC++ 现状，返回「看起来没问题」。
 func printVCRedistStatus(gameDir string) bool {
-	info := runner.VCRedistStatus("", gameDir)
+	info := vcRedistInfo(gameDir)
 	if !info.Managed {
 		fmt.Println("  · linux.runtime 不是 umu，prefix 由用户自管，跳过检查")
 		return true
@@ -173,7 +177,7 @@ func printVCRedistStatus(gameDir string) bool {
 	} else {
 		fmt.Printf("  · system32 里的 %s 仍是 Wine 自带的（VC++ 运行时未装进 prefix）\n", info.ProbeDLL)
 		if info.InstallerBlocked != "" {
-			// 与 [3] 同一个原因、同一个 planDisplay —— 装了 Xvfb 两条一起解决。
+			// 与 [3] 同一个原因、同一个显示插件 —— 装了 Xvfb 两条一起解决。
 			fmt.Printf("      装不了的原因：%s\n", info.InstallerBlocked)
 			fmt.Println("      这一项本身通常不影响 ArkApi（游戏自带的原生 DLL 加上上面的 override 一般够用），")
 			fmt.Println("      但缺显示会让 ArkApi 根本起不来 —— 见上面的 [3]。装好 Xvfb 后重跑")
@@ -198,14 +202,36 @@ func printVCRedistStatus(gameDir string) bool {
 	return overridesOK
 }
 
-func dllOriginText(o runner.DLLOrigin) string {
+func dllOriginText(o vcredist.DLLOrigin) string {
 	switch o {
-	case runner.DLLNative:
+	case vcredist.DLLNative:
 		return "原生"
-	case runner.DLLWine:
+	case vcredist.DLLWine:
 		return "Wine 内建"
-	case runner.DLLMissing:
+	case vcredist.DLLMissing:
 		return "缺失"
 	}
 	return "-"
+}
+
+// displayInfo 取显示插件的只读诊断（候选链头一档与备选各档）。只问计划，
+// 不会为了回答而拉起 X 服务端。
+func displayInfo() xdisplay.Info {
+	for _, st := range runner.CapabilityStatus(runner.CapGUI, "", "") {
+		if info, ok := st.Data.(xdisplay.Info); ok {
+			return info
+		}
+	}
+	return xdisplay.Info{Blocked: "没有注册显示插件"}
+}
+
+// vcRedistInfo 取共享前缀的 VC++ 运行时诊断，gameDir 那一列看游戏目录里的 DLL
+// （Windows 的搜索顺序里应用目录优先于 system32）。只读，不联网。
+func vcRedistInfo(gameDir string) vcredist.Info {
+	for _, st := range runner.CapabilityStatus(runner.CapMSVCRT, "", gameDir) {
+		if info, ok := st.Data.(vcredist.Info); ok {
+			return info
+		}
+	}
+	return vcredist.Info{}
 }

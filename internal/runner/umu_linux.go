@@ -89,16 +89,25 @@ func xvfbStatePath(cfg Config) string {
 	return filepath.Join(cfg.BaseDir, "xvfb.state")
 }
 
-// planDisplay 是只读的候选链判断：**绝不**拉起 X 服务端。preflight、
-// DisplayStatus、`verify-arkapi --check-only` 只许问它。
-func planDisplay() ([]xdisplay.Plan, string) { return displayFor(getConfig()).Plan() }
+// --- runner 导出 API 的 Linux 实现（runner.go 无 build tag，Windows 版在 plugins_windows.go）---
 
-// stopManagedDisplay 是 runner.StopManagedDisplay 的实现：关闭所有插件（今天只有
-// 显示插件持有进程级资源）。
-func stopManagedDisplay() { hostFor(getConfig()).Close() }
+func checkNeeds(prefixKey string, caps []Capability) []Unmet {
+	return hostFor(getConfig()).CheckNeeds(prefixKey, caps)
+}
 
-// displayStatus 是 runner.DisplayStatus 的实现。
-func displayStatus() DisplayInfo { return displayFor(getConfig()).Status() }
+func provision(ctx context.Context, prefixKey string, progress io.Writer, caps []Capability) error {
+	err := hostFor(getConfig()).Provision(ctx, prefixKey, progressLogger(progress), caps...)
+	return withSetupHint(describeVCRedistError(err))
+}
+
+func pluginStatuses() []PluginStatus { return hostFor(getConfig()).Status() }
+
+func capabilityStatus(c Capability, prefixKey, exeDir string) []PluginStatus {
+	return hostFor(getConfig()).CapabilityStatus(c, prefixKey, exeDir)
+}
+
+// closeRuntime 关闭所有插件持有的进程级资源（今天只有显示插件的自管 Xvfb）。
+func closeRuntime() { hostFor(getConfig()).Close() }
 
 // hostFor refreshes runtimeHost's config from cfg and returns it. Cheap (a
 // few atomic pointer stores) — called before every use rather than only from

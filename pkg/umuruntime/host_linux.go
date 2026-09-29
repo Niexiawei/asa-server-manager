@@ -686,14 +686,6 @@ func (h *Host) statusOf(p Plugin, prefix, exeDir string) PluginStatus {
 	return ps
 }
 
-// Unmet is one capability a launch needs that is not currently available.
-type Unmet struct {
-	Cap Capability
-	// Plugin is the first provider consulted; empty when there is none.
-	Plugin    string
-	Readiness Readiness
-}
-
 // CheckNeeds reports which of caps are not available for a launch in the
 // prefix identified by key. Read-only — a display is probed, never started.
 // Readiness.Definitive tells a caller whether to refuse the launch or just

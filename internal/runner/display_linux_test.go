@@ -18,14 +18,16 @@ import (
 // TestDisplayStatusStartsNothing: 诊断视图不许有副作用。自管那一档的「拿到显示」
 // 意味着真的 fork 一个 X 服务端，被 GET /api/system/preflight 问一句就起一个是不行的。
 //
-// xdisplay 里有同名不变量的用例；这一条是**接线**的版本：它走的是真正被 API
-// 调用的那两个入口（displayStatus/checkDisplay）和进程唯一的那个 displayRes。
+// xdisplay 里有同名不变量的用例；这一条是**接线**的版本：它走的是真正被 API /
+// 实例启动前检查调用的那几个入口，和进程唯一的那个 displayRes。
 func TestDisplayStatusStartsNothing(t *testing.T) {
 	before := displayFor(getConfig()).XvfbStatus()
-	_ = displayStatus()
+	_ = pluginStatuses()
+	_ = capabilityStatus(CapGUI, "", "")
+	_ = checkNeeds("", []Capability{CapGUI, CapMSVCRT})
 	_ = checkDisplay()
 	if displayFor(getConfig()).XvfbStatus() != before {
-		t.Error("displayStatus/checkDisplay started an X server as a side effect")
+		t.Error("PluginStatuses/CapabilityStatus/CheckNeeds/checkDisplay started an X server as a side effect")
 	}
 }
 
@@ -50,7 +52,7 @@ func TestDisplayProblemIsAdvisory(t *testing.T) {
 // 以前它是一句写死的话，于是一台**装好了** Xvfb、只是 /tmp/.X11-unix 权限不对的
 // 机器，得到的唯一指引是「请安装 Xvfb」——判断得对却说不清，等于没判断。
 func TestDisplayProblemDetailCarriesRealReason(t *testing.T) {
-	_, blocked := planDisplay()
+	_, blocked := displayFor(getConfig()).Plan()
 	p := checkDisplay()
 	if p == nil {
 		return
@@ -64,18 +66,38 @@ func TestDisplayProblemDetailCarriesRealReason(t *testing.T) {
 // 它们分家过一次 —— preflight 只看 xvfb-run 在不在，而 WSLg 上 xvfb-run 装了也没用
 // （/tmp/.X11-unix 只读），于是自检通过、启动照样死。
 func TestCheckDisplayAgreesWithPlan(t *testing.T) {
-	_, blocked := planDisplay()
+	_, blocked := displayFor(getConfig()).Plan()
 	if got := checkDisplay(); (got == nil) != (blocked == "") {
 		t.Errorf("checkDisplay() = %+v but the resolver blocked = %q", got, blocked)
 	}
 }
 
-// TestDisplayStatusMatchesResolver: 组合根不许在转发的路上把答案改掉 ——
-// runner.DisplayStatus() 就是 xdisplay 的 Status()，一个字段都不加工。
-func TestDisplayStatusMatchesResolver(t *testing.T) {
-	if got, want := displayStatus(), displayFor(getConfig()).Status(); got.Available != want.Available ||
-		got.Blocked != want.Blocked || got.How != want.How {
-		t.Errorf("displayStatus() = %+v, resolver said %+v", got, want)
+// TestCapabilityStatusMatchesResolver: 组合根不许在转发的路上把答案改掉 ——
+// CapabilityStatus(CapGUI) 的 Data 就是 xdisplay 的 Status()，一个字段都不加工。
+func TestCapabilityStatusMatchesResolver(t *testing.T) {
+	st := capabilityStatus(CapGUI, "", "")
+	if len(st) != 1 || st[0].Name != xdisplay.Name {
+		t.Fatalf("capabilityStatus(CapGUI) = %+v, want the display plugin only", st)
+	}
+	got, ok := st[0].Data.(xdisplay.Info)
+	want := displayFor(getConfig()).Status()
+	if !ok || got.Available != want.Available || got.Blocked != want.Blocked || got.How != want.How {
+		t.Errorf("capabilityStatus(CapGUI).Data = %+v, resolver said %+v", st[0].Data, want)
+	}
+}
+
+// TestCheckNeedsDisplayMatchesPlan: 实例启动前的检查与候选链是同一个答案，而且缺显示
+// 是**事实**（阻断），不是启发式。
+func TestCheckNeedsDisplayMatchesPlan(t *testing.T) {
+	_, blocked := displayFor(getConfig()).Plan()
+	unmet := checkNeeds("", []Capability{CapGUI})
+	if (len(unmet) == 0) != (blocked == "") {
+		t.Fatalf("checkNeeds(CapGUI) = %+v, Plan blocked = %q", unmet, blocked)
+	}
+	for _, u := range unmet {
+		if !u.Readiness.Definitive || u.Readiness.Detail != blocked {
+			t.Errorf("display unmet = %+v, want definitive with the Plan reason", u)
+		}
 	}
 }
 
@@ -96,15 +118,6 @@ func TestDisplayPluginRegistered(t *testing.T) {
 	}
 	if r, ok := runtimeHost.Graph().Lookup(xdisplay.Name); !ok || r.Plugin != umuruntime.Plugin(displayRes) {
 		t.Error("the registered display plugin is not displayRes — a second resolver would mean a second Xvfb manager")
-	}
-}
-
-func TestLaunchNeeds(t *testing.T) {
-	if got := launchNeeds(Options{}); len(got) != 0 {
-		t.Errorf("launchNeeds(no display) = %v, want none", got)
-	}
-	if got := launchNeeds(Options{NeedsDisplay: true}); len(got) != 1 || got[0] != umuruntime.CapGUI {
-		t.Errorf("launchNeeds(NeedsDisplay) = %v, want [%s]", got, umuruntime.CapGUI)
 	}
 }
 
