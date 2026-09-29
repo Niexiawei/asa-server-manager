@@ -76,6 +76,10 @@ func launcherIsDirect() bool { return true }
 // download or warm.
 func ensureRuntime(ctx context.Context, progress io.Writer) error { return nil }
 
+func lockRuntime(ctx context.Context, progress io.Writer) (context.Context, func(), error) {
+	return ctx, func() {}, nil
+}
+
 // checkRuntime has nothing to verify on Windows — the ARK exe runs directly.
 func checkRuntime() error { return nil }
 

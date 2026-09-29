@@ -77,6 +77,10 @@ func displayFor(cfg Config) *xdisplay.Resolver {
 				cred, _, err := runtimeIdentity.Credential()
 				return cred, err
 			},
+			// 自管 Xvfb 会改宿主状态（remount /tmp/.X11-unix、chmod 1777），也会意外退出——
+			// 这些都必须留在日志里。
+			Infof: logger.Infof,
+			Warnf: logger.Warnf,
 		},
 	})
 	return displayRes
@@ -195,6 +199,14 @@ func prefixStatus() []PrefixInfo { return hostFor(getConfig()).Prefixes().Status
 
 func prepareSharedPrefixWrite(op string) (func(), error) {
 	return hostFor(getConfig()).Prefixes().PrepareSharedWrite(op)
+}
+
+func lockRuntime(ctx context.Context, progress io.Writer) (context.Context, func(), error) {
+	return hostFor(getConfig()).Lock(ctx, progressLogger(progress))
+}
+
+func holdPrefix(prefixKey string) func() {
+	return hostFor(getConfig()).Prefixes().HoldLayer(prefixKey)
 }
 
 func reconcilePrefixes() { hostFor(getConfig()).Prefixes().Reconcile() }

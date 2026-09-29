@@ -122,6 +122,22 @@ func EnsureRuntime(ctx context.Context, progress io.Writer) error {
 	return ensureRuntime(ctx, progress)
 }
 
+// LockRuntime takes the cross-process lock that EnsureRuntime and Provision
+// take internally, for callers that work on the shared runtime without going
+// through either — the two verification launches, which run a real
+// wineserver against the shared prefix. Waits for another asa-server process
+// (or another task in this one) holding it; ctx cancels the wait. The
+// returned func releases it.
+//
+// Use the returned context for everything done under the lock: it records
+// that this call chain holds the lock, so an EnsureRuntime or Provision
+// called with it proceeds instead of waiting for its own caller. Called with
+// the original context they would wait forever — the lock belongs to an open
+// file, not to a process. No-op on Windows.
+func LockRuntime(ctx context.Context, progress io.Writer) (context.Context, func(), error) {
+	return lockRuntime(ctx, progress)
+}
+
 // CheckRuntime reports whether the launch runtime is ready, using only local
 // filesystem checks — it never touches the network. Windows always returns
 // nil. On Linux it verifies umu-run, the pinned GE-Proton build and the
@@ -235,9 +251,19 @@ func PrefixStatus() []PrefixInfo { return prefixStatus() }
 //
 // op names the operation for the log ("asa-server verify" and friends); the
 // returned closure marks the end of the window in which the shared prefix may
-// be written, and must be called (defer is the natural shape). It is never nil
-// when err is nil, and it is a no-op outside prefix_mode "overlay".
+// be written, and must be called (defer is the natural shape): until then no
+// instance can mount its writable layer. It is never nil when err is nil.
 func PrepareSharedPrefixWrite(op string) (func(), error) { return prepareSharedPrefixWrite(op) }
+
+// HoldPrefix marks the Wine prefix identified by prefixKey as in use until
+// the returned func is called (idempotent). An instance start takes it before
+// EnsurePrefix and releases it when the start ends — by then the game's own
+// wineserver holds the prefix. While held, PrepareSharedPrefixWrite treats
+// that writable layer as live instead of unmounting it; without it, a layer
+// mounted but not yet running a wineserver looked idle
+// (docs/PLAN_IMPLEMENTATION_AUDIT_2026-09-29.md §3.2 P1-7). No-op on Windows
+// and outside prefix_mode "overlay".
+func HoldPrefix(prefixKey string) (release func()) { return holdPrefix(prefixKey) }
 
 // ReconcilePrefixes cleans up prefix state a crash could have left behind.
 // Cheap (one /proc read plus a stat per layer), read-only unless something is
