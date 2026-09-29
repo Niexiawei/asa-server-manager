@@ -10,6 +10,7 @@ import (
 	"asa-server/internal/instance"
 	procpkg "asa-server/internal/process"
 	"asa-server/internal/realtime"
+	"asa-server/internal/runner"
 	"asa-server/pkg/logger"
 	"context"
 	"fmt"
@@ -200,6 +201,18 @@ func (m *UpdateManager) run(ctx context.Context, done chan struct{}) {
 
 	// Step 2: ARK server update
 	if checkCancelled() {
+		return
+	}
+	// Linux：服务启动时后台那次 EnsureRuntime 未必已经跑完（全新安装、下载很慢），
+	// 而后面的服务端验证要经运行时启动。DownloadAndUpdateArkServer 只做只读检查，
+	// 准备运行时由这里负责（Windows 上空操作）。
+	m.broadcaster.SendMessage("Preparing the Linux Wine/Proton runtime (no-op on Windows)...")
+	if err := runner.EnsureRuntime(ctx, writer); err != nil {
+		if ctx.Err() != nil {
+			markCancelled()
+			return // cancelled
+		}
+		fail("Failed to prepare the Linux runtime: %w", err)
 		return
 	}
 	m.broadcaster.SendMessage("Downloading and updating ARK server files...")
