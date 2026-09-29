@@ -381,7 +381,7 @@ Syncthing 集成允许跨多个服务器轻松同步配置文件。
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | 系统架构与设计模式 |
 | [PACKAGE_RESTRUCTURE_PLAN.md](docs/PACKAGE_RESTRUCTURE_PLAN.md) | `asaserver` 神包按领域拆分方案 |
 | [STATE_CONTROL.md](docs/STATE_CONTROL.md) | 实例状态机、CAS 转换与互斥机制 |
-| [V2_MIRROR_STARTUP_ARCHITECTURE.md](docs/V2_MIRROR_STARTUP_ARCHITECTURE.md) | NTFS 镜像目录方案，支持多实例并行启动 |
+| [MIRROR_STARTUP_PLAN.md](docs/MIRROR_STARTUP_PLAN.md) | NTFS 镜像启动：v2 迁移方案、技术架构、迁移变更日志与镜像去管理员化（真 junction） |
 | [HTTP2_CONNECTION_OPTIMIZATION.md](docs/HTTP2_CONNECTION_OPTIMIZATION.md) | HTTP/2 连接数优化方案（SSE 挤占浏览器 6 条额度） |
 | [instance-manager-daemon.md](docs/instance-manager-daemon.md) | 实例管理守护进程设计 |
 | [LOGGER_REDESIGN_PLAN.md](docs/LOGGER_REDESIGN_PLAN.md) | `logger` 包重构方案（已实施，现为 `pkg/logger`）：console/file 多路 sink、`WithConsole` 链式调用、调用点全量迁移 |
@@ -435,7 +435,7 @@ Syncthing 集成允许跨多个服务器轻松同步配置文件。
 | 文档 | 说明 |
 |------|------|
 | [MIGRATION.md](docs/MIGRATION.md) | 从 bash 脚本迁移指南 |
-| [V2_MIGRATION_PLAN.md](docs/V2_MIGRATION_PLAN.md) · [V2_MIGRATION_CHANGELOG.md](docs/V2_MIGRATION_CHANGELOG.md) | v2 迁移方案与变更日志 |
+| [WEBAUTHN_REMOVAL_PLAN.md](docs/WEBAUTHN_REMOVAL_PLAN.md) | 移除 WebAuthn，只保留密码 + TOTP 两步验证 + 恢复码 |
 | [STARTUP_FIXES.md](docs/STARTUP_FIXES.md) | 启动/停止流程修复记录 |
 
 ### 工具

@@ -181,7 +181,7 @@ asa-server/
 | [ARCHITECTURE.md](ARCHITECTURE.md) | 系统架构与设计模式 |
 | [PACKAGE_RESTRUCTURE_PLAN.md](PACKAGE_RESTRUCTURE_PLAN.md) | `asaserver` 神包按领域拆分方案 |
 | [STATE_CONTROL.md](STATE_CONTROL.md) | 实例状态机、CAS 转换与互斥机制 |
-| [V2_MIRROR_STARTUP_ARCHITECTURE.md](V2_MIRROR_STARTUP_ARCHITECTURE.md) | NTFS 镜像目录方案，支持多实例并行启动 |
+| [MIRROR_STARTUP_PLAN.md](MIRROR_STARTUP_PLAN.md) | NTFS 镜像启动：v2 迁移方案、技术架构、迁移变更日志与镜像去管理员化（真 junction） |
 | [HTTP2_CONNECTION_OPTIMIZATION.md](HTTP2_CONNECTION_OPTIMIZATION.md) | **HTTPS + HTTP/2**（已实施）——本地 CA、受信任存储、反向代理兼容 |
 | [instance-manager-daemon.md](instance-manager-daemon.md) | 实例管理守护进程设计 |
 | [LOGGER_REDESIGN_PLAN.md](LOGGER_REDESIGN_PLAN.md) | `logger` 包重构方案（已实施，现为 `pkg/logger`）：console/file 多路 sink、`WithConsole` 链式调用、调用点全量迁移 |
@@ -235,7 +235,7 @@ asa-server/
 | 文档 | 说明 |
 |------|------|
 | [MIGRATION.md](MIGRATION.md) | 从 bash 脚本迁移指南 |
-| [V2_MIGRATION_PLAN.md](V2_MIGRATION_PLAN.md) · [V2_MIGRATION_CHANGELOG.md](V2_MIGRATION_CHANGELOG.md) | v2 迁移方案与变更日志 |
+| [WEBAUTHN_REMOVAL_PLAN.md](WEBAUTHN_REMOVAL_PLAN.md) | 移除 WebAuthn，只保留密码 + TOTP 两步验证 + 恢复码 |
 | [STARTUP_FIXES.md](STARTUP_FIXES.md) | 启动/停止流程修复记录 |
 
 ### 工具

@@ -15,7 +15,7 @@
 
 | 上游改动 | 状态 | 对本方案的净影响 | 落在哪 |
 |---|---|---|---|
-| **镜像去管理员化（真 NTFS junction）**<br>`MIRROR_JUNCTION_AND_WEBAUTHN_REMOVAL_PLAN.md` 第一部分 | 已实施 | **净正**，但工作量搬了家 | §2.1（新增编译阻断行）、§2.3、**§5.6 已重写**、§5.9、§6 风险 13、§8 P0、§10.7、§11 A |
+| **镜像去管理员化（真 NTFS junction）**<br>`MIRROR_STARTUP_PLAN.md` 第一部分 | 已实施 | **净正**，但工作量搬了家 | §2.1（新增编译阻断行）、§2.3、**§5.6 已重写**、§5.9、§6 风险 13、§8 P0、§10.7、§11 A |
 | **移除 WebAuthn**<br>同文档第二部分 | 已实施 | **无影响** —— 删掉的 `go-webauthn` / `go-tpm` / `fxamacker/cbor` 全是纯 Go，两平台一视同仁；`auth` 本就在 §2.3 的跨平台清单里 | 无需改动 |
 | **ArkApi 插件数据隔离**<br>`ARKAPI_PLUGIN_PLAN.md` | 已实施 | **基本无影响**，新增 `internal/plugindata` 已核对为跨平台；但它在 Linux 上应当整体静默，有四条要显式确认 | §2.2、§2.3、**§5.12 新增**、§6 风险 11/16、§8 P6、§9.1 |
 | **frp 改为库内调用**（本次新增决定） | 已实施 | **减少** Linux 工作量：frp 从「分平台内嵌二进制」直接退出工作清单 | **§5.10 已重写**、§5.9、§6 风险 14/15/16、§8 F 轨道、§9.1、§11 A |
@@ -123,7 +123,7 @@
 `internal/mirror` 的**核心算法**仍然跨平台，但边界已经变了：
 
 - `isJunctionOrSymlink`（`mirror.go:413`）已改用 `os.Readlink` 判定 —— **本来就是为跨平台选的方案**
-  （见 `MIRROR_JUNCTION_AND_WEBAUTHN_REMOVAL_PLAN.md` §1.3 方案 A），Linux 上对 symlink 同样正确，
+  （见 `MIRROR_STARTUP_PLAN.md` §1.3 方案 A），Linux 上对 symlink 同样正确，
   这一处不需要任何改动，也不需要拆平台文件。
 - `createFileSymlink` 已被删除，第 ③ 类的 11 个根目录文件统一走 `fsutil.CopyFile` —— 跨平台无差异。
 - `createJunction` 反过来成了**新的编译阻断点**（见 §2.1 新增行），Linux 侧要补实现，见 §5.6。
@@ -491,7 +491,7 @@ installer 的目录布局更顺。前两项的路径逻辑（不含 `os.Symlink`
 
 ### 5.6 `internal/mirror` —— 补一个 `junction_linux.go`
 
-> 本节已按「镜像去管理员化」（`MIRROR_JUNCTION_AND_WEBAUTHN_REMOVAL_PLAN.md` 第一部分，**已实施**）重写。
+> 本节已按「镜像去管理员化」（`MIRROR_STARTUP_PLAN.md` 第一部分，**已实施**）重写。
 > 那次改造对 Linux 兼容**净收益为正**，但把工作量从「基本不用改」挪成了「必须补一个文件」。
 
 改造前后对 Linux 的影响：
@@ -530,7 +530,7 @@ func createJunction(linkPath, targetPath string) error {
 1. **必须用绝对路径做 target。** Windows 侧的 junction 存的是 NT 绝对路径（`\??\D:\...`），
    Linux 侧若存相对路径，语义就随 CWD 漂移了，两平台对不齐。
 2. **`os.Lstat` 对 symlink 返回 `IsDir()==false`，`filepath.Walk` 因此不会递归进去** ——
-   这与 Windows 上 junction 的行为一致（`MIRROR_JUNCTION_AND_WEBAUTHN_REMOVAL_PLAN.md` §1.3
+   这与 Windows 上 junction 的行为一致（`MIRROR_STARTUP_PLAN.md` §1.3
    把这层结构性保护称作「为什么不会删到源」）。**Linux 侧继承同一层保护，不需要额外防护。**
 3. **`isJunctionOrSymlink` 不拆平台。** `os.Readlink` 在 Linux 上对 symlink 成功、对普通目录返回
    `EINVAL`，判据与 Windows 侧完全同构。多写一个 `_linux.go` 只会增加两边漂移的机会。
@@ -1074,7 +1074,7 @@ F 轨道另计 2–3 天，但它**减少** P0 的工作量（省掉 frp 分平�
 5. Windows 侧全部现有行为无回归 —— 特别是端口→PID 与停止流程这两处被改动的公共路径。
 6. 🆕 Linux 上 `junction_linux.go` 建出的 symlink 与 Windows 上的 junction **行为对齐**：
    `filepath.Walk` 不递归进去、`isJunctionOrSymlink` 认得出、`CleanupInstanceMirror` 只删链接不删目标。
-   回归重点仍是 `MIRROR_JUNCTION_AND_WEBAUTHN_REMOVAL_PLAN.md` §1.5 第 3 条：
+   回归重点仍是 `MIRROR_STARTUP_PLAN.md` §1.5 第 3 条：
    **多实例并发同步 + 更新后增量同步跑完，`server-files/` 下没有文件被误删**（改造前先做全量快照比对）。
 7. 🆕 frp 库内调用：连续 `Restart()` 50 次后 `runtime.NumGoroutine()` 稳定，
    且 `frpc.exe` 不再出现在仓库与运行目录里。
@@ -1353,7 +1353,7 @@ Linux 上的完整入口就是 CLI：
 > **目录符号链接**（需要 `SeCreateSymbolicLinkPrivilege`），而不是真正的 **NTFS junction**
 > （`FSCTL_SET_REPARSE_POINT`，**普通用户即可创建**）。
 >
-> `MIRROR_JUNCTION_AND_WEBAUTHN_REMOVAL_PLAN.md` 第一部分**已实施**：换成真 junction 之后，
+> `MIRROR_STARTUP_PLAN.md` 第一部分**已实施**：换成真 junction 之后，
 > `ensureAdminElevation()` / `buildElevatedArgs()` / `quoteArg()` / `--no-admin` / `mirror.IsElevated()`
 > 全部删除，两条警告文案连同它们描述的问题一起不存在了。
 >
@@ -1399,5 +1399,5 @@ Linux 上的完整入口就是 CLI：
   `check_dependencies()`(L87)、`check_userns_restriction()`(L247)、
   `install_base_server()`(L396，含三项 Wine 修复与 prefix 预热)、
   `start_server()`(L883，含 `Z:` 簇路径与 setsid 分离)、`stop_server()`(L1073)
-- 本仓库相关文档：`docs/V2_MIRROR_STARTUP_ARCHITECTURE.md`（镜像启动架构）、
+- 本仓库相关文档：`docs/MIRROR_STARTUP_PLAN.md`（镜像启动架构）、
   `docs/INTERNAL_LAYOUT_MIGRATION.md`（`pkg/` 准入标准）、`docs/AUTH_LOGIN_DESIGN.md`
