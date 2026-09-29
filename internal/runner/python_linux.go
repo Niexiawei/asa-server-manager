@@ -6,17 +6,16 @@ import (
 	"asa-server/pkg/pyfinder"
 )
 
-// pyResolver is this process's single Python-interpreter resolver for
-// umu-run. The discovery/version-check mechanism lives in pkg/pyfinder;
-// this file only wires it to runner.Config's PythonBin override. See
-// docs/UMU_PYTHON_DISCOVERY_PLAN.md.
-var pyResolver = pyfinder.New()
-
-// umuInterpreter is the single choke point for "which Python runs umu-run".
+// umuInterpreter is the single choke point for "which Python runs umu-run":
+// the same resolver (inside the host's *umu.Runtime, configured with
+// runner.Config's PythonBin override) that every launch uses, so preflight
+// and the launch can never disagree. The discovery/version-check mechanism
+// lives in pkg/pyfinder; see docs/UMU_PYTHON_DISCOVERY_PLAN.md.
+//
 // A failure is fatal to a launch: callers surface it rather than letting the
 // zipapp's shebang fall back to a possibly-too-old system python3.
 func umuInterpreter() (pyfinder.Info, error) {
-	return pyResolver.Resolve(getConfig().PythonBin)
+	return hostFor(getConfig()).Umu().Interpreter()
 }
 
 // pythonProblem turns a resolve failure into a preflight Problem (nil on success).

@@ -3,6 +3,7 @@
 package runner
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -93,10 +94,11 @@ func TestUmuCommandLine_PinsProtonVerbToRun(t *testing.T) {
 	// occurrence of a key, so ours has to be appended after the inherited one.
 	t.Setenv("PROTON_VERB", "waitforexitandrun")
 
-	_, _, env, err := umuCommandLine(filepath.Join(base, "ArkAscendedServer.exe"), nil, Options{})
+	c, err := umuCommandLine(context.Background(), filepath.Join(base, "ArkAscendedServer.exe"), nil, Options{})
 	if err != nil {
 		t.Skipf("umuCommandLine unavailable in this environment: %v", err)
 	}
+	env := c.Env
 
 	last := ""
 	for _, kv := range env {
@@ -138,10 +140,11 @@ func TestUmuCommandLine_DisablesXalia(t *testing.T) {
 	}
 	t.Setenv("PROTON_USE_XALIA", "1")
 
-	_, _, env, err := umuCommandLine(filepath.Join(base, "ArkAscendedServer.exe"), nil, Options{})
+	c, err := umuCommandLine(context.Background(), filepath.Join(base, "ArkAscendedServer.exe"), nil, Options{})
 	if err != nil {
 		t.Skipf("umuCommandLine unavailable in this environment: %v", err)
 	}
+	env := c.Env
 
 	last := ""
 	for _, kv := range env {

@@ -139,7 +139,7 @@ func reconcileRuntimeOwnership(cfg Config, su *sysuser.Manager) error {
 		}
 	}
 
-	umuRT := umuRuntimeFor(cfg)
+	umuRT := hostFor(cfg).Umu()
 	if proton := umuRT.ProtonPath(); pathExists(proton) {
 		if err := fsutil.EnsureWorldReadable(proton); err != nil {
 			return fmt.Errorf("chmod %s: %w", proton, err)
@@ -158,7 +158,7 @@ func reconcileRuntimeOwnership(cfg Config, su *sysuser.Manager) error {
 // per-instance server-files-tmp-* dirs (wanted for the verify sampling, not
 // for the startup reconcile — see reconcileRuntimeOwnership).
 func rwSubtrees(cfg Config, includeMirrors bool) []string {
-	wp := wineprefixMgrFor(cfg)
+	wp := hostFor(cfg).Prefixes()
 	out := []string{
 		wp.Dir(""),
 		filepath.Join(cfg.BaseDir, "clusters"),
@@ -221,8 +221,8 @@ func verifyRuntimeAccess(forceDeep bool) []Problem {
 	return sysUserFor(cfg).Problems(sysuser.AccessCheck{
 		OwnershipDirs:  rwSubtrees(cfg, true),
 		TraversableDir: cfg.BaseDir,
-		ReadableEntry:  filepath.Join(umuRuntimeFor(cfg).ProtonPath(), "proton"),
-		ProbeDir:       wineprefixMgrFor(cfg).Dir(""),
+		ReadableEntry:  filepath.Join(hostFor(cfg).Umu().ProtonPath(), "proton"),
+		ProbeDir:       hostFor(cfg).Prefixes().Dir(""),
 	}, forceDeep)
 }
 

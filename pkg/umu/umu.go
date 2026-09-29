@@ -113,6 +113,26 @@ func (c Config) userName() string {
 // Proton command line this package (and its caller) builds.
 const ProtonNoXalia = "PROTON_USE_XALIA=0"
 
+// NotReadyError says a runtime piece that a purely local check expected is
+// missing (umu-run, the pinned GE-Proton build, an initialized prefix).
+//
+// Error() says **what** is missing, in words fit for an end user, but not
+// **how to fix it**: that is the calling program's own command
+// (`asa-server setup` in this repository), and naming it here would make the
+// package impossible to reuse. Callers find it with errors.As and append
+// their own instruction. It is returned by this package and by
+// asa-server/pkg/wineprefix, which imports this one.
+type NotReadyError struct {
+	// Component is what is missing: "umu-run", a Proton version tag, or
+	// "wine-prefix".
+	Component string
+	Path      string
+	// Summary is the full user-facing sentence, without a fix.
+	Summary string
+}
+
+func (e *NotReadyError) Error() string { return e.Summary }
+
 // Runtime manages one umu/GE-Proton installation. Config is held behind an
 // atomic pointer, refreshed on every call, matching the pattern used by
 // pkg/xvfb.Manager and internal/runner's sysUserFor: cheap to call before

@@ -145,12 +145,19 @@ func (m *Manager) lockPrefix(path string) func() {
 	return mu.Unlock
 }
 
+// notInitialized is the "this prefix was never warmed" error. Typed rather
+// than worded with a fix: how to warm it is the calling program's command.
+func notInitialized(prefix string) error {
+	return &umu.NotReadyError{Component: "wine-prefix", Path: prefix,
+		Summary: fmt.Sprintf("Wine 前缀尚未初始化：%s", prefix)}
+}
+
 // CheckSharedReady reports whether the shared prefix has been warmed at
-// least once, with no network access. Error text is end-user facing.
+// least once, with no network access. A failure is a *umu.NotReadyError.
 func (m *Manager) CheckSharedReady() error {
 	prefix := m.Dir("")
 	if _, err := os.Stat(filepath.Join(prefix, "system.reg")); err != nil {
-		return fmt.Errorf("Wine 前缀尚未初始化：%s。请运行 asa-server setup 完成环境准备", prefix)
+		return notInitialized(prefix)
 	}
 	return nil
 }
@@ -161,7 +168,7 @@ func (m *Manager) CheckSharedReady() error {
 //
 // It never downloads umu/GE-Proton/the Steam Linux Runtime — those are
 // global, shared, and remain the caller's EnsureRuntime job; a missing one
-// is reported as "run asa-server setup" rather than silently fetched on a
+// is reported as a *umu.NotReadyError rather than silently fetched on a
 // start path. An empty key therefore only verifies the shared prefix, it
 // never rebuilds it.
 func (m *Manager) EnsurePrefix(ctx context.Context, key string, progress io.Writer) error {
@@ -412,7 +419,7 @@ func (m *Manager) ensureOverlayPrefix(ctx context.Context, cfg Config, key strin
 
 	lower := m.Dir("")
 	if !umu.PrefixInitialized(lower) {
-		return fmt.Errorf("Wine 前缀尚未初始化：%s。请运行 asa-server setup 完成环境准备", lower)
+		return notInitialized(lower)
 	}
 
 	instDir := overlayInstanceDir(cfg, key)

@@ -196,17 +196,19 @@ func (r *Runtime) EnsureGEProton(ctx context.Context, logf func(string, ...any))
 }
 
 // CheckRuntime verifies umu-run and the pinned GE-Proton build are present,
-// with no network access. Error text is end-user facing. Does not check any
+// with no network access. A failure is a *NotReadyError. Does not check any
 // Wine prefix — a caller that manages prefixes checks that separately.
 func (r *Runtime) CheckRuntime() error {
 	cfg := r.config()
 	bin := r.RunPath()
 	if fi, err := os.Stat(bin); err != nil || fi.Mode()&0111 == 0 {
-		return fmt.Errorf("Wine/Proton 运行时尚未初始化：缺少 umu-run（%s）。请运行 asa-server setup 完成环境准备", bin)
+		return &NotReadyError{Component: "umu-run", Path: bin,
+			Summary: fmt.Sprintf("Wine/Proton 运行时尚未初始化：缺少 umu-run（%s）", bin)}
 	}
 	proton := r.ProtonPath()
 	if fi, err := os.Stat(filepath.Join(proton, "proton")); err != nil || fi.IsDir() {
-		return fmt.Errorf("Wine/Proton 运行时尚未初始化：缺少 %s（%s）。请运行 asa-server setup 完成环境准备", cfg.ProtonVersion, proton)
+		return &NotReadyError{Component: cfg.ProtonVersion, Path: proton,
+			Summary: fmt.Sprintf("Wine/Proton 运行时尚未初始化：缺少 %s（%s）", cfg.ProtonVersion, proton)}
 	}
 	return nil
 }

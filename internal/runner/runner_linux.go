@@ -5,13 +5,13 @@ package runner
 import (
 	"context"
 	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"syscall"
 
 	"asa-server/pkg/logger"
 	"asa-server/pkg/umu"
+	"asa-server/pkg/umuruntime"
 
 	"github.com/aymanbagabas/go-pty"
 )
@@ -20,22 +20,11 @@ import (
 // GE-Proton build. Treats every exe identically — see the package doc
 // comment on why AsaApiLoader.exe gets no special handling here.
 func run(ctx context.Context, exePath string, args []string, opt Options) (*Handle, error) {
-	bin, launchArgs, env, err := umuCommandLine(exePath, args, opt)
+	c, err := umuCommandLine(ctx, exePath, args, opt)
 	if err != nil {
 		return nil, err
 	}
-
-	// Drop the umu-run child (and everything bwrap/wine spawns below it) to
-	// the dedicated non-root user when asa-server runs as root — see
-	// docs/UMU_RUNTIME_USER_PLAN.md. cred is nil (no drop) when euid != 0
-	// or umu_run_as_root=true.
-	cred, home, err := resolveRuntimeCredential(getConfig())
-	if err != nil {
-		return nil, err
-	}
-	if cred != nil {
-		env = runtimeEnv(env, home, runtimeUserName(getConfig()))
-	}
+	env := c.Env
 
 	// AsaApiLoader.exe creates real Win32 windows, so under Wine it needs an X
 	// display even though the workload is a headless game server: without one
@@ -43,7 +32,8 @@ func run(ctx context.Context, exePath string, args []string, opt Options) (*Hand
 	// nothing at all — no console output, not even its own logs/ directory
 	// (measured 2026-08-30, see display_linux.go). Fail fast with something
 	// actionable instead of reporting a "started" instance that is already
-	// dead. Applied after runtimeEnv on purpose — see display.Target.Apply.
+	// dead. Applied after the runtime-user env rewrite on purpose — see
+	// display.Target.Apply.
 	if opt.NeedsDisplay {
 		disp, blocked, dispErr := acquireDisplay()
 		switch {
@@ -65,10 +55,10 @@ func run(ctx context.Context, exePath string, args []string, opt Options) (*Hand
 	}
 
 	if opt.PTY {
-		return runPTY(ctx, bin, launchArgs, env, cred, opt)
+		return runPTY(ctx, c.Path, c.Args, env, c.Credential, opt)
 	}
 
-	cmd := exec.CommandContext(ctx, bin, launchArgs...)
+	cmd := exec.CommandContext(ctx, c.Path, c.Args...)
 	cmd.Dir = opt.Dir
 	cmd.Env = env
 	cmd.Stdin = nil
@@ -81,7 +71,7 @@ func run(ctx context.Context, exePath string, args []string, opt Options) (*Hand
 	// bwrap/wineserver — see docs/LINUX_COMPATIBILITY_PLAN.md §5.4/§5.6
 	// risk 9. It's also what decouples the launch from this program's own
 	// controlling terminal, matching Windows's HideWindow intent.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Credential: cred}
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Credential: c.Credential}
 
 	if err := cmd.Start(); err != nil {
 		return nil, err
@@ -128,29 +118,13 @@ func runPTY(ctx context.Context, bin string, args, env []string, cred *syscall.C
 
 // checkRuntime verifies umu-run, the pinned GE-Proton build and the shared
 // Wine prefix are all present, with no network access — the same
-// preconditions umuCommandLine enforces, factored out so business-layer
+// preconditions every launch enforces, factored out so business-layer
 // callers can probe readiness up front. Error text is end-user facing.
-func checkRuntime() error {
-	cfg := getConfig()
-	umuRT := umuRuntimeFor(cfg)
+func checkRuntime() error { return withSetupHint(hostFor(getConfig()).Check()) }
 
-	bin := umuRT.RunPath()
-	if fi, err := os.Stat(bin); err != nil || fi.Mode()&0111 == 0 {
-		return fmt.Errorf("Wine/Proton 运行时尚未初始化：缺少 umu-run（%s）。请运行 asa-server setup 完成环境准备", bin)
-	}
-	proton := umuRT.ProtonPath()
-	if fi, err := os.Stat(filepath.Join(proton, "proton")); err != nil || fi.IsDir() {
-		return fmt.Errorf("Wine/Proton 运行时尚未初始化：缺少 %s（%s）。请运行 asa-server setup 完成环境准备", cfg.ProtonVersion, proton)
-	}
-	prefix := wineprefixMgrFor(cfg).Dir("")
-	if _, err := os.Stat(filepath.Join(prefix, "system.reg")); err != nil {
-		return fmt.Errorf("Wine 前缀尚未初始化：%s。请运行 asa-server setup 完成环境准备", prefix)
-	}
-	return nil
-}
-
-// sharesWinePrefix asks wineprefix.Manager.Dir the question directly: would
-// two different instances land in the same prefix directory?
+// sharesWinePrefix asks wineprefix.Manager.SharesPrefix, which derives the
+// answer from Dir: would two different instances land in the same prefix
+// directory?
 //
 // It used to be a hand-written mode check (`PrefixMode != "per-instance"`),
 // which was correct with exactly two modes and silently wrong the moment a
@@ -164,84 +138,18 @@ func checkRuntime() error {
 // shared prefix — so this returns true, and the caller gets the launch gate
 // and the ArkApi exclusion. Over-serializing costs time; under-serializing
 // costs a three-minute hang and an orphaned process tree.
-func sharesWinePrefix() bool {
-	wp := wineprefixMgrFor(getConfig())
-	return wp.Dir("instance-a") == wp.Dir("instance-b")
-}
+func sharesWinePrefix() bool { return hostFor(getConfig()).Prefixes().SharesPrefix() }
 
-// umuCommandLine builds the umu-run invocation for exePath/args, matching
-// scripts/ark_instance_manager.sh's proven env var set exactly — including
-// PROTON_VERB=run, which that script exports on start_server()'s very first
-// line (L884), far away from the `env WINEPREFIX=... GAMEID=...` line that
-// actually launches the game. See PROTON_VERB's comment below for what
-// omitting it cost us.
-func umuCommandLine(exePath string, args []string, opt Options) (bin string, launchArgs []string, env []string, err error) {
-	if err := checkRuntime(); err != nil {
-		return "", nil, nil, err
-	}
-	cfg := getConfig()
-
-	// Run the umu-launcher zipapp under an explicitly resolved interpreter
-	// rather than its "#!/usr/bin/env python3" shebang — the system default
-	// may be older than the 3.10 umu needs. See docs/UMU_PYTHON_DISCOVERY_PLAN.md.
-	py, err := umuInterpreter()
-	if err != nil {
-		return "", nil, nil, err
-	}
-
-	umuRT := umuRuntimeFor(cfg)
-	bin = py.Path
-	proton := umuRT.ProtonPath()
-
-	// checkRuntime validated the default shared prefix; a per-instance launch
-	// (Options.PrefixKey set under PrefixMode "per-instance") uses a distinct
-	// directory that still has to exist.
-	prefix := wineprefixMgrFor(cfg).Dir(opt.PrefixKey)
-	if _, statErr := os.Stat(prefix); statErr != nil {
-		return "", nil, nil, fmt.Errorf("runner: Wine prefix not found at %s (call EnsureRuntime first): %w", prefix, statErr)
-	}
-
-	// argv: <python> <umu-run> <exe> <exe args...>
-	launchArgs = append([]string{umuRT.RunPath(), exePath}, args...)
-
-	baseEnv := opt.Env
-	if baseEnv == nil {
-		baseEnv = umu.InheritedEnv()
-	}
-	env = append(append([]string{}, baseEnv...),
-		"WINEPREFIX="+prefix,
-		"GAMEID="+cfg.GameID,
-		"PROTONPATH="+proton,
-		// Regular launches keep the runtime pinned; only the one-time
-		// warmPrefix() call in umu_linux.go omits this, on purpose.
-		"UMU_RUNTIME_UPDATE=0",
-		// PROTON_VERB=run, NOT umu's default "waitforexitandrun".
-		//
-		// waitforexitandrun runs `wineserver -w` before exec'ing the game —
-		// Steam's way of making a relaunch wait for the previous session to
-		// die. It assumes one game per prefix. Under prefix_mode "shared" all
-		// instances share one prefix, so a second instance parked forever in
-		// `wineserver -w` waiting for the first to exit: the game was never
-		// exec'd, and the only symptom upstack was waitForGamePID's
-		// "游戏进程在 3m0s 内没有出现".
-		//
-		// The reference script has always set this (start_server(), L884);
-		// our earlier claim that it "doesn't set it" came from diffing only
-		// the launch command line and missing the export above it.
-		// See docs/UMU_PREFIX_PER_INSTANCE_PLAN.md §2-§4.
-		"PROTON_VERB=run",
-		// No accessibility overlay on a headless server — see umu.ProtonNoXalia.
-		umu.ProtonNoXalia,
-	)
-	// Operator escape hatch. The VC++ override set ArkApi needs is already
-	// written into the prefix registry at install time (see
-	// docs/ARKAPI_LINUX_VCREDIST_PLAN.md §2.4), so this is for one-off
-	// troubleshooting rather than normal operation. Appended last so it wins
-	// over anything umu.InheritedEnv let through — exec keeps the last occurrence.
-	if cfg.WineDLLOverrides != "" {
-		env = append(env, "WINEDLLOVERRIDES="+cfg.WineDLLOverrides)
-	}
-	return bin, launchArgs, env, nil
+// umuCommandLine builds the umu-run invocation for exePath/args — argv, the
+// environment scripts/ark_instance_manager.sh proved (including
+// PROTON_VERB=run), and the credential to drop to. See
+// umuruntime.Host.Command for the layering.
+func umuCommandLine(ctx context.Context, exePath string, args []string, opt Options) (*umuruntime.Command, error) {
+	c, err := hostFor(getConfig()).Command(ctx, exePath, args, umuruntime.LaunchSpec{
+		PrefixKey: opt.PrefixKey,
+		Env:       opt.Env,
+	})
+	return c, withSetupHint(err)
 }
 
 // gamePath is the platform seam for runner.GamePath (runner_windows.go has

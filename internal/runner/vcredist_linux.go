@@ -28,14 +28,14 @@ func vcRedistDir(cfg Config) string { return filepath.Join(cfg.BaseDir, "vcredis
 // vcRedistInstallerFor 用当下的 Config 现建一个 Installer。
 //
 // 不做包级单例：Installer 不持有任何跨调用状态（同 sysUserFor / pkg/sysuser.Manager，
-// 与必须 Reconfigure 的 umuRuntime / xvfbMgr 相反）。
+// 与必须 Reconfigure 的 runtimeHost / xvfbMgr 相反）。
 func vcRedistInstallerFor(cfg Config, logf func(string, ...any)) *vcredist.Installer {
 	return vcredist.New(vcredist.Config{
 		Dir:          vcRedistDir(cfg),
 		URL:          cfg.VCRedistURL,
 		SHA256:       cfg.VCRedistSHA256,
 		AutoDownload: cfg.AutoDownload,
-		Umu:          umuRuntimeFor(cfg),
+		Umu:          hostFor(cfg).Umu(),
 		ChownPath:    chownPathForRuntime,
 
 		// 与 ArkApi 启动路径共用同一个显示解析：两者需要显示的原因是同一个
@@ -85,7 +85,7 @@ func ensureVCRedist(ctx context.Context, cfg Config, prefixKey string, logf func
 
 	// 全程用同一份 cfg（不是每处各取一次 getConfig()）：中途 Configure 换了指针会
 	// 导致「装到 A 前缀、校验 B 前缀」。
-	res, err := vcRedistInstallerFor(cfg, logf).Ensure(ctx, wineprefixMgrFor(cfg).Dir(prefixKey), logf)
+	res, err := vcRedistInstallerFor(cfg, logf).Ensure(ctx, hostFor(cfg).Prefixes().Dir(prefixKey), logf)
 
 	var noDownload *vcredist.AutoDownloadDisabledError
 	if errors.As(err, &noDownload) {
@@ -116,7 +116,7 @@ func ensureVCRedist(ctx context.Context, cfg Config, prefixKey string, logf func
 // prefixHasVCRedist 只读判断某个 prefix 里有没有微软原生 VC++ 运行时。
 // 不联网、不改动，可以放心在实例启动这种热路径上调。判据见 vcredist.InstalledIn。
 func prefixHasVCRedist(prefixKey string) bool {
-	return vcredist.InstalledIn(wineprefixMgrFor(getConfig()).Dir(prefixKey))
+	return vcredist.InstalledIn(hostFor(getConfig()).Prefixes().Dir(prefixKey))
 }
 
 // --- 诊断 ---------------------------------------------------------------------
@@ -129,7 +129,7 @@ func prefixHasVCRedist(prefixKey string) bool {
 // 不该顺手起个 X 服务。报候选链的头一档：安装真跑起来时先试的就是它。
 func vcRedistStatus(prefixKey, gameDir string) VCRedistInfo {
 	cfg := getConfig()
-	info := vcredist.Inspect(wineprefixMgrFor(cfg).Dir(prefixKey), gameDir)
+	info := vcredist.Inspect(hostFor(cfg).Prefixes().Dir(prefixKey), gameDir)
 	info.Managed = cfg.Runtime == "umu"
 
 	if plans, blocked := planDisplay(); blocked != "" {
