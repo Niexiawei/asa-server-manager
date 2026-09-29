@@ -3,6 +3,31 @@
 本文件记录 ASA Server Manager 每个版本面向使用者的变化。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 设计与取舍的细节在 `docs/` 下对应的计划文档里，这里只写结论；条目后括注的文档名即出处。
 
+## [Unreleased]
+
+### 升级须知
+
+- **Linux，`linux.prefix_mode: overlay`**：升级后每个实例第一次启动时，它的 Wine 可写层会**重建一次**（几秒到几十秒），
+  之后恢复秒起。原因是底层前缀的指纹格式变了（见下方「修复」）；可写层里没有用户数据（存档在 `instances/<实例>/Save`），
+  不会丢任何东西。`shared` / `per-instance` 模式不受影响。
+- `GET /api/system/preflight` 的响应里，`display` 字段换成了 `runtimePlugins`（每个 Linux 运行时组件——图形显示、
+  VC++ 运行时——的状态列表）。自带的前端没有用到它；自己写了脚本读这个字段的需要改读新字段。
+
+### 修复
+
+- **Linux，overlay 模式**：共享底层前缀后来才补装上 VC++ 运行时（典型：先在无头机上建好实例，后来装了 Xvfb 再跑
+  `asa-server setup`）时，已有实例的可写层不会察觉，早先复制上来的注册表与 system32 会一直挡住新装的运行时，
+  ArkApi 起不来且没有任何提示。现在底层装了新组件，已有的可写层会在下次启动时自动重建（`docs/UMU_PREFIX_PLAN.md` §8.1）。
+- **Linux，overlay 模式**：`asa-server verify-arkapi --install-vcredist` 在有实例运行时会直接改写被它们挂载着的共享底层前缀
+  （overlayfs 明确的未定义行为，症状落在正在运行的实例上）。现在它与 `setup` 走同一道保护：有实例的可写层挂在上面时拒绝并说明原因
+  （`docs/UMU_PREFIX_PLAN.md` P0）。
+
+### 变更
+
+- **Linux 运行时内部重构**（`docs/UMU_RUNTIME_PLUGIN_PLAN.md`）：umu / Proton 运行时的编排独立成 `pkg/umuruntime`，
+  图形显示（自管 Xvfb）与 VC++ 运行时改为声明依赖的插件，实例启动只声明「需要什么能力」。对使用者的行为、日志与报错文字保持不变，
+  只有一处例外：ArkApi 实例启动时「没有检测到 VC++ 运行时」那条告警的措辞略有调整。
+
 ## [0.1.0] - 2026-09-25
 
 `v0.0.1`（2026-06-22）之后的全部变化，按领域归类。

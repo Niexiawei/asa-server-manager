@@ -1,7 +1,7 @@
 # `pkg/umuruntime`：Wine/Proton 运行时独立成包 + 运行时组件插件化
 
-> 状态：🚧 **阶段 0–4 已完成**（2026-09-29，分支 `refactor/umuruntime-plugins`，`6f36c3b`..`ec8f871`）；
-> 阶段 5–6 未开始。实施中与设计的偏离见 §13「实施记录」。
+> 状态：✅ **阶段 0–6 已完成**（2026-09-29，分支 `refactor/umuruntime-plugins`，`6f36c3b`..阶段 6 的文档提交）；
+> 尚未合入 master，§10.3 中会改动环境的真机验收项尚未执行（见 §13.5）。实施中与设计的偏离见 §13「实施记录」。
 > 相关文档：`docs/UMU_PREFIX_PLAN.md`（prefix 模式与已知缺陷）、`docs/XVFB_DISPLAY_PLAN.md`（显示解析与自管 Xvfb）、
 > `docs/ARKAPI_LINUX_VCREDIST_PLAN.md`（VC++ 运行时）、`docs/RUNNER_INSTANCE_PACKAGE_SPLIT_PLAN.md`（上一轮拆包，本文是它的续篇）。
 > 用户原话里的包名是 `pkg/umnruntime`，按拼写错误处理，本文统一写作 **`pkg/umuruntime`**（见 §12 第 1 条）。
@@ -728,6 +728,33 @@ overlay 下实例运行中执行 `verify-arkapi --install-vcredist` 应被拒绝
     因为那会把组件名重新写回通用入口。影响只在「显式要求安装、却又关掉了安装」这个自相矛盾的组合上。
 11. **`runner.Close()` 取代 `StopManagedDisplay()`**，实现是 `Host.Close()`（逆拓扑序关所有 `Closer`）；
     `vcredist_windows.go` 更名为 `plugins_windows.go`，Windows 上五个桩全部是「平台原生满足」。
+
+### 13.5 阶段 5–6（2026-09-29）
+
+| 阶段 | 提交 | 内容 |
+|---|---|---|
+| 5 | `2edd91c` | `PrefixProvisioner.Fingerprint`；`wineprefix.Config.ProvisionFingerprint` 钩子；`.lower-stamp` = 「Proton 标记;组件指纹」；`vcredist.InstalledChecksum`；修 `UMU_PREFIX_PLAN.md` §8.1 |
+| 6 | 本节所在提交 | `CLAUDE.md`（目录树、`runner` 各文件说明、`pkg/umuruntime` 与两个插件、依赖图、prefix 模型段；**该文件被 `.gitignore` 忽略，改动只在本地工作区，不在提交里**）；`UMU_PREFIX_PLAN.md` 的 P0 与 §8.1 标记已修复；`ARKAPI_LINUX_VCREDIST_PLAN.md`、`XVFB_DISPLAY_PLAN.md`、`UMU_PREFIX_PLAN.md`、`RUNNER_INSTANCE_PACKAGE_SPLIT_PLAN.md` 的路径对照附录加注；拆包文档索引里「四处硬编码 setup 文案」标记已执行；`CHANGELOG.md` 新增 Unreleased 段 |
+
+验证（阶段 5）：Windows `go build ./...` / `go vet` / `go test`（wineprefix、vcredist、umuruntime/...）；WSL2 `go vet` 与 `go test`
+（umuruntime/...、xvfb、vcredist、wineprefix、umu、runner、instance、installer、actions）、`-race`（umuruntime/...、wineprefix、runner）全过。
+新增的 `TestOverlayLayerFollowsLowerProvisioning` 驱动真实的 `EnsurePrefix`（overlay 模式）走完三步：旧格式指纹的层重建一次、
+底层不变时原样保留、底层组件指纹变了再重建；以 root 运行时真的挂 overlayfs（结束后确认 `/proc/self/mountinfo` 无残留）。
+
+**仍未做（交给真机验收）**：§10.3 里会真正改动环境的几项 —— 全新机器 `setup`（有/无 Xvfb）、三种 prefix 模式下的 ArkApi
+实例启动、overlay 下实例运行中执行 `verify-arkapi --install-vcredist` 应被拒绝、升级后 overlay 实例首次启动重建一次。
+
+### 13.6 阶段 5 与设计的偏离
+
+1. **没有写 `.provision-stamp` 文件**（§5.3 第 9 步、§5.4）：组件指纹由 `ProvisionFingerprint` 钩子在比对时**现读现算**
+   （读 `user.reg`、一个 DLL 头、安装标记），不落盘。落盘等于多一份需要保持同步的状态，而它能描述的正是磁盘上已经有的东西；
+   现算的代价与 `EnsurePrefix` 快路径本来就要做的 `Pending` 判断同量级。
+2. **格式归 `pkg/wineprefix` 所有**：`composeLowerStamp`/`stampProtonVersion` 在 `wineprefix.go`（无 tag，Windows 上可单测），
+   宿主只提供分号后面那一段（`name=fingerprint`，按插件名排序——注册顺序变了不能让所有层白白重建）。
+   分隔符用 `;` 而不是 §8.1 修复建议里的 `|`，并约定插件指纹里不得出现 `;` 与换行。
+3. **`prefix status` 的 Proton 版本列**只取指纹的第一段（`stampProtonVersion`），否则会把整串组件指纹当版本号显示。
+4. **VC++ 的指纹**是 `overrides=0|1,native=0|1,installer=<校验值前 12 位或 ->`：三项各对应 `Provision` 可能改变 prefix 的一种方式。
+   为读回安装包校验值，`pkg/vcredist` 新增 `InstalledChecksum`（`writeMarker` 的反向）。
 
 ---
 
