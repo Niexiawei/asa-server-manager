@@ -43,7 +43,9 @@ func TestWriteInitialConfig_RewritesPlaceholder(t *testing.T) {
 	t.Cleanup(func() { executableDirFn = origExe })
 
 	// 模拟 G1 自动生成的默认模板：basedir 字段为空。
-	writeConfig(t, exeDir, renderDefaultConfigTemplate())
+	// 语言写死中文：下面要抽查一行中文注释，不能随测试机 locale 变成英文模板。
+	writeConfig(t, exeDir, string(renderTemplate(LangZH, "")))
+	lastConfigPath.Store("") // 未经 Load：WriteInitialConfig 应回落到 exe 同级
 
 	dataDir := filepath.Join(t.TempDir(), "data")
 	if err := WriteInitialConfig(dataDir); err != nil {

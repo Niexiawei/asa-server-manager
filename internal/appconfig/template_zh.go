@@ -1,17 +1,21 @@
 package appconfig
 
-import (
-	"fmt"
-	"runtime"
-)
+// templateZH 是中文注释版的 config.yaml 模板。
+//
+// ⚠️ 与 template_en.go 的 templateEN **必须同改**：两份的字段、取值、顺序完全一致，
+// 只有注释语言不同。TestTemplatesAreEquivalent 会逐个 key 比对，但注释内容是否
+// 同步只能靠评审。
+//
+// 两个占位符：第一个 %s 是 basedir 的值（已加引号），第二个 %s 是
+// trust_local_ca 那两行（按平台，见 trustLocalCABlockZH）。模板里不能再出现别的 %。
 
-// trustLocalCATemplateBlock 按平台渲染 trust_local_ca 那两行（注释 + 值）。
+// trustLocalCABlockZH 按平台渲染 trust_local_ca 那两行（注释 + 值）。
 //
 // Windows 上写进系统受信任根存储能让浏览器直接免警告；Linux 上系统信任库
 // 不影响 Firefox/Chrome（它们用各自的 NSS db），默认装了也还是红锁，只会制造
 // 困惑，所以默认关闭并把提示改成"按需手动安装"，见 docs/LINUX_COMPATIBILITY_PLAN.md §5.7。
-func trustLocalCATemplateBlock() string {
-	if runtime.GOOS == "linux" {
+func trustLocalCABlockZH(goos string) string {
+	if goos == "linux" {
 		return "    # Linux 上系统信任库不影响浏览器（Firefox/Chrome 用各自的 NSS db），装了也还是红锁。\n" +
 			"    # 默认关闭；需要时执行 `asa-server cert install`（需 root）并按提示手动导入浏览器。\n" +
 			"    trust_local_ca: false"
@@ -20,16 +24,7 @@ func trustLocalCATemplateBlock() string {
 		"    trust_local_ca: true"
 }
 
-// renderDefaultConfigTemplate 渲染首次运行时写出的 config.yaml。
-//
-// 刻意手写模板而不是用 viper.SafeWriteConfigAs 生成：这份文件的目标读者是人，
-// 注释里的那些警告（尤其 lan_bypass）比字段本身更重要。trust_local_ca 那一段
-// 按平台不同（见上），其余内容两平台通用。
-func renderDefaultConfigTemplate() string {
-	return fmt.Sprintf(defaultConfigTemplate, trustLocalCATemplateBlock())
-}
-
-const defaultConfigTemplate = `# ASA Server Manager 应用配置
+const templateZH = `# ASA Server Manager 应用配置
 #
 # 优先级：命令行 flag > 环境变量 ASA_* > 本文件 > 内置默认值
 # 环境变量命名把点换成下划线并加 ASA_ 前缀，例如 auth.enabled -> ASA_AUTH_ENABLED
@@ -38,7 +33,7 @@ const defaultConfigTemplate = `# ASA Server Manager 应用配置
 # instances/<实例名>/instance_config.ini，与这里无关。
 
 # 数据目录：留空 = 与本文件同目录（绿色部署默认行为，兼容全部现有安装，无需迁移）
-basedir: ""
+basedir: %s
 
 server:
   port: 19193

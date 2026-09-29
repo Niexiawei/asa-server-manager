@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"asa-server/pkg/fsutil"
@@ -72,12 +71,21 @@ const basedirPlaceholder = `basedir: ""`
 //
 // 字段不是预期的空字符串（比如函数被错误地调用在一份已经配置过的文件上）时返回
 // 错误、不做任何改写，避免把用户已有的设置悄悄覆盖掉。
+//
+// 目标是最近一次 Load 选中的那份（ConfigPath()）：ASA_CFG 指向别处时 Load 的模板
+// 生成在那里，旧实现写死 exe 同级会去改一份根本不存在的文件。
+//
+// 过渡期函数：setup（C6）与 GUI 向导（C7）改用 InitConfig 后删除，见
+// docs/SETUP_FLOW_OPTIMIZATION_PLAN.md Part 2 §P2-4。
 func WriteInitialConfig(baseDir string) error {
-	exeDir, err := executableDir()
-	if err != nil {
-		return fmt.Errorf("解析可执行文件目录失败: %w", err)
+	path := ConfigPath()
+	if path == "" {
+		exeDir, err := executableDir()
+		if err != nil {
+			return fmt.Errorf("解析可执行文件目录失败: %w", err)
+		}
+		path = filepath.Join(exeDir, ConfigFileName)
 	}
-	path := filepath.Join(exeDir, ConfigFileName)
 
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -88,9 +96,8 @@ func WriteInitialConfig(baseDir string) error {
 		return fmt.Errorf("%s 的 basedir 字段已被设置或文件格式不是预期的默认模板，"+
 			"为避免覆盖已有配置，不会自动改写，请手动编辑该文件", path)
 	}
-	// strconv.Quote 的转义规则（反斜杠、双引号）和 YAML 双引号标量的转义规则在这里
-	// 用得到的字符集上是重合的，BaseDir 路径不会出现两者不一致的边界情况。
-	updated := strings.Replace(content, basedirPlaceholder, "basedir: "+strconv.Quote(baseDir), 1)
+	// 原地替换保留文件开头的 BOM 与 CRLF 换行（只动这一行里的内容）。
+	updated := strings.Replace(content, basedirPlaceholder, "basedir: "+quoteYAML(baseDir), 1)
 	if err := os.WriteFile(path, []byte(updated), 0o644); err != nil {
 		return fmt.Errorf("写入 %s 失败: %w", path, err)
 	}
