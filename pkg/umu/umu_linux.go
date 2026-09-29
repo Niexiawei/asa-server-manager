@@ -19,6 +19,7 @@ import (
 
 	"asa-server/pkg/archive"
 	"asa-server/pkg/download"
+	"asa-server/pkg/fsutil"
 	"asa-server/pkg/procx"
 	"asa-server/pkg/steamrt"
 )
@@ -133,6 +134,9 @@ func (r *Runtime) EnsureUmu(ctx context.Context, logf func(string, ...any)) erro
 	if err := os.Chmod(bin, 0755); err != nil {
 		return fmt.Errorf("failed to make umu-run executable: %w", err)
 	}
+	if err := fsutil.EnsureWorldReadable(r.Dir()); err != nil {
+		return fmt.Errorf("failed to make %s readable by the runtime user: %w", r.Dir(), err)
+	}
 	logf("umu-launcher %s installed at %s", cfg.UmuVersion, r.Dir())
 	return nil
 }
@@ -190,6 +194,15 @@ func (r *Runtime) EnsureGEProton(ctx context.Context, logf func(string, ...any))
 
 	if fi, statErr := os.Stat(protonBin); statErr != nil || fi.IsDir() {
 		return fmt.Errorf("%s extracted but %s is missing — the archive layout may have changed", tag, protonBin)
+	}
+	// The tar headers' modes are applied as-is (pkg/archive), and wineboot
+	// right after this runs as the dropped runtime user, which must be able to
+	// read and execute the whole tree. The extractor is the one place that
+	// knows the tree just appeared; the startup reconcile that also does this
+	// runs *before* the download on a fresh install and so finds nothing
+	// (docs/PLAN_IMPLEMENTATION_AUDIT_2026-09-29.md §4.2 D4).
+	if err := fsutil.EnsureWorldReadable(r.ProtonPath()); err != nil {
+		return fmt.Errorf("failed to make %s readable by the runtime user: %w", r.ProtonPath(), err)
 	}
 	logf("%s installed at %s", tag, r.ProtonPath())
 	return nil
