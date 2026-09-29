@@ -153,3 +153,18 @@ func TestInspectReportsGameDirWhenGiven(t *testing.T) {
 	}
 	t.Fatalf("Inspect 的清单里没有探针 DLL %s", native)
 }
+
+// TestInstalledChecksum: 读回 writeMarker 写下的安装包校验值；没有标记就是空串。
+func TestInstalledChecksum(t *testing.T) {
+	prefix := t.TempDir()
+	if got := InstalledChecksum(prefix); got != "" {
+		t.Errorf("no marker: %q", got)
+	}
+	body := "installer=/x/vc_redist.x64.exe\nchecksum=cc0ff0eb1dc3f518\ninstalled_at=2026-09-29T00:00:00Z\n"
+	if err := os.WriteFile(filepath.Join(prefix, MarkerFileName), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := InstalledChecksum(prefix); got != "cc0ff0eb1dc3f518" {
+		t.Errorf("InstalledChecksum = %q", got)
+	}
+}

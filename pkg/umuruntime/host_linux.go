@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -102,12 +104,13 @@ func (c Config) umuConfig() umu.Config {
 func (h *Host) prefixConfig(cfg Config) wineprefix.Config {
 	p := cfg.Prefix
 	p.ChownPath = cfg.Identity.ChownPath
-	p.Provision, p.Pending = nil, nil
+	p.Provision, p.Pending, p.ProvisionFingerprint = nil, nil, nil
 	if cfg.manages() {
 		p.Provision = func(ctx context.Context, key, prefix string, logf func(string, ...any)) error {
 			return h.provision(ctx, key, prefix, logf, false, nil)
 		}
 		p.Pending = h.pending
+		p.ProvisionFingerprint = h.provisionFingerprint
 	}
 	return p
 }
@@ -366,6 +369,20 @@ func providesAny(p Plugin, caps []Capability) bool {
 		}
 	}
 	return false
+}
+
+// provisionFingerprint is wineprefix's ProvisionFingerprint hook: every
+// provisioner's Fingerprint, as "name=fingerprint" parts in name order (so
+// registration order doesn't matter), ";"-separated.
+func (h *Host) provisionFingerprint(prefix string) string {
+	var parts []string
+	for _, r := range h.graph.Order() {
+		if pp, ok := r.Plugin.(PrefixProvisioner); ok {
+			parts = append(parts, pp.Name()+"="+pp.Fingerprint(prefix))
+		}
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, ";")
 }
 
 // pending is wineprefix's Pending hook: does any provisioner have work left

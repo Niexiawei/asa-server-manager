@@ -27,6 +27,14 @@ type PrefixProvisioner interface {
 	// Satisfied reports whether the capability is usable in prefix.
 	// Read-only, offline.
 	Satisfied(prefix string) Readiness
+	// Fingerprint summarises this plugin's footprint in prefix, from what is
+	// on disk: it must change whenever Provision has changed the prefix in a
+	// way a copy of it would need to see. Read-only, offline, cheap (it runs
+	// on every overlay instance start); no ';' or newlines. The Host folds
+	// every provisioner's into the shared prefix's stamp, which is what makes
+	// overlay writable layers rebuild after the lower is provisioned further
+	// (docs/UMU_PREFIX_PLAN.md §8.1).
+	Fingerprint(prefix string) string
 	// Provision does the work. A non-nil error is a failure; everything
 	// else (including "skipped part of it, and here is why") is an Outcome.
 	// The Host fills in Outcome.Plugin and Outcome.Key.

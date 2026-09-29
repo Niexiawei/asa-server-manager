@@ -3,6 +3,7 @@
 package wineprefix
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"slices"
@@ -236,5 +237,121 @@ func TestStatus_CurrentFollowsMode(t *testing.T) {
 	}
 	if !strings.HasPrefix(bak.Key, "bak-") {
 		t.Errorf("版本备份的 Key = %q，应以 \"bak-\" 开头", bak.Key)
+	}
+}
+
+// writeFixture writes body to path, creating parents.
+func writeFixture(t *testing.T, path, body string, mode os.FileMode) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(body), mode); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// initPrefix lays out the two things umu.PrefixInitialized looks for.
+func initPrefix(t *testing.T, dir string) {
+	t.Helper()
+	writeFixture(t, filepath.Join(dir, "system.reg"), "x", 0o644)
+	if err := os.MkdirAll(filepath.Join(dir, "drive_c", "windows", "system32"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestLowerStampIncludesProvisionFingerprint: 底层指纹 = Proton 标记 + 调用方的组件指纹，
+// 现读现算；没有钩子时退回只有 Proton 标记（旧行为）。
+func TestLowerStampIncludesProvisionFingerprint(t *testing.T) {
+	lower := t.TempDir()
+	writeFixture(t, filepath.Join(lower, umu.PrefixMarkerFile), "GE-Proton10-34\n", 0o644)
+
+	if got := lowerStamp(Config{}, lower); got != "GE-Proton10-34" {
+		t.Errorf("without a hook: %q", got)
+	}
+	fp := "vcrt=a"
+	cfg := Config{ProvisionFingerprint: func(string) string { return fp }}
+	if got := lowerStamp(cfg, lower); got != "GE-Proton10-34;vcrt=a" {
+		t.Errorf("with a hook: %q", got)
+	}
+	fp = "vcrt=b"
+	if got := lowerStamp(cfg, lower); got != "GE-Proton10-34;vcrt=b" {
+		t.Errorf("fingerprint is not read live: %q", got)
+	}
+}
+
+// TestOverlayLayerFollowsLowerProvisioning 是 docs/UMU_PREFIX_PLAN.md §8.1 的回归用例：
+// 可写层建好之后底层又被装了东西（典型：先在无头机上建层，后来有了显示、VC++ 才装进
+// 底层），已有的层必须重建 —— 否则它早先 copy-up 的 system.reg / system32 会永远
+// 遮住底层的新内容，ArkApi 起不来且没有任何提示。
+//
+// 三步：旧格式（只有 Proton 标记）的层在升级后重建一次；底层没变时层原样保留；
+// 底层的组件指纹变了就重建。以 root 运行时会真的挂 overlayfs（结束时卸载），
+// 否则走「从底层复制一份」的降级形态 —— 两种形态的判据相同。
+func TestOverlayLayerFollowsLowerProvisioning(t *testing.T) {
+	const proton = "GE-Proton10-34"
+	base := t.TempDir()
+	writeFixture(t, filepath.Join(base, "umu-launcher", "umu-run"), "x", 0o755)
+	writeFixture(t, filepath.Join(base, "proton", proton, "proton"), "x", 0o755)
+	lower := filepath.Join(base, "umu-prefix")
+	initPrefix(t, lower)
+	writeFixture(t, filepath.Join(lower, umu.PrefixMarkerFile), proton+"\n", 0o644)
+
+	fp := "vcrt=overrides=1,native=0,installer=-"
+	cfg := Config{
+		BaseDir:              base,
+		PrefixMode:           "overlay",
+		ProtonVersion:        proton,
+		ProvisionFingerprint: func(string) string { return fp },
+	}
+	m := newManager(cfg)
+	merged := overlayMergedDir(cfg, "a")
+	t.Cleanup(func() {
+		if overlayMounted(merged) {
+			_ = unmountOverlay(merged)
+		}
+	})
+
+	sentinel := filepath.Join(merged, "copied-up-before")
+	ensure := func(step string) {
+		t.Helper()
+		if err := m.EnsurePrefix(context.Background(), "a", nil); err != nil {
+			t.Fatalf("%s: EnsurePrefix: %v", step, err)
+		}
+		if got, want := readOverlayStamp(cfg, "a"), lowerStamp(cfg, lower); got != want {
+			t.Fatalf("%s: stamp = %q, want %q", step, got, want)
+		}
+	}
+
+	// ① 升级前建的层：降级复制形态、旧格式指纹、里面有一份早先 copy-up 的东西。
+	initPrefix(t, merged)
+	writeFixture(t, sentinel, "old", 0o644)
+	if err := writeOverlayStamp(cfg, "a", proton, cfg.chownPath); err != nil {
+		t.Fatal(err)
+	}
+	ensure("old-format stamp")
+	if _, err := os.Stat(sentinel); !os.IsNotExist(err) {
+		t.Fatal("a layer stamped in the old, marker-only format was kept; it must be rebuilt once")
+	}
+
+	// ② 底层没变：原样保留，下次启动零成本。
+	writeFixture(t, sentinel, "kept", 0o644)
+	ensure("unchanged lower")
+	if _, err := os.Stat(sentinel); err != nil {
+		t.Fatal("layer rebuilt although the lower did not change")
+	}
+
+	// ③ 底层又被装了东西（VC++ 装上了）：重建。
+	fp = "vcrt=overrides=1,native=1,installer=cc0ff0eb1dc3"
+	ensure("lower provisioned later")
+	if _, err := os.Stat(sentinel); !os.IsNotExist(err) {
+		t.Fatal("layer kept although the lower was provisioned further — its copy-ups would shadow the new runtime")
+	}
+
+	// 状态视图里的 Proton 版本不能变成整串指纹。
+	for _, info := range m.Status() {
+		if info.Overlay && info.Key == "a" && info.ProtonVersion != proton {
+			t.Errorf("Status ProtonVersion = %q, want %q", info.ProtonVersion, proton)
+		}
 	}
 }

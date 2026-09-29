@@ -20,9 +20,12 @@ type fakeProv struct {
 	outcome   Outcome
 	err       error
 	gotCtx    *ProvisionContext
+
+	fingerprint string
 }
 
 func (f *fakeProv) Pending(string) bool        { return f.pending }
+func (f *fakeProv) Fingerprint(string) string  { return f.fingerprint }
 func (f *fakeProv) Satisfied(string) Readiness { return f.satisfied }
 func (f *fakeProv) InspectPrefix(ic InspectContext) Status {
 	ok, detail := ic.Probe(CapGUI)
@@ -260,5 +263,30 @@ func TestCapabilityStatusInspectsPrefix(t *testing.T) {
 	}
 	if len(h.CapabilityStatus("cap.nobody", "", "")) != 0 {
 		t.Error("status for an unprovided capability")
+	}
+}
+
+// TestProvisionFingerprintIsOrderIndependent: 组件指纹按插件名排序拼接，注册顺序
+// 不能影响它 —— 否则换个注册顺序就会让所有 overlay 可写层白白重建一次。
+func TestProvisionFingerprintIsOrderIndependent(t *testing.T) {
+	var log []string
+	mk := func(name, fp string) *fakeProv {
+		p := newProv(&log, name, Capability("cap."+name))
+		p.fingerprint = fp
+		return p
+	}
+	h1 := hostWith(t, Config{}, With(mk("b", "2"), Optional), With(mk("a", "1"), Optional))
+	h2 := hostWith(t, Config{}, With(mk("a", "1"), Optional), With(mk("b", "2"), Optional))
+	if got := h1.provisionFingerprint("/p"); got != "a=1;b=2" {
+		t.Errorf("provisionFingerprint = %q, want %q", got, "a=1;b=2")
+	}
+	if h1.provisionFingerprint("/p") != h2.provisionFingerprint("/p") {
+		t.Error("fingerprint depends on registration order")
+	}
+	if cfg := h1.prefixConfig(h1.config()); cfg.ProvisionFingerprint == nil {
+		t.Error("ProvisionFingerprint hook not installed under a managed runtime")
+	}
+	if cfg := h1.prefixConfig(Config{Runtime: "custom"}); cfg.ProvisionFingerprint != nil {
+		t.Error("ProvisionFingerprint hook installed under a custom runtime")
 	}
 }

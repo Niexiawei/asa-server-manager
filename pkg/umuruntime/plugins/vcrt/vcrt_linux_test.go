@@ -118,3 +118,30 @@ func TestInspectPrefixFillsCallerFields(t *testing.T) {
 		t.Errorf("blocked InspectPrefix = %+v", info)
 	}
 }
+
+// TestFingerprintFollowsPrefixState: 指纹随 Provision 对 prefix 的每一种改动而变 ——
+// overlay 可写层靠它发现「底层后来装了 VC++」（docs/UMU_PREFIX_PLAN.md §8.1）。
+// 格式里不能有分号与换行（它们是 .lower-stamp 的分隔符）。
+func TestFingerprintFollowsPrefixState(t *testing.T) {
+	prefix := t.TempDir()
+	p := New(Config{})
+	empty := p.Fingerprint(prefix)
+	if strings.ContainsAny(empty, ";\n") {
+		t.Fatalf("fingerprint %q contains a stamp separator", empty)
+	}
+
+	body := "installer=/x\nchecksum=cc0ff0eb1dc3f5188ae6300faef32bf5\n"
+	if err := os.WriteFile(filepath.Join(prefix, vcredist.MarkerFileName), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	installed := p.Fingerprint(prefix)
+	if installed == empty {
+		t.Error("fingerprint unchanged after an installer marker appeared")
+	}
+	if !strings.Contains(installed, "installer=cc0ff0eb1dc3") || strings.Contains(installed, "cc0ff0eb1dc3f") {
+		t.Errorf("fingerprint %q should carry a 12-char checksum prefix", installed)
+	}
+	if p.Fingerprint(prefix) != installed {
+		t.Error("fingerprint is not stable for an unchanged prefix")
+	}
+}

@@ -363,7 +363,7 @@ func (m *Manager) overlayStatus(cfg Config) []Info {
 			Key:           key,
 			Path:          merged,
 			Initialized:   umu.PrefixInitialized(merged),
-			ProtonVersion: readOverlayStamp(cfg, key),
+			ProtonVersion: stampProtonVersion(readOverlayStamp(cfg, key)),
 			InUse:         umu.WineserverHoldsPrefix(merged),
 			SizeBytes:     dirSize(measured),
 			Overlay:       true,
@@ -421,7 +421,7 @@ func (m *Manager) ensureOverlayPrefix(ctx context.Context, cfg Config, key strin
 	defer unlock()
 
 	merged := overlayMergedDir(cfg, key)
-	want := umu.PrefixMarker(lower)
+	want := lowerStamp(cfg, lower)
 
 	mounted := overlayMounted(merged)
 	// Not mounted but a usable prefix on disk = the copy fallback ran on an
@@ -722,6 +722,17 @@ func (m *Manager) removeOverlayPrefix(cfg Config, key string) error {
 		return fmt.Errorf("卸载 %s 失败: %w", merged, err)
 	}
 	return os.RemoveAll(instDir)
+}
+
+// lowerStamp is the .lower-stamp value lower would give a layer built on it
+// now: its Proton marker plus the caller's ProvisionFingerprint, read live
+// from disk (cheap: a marker file and whatever the fingerprint reads).
+func lowerStamp(cfg Config, lower string) string {
+	fp := ""
+	if cfg.ProvisionFingerprint != nil {
+		fp = cfg.ProvisionFingerprint(lower)
+	}
+	return composeLowerStamp(umu.PrefixMarker(lower), fp)
 }
 
 func readOverlayStamp(cfg Config, key string) string {

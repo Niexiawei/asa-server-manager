@@ -48,6 +48,13 @@ type Config struct {
 	// to do in prefix. It gates EnsurePrefix's fast path and LowerNeedsWork.
 	// nil = never.
 	Pending func(prefix string) bool
+	// ProvisionFingerprint summarises, cheaply and offline, the state of
+	// whatever Provision layered onto prefix. It becomes part of the lower
+	// stamp an overlay writable layer is built against (see lowerStampName),
+	// so provisioning the lower later — the VC++ runtime installed once a
+	// display became available — invalidates the layers built before it.
+	// Must not contain ';' or a newline. nil or "" = the Proton marker alone.
+	ProvisionFingerprint func(prefix string) string
 }
 
 func (c Config) chownPath(path string) error {
@@ -104,9 +111,34 @@ type Info struct {
 const overlayDirName = "umu-prefix-overlay"
 
 // lowerStampName records which lower the writable layer was built on, so a
-// lower that has since been rebuilt (new Proton, reinstalled VC++) can be
-// detected instead of being silently mixed with copy-ups from the old one.
+// lower that has since changed (new Proton, a component provisioned into it
+// later) is detected instead of being silently mixed with copy-ups from the
+// old one — an upper that copied up system.reg or system32 before the change
+// would otherwise shadow it for good.
+//
+// Its content is composeLowerStamp's: the lower's Proton marker, then one
+// ";"-separated ProvisionFingerprint part. Until 2026-09 it was the Proton
+// marker alone, which could not see a VC++ install at all
+// (docs/UMU_PREFIX_PLAN.md §8.1); layers stamped that way no longer match
+// and are rebuilt once, which loses nothing — the upper holds no user data.
 const lowerStampName = ".lower-stamp"
+
+// composeLowerStamp builds a .lower-stamp value. protonMarker comes first so
+// that stampProtonVersion can always recover it.
+func composeLowerStamp(protonMarker, provisionFingerprint string) string {
+	if provisionFingerprint == "" {
+		return protonMarker
+	}
+	return protonMarker + ";" + provisionFingerprint
+}
+
+// stampProtonVersion is the Proton marker part of a .lower-stamp value — what
+// Info.ProtonVersion reports for an overlay layer. Old, marker-only stamps
+// come back unchanged.
+func stampProtonVersion(stamp string) string {
+	v, _, _ := strings.Cut(stamp, ";")
+	return v
+}
 
 func overlayRoot(cfg Config) string { return filepath.Join(cfg.BaseDir, overlayDirName) }
 

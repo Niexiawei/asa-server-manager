@@ -114,6 +114,32 @@ func (p *Plugin) Satisfied(prefix string) umuruntime.Readiness {
 	return umuruntime.Readiness{OK: ok, Definitive: false, Detail: detail}
 }
 
+// Fingerprint is what a copy of prefix would have to agree on: whether the
+// overrides are written, whether the native runtime is in system32, and
+// which installer put it there. Each flips exactly when Provision changes
+// the prefix — which is what lets an overlay writable layer built before
+// the VC++ install notice that its lower has it now
+// (docs/UMU_PREFIX_PLAN.md §8.1). Reads user.reg, one DLL header and the
+// install marker.
+func (p *Plugin) Fingerprint(prefix string) string {
+	sum := vcredist.InstalledChecksum(prefix)
+	if len(sum) > 12 {
+		sum = sum[:12]
+	}
+	if sum == "" {
+		sum = "-"
+	}
+	return fmt.Sprintf("overrides=%d,native=%d,installer=%s",
+		b2i(vcredist.OverridesApplied(prefix)), b2i(vcredist.InstalledIn(prefix)), sum)
+}
+
+func b2i(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
 // Provision runs pkg/vcredist's two steps (overrides, then the installer)
 // on pc.Prefix. A skipped installer is Degraded with the skip's cause, never
 // an error: the overrides are in place and ordinary launches are fine.
