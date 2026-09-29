@@ -88,6 +88,7 @@ var commonCommands = []*cli.Command{
 			},
 		},
 	},
+	actions.ConfigCommand(),
 	actions.SetupCommand(),
 	actions.VerifyCommand(),
 	actions.VerifyArkApiCommand(),
@@ -122,13 +123,23 @@ func main() {
 	// 顺序倒过来会用错误的目录建目录/写日志。下面每个 flag 的 Value 也直接取自配置，
 	// 于是「命令行 > 配置文件 > 默认值」的优先级由 cli 库天然保证，不需要在 Action
 	// 里再判断 IsSet 然后手工合并。
-	appCfg := loadAppConfig()
-
-	if err := cfgpkg.EnsureDirectories(cfgpkg.BaseDir); err != nil {
-		log.Fatal(err)
+	//
+	// 启动引导的副作用（缺配置时生成模板、建数据目录）按命令决定：`config`、帮助、
+	// 版本不该碰磁盘——以前 `asa-server --help` 都会在 exe 旁边生成 config.yaml 并建
+	// 5 个数据子目录。服务模式没有命令行可看，恒为旧行为。
+	mode := defaultStartup
+	if !isService {
+		mode = startupModeFor(os.Args)
 	}
+	appCfg := loadAppConfig(mode)
 
-	logger.InitLoggerWithBaseDir(cfgpkg.BaseDir)
+	if mode.ensureDirs {
+		if err := cfgpkg.EnsureDirectories(cfgpkg.BaseDir); err != nil {
+			log.Fatal(err)
+		}
+		logger.InitLoggerWithBaseDir(cfgpkg.BaseDir)
+	}
+	// 否则日志留在 pkg/logger 的纯控制台兜底上。
 
 	applyAppConfig(appCfg)
 
@@ -228,15 +239,22 @@ func gatedActionAPI(ctx context.Context, cmd *cli.Command) error {
 // 加载失败不阻断启动：记 ERROR 后用默认配置继续。默认配置里 auth.enabled 是 false，
 // 所以配置写坏的最坏后果是"没有鉴权"，而不是"所有人都登不进来"——
 // 对一个本机管理面板来说，后者才是真正的灾难。
-func loadAppConfig() *appconfig.Config {
+//
+// mode.readOnly（config 子命令 / 帮助 / 版本）时连报错都不在这里做：这些命令不启动
+// 任何服务，配置错误由命令自己报告（`config validate` 就是干这个的）。
+func loadAppConfig(mode startupMode) *appconfig.Config {
 	// Load 不接收任何目录参数——查找规则（ASA_CFG > exe 同级 > 系统固定目录）与
 	// BaseDir 取值优先级（basedir 字段 > ASA_BASEDIR > config.yaml 所在目录）全部
 	// 内置在它自己的算法里，见 docs/APPCONFIG_BASEDIR_PLAN.md。
-	baseDir, err := appconfig.Load()
+	var opts []appconfig.LoadOption
+	if !mode.autoGenerate {
+		opts = append(opts, appconfig.WithoutAutoGenerate())
+	}
+	baseDir, err := appconfig.Load(opts...)
 	// 即使加载出错，appconfig.Load 也总会给出一个可用的兜底 BaseDir，后面建目录/
 	// 写日志可以放心使用。
 	cfgpkg.BaseDir = baseDir
-	if err == nil {
+	if err == nil || mode.readOnly {
 		return appconfig.Get()
 	}
 
