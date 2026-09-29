@@ -199,11 +199,61 @@ go build -o asa-server .
 `docs/LINUX_COMPATIBILITY_PLAN.md` §5.9），其余依赖（modernc/sqlite、BadgerDB、
 gopsutil、creack/pty）全是纯 Go，静态二进制交叉编译无痛。
 
-首次运行会在 `{BaseDir}` 下生成 `config.yaml`（默认路径见 `internal/config`），也可以先跑一次
-`asa-server api` 让它自动创建，再手动改。**Linux 上无参数直接运行 `asa-server` 等价于
-`asa-server api`**（没有 GUI 可退回）。
+**Linux 上无参数直接运行 `asa-server` 等价于 `asa-server api`**（没有 GUI 可退回）。
+
+### 2.1 首次部署流程：先配置、后初始化
+
+`asa-server setup` 要下载几百 MB（umu-launcher + GE-Proton + Steam Linux Runtime）和约 25GB（ARK 本体）。
+下载代理、prefix 模式、降权用户这类**影响下载与安装本身**的配置，要在 setup **之前**改好：
+
+```bash
+sudo ./asa-server config init --basedir /data/asa   # 只生成 config.yaml，不建目录、不下载任何东西
+sudo vim ./config.yaml                              # 改下载代理 / 端口 / linux.prefix_mode 等，见第 3 节
+sudo ./asa-server config validate                   # 校验，并回显数据目录、面板端口、下载代理
+sudo ./asa-server setup                             # 检测到已有配置，直接沿用
+```
+
+- `config init` 默认写到 `ASA_CFG` 指向的目录，没设就写在可执行文件旁边——也就是程序下次启动会去读的位置。
+  交互模式下会先问一句「能不能正常显示中文」来选注释语言（见 2.2），然后问数据目录（直接回车 = 与配置文件同目录）。
+  脚本里用 `--non-interactive`，标准输入不是终端时也会自动按非交互处理；`--lang zh|en` 可以直接指定语言。
+- 已有 `config.yaml` 时 `config init` 拒绝覆盖，加 `--force` 才覆盖（原文件先备份为 `config.yaml.bak-<时间>`）。
+- **直接跑 `setup` 也行**：没有配置时它会先生成一份、打印要检查的配置项，然后**停下来等你改**，
+  回车后重新加载（包括下载代理）才开始下载。非交互模式下必须给 `--basedir`，或者先 `config init`。
+- 排障看 `asa-server config path`：三级查找（`ASA_CFG` → 程序目录 → `/etc/asa-server`）各自有没有配置、当前用的是哪一份、
+  数据目录来自哪里；配置校验不过时它会提醒「程序会回落到默认配置运行」。
+- `--help`、`config` 子命令都不会在磁盘上生成任何东西（以前 `asa-server --help` 会在程序旁边生成 `config.yaml` 并建 5 个数据目录）。
+
+**配置文件放在别处**：`config init --dir /etc/asa-server/cfg --set-env` 以 root 写入 `/etc/profile.d/asa-server.sh`
+（`export ASA_CFG='…'`），此后新的登录 shell 都会带上它。有三点要知道：
+
+- **当前终端不会自动生效**——程序改不了启动它的那个 shell 的环境变量，按输出提示执行一次
+  `source /etc/profile.d/asa-server.sh` 或重新登录。
+- **`sudo` 默认清空环境变量**，`sudo asa-server …` 读不到 `ASA_CFG`：先 `sudo -i` 进 root 登录 shell，
+  或写成 `sudo ASA_CFG=/etc/asa-server/cfg asa-server …`。
+- **Debian/Ubuntu 的 zsh 登录时不读 `/etc/profile.d`**，需要在 `~/.zprofile` 里加一行 `source /etc/profile.d/asa-server.sh`。
+
+systemd 服务不依赖这个文件：`service install` 会把安装时的 `ASA_CFG` 写进 unit（见第 4 节）。
+
+### 2.2 配置文件里的中文注释显示成乱码
+
+`config.yaml` 是标准 UTF-8。`cat` 和 vim 里都是乱码，几乎总是 **SSH 客户端的会话编码是 GBK**（Xshell / SecureCRT /
+PuTTY 在国内常见的默认值）：终端按 GBK 解码 UTF-8 字节，服务器这一侧什么都探测不到，文件写成什么格式都救不了。
+
+- 根治：把客户端改成 UTF-8（Xshell：会话属性 → 终端 → 编码；PuTTY：Window → Translation）。这个终端里程序自己输出的
+  中文（setup 进度、报错）也一样会乱，换模板救不了。
+- 兜底：`config init` 交互模式下选「显示乱码，用英文注释」，或 `--lang en`，生成纯 ASCII 的英文注释版；
+  改好客户端后 `config init --force --lang zh` 可以换回中文。非交互模式下终端 locale 不是 UTF-8（`LANG=C` / `POSIX`）时默认英文。
+- 自查：`file config.yaml` 应报 `UTF-8 text`；`printf '\xe4\xb8\xad\xe6\x96\x87\n'` 打出来不是「中文」两个字，就是终端编码的问题。
 
 ## 3. 首次配置要点（`config.yaml`）
+
+在 `config init` 之后、`setup` 之前改（见 2.1）。国内网络最常要动的是下载代理：
+
+```yaml
+download:
+  github_proxy: ""   # 前缀重写型 GitHub 加速（形如 https://ghproxy.example.com/），只作用于 GitHub 的地址
+  http_proxy: ""     # 标准 HTTP(S) 代理，作用于全部下载
+```
 
 ```yaml
 server:
@@ -240,6 +290,17 @@ sudo ./asa-server service remove    # 同时联动清理已安装的本地 CA（
 - 把当前安装用户的 `$HOME`（`sudo` 默认会保留 root 的 `/root`）直接写进 unit 的
   `Environment=`——systemd 系统服务默认 `HOME` 为空或 `/`，这个坑不解决的话 umu 会
   每次启动都重新下载运行时，或者直接崩在 steamclient
+- 安装时 `ASA_CFG` 非空，就把它（转成绝对路径）一并写进 unit。systemd 服务不继承 shell 里 `export` 的变量，
+  也不读 `/etc/profile.d`，不写进去的话服务会按「程序目录 → `/etc/asa-server`」去找，读到另一份配置。
+  两者都写成带引号的形式，路径里有空格也不会被切开：
+  ```ini
+  [Service]
+  Environment="ASA_CFG=/etc/asa-server/cfg"
+  Environment="HOME=/root"
+  ```
+  这是**安装时的快照**：之后改了配置位置要 `service remove` + `service install` 重装。
+  `sudo` 会清掉环境变量，所以要么在 `sudo -i` 的 root 登录 shell 里装，要么写成
+  `sudo ASA_CFG=/etc/asa-server/cfg ./asa-server service install`
 - 加 `LimitNOFILE=1048576`（ARK + Wine 打开的文件描述符数量很大）、`Restart=on-failure`、
   `After=network-online.target`
 - **`asa-server` 服务进程本身仍以 root 运行**（写系统信任库、操作 systemd 都需要 root）。
@@ -305,6 +366,8 @@ sudo ./asa-server service remove    # 同时联动清理已安装的本地 CA（
 | `asa-server` 启动即以退出码 `78` 退出 / systemd 服务停在 `failed` 且不重启 | 降权运行时用户 `asa-umu-runtime` 建不出来或对相关目录没权限（`useradd` 缺失、SELinux、只读挂载、NFS root_squash） | 看日志里 `[umu-runtime-*]` 开头的错误按提示修；或 `config.yaml` 设 `linux.umu_run_as_root: true` 明确以 root 运行游戏。见 4.1 |
 | 游戏进程仍以 root 运行（`ps -o user`） | `linux.umu_run_as_root: true` 已设，或 `asa-server` 本身不是 root 启动 | 按需求取舍：非 root 启动 `asa-server` 时子进程本就以当前用户跑，无需降权 |
 | 存档 / prefix 目录属主是 root，实例起不来报 `umu-runtime-owner-drift` | 手工动过 `{BaseDir}` 属主，或跨机迁移后 uid 变了 | 重启 `asa-server` 会自动 `chown` 修复；修不回来看是不是只读挂载 / SELinux。迁移场景用 `umu_runtime_uid` 固定 uid |
+| `config.yaml` 里的中文注释 `cat` / vim 都是乱码 | SSH 客户端的会话编码是 GBK，文件本身是 UTF-8 | 客户端改 UTF-8；或 `config init --force --lang en` 换成纯 ASCII 的英文注释。见 2.2 |
+| 改了配置却没生效 / 服务与命令行读的不是同一份配置 | 三级查找命中的不是你改的那份：`ASA_CFG` 没带进来（`sudo` 清掉了、当前终端还没 `source`、zsh 不读 `/etc/profile.d`），或服务装的时候 `ASA_CFG` 还是旧值 | `asa-server config path` 看当前用的是哪份；服务那边看 `systemctl cat ASA-Server-Manager` 里的 `Environment="ASA_CFG=…"`，不对就重装服务。见 2.1、第 4 节 |
 
 更完整的风险清单（含已知不会在 Linux 上发生的坑，供交叉核对）见
 `docs/LINUX_COMPATIBILITY_PLAN.md` §6。
