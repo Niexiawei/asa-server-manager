@@ -14,6 +14,7 @@ import (
 	"asa-server/internal/appconfig"
 	cfgpkg "asa-server/internal/config"
 	"asa-server/pkg/fsutil"
+	"asa-server/pkg/userenv"
 )
 
 // ConfigCommand 是 `asa-server config`：把「生成 config.yaml」从启动副作用里拆出来
@@ -49,6 +50,10 @@ func ConfigCommand() *cli.Command {
 						Usage: "目标已存在时覆盖（原文件先备份为 config.yaml.bak-<时间>）；非交互模式下遮蔽已有配置也需要它",
 					},
 					&cli.BoolFlag{
+						Name:  "set-env",
+						Usage: "写完后把环境变量 ASA_CFG 持久化为该目录（Windows 写当前用户环境变量；Linux 打印设置方法）。--dir 指向程序默认不会查找的位置时需要它",
+					},
+					&cli.BoolFlag{
 						Name:  "non-interactive",
 						Usage: "不提问（标准输入不是终端时自动如此）",
 					},
@@ -78,44 +83,73 @@ func ConfigCommand() *cli.Command {
 // ---------------------------------------------------------------- config init
 
 type configInitOptions struct {
-	Dir         string
-	BaseDir     string
-	Lang        string
-	Force       bool
+	Dir     string
+	BaseDir string
+	Lang    string
+	Force   bool
+	// Interactive：可以提问（覆盖确认、遮蔽确认、数据目录）。
 	Interactive bool
+	// AskLang：可以问模板语言。与 Interactive 分开：setup 允许从管道喂数据目录
+	// （`echo /data | asa-server setup`），这时第一行不能被语言问题吃掉——只有标准
+	// 输入是终端时才问语言。
+	AskLang bool
+	// SetEnv：写完后把 ASA_CFG 持久化为目标目录（Windows 写用户级环境变量；
+	// 其余平台只打印怎么手动设置）。见 docs/SETUP_FLOW_OPTIMIZATION_PLAN.md Part 2 §P2-3.5.1。
+	SetEnv bool
 }
 
-// validateBaseDir 可在单测里替换：真实实现要求 ≥30GB 剩余空间，测试机未必满足。
-var validateBaseDir = appconfig.ValidateBaseDir
+// configInitResult 是 runConfigInit 生成的结果，调用方据此打印下一步提示。
+type configInitResult struct {
+	Path    string // 写入的 config.yaml
+	Dir     string // 它所在的目录
+	BaseDir string // 写进 basedir 字段的值（可能为空）
+	Lang    string // 模板语言
+}
+
+// 可在单测里替换的外部依赖：数据目录校验要求 ≥30GB 剩余空间，测试机未必满足；
+// 持久化环境变量会真写注册表。
+var (
+	validateBaseDir = appconfig.ValidateBaseDir
+	setUserEnv      = userenv.SetUser
+)
 
 func actionConfigInit(ctx context.Context, cmd *cli.Command) error {
+	interactive := !cmd.Bool("non-interactive") && stdinIsTerminal()
 	opts := configInitOptions{
 		Dir:         cmd.String("dir"),
 		BaseDir:     cmd.String("basedir"),
 		Lang:        cmd.String("lang"),
 		Force:       cmd.Bool("force"),
-		Interactive: !cmd.Bool("non-interactive") && stdinIsTerminal(),
+		Interactive: interactive,
+		AskLang:     interactive,
+		SetEnv:      cmd.Bool("set-env"),
 	}
-	if err := runConfigInit(opts, stdPrompter()); err != nil {
+	p := stdPrompter()
+	res, err := runConfigInit(opts, p)
+	if err != nil {
 		return cli.Exit(err.Error(), 1)
 	}
+	printConfigInitSummary(p.out, res, false)
 	return nil
 }
 
-// runConfigInit 是 config init 的全部逻辑，与 CLI 解耦以便单测。
+// runConfigInit 生成 config.yaml，与 CLI 解耦以便单测，也被 setup 的「配置缺失」
+// 分支复用。只输出过程中的提示与确认，结束时的摘要由调用方打印（config init 与
+// setup 的「下一步」不同）。
 //
 // 语言最先定：选了英文（终端显示不了中文）之后的每一行输出都得是英文。
-func runConfigInit(o configInitOptions, p *prompter) error {
+func runConfigInit(o configInitOptions, p *prompter) (configInitResult, error) {
 	out := p.out
+	var res configInitResult
 
 	lang, err := appconfig.NormalizeLang(o.Lang)
 	if err != nil {
-		return err
+		return res, err
 	}
 	if lang == "" {
-		if o.Interactive {
+		if o.AskLang {
 			if lang, err = p.askTemplateLang(); err != nil {
-				return err
+				return res, err
 			}
 		} else {
 			lang = appconfig.DefaultTemplateLang()
@@ -127,15 +161,16 @@ func runConfigInit(o configInitOptions, p *prompter) error {
 		}
 		return zh
 	}
+	cancelled := errors.New(L("已取消", "Cancelled"))
 
 	dir := o.Dir
 	if dir == "" {
 		if dir, err = appconfig.DefaultInitDir(); err != nil {
-			return err
+			return res, err
 		}
 	}
 	if dir, err = filepath.Abs(dir); err != nil {
-		return err
+		return res, err
 	}
 	target := filepath.Join(dir, appconfig.ConfigFileName)
 
@@ -143,59 +178,61 @@ func runConfigInit(o configInitOptions, p *prompter) error {
 	force := o.Force
 	if fileExists(target) && !force {
 		if !o.Interactive {
-			return fmt.Errorf(L("配置文件已存在：%s\n如需重新生成请加 --force（原文件会先备份为 %s.bak-<时间>）",
+			return res, fmt.Errorf(L("配置文件已存在：%s\n如需重新生成请加 --force（原文件会先备份为 %s.bak-<时间>）",
 				"Config file already exists: %s\nAdd --force to regenerate it (the old file is backed up as %s.bak-<time> first)"),
 				target, appconfig.ConfigFileName)
 		}
 		ok, err := p.Confirm(fmt.Sprintf(L("配置文件已存在：%s，覆盖吗？（原文件会先备份）",
 			"Config file already exists: %s. Overwrite it? (the old file is backed up first)"), target), false)
 		if err != nil {
-			return err
+			return res, err
 		}
 		if !ok {
-			return errors.New(L("已取消", "Cancelled"))
+			return res, cancelled
 		}
 		force = true
 	}
 
 	// 2) 生成之后下次到底读哪份：新文件可能不被读取（被更高一级遮住 / 不在查找范围内），
-	//    也可能反过来遮住一份正在用的配置。
-	after, err := appconfig.ConfigPathAfterInit(target)
-	if err != nil {
-		return err
-	}
-	current := ""
-	if !appconfig.ConfigMissing() {
-		current = appconfig.ConfigPath()
-	}
-	switch {
-	case !fsutil.SamePath(after, target):
-		fmt.Fprintf(out, L("注意：生成后程序不会读取这份配置，而是读 %s。\n要让它生效，请设置环境变量 ASA_CFG=%s\n",
-			"Note: the program will NOT read this file after it is generated; it reads %s instead.\nTo use it, set the environment variable ASA_CFG=%s\n"),
-			after, dir)
-		if o.Interactive {
-			ok, err := p.Confirm(L("仍然生成？", "Generate it anyway?"), false)
-			if err != nil {
-				return err
-			}
-			if !ok {
-				return errors.New(L("已取消", "Cancelled"))
-			}
+	//    也可能反过来遮住一份正在用的配置。--set-env 时 ASA_CFG 会指向它，两种情况都不成立。
+	if !o.SetEnv {
+		after, err := appconfig.ConfigPathAfterInit(target)
+		if err != nil {
+			return res, err
 		}
-	case current != "" && !fsutil.SamePath(current, target):
-		fmt.Fprintf(out, L("注意：新文件会遮蔽当前正在使用的 %s（程序目录优先于系统目录），之后程序改读新文件。\n",
-			"Note: the new file will shadow the config currently in use, %s (the program directory takes precedence over the system directory).\n"),
-			current)
-		if o.Interactive {
-			ok, err := p.Confirm(L("继续？", "Continue?"), false)
-			if err != nil {
-				return err
+		current := ""
+		if !appconfig.ConfigMissing() {
+			current = appconfig.ConfigPath()
+		}
+		switch {
+		case !fsutil.SamePath(after, target):
+			fmt.Fprintf(out, L("注意：生成后程序不会读取这份配置，而是读 %s。\n要让它生效，请加 --set-env 或自行设置环境变量 ASA_CFG=%s\n",
+				"Note: the program will NOT read this file after it is generated; it reads %s instead.\nTo use it, add --set-env or set the environment variable ASA_CFG=%s yourself\n"),
+				after, dir)
+			if o.Interactive {
+				ok, err := p.Confirm(L("仍然生成？", "Generate it anyway?"), false)
+				if err != nil {
+					return res, err
+				}
+				if !ok {
+					return res, cancelled
+				}
 			}
-			if !ok {
-				return errors.New(L("已取消", "Cancelled"))
+		case current != "" && !fsutil.SamePath(current, target):
+			fmt.Fprintf(out, L("注意：新文件会遮蔽当前正在使用的 %s（程序目录优先于系统目录），之后程序改读新文件。\n",
+				"Note: the new file will shadow the config currently in use, %s (the program directory takes precedence over the system directory).\n"),
+				current)
+			if o.Interactive {
+				ok, err := p.Confirm(L("继续？", "Continue?"), false)
+				if err != nil {
+					return res, err
+				}
+				if !ok {
+					return res, cancelled
+				}
+			} else if !o.Force {
+				return res, errors.New(L("非交互模式下遮蔽已有配置需要加 --force", "Shadowing an existing config in non-interactive mode requires --force"))
 			}
-		} else if !o.Force {
-			return errors.New(L("非交互模式下遮蔽已有配置需要加 --force", "Shadowing an existing config in non-interactive mode requires --force"))
 		}
 	}
 
@@ -205,7 +242,7 @@ func runConfigInit(o configInitOptions, p *prompter) error {
 		q := fmt.Sprintf(L("数据目录（ARK 服务端本体 + 存档，建议预留 30GB）\n直接回车 = 与配置文件同目录 %s\n> ",
 			"Data directory (ARK server files + saves, reserve at least 30GB)\nPress Enter = same directory as the config file, %s\n> "), dir)
 		if baseDir, err = p.Line(q); err != nil {
-			return err
+			return res, err
 		}
 	}
 	for baseDir != "" {
@@ -217,11 +254,11 @@ func runConfigInit(o configInitOptions, p *prompter) error {
 			break
 		}
 		if !o.Interactive {
-			return verr
+			return res, verr
 		}
 		fmt.Fprintln(out, verr)
 		if baseDir, err = p.Line(L("请换一个数据目录（直接回车 = 与配置文件同目录）：", "Choose another data directory (Enter = same as the config file): ")); err != nil {
-			return err
+			return res, err
 		}
 	}
 	if baseDir == "" {
@@ -237,25 +274,53 @@ func runConfigInit(o configInitOptions, p *prompter) error {
 	// 4) 写。
 	path, err := appconfig.InitConfig(appconfig.InitOptions{Dir: dir, BaseDir: baseDir, Lang: lang, Force: force})
 	if err != nil {
-		return err
+		return res, err
 	}
+	res = configInitResult{Path: path, Dir: dir, BaseDir: baseDir, Lang: lang}
 
-	printConfigInitSummary(out, path, dir, baseDir, lang)
+	// 5) 写成功之后才持久化 ASA_CFG：顺序反过来的话，写失败会留下一个指向空目录的
+	//    环境变量，之后每次启动都找不到配置。
+	if o.SetEnv {
+		if err := persistConfigDir(out, dir, L); err != nil {
+			return res, err
+		}
+	}
+	return res, nil
+}
+
+// persistConfigDir 实现 --set-env。Windows 写用户级 ASA_CFG（不需要管理员）并同步到
+// 当前进程；其余平台不替用户选 shell 配置文件，只打印怎么做。
+func persistConfigDir(out io.Writer, dir string, L func(zh, en string) string) error {
+	err := setUserEnv("ASA_CFG", dir)
+	if errors.Is(err, userenv.ErrUnsupported) {
+		fmt.Fprintf(out, L("\n本平台不会自动持久化环境变量，请把下面这行加进你使用的 shell 配置（如 ~/.bashrc）：\n  export ASA_CFG=%s\n`asa-server service install` 会把安装时的 ASA_CFG 写进服务，无需另行配置。\n",
+			"\nThis platform does not persist environment variables automatically; add this line to your shell profile (e.g. ~/.bashrc):\n  export ASA_CFG=%s\n`asa-server service install` bakes the ASA_CFG in effect at install time into the service.\n"), dir)
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf(L("配置已生成，但设置环境变量 ASA_CFG 失败：%w", "The config was generated, but setting ASA_CFG failed: %w"), err)
+	}
+	_ = os.Setenv("ASA_CFG", dir)
+	fmt.Fprintf(out, L("\n已为当前用户设置环境变量 ASA_CFG=%s\n新打开的终端、从资源管理器启动的程序会生效；已经开着的终端需要重新打开。\n装成服务时会把它一并写进服务配置。\n",
+		"\nSet ASA_CFG=%s for the current user.\nNew terminals and programs started from Explorer pick it up; reopen terminals that are already open.\nInstalling the service bakes it into the service configuration.\n"), dir)
 	return nil
 }
 
-func printConfigInitSummary(out io.Writer, path, dir, baseDir, lang string) {
-	en := lang == appconfig.LangEN
-	dataDir := baseDir
+// printConfigInitSummary 打印生成结果与「开始安装前通常需要检查的配置」。
+// forSetup 为 true 时是 setup 里的版本：下一步是「改好后按回车继续」，而不是
+// 「改好后运行 setup」。
+func printConfigInitSummary(out io.Writer, r configInitResult, forSetup bool) {
+	en := r.Lang == appconfig.LangEN
+	dataDir := r.BaseDir
 	if dataDir == "" {
 		if env := os.Getenv("ASA_BASEDIR"); env != "" {
 			dataDir = env
 		} else {
-			dataDir = dir
+			dataDir = r.Dir
 		}
 	}
 	if en {
-		fmt.Fprintf(out, "\nConfig file generated: %s (English comments)\n", path)
+		fmt.Fprintf(out, "\nConfig file generated: %s (English comments)\n", r.Path)
 		fmt.Fprintf(out, "Data directory: %s\n\n", dataDir)
 		fmt.Fprintln(out, "Settings usually worth checking before installing:")
 		fmt.Fprintln(out, "  download.github_proxy / download.http_proxy   proxies for downloading umu / GE-Proton / SteamCMD")
@@ -264,14 +329,16 @@ func printConfigInitSummary(out io.Writer, path, dir, baseDir, lang string) {
 			fmt.Fprintln(out, "  linux.prefix_mode                              Wine prefix isolation for multiple instances (shared / per-instance / overlay)")
 			fmt.Fprintln(out, "  linux.umu_runtime_user                         unprivileged system user that runs the game processes")
 		}
-		fmt.Fprintln(out, "When done, run: asa-server config validate && asa-server setup")
+		if !forSetup {
+			fmt.Fprintln(out, "When done, run: asa-server config validate && asa-server setup")
+		}
 		fmt.Fprintln(out)
 		fmt.Fprintln(out, "If Chinese text looks garbled in your terminal, set your terminal / SSH client charset to UTF-8")
 		fmt.Fprintln(out, "(the program's other console output is Chinese too). Then `asa-server config init --force --lang zh`")
 		fmt.Fprintln(out, "regenerates the file with Chinese comments.")
 		return
 	}
-	fmt.Fprintf(out, "\n已生成配置文件：%s（中文注释）\n", path)
+	fmt.Fprintf(out, "\n已生成配置文件：%s（中文注释）\n", r.Path)
 	fmt.Fprintf(out, "数据目录：%s\n\n", dataDir)
 	fmt.Fprintln(out, "开始安装前通常需要检查的配置：")
 	fmt.Fprintln(out, "  download.github_proxy / download.http_proxy   下载 umu / GE-Proton / SteamCMD 的代理")
@@ -280,7 +347,9 @@ func printConfigInitSummary(out io.Writer, path, dir, baseDir, lang string) {
 		fmt.Fprintln(out, "  linux.prefix_mode                              多实例 Wine prefix 隔离方式（shared / per-instance / overlay）")
 		fmt.Fprintln(out, "  linux.umu_runtime_user                         降权运行游戏进程的系统用户")
 	}
-	fmt.Fprintln(out, "改好后执行：asa-server config validate && asa-server setup")
+	if !forSetup {
+		fmt.Fprintln(out, "改好后执行：asa-server config validate && asa-server setup")
+	}
 }
 
 // ---------------------------------------------------------------- config path

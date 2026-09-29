@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"asa-server/internal/appconfig"
+	"asa-server/pkg/userenv"
 )
 
 // configEnv 隔离三级查找与环境变量，并按「main.go 以 config 子命令启动」的方式
@@ -50,7 +51,13 @@ func writeFile(t *testing.T, path, content string) {
 func run(t *testing.T, o configInitOptions, input string) (string, error) {
 	t.Helper()
 	var out bytes.Buffer
-	err := runConfigInit(o, newPrompter(strings.NewReader(input), &out))
+	if o.Interactive {
+		o.AskLang = true
+	}
+	res, err := runConfigInit(o, newPrompter(strings.NewReader(input), &out))
+	if err == nil {
+		printConfigInitSummary(&out, res, false)
+	}
 	return out.String(), err
 }
 
@@ -250,5 +257,47 @@ func TestConfigPath(t *testing.T) {
 		if strings.Contains(line, "当前使用") && !strings.Contains(line, e.sysDir) {
 			t.Errorf("「当前使用」应标在系统目录一行，实际：%s", line)
 		}
+	}
+}
+
+// --set-env：不再警告「下次读不到」，写成功后持久化 ASA_CFG 并同步到当前进程。
+func TestConfigInit_SetEnvPersistsConfigDir(t *testing.T) {
+	newConfigEnv(t)
+	custom := filepath.Join(t.TempDir(), "custom")
+
+	var gotName, gotValue string
+	orig := setUserEnv
+	setUserEnv = func(name, value string) error { gotName, gotValue = name, value; return nil }
+	t.Cleanup(func() { setUserEnv = orig })
+
+	out, err := run(t, configInitOptions{Dir: custom, Lang: "zh", SetEnv: true}, "")
+	if err != nil {
+		t.Fatalf("config init --set-env: %v\n%s", err, out)
+	}
+	if gotName != "ASA_CFG" || gotValue != custom {
+		t.Errorf("应持久化 ASA_CFG=%q，实际 %s=%q", custom, gotName, gotValue)
+	}
+	if os.Getenv("ASA_CFG") != custom {
+		t.Errorf("当前进程的 ASA_CFG 应同步为 %q，实际 %q", custom, os.Getenv("ASA_CFG"))
+	}
+	if strings.Contains(out, "不会读取") {
+		t.Errorf("--set-env 时不应再警告读不到:\n%s", out)
+	}
+}
+
+// 不支持持久化的平台：不报错，打印手动设置方法。
+func TestConfigInit_SetEnvUnsupportedPrintsHint(t *testing.T) {
+	newConfigEnv(t)
+	custom := filepath.Join(t.TempDir(), "custom")
+	orig := setUserEnv
+	setUserEnv = func(string, string) error { return userenv.ErrUnsupported }
+	t.Cleanup(func() { setUserEnv = orig })
+
+	out, err := run(t, configInitOptions{Dir: custom, Lang: "zh", SetEnv: true}, "")
+	if err != nil {
+		t.Fatalf("config init --set-env: %v", err)
+	}
+	if !strings.Contains(out, "export ASA_CFG="+custom) {
+		t.Errorf("应打印 export 提示:\n%s", out)
 	}
 }
