@@ -14,8 +14,8 @@
 >
 > 想直接看结果的：**§12**。想知道当初为什么要做这个实验的：§2 → §4。
 >
-> 关联：`docs/UMU_PREFIX_PER_INSTANCE_PLAN.md` §2.2（那道闸的定位与推断）、
-> `docs/XVFB_CROSS_DISTRO_DISPLAY_PLAN.md`（自管 Xvfb 落地）、
+> 关联：`docs/UMU_PREFIX_PLAN.md` §2.2（那道闸的定位与推断）、
+> `docs/XVFB_DISPLAY_PLAN.md`（自管 Xvfb 落地）、
 > `internal/instance/launchgate.go` 的 `conflictingArkApiInstance`（当前的阻断）。
 >
 > **最短路径**：§2 事实核对 → §4 候选假说表 → §5 实验。
@@ -61,7 +61,7 @@ A 属实这件事比 B 不成立重要得多：**它意味着当初那个决定�
 | 时间 | 提交 | 事件 |
 |---|---|---|
 | 08-31 09:53 | `bf5d49c` `b33355f` | `PROTON_VERB=run` + 启动闸门 + **`conflictingArkApiInstance` 阻断** |
-| 08-31 09:54 | `5f993a3` | `UMU_PREFIX_PER_INSTANCE_PLAN.md` 定稿，§2.2 写下"第二道闸是 ArkApi" |
+| 08-31 09:54 | `5f993a3` | `UMU_PREFIX_PLAN.md` 定稿，§2.2 写下"第二道闸是 ArkApi" |
 | **08-31 14:13** | `f0051c0` | **自管 Xvfb 落地**，`xvfb-run` 分支删除 |
 | 08-31 14:14 | `507f79b` `67cf4b4` | 退出路径收 Xvfb + Xvfb 方案文档 |
 
@@ -94,7 +94,7 @@ func xvfbRunArgs(cfg Config, xvfbRun string) []string {
 ### 2.3 今天的形状：四条路，常规情况下都只会给出同一个显示
 
 自管 Xvfb（2026-08-31）与显示解析改序（2026-09-01，
-`docs/ALWAYS_MANAGED_XVFB_DISPLAY_PLAN.md`）之后：
+`docs/XVFB_DISPLAY_PLAN.md`）之后：
 
 | 档 | 显示来自 | 多实例是否同一个显示 |
 |---|---|---|
@@ -124,7 +124,7 @@ func xvfbRunArgs(cfg Config, xvfbRun string) []string {
 
 ### 2.5 那条"结论不变"的注是推理
 
-`UMU_PREFIX_PER_INSTANCE_PLAN.md` §2.2 末尾：
+`UMU_PREFIX_PLAN.md` §2.2 末尾：
 
 > 注：显示改成「每个 asa-server 进程一个自管 Xvfb、所有实例共用」之后，这条结论
 > **不变** —— 卡点是 Wine 会话，不是显示本身。
@@ -211,7 +211,7 @@ H2 与 H3 在结果上同象、在处置上也同象（都是"闸可以拆"）�
 
 `conflictingArkApiInstance` 现在会当场拒掉第二个实例（这是 §2.2 之后加的阻断），
 所以实验必须先把它让开。**做成一个显式的、默认关闭的实验开关，不要改代码后再改回来**
-——后者会让"这次测的到底是哪份代码"变成需要猜的问题（`XVFB_CROSS_DISTRO_DISPLAY_PLAN.md`
+——后者会让"这次测的到底是哪份代码"变成需要猜的问题（`XVFB_DISPLAY_PLAN.md`
 §13 刚吃过一次同形状的亏）。
 
 ```yaml
@@ -334,7 +334,7 @@ XVFB 方案 §9 风险 5 的退路）**自动免疫** —— 静态谓词在那�
 | 文件 | 改什么 |
 |---|---|
 | `internal/instance/launchgate.go` | `conflictingArkApiInstance` 的整段注释是按 H1 写的（"每个会话只初始化一次"），要按实测结论重写，别留一段与代码行为相反的解释 |
-| `docs/UMU_PREFIX_PER_INSTANCE_PLAN.md` | §0 第 5 条、§2.2、§7 风险 2、§11.4 的可用组合表——**四处**，都写着"per-instance 是唯一办法"。改的时候保留原文并注明"在每实例私有显示的代码上成立"，与该文档一贯的"错误路径也留着"风格一致 |
+| `docs/UMU_PREFIX_PLAN.md` | §0 第 5 条、§2.2、§7 风险 2、§11.4 的可用组合表——**四处**，都写着"per-instance 是唯一办法"。改的时候保留原文并注明"在每实例私有显示的代码上成立"，与该文档一贯的"错误路径也留着"风格一致 |
 | `CLAUDE.md` | `runner` 的 prefix 模型那一段（"同时只能有一个 ArkApi 实例"） |
 | `docs/LINUX_DEPLOYMENT.md` | 排障表里"多 ArkApi 请改 per-instance"那条 |
 | `internal/appconfig` | `allow_shared_arkapi` 实验开关**删掉**（行为已成默认），或保留为反向逃生舱 `force_arkapi_exclusive`（倾向于删：一个没人会去开的开关只是维护成本） |
@@ -343,7 +343,7 @@ XVFB 方案 §9 风险 5 的退路）**自动免疫** —— 静态谓词在那�
 ### 6.3 仍然不变的东西
 
 - **默认 `prefix_mode` 维持 `shared`**，本分支只是让它多支持一种组合。
-- **`per-instance` 仍然值得推荐**给要强隔离的用户：`UMU_PREFIX_PER_INSTANCE_PLAN.md`
+- **`per-instance` 仍然值得推荐**给要强隔离的用户：`UMU_PREFIX_PLAN.md`
   §7 风险 1（一个 wineserver 崩 = 所有实例一起挂）与本文无关，它不会因为显示统一而消失。
 - **不碰 `NeedsDisplay` 的判据**：`ArkAscendedServer.exe` 依旧不要显示。
 
@@ -386,7 +386,7 @@ H1 成立时要做的事其实很少，但每一件都是防止第三次绕回�
 2. `conflictingArkApiInstance` 的注释补一句**新的**事实：
    "2026-09-xx 在自管 Xvfb（全实例同一 DISPLAY）下复测，第二个加载器**依旧**挂死，
    所以卡点确实是 Wine 会话而不是显示——这条以前是推断，现在是观测。"
-3. `UMU_PREFIX_PER_INSTANCE_PLAN.md` §2.2 那条注从"推断"改注为"已复测"，并链回本文。
+3. `UMU_PREFIX_PLAN.md` §2.2 那条注从"推断"改注为"已复测"，并链回本文。
 4. 本文状态改为"已验证：假说不成立"，保留全文——**错误的路径与正确的结论同样有参考价值**
    （该文档开头自己写的规矩）。
 
@@ -397,7 +397,7 @@ H1 成立时要做的事其实很少，但每一件都是防止第三次绕回�
 - **不改默认 `prefix_mode`**。无论分支 A 还是 B，默认仍是 `shared`。
 - **不引入任何 X 客户端库、不传 `XAUTHORITY`**。现有 12 字节握手探测够用，
   改动它会同时波及 `planDisplay` / `runtimeEnv` / `launchEnvAllowed` 三处
-  （`XVFB_CROSS_DISTRO_DISPLAY_PLAN.md` §9 风险 3）。
+  （`XVFB_DISPLAY_PLAN.md` §9 风险 3）。
 - **不做"每 prefix 一个 Xvfb"**。那是 XVFB 方案 §9 风险 5 的退路，方向与本文相反：
   它会让不同实例拿到不同显示，正好把 §6.1 的前提 2 变成恒假。真走那条路的话，
   §6.1 的按次比对会**自动**把这些启动挡回去（这正是选按次比对而非静态谓词的收益），
@@ -443,7 +443,7 @@ H1 成立时要做的事其实很少，但每一件都是防止第三次绕回�
 | 1 | 实验开关被用户在生产上打开、撞上 H1，回到三分钟静默超时 | 默认 `false`；打开时 WARN 写明"未验证"；结论落定后**必须删掉或转正**，不留悬置的开关 |
 | 2 | 实验"通过"但只是侥幸（时序恰好、A 先建好了 desktop） | §5.5 的三条补测，尤其第 1 条（停掉 A 之后 B 是否活着） |
 | 3 | 分支 A 落地后，运行期出现「两个实例落在不同显示」（Xvfb 被看门狗换号重起、候选链回退），而闸已经拆了 | **这是 §2.4 更正掉的那个风险，也是把判据从静态谓词改成按次比对的原因**：`CurrentDisplay()` 与本次将拿到的显示不相等就退回阻断，并把两个显示号写进错误信息。配一组测试钉住「不相等时仍然阻断」「取不到时保守阻断」 |
-| 4 | 两个 ArkApi 实例共用一个 wineserver 的其他耦合（崩溃连坐、注册表并发） | 与本文无关、也不会被本文消除。`UMU_PREFIX_PER_INSTANCE_PLAN.md` §7 风险 1 保持有效，`per-instance` 仍是强隔离的推荐 |
+| 4 | 两个 ArkApi 实例共用一个 wineserver 的其他耦合（崩溃连坐、注册表并发） | 与本文无关、也不会被本文消除。`UMU_PREFIX_PLAN.md` §7 风险 1 保持有效，`per-instance` 仍是强隔离的推荐 |
 | 5 | 实验占用真机、期间实例不可用 | 单次 30 分钟以内（§5.6），可在维护窗口做 |
 
 ---
@@ -561,7 +561,7 @@ ls -l /proc/<卡住的 umu.exe pid>/task/ # umu.exe 到底几个线程（本次 
 |---|---|---|
 | 1 | 删掉 §5.2 的实验开关，不留 | `appconfig/{config,template}.go`、`runner/{runner,runner_linux,runner_windows}.go`、三处 `runner.Configure`、`launchgate.go` 的旁路 —— `grep AllowSharedArkApi` 已归零 |
 | 2 | `conflictingArkApiInstance` 注释按实测重写 | 写明「复测过两轮、结论成立」**以及「机制未知，旧解释是错的」**；比 §7.3 原计划多了后半句，因为 12.2 |
-| 3 | `UMU_PREFIX_PER_INSTANCE_PLAN.md` §2.2 回填 | 那段机制**划掉但保留原文**并加更正框；那条「结论不变（推断）」的注改注为已复测 |
+| 3 | `UMU_PREFIX_PLAN.md` §2.2 回填 | 那段机制**划掉但保留原文**并加更正框；那条「结论不变（推断）」的注改注为已复测 |
 | 4 | 本文状态改为「已验证：假说不成立」，保留全文 | 文首 |
 | 5 | 连带 | `CLAUDE.md` 的 prefix 模型段、`docs/LINUX_DEPLOYMENT.md` 排障表、`runner.SharesWinePrefix()` 的后果 2 —— 这三处都在复述那个已被证伪的机制 |
 

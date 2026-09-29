@@ -25,7 +25,7 @@
 > 关联文档：
 >
 > - `docs/WINNET_ETW_PLAN.md`（ETW 实现档案，§14 是 T1 的原始详设）
-> - `docs/WINNET_ETW_TODO.md`（活动清单；§4 的 UDP RX 风险是本方案要回答的问题）
+> - `docs/WINNET_ETW_PLAN.md` Part 2`（活动清单；§4 的 UDP RX 风险是本方案要回答的问题）
 > - `docs/RESOURCE_RATE_CHART_PLAN.md`（P7，上位方案；§2.2/§3.3 的「Windows 不提供」由本方案作废）
 
 ---
@@ -42,7 +42,7 @@
 - Linux：起 asa-server → 起实例 → 开面板 → 看曲线。链路上任何一环出问题都长得一样。
 - Windows：接线之前根本没有入口；接线之后同上。
 
-而恰恰有一个**已知的、可能推翻整套 Windows 方案的风险**（`WINNET_ETW_TODO.md` §4）：
+而恰恰有一个**已知的、可能推翻整套 Windows 方案的风险**（`WINNET_ETW_PLAN.md` Part 2` §4）：
 Kernel-Network 的 UDP 接收事件可能不触发，或者 payload 里的 PID 归错进程。
 **ARK 的入站游戏流量正是 UDP**。这个问题只能靠「对着一个真在跑的 PID 看四个方向的计数」
 来回答，面板上的一条聚合曲线回答不了。
@@ -153,7 +153,7 @@ func runNetmon(ctx context.Context, cmd *cli.Command, load func() (netCollector,
 | 情况 | 判定 | 退出码 |
 | --- | --- | --- |
 | RX 与 TX 都有增长 | `捕获正常` | 0 |
-| 只有 TX 增长，RX 恒零 | `⚠️ 只采到发送方向` + 指向 `WINNET_ETW_TODO.md` §4 的 UDP RX 风险 | 3 |
+| 只有 TX 增长，RX 恒零 | `⚠️ 只采到发送方向` + 指向 `WINNET_ETW_PLAN.md` Part 2` §4 的 UDP RX 风险 | 3 |
 | 只有 RX 增长 | `⚠️ 只采到接收方向` | 3 |
 | 两个方向都没动 | `未捕获到流量` + 三条自查（进程真的空闲？`Describe()` 里事件数为零？目标 PID 对不对？） | 2 |
 | `Load` 失败 | 打印错误原样（两个包的错误文案都已经是可行动的中文） | 1 |
@@ -166,7 +166,7 @@ func runNetmon(ctx context.Context, cmd *cli.Command, load func() (netCollector,
 **同一台机器同时只能有一个消费进程**。第二个进程 `Load` 会把第一个的会话停掉。
 
 T1 接通之后这条约束的后果变严重了：**管理员在服务正跑着的时候敲一次
-`netmon etw`，就会把服务的实例级网络监控打掉**，而且（按 `WINNET_ETW_TODO.md` §2.2
+`netmon etw`，就会把服务的实例级网络监控打掉**，而且（按 `WINNET_ETW_PLAN.md` Part 2` §2.2
 的修复）服务侧从此 `Bytes` 返回 `ok=false`、`net_io` 变回 null，**直到 asa-server 重启
 都不会自愈**。
 
@@ -215,7 +215,7 @@ T1 接通之后这条约束的后果变严重了：**管理员在服务正跑着
 
 `netmon etw` 的输出多一行 TCP/UDP 分项，`netmon ebpf` 没有。理由是对称的：
 
-- **ETW 侧需要**：`WINNET_ETW_TODO.md` §4 的风险就是「UDP RX 可能整个缺失」，
+- **ETW 侧需要**：`WINNET_ETW_PLAN.md` Part 2` §4 的风险就是「UDP RX 可能整个缺失」，
   而 `Bytes` 返回的是聚合值。ARK 的流量以 UDP 为主，聚合 RX 偏低到底是
   「UDP RX 缺失」还是「实例本来就没人连」，聚合值分不出来。
 - **eBPF 侧不需要**：那边六个探针是**分协议挂**的，`Describe()` 已经告诉你
@@ -278,7 +278,7 @@ func (c *Collector) BytesByProtocol(pid int32) (v ProtoBytes, ok bool)
 | Linux 缺前置 / 容器策略挡下 | — | ❌ 降级，同上 |
 
 ⚠️ 第三行是**桌面用户的默认形态**（双击 GUI、普通终端跑 `api`），不是边角情况。
-`WINNET_ETW_TODO.md` §2.8 已经把这条路径的文案改成可行动的了。
+`WINNET_ETW_PLAN.md` Part 2` §2.8 已经把这条路径的文案改成可行动的了。
 
 ---
 
@@ -345,7 +345,7 @@ internal/webapi                    → pkg/procnet → pkg/winnetetw（T1 之后
 | --- | --- | --- | --- |
 | **N1** ✅ | `pkg/winnetetw`：四路计数 + `BytesByProtocol` + `SessionActive`，单测跟上 | — | `go test -race`（PowerShell）通过；`Bytes` 的聚合值与改造前一致 |
 | **N2** ✅ | `netmon` 命令骨架 + 两个平台子命令 + `--selftest` | N1 | 普通终端已验降级路径（权限提示 + 退出码 1 + 无残留）；管理员终端三段流量待跑 |
-| **N3** ☐ | 真机诊断：对着**在跑的 ARK 实例** `netmon etw --instance <名字>` | N2 | **决定性一步**：拿到 TCP/UDP 四路分项，回答 `WINNET_ETW_TODO.md` §4 |
+| **N3** ☐ | 真机诊断：对着**在跑的 ARK 实例** `netmon etw --instance <名字>` | N2 | **决定性一步**：拿到 TCP/UDP 四路分项，回答 `WINNET_ETW_PLAN.md` Part 2` §4 |
 | **N4** ✅ | T1 委托 + §4 的全部文案同步 | ~~N3 结论为「可用」~~ 见 §11.2 偏差 1 | 服务模式起 asa-server，实例详情页网络图渲染曲线；`logman query -ets` 在停止后无残留 |
 
 **N3 的结论决定 N4 做不做**：若 UDP RX 确认缺失或归错进程，N4 暂缓，
@@ -378,7 +378,7 @@ Linux 侧（`netmon ebpf`）没有对应的阻塞项：那条链路早就接好�
 
 | 风险 | 等级 | 对策 |
 | --- | --- | --- |
-| **UDP RX 缺失或 PID 归错**（`WINNET_ETW_TODO.md` §4） | 高 | 就是 N3 要回答的问题；结论为坏则 N4 不做，另议备选 provider |
+| **UDP RX 缺失或 PID 归错**（`WINNET_ETW_PLAN.md` Part 2` §4） | 高 | 就是 N3 要回答的问题；结论为坏则 N4 不做，另议备选 provider |
 | 管理员误在服务运行时跑 `netmon etw`，打掉线上监控 | 中 | §2.6 的护栏；`--force` 才能越过 |
 | 回环流量不被 ETW 计入，`--selftest` 前两段假阴性 | 中 | 第 3 段外发 DNS 兜底；输出明确区分三段，不合并判定 |
 | Windows 默认解析器让 DNS 走 svchost，UDP 段测了个寂寞 | 中 | 强制 `PreferGo: true`，代码注释写死原因 |
@@ -468,7 +468,7 @@ Linux 侧（`netmon ebpf`）没有对应的阻塞项：那条链路早就接好�
 两个平台第一次跑 `--selftest` 就各暴露一个问题，**都不是「机制不支持」，是我们自己的 bug**。
 
 **Windows**：`Load` 成功，但第一行 `Describe()` 就报「会话已终止」，事件数恒 0——
-`ProcessTrace` 起来就退了。修了两处，根因待复跑确认（见 `WINNET_ETW_TODO.md` §2.10 / §2.11）：
+`ProcessTrace` 起来就退了。修了两处，根因待复跑确认（见 `WINNET_ETW_PLAN.md` Part 2` §2.10 / §2.11）：
 
 | 修复 | 说明 |
 | --- | --- |
@@ -493,7 +493,7 @@ session 名**也返回正常句柄**（实测 `0x101`），失败要等 `Process
 
 **Windows：会话活下来了，然后在回调线程上崩了。** `[加载]` 报 `事件=1`，
 说明 §11.3 的修复让 `ProcessTrace` 正常阻塞了（根因是 `EVENT_TRACE_LOGFILEW`
-作为局部变量被 GC 回收，见 `WINNET_ETW_TODO.md` §2.13）。紧接着
+作为局部变量被 GC 回收，见 `WINNET_ETW_PLAN.md` Part 2` §2.13）。紧接着
 `TdhGetEventInformation` 访问违例 `0xc0000005`，异常地址 `0x1000` = 4096 =
 我们传进去的缓冲区长度——**TDH 的三个调用约定全写错了**（§2.12），已修并补了
 两条能在无管理员权限下跑的回归测试。
@@ -540,7 +540,7 @@ map 条目 targets=1 counters=0
 - `stop()` 以为在停止，**实际只是查询**，这就是之前追查过的「session 泄漏」；
 - `SessionActive()` 这个防抢占的护栏，**自己在抢占**。
 
-前两轮的几条「根因」因此作废，已在 `WINNET_ETW_TODO.md` §2.9 / §2.11 / §2.13
+前两轮的几条「根因」因此作废，已在 `WINNET_ETW_PLAN.md` Part 2` §2.9 / §2.11 / §2.13
 逐条订正——包括「`EVENT_TRACE_LOGFILEW` 被 GC 回收导致 ProcessTrace 早退」那条：
 它是个真 bug（改动保留），但**不是**已观测现象的成因，现象变化其实来自竞争窗口偏移。
 
@@ -564,7 +564,7 @@ map 条目 targets=1 counters=0
 
 两条结论：
 
-1. **`WINNET_ETW_TODO.md` §4 那个悬了很久的风险，初步是好消息**：
+1. **`WINNET_ETW_PLAN.md` Part 2` §4 那个悬了很久的风险，初步是好消息**：
    UDP 经真实网卡时**收发两个方向都被 Kernel-Network 报出来了**。ARK 的游戏流量
    正是这条路。真正的判据仍然是对着在跑的实例看四路分项（N3 尚未做）。
 2. **Windows 不上报回环 UDP**（TCP 回环是上报的）。这与
@@ -651,7 +651,7 @@ asa-server netmon etw --instance <实例名> --seconds 60
 ```
 
 判据：UDP 两路**都**要有值。若 UDP RX 恒零而 TX 正常，命令会直接给出
-退出码 3 与对应提示，那就说明 `WINNET_ETW_TODO.md` §4 的风险成真，
+退出码 3 与对应提示，那就说明 `WINNET_ETW_PLAN.md` Part 2` §4 的风险成真，
 需要回到本方案 §6 讨论备选 provider 或退化方案——**并把已经接上的委托层退回 stub**。
 
 ⚠️ 跑第 2 条之前先停掉 asa-server 服务，或者接受护栏的提示：

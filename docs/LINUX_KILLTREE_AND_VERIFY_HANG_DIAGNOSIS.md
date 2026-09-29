@@ -3,8 +3,8 @@
 > 状态：**全部结案**。Q1–Q7 全部有结论（§6），修复已落地（§7）并在真机验证通过
 > （§7.5），方案 B 的 ACL 继承也已确认生效（§7.5.2.2）。无遗留项。
 > 所有"待确认"项标了编号（Q1…Q5），每项都给了 30 秒内能跑完的验证命令。
-> 相关文档：`docs/UMU_RUNTIME_USER_PLAN.md`、`docs/LINUX_COMPATIBILITY_PLAN.md`、
-> `docs/UMU_PREFIX_INIT_TROUBLESHOOTING.md`、`scripts/ark_instance_manager.sh`
+> 相关文档：`docs/LINUX_RUNTIME_PRIVILEGE_PLAN.md`、`docs/LINUX_COMPATIBILITY_PLAN.md`、
+> `docs/UMU_PREFIX_PLAN.md`、`scripts/ark_instance_manager.sh`
 
 ---
 

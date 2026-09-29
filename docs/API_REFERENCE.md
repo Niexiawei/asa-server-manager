@@ -416,7 +416,7 @@ data: {"cpu_usage": 35.0, "memory_total": 17179869184, "memory_used": 8589934592
 
 ArkApi **主程序**全局一份，装在 `server-files` 的 `Win64` 里，由各实例的 `EnableAsaPlugin` 决定用不用；
 **插件**按实例独立存放在 `{BaseDir}/instances/{name}/ArkApi/Plugins/`，镜像里的 `ArkApi/Plugins` 是指向它的 junction。
-见 `docs/ARKAPI_PLUGIN_INSTALL_PLAN.md`。
+见 `docs/ARKAPI_PLUGIN_PLAN.md`。
 
 - 返回一律套 `{success, data, message, error}` 信封。
 - 往服务器上放 dll 等同于在服务器上执行代码：上传、确认安装、卸载要求**管理员**（未开鉴权时不拦）；

@@ -400,7 +400,7 @@ vs 今天那句「downloading Steam Linux Runtime …」）。
 `UMU_CACHE` 下 umu 要做的事：`mkdir`、`mkdtemp`、`rename`、`unlink`、以 `"rb"` 读、
 以 `"ab+"` 追加写。其中 rename/unlink/mkdtemp 只要**目录**权限，读写才要文件权限。
 
-必须显式处理的原因和 ACL 加固那次是同一个教训（`docs/ACL_PERMISSION_HARDENING_PLAN.md`）：
+必须显式处理的原因和 ACL 加固那次是同一个教训（`docs/LINUX_RUNTIME_PRIVILEGE_PLAN.md`）：
 `ensureRuntimeUser()` 里的 `reconcileRuntimeOwnership` 会把整个 runtime home 递归 chown，
 但它跑在 `ensureRuntime` 的**最开头**，而这些目录是我们**之后**才创建的。所以：
 

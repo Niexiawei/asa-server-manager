@@ -1,7 +1,7 @@
 # `internal/runner` 薄转发函数清理方案
 
 > 起因：拆包（`docs/RUNNER_INSTANCE_PACKAGE_SPLIT_PLAN.md` 阶段 A–J +
-> `docs/RUNNER_INSTANCE_PACKAGE_SPLIT_TODO.md` Gap A–F）把机制全部下沉进 `pkg/*` 之后，
+> `docs/RUNNER_INSTANCE_PACKAGE_SPLIT_PLAN.md` Part 2` Gap A–F）把机制全部下沉进 `pkg/*` 之后，
 > `internal/runner` 里留下了一批「签名不变的薄转发函数」。它们当初是**为了让拆包这一步
 > 不必同时改所有调用点**才保留的过渡层，拆包完成后大部分已经没有存在理由。
 >
@@ -177,11 +177,11 @@ wp := wineprefixMgrFor(cfg)
 
 1. `CLAUDE.md` 的 `umu_linux.go` 条目——现在写着「`umuDir`/`protonPath`/`prefixDir` 等
    签名不变的薄转发函数也在这」，删完就不成立了。
-2. `docs/RUNNER_INSTANCE_PACKAGE_SPLIT_TODO.md` §0 的行数表（`umu_linux.go` 209 那一行）。
+2. `docs/RUNNER_INSTANCE_PACKAGE_SPLIT_PLAN.md` Part 2` §0 的行数表（`umu_linux.go` 209 那一行）。
 3. 本文档执行完后在文末回填落地记录（沿用 TODO 的写法：结论稳定后回填，PLAN 只增不改）。
 
 > 备选：本方案也可以直接作为 TODO 的「Gap G」写进
-> `RUNNER_INSTANCE_PACKAGE_SPLIT_TODO.md`，与 Gap A–F 同一份活动清单。独立成篇是因为
+> `RUNNER_INSTANCE_PACKAGE_SPLIT_PLAN.md` Part 2`，与 Gap A–F 同一份活动清单。独立成篇是因为
 > 它与 Gap A–F 性质不同——那六项是「机制该不该下沉到 `pkg/`」的包边界问题，本方案
 > 纯粹是拆包完成后的收尾，不涉及任何边界判断。
 
@@ -303,7 +303,7 @@ wp := wineprefixMgrFor(cfg)
 
 - `runtimeuser_linux.go` 里 `RuntimeUserName` 的注释原写着「svcmgr / systemapi 需要」——
   **systemapi 并不调它**（读的是 `RuntimeUserStatus().Name`）。已改。
-- `docs/ACL_PERMISSION_HARDENING_PLAN.md` §（Windows 行为）里有一句「Windows 上
+- `docs/LINUX_RUNTIME_PRIVILEGE_PLAN.md` §（Windows 行为）里有一句「Windows 上
   `perms status`/`fix` 会打印…」，描述的是一条 Windows 上不存在的命令。**未改** ——
   PLAN 是只增不改的档案，记在这里。
 

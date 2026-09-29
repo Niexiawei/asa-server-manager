@@ -9,7 +9,7 @@
 > | --- | --- |
 > | `docs/RESOURCE_RATE_CHART_PLAN.md` | 上位方案（P1–P7），资源趋势图整体设计 |
 > | `docs/WINNET_ETW_PLAN.md` | Windows ETW 实现的设计档案（只增不改） |
-> | `docs/WINNET_ETW_TODO.md` | ETW 的活动缺陷清单，逐条带修法 |
+> | `docs/WINNET_ETW_PLAN.md` Part 2` | ETW 的活动缺陷清单，逐条带修法 |
 > | `docs/NETMON_CLI_AND_ETW_WIRING_PLAN.md` | 诊断命令与接线方案，含分轮实施记录 |
 > | **本文件** | **验证状态 + 五轮排障的完整账 + 下一步怎么做** |
 >
@@ -162,7 +162,7 @@ asa-server netmon etw --instance <实例名> --seconds 60
 | 结果 | 含义 | 下一步 |
 | --- | --- | --- |
 | UDP RX/TX 都有值，判定 `捕获正常` | **通过**。Windows 侧可以正式启用 | 跑 §4.3 的端到端确认，然后把 N3 标记完成 |
-| UDP TX 有、RX 恒零（退出码 3） | `WINNET_ETW_TODO.md` §4 那个风险成真 | **把 `procnet_windows.go` 退回 stub**，另议备选 provider（`Microsoft-Windows-TCPIP`）或退化为「只报发送方向」 |
+| UDP TX 有、RX 恒零（退出码 3） | `WINNET_ETW_PLAN.md` Part 2` §4 那个风险成真 | **把 `procnet_windows.go` 退回 stub**，另议备选 provider（`Microsoft-Windows-TCPIP`）或退化为「只报发送方向」 |
 | 两路全零（退出码 2） | 多半不是机制问题 | 先看 `[结束]` 行的事件数：为 0 说明没收到内核事件；不为 0 说明事件到了但没算到这个 PID 头上，核对 PID 是不是游戏进程本身 |
 
 ### 4.2 Linux

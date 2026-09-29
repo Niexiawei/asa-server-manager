@@ -43,7 +43,7 @@ failed to start.`），任何要开窗口的 Windows 程序都会在打出第一
 拒绝**并给出原因，`asa-server verify-arkapi` 的 `[3]` 也会明确报出来。
 
 > 它一度是阻断级，结果一台永远用不到 ArkApi 的无头机连 `setup` 都跑不完。
-> 2026-08-31 已改为建议级，见 `docs/XVFB_CROSS_DISTRO_DISPLAY_PLAN.md` §11。
+> 2026-08-31 已改为建议级，见 `docs/XVFB_DISPLAY_PLAN.md` §11。
 
 asa-server 按下面的顺序取显示，**每一条都会真的连一次 X 服务验证**（不是看变量、
 也不是看文件在不在）：
@@ -75,7 +75,7 @@ asa-server 按下面的顺序取显示，**每一条都会真的连一次 X 服�
 > 脚本，Fedora / RHEL / Arch **不提供**它，只给 `Xvfb` 服务端本身。asa-server 因此
 > 自己管 Xvfb 的起停（挑显示号、等它真的能握手、把它的输出落到
 > `{运行时用户 HOME}/xvfb.log`），不依赖任何发行版脚本 ——
-> 见 `docs/XVFB_CROSS_DISTRO_DISPLAY_PLAN.md`。
+> 见 `docs/XVFB_DISPLAY_PLAN.md`。
 
 自管的那个 Xvfb 是**每个 asa-server 进程一个**：多个 ArkApi 实例共用它，用之前会先
 握一次手，中途死了看门狗会记一条带原因的日志并补起一个。
@@ -108,7 +108,7 @@ asa-server 按下面的顺序取显示，**每一条都会真的连一次 X 服�
 > ⚠️ 但**整条链路还没验完**：目录可写之后 Xvfb 的 socket 能不能被 pressure-vessel
 > 带进容器、ArkApi 能不能真的加载，要跑一次实例启动才知道。届时若 `launcher.log` 里
 > 仍有 `X11 socket ... does not exist in filesystem`，那是容器那一侧的问题，不是这一步。
-> 见 `docs/ALWAYS_MANAGED_XVFB_DISPLAY_PLAN.md` §4.5。
+> 见 `docs/XVFB_DISPLAY_PLAN.md` §4.5。
 
 **不会**把 `XAUTHORITY` 传给游戏进程：它常指向 `/run/user/0` 下的路径，而
 pressure-vessel 会去 bind 环境变量点名的每个路径，降权后那次 bind 会让整个容器起不来。
@@ -118,7 +118,7 @@ pressure-vessel 会去 bind 环境变量点名的每个路径，降权后那次 
 ### 共享写权限与 `acl`
 
 以 root 运行时，游戏进程会被降到专用账号 `asa-umu-runtime`
-（`docs/UMU_RUNTIME_USER_PLAN.md`），而 SteamCMD、配置写入、你用 SFTP 上传的
+（`docs/LINUX_RUNTIME_PRIVILEGE_PLAN.md`），而 SteamCMD、配置写入、你用 SFTP 上传的
 ArkApi 插件全都是 root 身份产生的。两边要写同一批目录，asa-server 因此对
 `server-files` 与 `instances` 施加「组 + setgid + POSIX 默认 ACL」：
 默认 ACL 让**任何人**新建的文件在创建瞬间就带上组可写，无需事后修补。
@@ -137,7 +137,7 @@ asa-server perms fix      # 以 root 传过 mod / 插件后手动重新施加
 
 程序自己创建的目录（实例的 Config/Logs/Save、共享的 Mods/ModsUserData）
 在每次实例启动时自动处理，不需要跑上面的命令 ——
-`perms fix` 只为带外变更准备。详见 `docs/ACL_PERMISSION_HARDENING_PLAN.md`。
+`perms fix` 只为带外变更准备。详见 `docs/LINUX_RUNTIME_PRIVILEGE_PLAN.md`。
 
 此外部署前建议检查 `vm.max_map_count`（部分发行版默认值偏低会让 UE 内存分配失败）：
 
@@ -271,7 +271,7 @@ sudo ./asa-server service remove    # 同时联动清理已安装的本地 CA（
 - **卸载**：`service remove` 不会 `userdel asa-umu-runtime`（它下面可能还有存档数据）。
   确定不再需要时手动 `sudo userdel asa-umu-runtime`。
 
-详细设计见 `docs/UMU_RUNTIME_USER_PLAN.md`。`RestartSec` 沿用 kardianos 内置的 120s
+详细设计见 `docs/LINUX_RUNTIME_PRIVILEGE_PLAN.md`。`RestartSec` 沿用 kardianos 内置的 120s
 （`docs/LINUX_COMPATIBILITY_PLAN.md` §5.8）。
 
 ## 5. 故障排查
@@ -282,8 +282,8 @@ sudo ./asa-server service remove    # 同时联动清理已安装的本地 CA（
 | 服务器完全起不来，日志戛然而止，无报错 | GE-Proton 版本不是 `GE-Proton10-34`（11.x 系列已知挂死 ASA） | 检查 `config.yaml` 的 `linux.proton_version`，不要手动升级到 11.x，除非先自行验证过 |
 | 每次启动都重新下载 umu/GE-Proton，或直接崩在 steamclient | systemd 服务的 `HOME` 未正确设置 | 确认走的是 `asa-server service install`（会显式写 `Environment=HOME=...`），而不是手写的、没设 `HOME` 的 unit 文件 |
 | 首次 `setup` 卡在 Steam Linux Runtime 下载 / 超时失败 | 到 `repo.steampowered.com` 的网络不稳 | 默认已由本程序用自己的下载器预取（有重试、断点续传、走 `download.http_proxy`），日志里应出现 `正在预下载 Steam Linux Runtime`。若预取本身也失败，日志会打「改由 umu 自行下载」——此时 umu 那条路只认**环境变量**，给 systemd unit 加 `Environment=HTTPS_PROXY=http://…` 后重试。排障可用 `linux.steamrt_prefetch: false` 关掉预取。见 `docs/STEAMRT_PREFETCH_PLAN.md` |
-| 启用了 ArkApi 的实例起不来，日志停在 `fsync: up and running.` 之后一个字都没有 | **没有可用的图形显示**（最常见）。`AsaApiLoader.exe` 会创建 Win32 窗口，Wine 连不上 X 就以退出码 3 静默退出 | 装 Xvfb（`apt install xvfb` / `dnf install xorg-x11-server-Xvfb` / `pacman -S xorg-server-xvfb`）。装好后 asa-server 会自己拉起一个 Xvfb 给加载器用；没装时实例启动会被**直接拒绝**并给出这条提示，而不是假装启动成功。见 `docs/ARKAPI_LINUX_VCREDIST_PLAN.md` §9 与 `docs/XVFB_CROSS_DISTRO_DISPLAY_PLAN.md` |
-| 日志里有 `System.PlatformNotSupportedException: Video driver  not supported` + `Xalia.Sdl.WindowingSystem.Create` 的栈 | **不是故障。** Xalia 是 GE-Proton 附带的无障碍/手柄 UI 覆盖层，与被启动的程序并行的另一个进程；没有 DISPLAY 时它初始化不出窗口系统就自己退出（注意 `driver` 与 `not` 之间是两个空格——驱动名是空的，即这次运行没有显示）。普通实例本来就不需要显示 | 已消音：三处 umu/Proton 命令行都加了 `PROTON_USE_XALIA=0`，升级后不再出现。判断某一步成没成功要看它自己的结论（如 `verify-arkapi` 的 `[4] DLL override: 11/11`），不是看有没有这段栈。见 `docs/XVFB_CROSS_DISTRO_DISPLAY_PLAN.md` §12 |
+| 启用了 ArkApi 的实例起不来，日志停在 `fsync: up and running.` 之后一个字都没有 | **没有可用的图形显示**（最常见）。`AsaApiLoader.exe` 会创建 Win32 窗口，Wine 连不上 X 就以退出码 3 静默退出 | 装 Xvfb（`apt install xvfb` / `dnf install xorg-x11-server-Xvfb` / `pacman -S xorg-server-xvfb`）。装好后 asa-server 会自己拉起一个 Xvfb 给加载器用；没装时实例启动会被**直接拒绝**并给出这条提示，而不是假装启动成功。见 `docs/ARKAPI_LINUX_VCREDIST_PLAN.md` §9 与 `docs/XVFB_DISPLAY_PLAN.md` |
+| 日志里有 `System.PlatformNotSupportedException: Video driver  not supported` + `Xalia.Sdl.WindowingSystem.Create` 的栈 | **不是故障。** Xalia 是 GE-Proton 附带的无障碍/手柄 UI 覆盖层，与被启动的程序并行的另一个进程；没有 DISPLAY 时它初始化不出窗口系统就自己退出（注意 `driver` 与 `not` 之间是两个空格——驱动名是空的，即这次运行没有显示）。普通实例本来就不需要显示 | 已消音：三处 umu/Proton 命令行都加了 `PROTON_USE_XALIA=0`，升级后不再出现。判断某一步成没成功要看它自己的结论（如 `verify-arkapi` 的 `[4] DLL override: 11/11`），不是看有没有这段栈。见 `docs/XVFB_DISPLAY_PLAN.md` §12 |
 | `Xvfb` 明明装了（`which Xvfb` 有），`setup` / `verify-arkapi` 却说「本机没有可用的 X 显示」 | 已修复。`/tmp/.X11-unix` 的权限被判成不可写。旧代码要求这个目录有 `o+w`，而目录常常是**上一轮那个降权 Xvfb 自己建的**——非 root 的 X 服务端建不出 `1777`，落到 umask 022 就是 `0755`、属主是运行时用户；那个用户明明是属主写得进去，`o+w` 这条判据却判它不行。于是**第一次成功启动把后续每一次都毒死了** | 升级到含本修复的版本：判据改为 `access(2)` 的实际写入能力，且以 root 运行时会在起 Xvfb 前把 `/tmp/.X11-unix` 按 X 的约定扶正到 `1777`。旧版可手动 `chmod 1777 /tmp/.X11-unix` 绕过。`asa-server verify-arkapi --check-only` 的 `[3]` 现在会说清是「没装 Xvfb」还是「目录不可写（附实际权限）」 |
 | 装了 Xvfb，实例仍起不来；日志里有 `W: X11 socket /tmp/.X11-unix/X100 does not exist in filesystem, trying to use abstract socket instead` 和 `PlatformNotSupportedException: Video driver not supported` | `/tmp/.X11-unix` 是**只读挂载**（WSLg 就是这么挂的），`Xvfb` 建不出 socket，pressure-vessel 没法把显示带进容器。（当年经 `xvfb-run` 走这条路时它在 Xvfb 起不来后**照样会执行命令**，所以退出码看不出问题）| 升级到含本修复的版本：asa-server 会先判断 `/tmp/.X11-unix` 可不可写，不可写就自动改用系统里已在运行的 X 服务（WSL 上就是 WSLg 的 `:0`）。`asa-server verify-arkapi --check-only` 的 `[3]` 会直接说明这次用的是哪一种。现在 Xvfb 由 asa-server 自己管：起不来会**当场让启动失败**并附上 `{运行时用户 HOME}/xvfb.log` 的末尾输出，不再丢 `/dev/null`、也不再带着一个坏显示往下跑 |
 | 启用了 ArkApi 的实例明明起来了（游戏窗口/端口都在），30 秒后却被标记为停止 | 已修复。旧版按 `\ArkAscendedServer.exe` 找游戏进程，而 ArkApi 下游戏进程的命令行里写的是 `\AsaApiLoader.exe`，永远找不到 → 必然超时，且失败后不收拾进程树，游戏被留成孤儿 | 升级到含本修复的版本。判据改为在候选里按 `/proc/<pid>/comm == "GameThread"` 挑；ArkApi 的等待上限也从 30 秒放宽到 3 分钟（加载器要先下载 offsets cache），同时启动链一退出就立即失败而不是干等。见 `docs/ARKAPI_LINUX_LOGGING_AND_PID_PLAN.md` §2 |
@@ -293,7 +293,7 @@ sudo ./asa-server service remove    # 同时联动清理已安装的本地 CA（
 | `asa-server cert install` 报错「需要 root 权限」 | 系统信任存储需要 root 才能写 | `sudo ./asa-server cert install`；Linux 上没有 Windows 的 UAC 自动提权 |
 | `cert install` 成功但浏览器仍报证书警告 | Linux 系统信任库不影响 Firefox/Chrome 的 NSS 证书库 | 需要额外手动把 CA（`{BaseDir}/certs/ca.crt`）导入浏览器自己的证书管理界面 |
 | UE 报内存分配失败 / mmap 相关崩溃 | `vm.max_map_count` 太低 | `sysctl -w vm.max_map_count=262144` |
-| 第二个实例启动后一直不出现游戏进程，3 分钟后报「游戏进程在 3m0s 内没有出现」，`ps` 里能看到一个 `wineserver -w` 挂着 | **旧版本的缺陷**：没有设置 `PROTON_VERB=run`，umu 默认的 `waitforexitandrun` 会先等同 prefix 的上一个游戏退出——共享 prefix 下第二个实例因此永远排队 | 升级到已修复的版本即可（见 `docs/UMU_PREFIX_PER_INSTANCE_PLAN.md`）。修复后共享模式下多实例可以同时在线，只是**启动过程**仍按顺序进行 |
+| 第二个实例启动后一直不出现游戏进程，3 分钟后报「游戏进程在 3m0s 内没有出现」，`ps` 里能看到一个 `wineserver -w` 挂着 | **旧版本的缺陷**：没有设置 `PROTON_VERB=run`，umu 默认的 `waitforexitandrun` 会先等同 prefix 的上一个游戏退出——共享 prefix 下第二个实例因此永远排队 | 升级到已修复的版本即可（见 `docs/UMU_PREFIX_PLAN.md`）。修复后共享模式下多实例可以同时在线，只是**启动过程**仍按顺序进行 |
 | 共享模式下点了启动没立刻动，日志说「正在等待实例 X 初始化完成后再启动」 | 这是**预期行为**：共享 prefix 只有一个 wineserver，启动阶段必须串行 | 等上一台到达 `start_initialization_successful` 会自动放行；不想等就把 `linux.prefix_mode` 改成 `per-instance`（每实例独立 prefix，可并发启动） |
 | 启动第二个 ArkApi 实例时报「同时只能有一个 ArkApi 实例」（点启动时就会弹出，不用翻日志） | **共享 prefix = 共享 Wine 会话**，第二个 `AsaApiLoader.exe` 会卡在启动加载器之前直到超时（2026-08-31 实测；2026-09-01 在全实例同一显示下复测三轮、两次对调先后顺序，结论不变。具体机制尚未定位） | 把 `linux.prefix_mode` 改成 `per-instance`（每实例一个完整 prefix），或改成 `overlay`（共享底层 + 每实例可写层，省盘省首启时间；需要 root 与内核 overlayfs）。不用 ArkApi 的实例不受影响，共享模式下可以照常多开 |
 | 多实例共享 prefix 时偶发互相影响（注册表、崩溃波及） | 同一个 prefix 意味着同一个 wineserver，实例之间在这一层无法隔离 | 把 `linux.prefix_mode` 改成 `per-instance`。每实例首次启动会多花约一分钟创建自己的 prefix，之后正常；占盘用 `asa-server prefix status` 查看 |

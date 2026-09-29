@@ -23,7 +23,7 @@
   无法用"端口映射规则"表达的代理会被丢弃并在日志里列出，迁移后请在「端口映射」页核对一遍（`docs/FRP_FORM_CONFIG_PLAN.md`）。
 - **不再内嵌 frpc / syncthing 可执行文件**：frpc 改为进程内运行；Syncthing 首次使用时按固定版本从 GitHub 下载，国内网络可配置 `download.github_proxy`。
 - **ArkApi 插件目录改为每实例独立**：`instances/<实例>/ArkApi/{Plugins,PluginsDisabled,...}`，旧布局在实例下次启动前自动迁移一次
-  （以标记文件 `ArkApi/.plugin-layout` 判断），无需手工操作（`docs/ARKAPI_PLUGIN_INSTALL_PLAN.md`）。
+  （以标记文件 `ArkApi/.plugin-layout` 判断），无需手工操作（`docs/ARKAPI_PLUGIN_PLAN.md`）。
 - **移除实例的 QueryPort 配置项**（2026-07-20）。
 - **从源码构建**：新增私有依赖 `github.com/Niexiawei/simple-file-sync`，需要 `go env -w GOPRIVATE=github.com/Niexiawei/*`，
   并让 git 用 SSH 拉取 GitHub（`url.git@github.com:.insteadOf https://github.com/`）。
