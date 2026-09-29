@@ -22,7 +22,6 @@ import (
 	"asa-server/pkg/umu"
 	"asa-server/pkg/umuruntime"
 	"asa-server/pkg/umuruntime/plugins/xdisplay"
-	"asa-server/pkg/vcredist"
 	"asa-server/pkg/wineprefix"
 	"asa-server/pkg/xvfb"
 )
@@ -31,12 +30,13 @@ import (
 // holds because it is constructed exactly once, here; configuration changes
 // go through hostFor's Reconfigure, never a second New.
 //
-// Plugins registered here are the only ones the process has. The display is
-// Optional: nothing it does can fail Host.Ensure today, and should that change,
-// a missing display must still not fail environment setup — only ArkApi needs
-// one (see checkDisplay).
+// Plugins registered here are the only ones the process has. Both are
+// Optional: only ArkApi needs either (see checkDisplay and describeOutcome),
+// so neither may fail environment setup. Registration order is also the
+// order providers of one capability are tried in.
 var runtimeHost = umuruntime.MustNew(umuruntime.Config{},
 	umuruntime.With(displayRes, umuruntime.Optional),
+	umuruntime.With(vcrtPlugin, umuruntime.Optional),
 )
 
 // runtimeIdentity is the drop-privileges account every Wine-side mechanism
@@ -108,6 +108,7 @@ func displayStatus() DisplayInfo { return displayFor(getConfig()).Status() }
 // was handed, so this is the one place that keeps them in step with cfg.
 func hostFor(cfg Config) *umuruntime.Host {
 	displayFor(cfg)
+	vcrtFor(cfg)
 	runtimeHost.Reconfigure(hostConfig(cfg))
 	return runtimeHost
 }
@@ -126,16 +127,10 @@ func hostConfig(cfg Config) umuruntime.Config {
 			PythonBin:       cfg.PythonBin,
 		},
 		Prefix: wineprefix.Config{
-			BaseDir:         cfg.BaseDir,
-			PrefixDir:       cfg.PrefixDir,
-			PrefixMode:      cfg.PrefixMode,
-			ProtonVersion:   cfg.ProtonVersion,
-			Runtime:         cfg.Runtime,
-			InstallVCRedist: cfg.InstallVCRedist,
-			EnsureVCRedist: func(ctx context.Context, prefixKey string, logf func(string, ...any)) error {
-				return ensureVCRedist(ctx, getConfig(), prefixKey, logf)
-			},
-			HasVCRedistOverrides: vcredist.OverridesApplied,
+			BaseDir:       cfg.BaseDir,
+			PrefixDir:     cfg.PrefixDir,
+			PrefixMode:    cfg.PrefixMode,
+			ProtonVersion: cfg.ProtonVersion,
 		},
 		Identity: runtimeIdentity,
 		BeforeEnsure: func(ctx context.Context) error {
@@ -144,20 +139,7 @@ func hostConfig(cfg Config) umuruntime.Config {
 			}
 			return nil
 		},
-		// ArkApi（AsaApiLoader.exe）依赖微软 VC++ 运行时，Wine/GE-Proton 的 prefix 里
-		// 只有 Wine 自己的同名实现。放在预热之后是因为 prefix 必须先初始化好才能往里装东西。
-		//
-		// 失败不阻断 EnsureRuntime：这一步服务的是一个**可选功能**，不开 ArkApi 的用户
-		// 占绝大多数，为它让整个环境准备失败不成比例。但与 steamrt 预取那种「无声降级」
-		// 不同，这里的失败必须响亮 —— 真要用 ArkApi 的人必须看见这条。
-		// 见 docs/ARKAPI_LINUX_VCREDIST_PLAN.md §3.2。
-		//
-		// cfg 是本次 hostFor 拿到的那一份，与 Ensure 全程所用的同源。
-		AfterWarm: func(ctx context.Context, logf func(string, ...any)) {
-			if err := ensureVCRedist(ctx, cfg, "", logf); err != nil {
-				logf("VC++ 运行时安装失败（%v）；不使用 ArkApi 可忽略，使用 ArkApi 请看上面的输出", err)
-			}
-		},
+		OnOutcome: describeOutcome,
 	}
 }
 

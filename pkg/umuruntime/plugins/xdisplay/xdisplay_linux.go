@@ -418,11 +418,15 @@ func (r *Resolver) Provides() []umuruntime.Capability {
 
 func (r *Resolver) Needs() []umuruntime.Need { return nil }
 
-// Probe is Plan reduced to a yes/no. **Read-only** — like Plan, it never
-// starts an X server.
+// Probe is Plan reduced to a yes/no, with the chain head's description when
+// yes and Plan's reason when no. **Read-only** — like Plan, it never starts
+// an X server.
 func (r *Resolver) Probe() (bool, string) {
-	_, blocked := r.Plan()
-	return blocked == "", blocked
+	plans, blocked := r.Plan()
+	if blocked != "" {
+		return false, blocked
+	}
+	return true, plans[0].How
 }
 
 // Acquire walks the candidate chain, starting the managed Xvfb if that is the

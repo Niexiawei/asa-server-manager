@@ -75,14 +75,17 @@ type Config struct {
 	// account, which warming the prefix below runs as). Its error is
 	// returned as is.
 	BeforeEnsure func(ctx context.Context) error
-	// AfterWarm runs after Ensure has warmed the shared prefix, still inside
-	// the shared-prefix write window. Its failures are the hook's own to
-	// report: Ensure does not fail on them.
-	//
-	// Transitional: the VC++ runtime is wired through it until it becomes a
-	// PrefixProvisioner plugin (docs/UMU_RUNTIME_PLUGIN_PLAN.md phase 3).
-	AfterWarm func(ctx context.Context, logf func(string, ...any))
+	// OnOutcome receives every prefix provisioner's result during Ensure and
+	// EnsurePrefix — including an Optional plugin's failure, which does not
+	// fail the operation and would otherwise go unseen. It is where the
+	// application puts its own words on them. logf is the operation's
+	// progress sink. nil = results are dropped.
+	OnOutcome func(o Outcome, logf func(string, ...any))
 }
+
+// manages reports whether the prefixes are this host's to modify: under
+// Runtime "custom" the operator built them, and no provisioner touches them.
+func (c Config) manages() bool { return c.Runtime != "custom" }
 
 func (c Config) umuConfig() umu.Config {
 	u := c.Umu
@@ -94,9 +97,18 @@ func (c Config) umuConfig() umu.Config {
 	return u
 }
 
-func (c Config) prefixConfig() wineprefix.Config {
-	p := c.Prefix
-	p.ChownPath = c.Identity.ChownPath
+// prefixConfig is the wineprefix.Config for cfg, with the provisioning hooks
+// pointing back at this host's plugins (unless the prefixes aren't ours).
+func (h *Host) prefixConfig(cfg Config) wineprefix.Config {
+	p := cfg.Prefix
+	p.ChownPath = cfg.Identity.ChownPath
+	p.Provision, p.Pending = nil, nil
+	if cfg.manages() {
+		p.Provision = func(ctx context.Context, key, prefix string, logf func(string, ...any)) error {
+			return h.provision(ctx, key, prefix, logf, false, nil)
+		}
+		p.Pending = h.pending
+	}
 	return p
 }
 
@@ -128,7 +140,7 @@ func New(cfg Config, plugins ...Registered) (*Host, error) {
 	h := &Host{graph: g}
 	h.cfg.Store(&cfg)
 	h.umu = umu.New(cfg.umuConfig())
-	h.prefixes = wineprefix.New(cfg.prefixConfig(), h.umu)
+	h.prefixes = wineprefix.New(h.prefixConfig(cfg), h.umu)
 	return h, nil
 }
 
@@ -148,7 +160,7 @@ func MustNew(cfg Config, plugins ...Registered) *Host {
 func (h *Host) Reconfigure(cfg Config) {
 	h.cfg.Store(&cfg)
 	h.umu.Reconfigure(cfg.umuConfig())
-	h.prefixes.Reconfigure(cfg.prefixConfig())
+	h.prefixes.Reconfigure(h.prefixConfig(cfg))
 }
 
 func (h *Host) config() Config { return *h.cfg.Load() }
@@ -162,13 +174,15 @@ func (h *Host) Prefixes() *wineprefix.Manager { return h.prefixes }
 // Graph is the host's validated plugin graph.
 func (h *Host) Graph() *Graph { return h.graph }
 
-// Ensure downloads/verifies umu-launcher and the pinned GE-Proton build and
-// warms the shared Wine prefix, then runs AfterWarm. Mirrors
+// Ensure downloads/verifies umu-launcher and the pinned GE-Proton build,
+// warms the shared Wine prefix and runs every prefix provisioner on it (in
+// dependency order, inside the prefix's write window). Mirrors
 // scripts/ark_instance_manager.sh's install_base_server() umu/Proton section,
 // the verified reference this sequence is copied from.
 //
 // A missing piece under Runtime "custom" is a *NotReadyError; a download
-// needed with auto download off is ErrAutoDownloadDisabled.
+// needed with auto download off is ErrAutoDownloadDisabled. A Required
+// provisioner's failure fails Ensure; an Optional one's goes to OnOutcome.
 func (h *Host) Ensure(ctx context.Context, logf func(string, ...any)) error {
 	h.ensureMu.Lock()
 	defer h.ensureMu.Unlock()
@@ -232,15 +246,177 @@ func (h *Host) Ensure(ctx context.Context, logf func(string, ...any)) error {
 	}
 	defer doneWrite()
 
-	if err := h.umu.WarmPrefix(ctx, h.prefixes.Dir(""), logf, prefetched.Variant != ""); err != nil {
+	lower := h.prefixes.Dir("")
+	if err := h.umu.WarmPrefix(ctx, lower, logf, prefetched.Variant != ""); err != nil {
 		return fmt.Errorf("failed to prepare Wine prefix: %w", err)
 	}
 
-	if cfg.AfterWarm != nil {
-		cfg.AfterWarm(ctx, logf)
-	}
-	return nil
+	// Provisioning needs the prefix initialized first, and still has to be
+	// inside the write window opened above. Optional failures (the VC++
+	// runtime — most users never enable ArkApi) are reported through
+	// OnOutcome and do not fail the environment; see
+	// docs/ARKAPI_LINUX_VCREDIST_PLAN.md §3.2.
+	return h.provision(ctx, "", lower, logf, false, nil)
 }
+
+// Provision explicitly (re)runs the provisioners of caps — all of them when
+// caps is empty — on the prefix identified by key. It is the entry point for
+// "install it now" requests (`verify-arkapi --install-vcredist`), and unlike
+// Ensure/EnsurePrefix it returns every plugin's failure regardless of
+// criticality: the caller asked for exactly this. Non-failure outcomes still
+// go to OnOutcome.
+//
+// When key resolves to the shared prefix, the write guard
+// (wineprefix.Manager.PrepareSharedWrite) is taken here, first. That guard
+// used to be each caller's job, and the fourth caller forgot it (the P0 in
+// docs/UMU_PREFIX_PLAN.md) — writing a live overlay lowerdir is undefined
+// behaviour that surfaces on the *instances*.
+//
+// A no-op under Runtime "custom": those prefixes aren't ours to modify.
+func (h *Host) Provision(ctx context.Context, key string, logf func(string, ...any), caps ...Capability) error {
+	if !h.config().manages() {
+		return nil
+	}
+	if logf == nil {
+		logf = func(string, ...any) {}
+	}
+	prefix := h.prefixes.Dir(key)
+	if prefix == h.prefixes.Dir("") {
+		done, err := h.prefixes.PrepareSharedWrite("Provision " + capsString(caps))
+		if err != nil {
+			return err
+		}
+		defer done()
+	}
+	return h.provision(ctx, key, prefix, logf, true, caps)
+}
+
+func capsString(caps []Capability) string {
+	if len(caps) == 0 {
+		return "(all)"
+	}
+	s := string(caps[0])
+	for _, c := range caps[1:] {
+		s += "," + string(c)
+	}
+	return s
+}
+
+// provision runs the provisioners of caps (all when caps is empty) on prefix,
+// providers first. explicit selects Provision's error policy (every failure
+// is returned) over the implicit one (only Required failures are returned;
+// the rest go to OnOutcome).
+func (h *Host) provision(ctx context.Context, key, prefix string, logf func(string, ...any), explicit bool, caps []Capability) error {
+	cfg := h.config()
+	var errs []error
+	for _, r := range h.graph.Order() {
+		pp, ok := r.Plugin.(PrefixProvisioner)
+		if !ok || !providesAny(r.Plugin, caps) {
+			continue
+		}
+		o := h.provisionOne(ctx, pp, key, prefix, logf)
+		if o.Kind == Failed && (explicit || r.Criticality == Required) {
+			errs = append(errs, o.Cause)
+			continue
+		}
+		if cfg.OnOutcome != nil {
+			cfg.OnOutcome(o, logf)
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func (h *Host) provisionOne(ctx context.Context, pp PrefixProvisioner, key, prefix string, logf func(string, ...any)) Outcome {
+	o := Outcome{Plugin: pp.Name(), Key: key}
+	for _, n := range pp.Needs() {
+		if n.Phase != PhaseProvision || n.Soft {
+			continue
+		}
+		if ok, why := h.available(n.Cap, prefix); !ok {
+			o.Kind, o.Cause = Skipped, &CapabilityUnavailableError{Cap: n.Cap, Why: why}
+			return o
+		}
+	}
+
+	res, err := pp.Provision(ctx, &ProvisionContext{
+		Key:       key,
+		Prefix:    prefix,
+		Umu:       h.umu,
+		ChownPath: h.config().Identity.ChownPath,
+		Logf:      logf,
+		Acquire:   h.Acquire,
+	})
+	if err != nil {
+		o.Kind, o.Cause = Failed, err
+		return o
+	}
+	o.Kind, o.Cause, o.Detail = res.Kind, res.Cause, res.Detail
+	return o
+}
+
+func providesAny(p Plugin, caps []Capability) bool {
+	if len(caps) == 0 {
+		return true
+	}
+	for _, have := range p.Provides() {
+		for _, want := range caps {
+			if have == want {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// pending is wineprefix's Pending hook: does any provisioner have work left
+// in prefix?
+func (h *Host) pending(prefix string) bool {
+	for _, r := range h.graph.Order() {
+		if pp, ok := r.Plugin.(PrefixProvisioner); ok && pp.Pending(prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// available answers, read-only, whether c could be had for a launch in
+// prefix: an EnvProvider that Probes ok, or a PrefixProvisioner Satisfied
+// there. detail is what would be used, or the first provider's reason why
+// not.
+func (h *Host) available(c Capability, prefix string) (bool, string) {
+	provs := h.graph.Providers(c)
+	if len(provs) == 0 {
+		return false, fmt.Sprintf("no plugin provides %s", c)
+	}
+	var first string
+	for i, r := range provs {
+		var (
+			ok     bool
+			detail string
+		)
+		switch p := r.Plugin.(type) {
+		case EnvProvider:
+			ok, detail = p.Probe()
+		case PrefixProvisioner:
+			rd := p.Satisfied(prefix)
+			ok, detail = rd.OK, rd.Detail
+		default:
+			ok = true
+		}
+		if ok {
+			return true, detail
+		}
+		if i == 0 {
+			first = detail
+		}
+	}
+	return false, first
+}
+
+// Probe answers, read-only, whether c could be acquired, or is satisfied in
+// the shared prefix, and what would be used (or why not). Never starts
+// anything.
+func (h *Host) Probe(c Capability) (bool, string) { return h.available(c, h.prefixes.Dir("")) }
 
 // Check reports, with local filesystem checks only, whether umu-run, the
 // pinned GE-Proton build and the shared Wine prefix are all in place — the
@@ -466,21 +642,90 @@ func (h *Host) Preflight() []problem.Problem {
 	return out
 }
 
-// Status reports every plugin's state, in dependency order. Read-only. A
-// plugin that doesn't implement Statuser is reported as ready.
+// Status reports every plugin's state, in dependency order, as seen from the
+// shared prefix. Read-only. A PrefixInspector is asked about the shared
+// prefix; otherwise a Statuser reports; a plugin implementing neither is
+// reported as ready.
 func (h *Host) Status() []PluginStatus {
 	var out []PluginStatus
 	for _, r := range h.graph.Order() {
-		ps := PluginStatus{
-			Name:     r.Plugin.Name(),
-			Provides: r.Plugin.Provides(),
-			Needs:    r.Plugin.Needs(),
-			Status:   Status{Ready: true},
+		out = append(out, h.statusOf(r.Plugin, h.prefixes.Dir(""), ""))
+	}
+	return out
+}
+
+// CapabilityStatus reports the providers of c as seen from the prefix
+// identified by key, for an executable in exeDir (may be empty). Read-only.
+// Empty when nothing provides c.
+func (h *Host) CapabilityStatus(c Capability, key, exeDir string) []PluginStatus {
+	prefix := h.prefixes.Dir(key)
+	var out []PluginStatus
+	for _, r := range h.graph.Providers(c) {
+		out = append(out, h.statusOf(r.Plugin, prefix, exeDir))
+	}
+	return out
+}
+
+func (h *Host) statusOf(p Plugin, prefix, exeDir string) PluginStatus {
+	ps := PluginStatus{
+		Name:     p.Name(),
+		Provides: p.Provides(),
+		Needs:    p.Needs(),
+		Status:   Status{Ready: true},
+	}
+	switch s := p.(type) {
+	case PrefixInspector:
+		ps.Status = s.InspectPrefix(InspectContext{
+			Prefix: prefix,
+			ExeDir: exeDir,
+			Probe:  func(c Capability) (bool, string) { return h.available(c, prefix) },
+		})
+	case Statuser:
+		ps.Status = s.Report()
+	}
+	return ps
+}
+
+// Unmet is one capability a launch needs that is not currently available.
+type Unmet struct {
+	Cap Capability
+	// Plugin is the first provider consulted; empty when there is none.
+	Plugin    string
+	Readiness Readiness
+}
+
+// CheckNeeds reports which of caps are not available for a launch in the
+// prefix identified by key. Read-only — a display is probed, never started.
+// Readiness.Definitive tells a caller whether to refuse the launch or just
+// warn: a missing provider or an unobtainable display is a fact; the VC++
+// check is a heuristic.
+func (h *Host) CheckNeeds(key string, caps []Capability) []Unmet {
+	prefix := h.prefixes.Dir(key)
+	var out []Unmet
+	seen := map[Capability]bool{}
+	for _, c := range caps {
+		if seen[c] {
+			continue
 		}
-		if s, ok := r.Plugin.(Statuser); ok {
-			ps.Status = s.Report()
+		seen[c] = true
+		provs := h.graph.Providers(c)
+		if len(provs) == 0 {
+			out = append(out, Unmet{Cap: c, Readiness: Readiness{Definitive: true,
+				Detail: fmt.Sprintf("no plugin provides %s", c)}})
+			continue
 		}
-		out = append(out, ps)
+		if ok, _ := h.available(c, prefix); ok {
+			continue
+		}
+		first := provs[0].Plugin
+		u := Unmet{Cap: c, Plugin: first.Name(), Readiness: Readiness{Definitive: true}}
+		switch p := first.(type) {
+		case EnvProvider:
+			_, u.Readiness.Detail = p.Probe()
+		case PrefixProvisioner:
+			u.Readiness = p.Satisfied(prefix)
+		}
+		out = append(out, u)
 	}
 	return out
 }

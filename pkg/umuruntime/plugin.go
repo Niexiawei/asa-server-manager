@@ -29,9 +29,10 @@ type Plugin interface {
 // fork an X server just by being asked — see docs/XVFB_DISPLAY_PLAN.md.
 type EnvProvider interface {
 	Plugin
-	// Probe reports whether Acquire has a reasonable chance of succeeding,
-	// and why not when it hasn't.
-	Probe() (ok bool, why string)
+	// Probe reports whether Acquire has a reasonable chance of succeeding.
+	// detail says what would be used when ok ("自管 Xvfb 虚拟显示…"), and why
+	// not when not.
+	Probe() (ok bool, detail string)
 	// Acquire returns a lease on the capability. When the host simply has no
 	// way to provide it, the error must wrap ErrCapabilityUnavailable (see
 	// CapabilityUnavailableError) — that is what lets the Host fall through to
@@ -112,3 +113,73 @@ type Registered struct {
 
 // With registers p with the given criticality.
 func With(p Plugin, c Criticality) Registered { return Registered{Plugin: p, Criticality: c} }
+
+// PrefixInspector reports a plugin's state in one Wine prefix, for
+// diagnostics. Read-only, like Statuser — and when a plugin implements both,
+// Host.Status asks this one about the shared prefix.
+type PrefixInspector interface {
+	Plugin
+	InspectPrefix(ic InspectContext) Status
+}
+
+// InspectContext is what an inspection may look at.
+type InspectContext struct {
+	// Prefix is the Wine prefix directory.
+	Prefix string
+	// ExeDir is the directory of the executable that would run in it; empty
+	// when there isn't one in mind. Relevant to anything DLL-shaped: Windows
+	// resolves a DLL from the application directory before system32.
+	ExeDir string
+	// Probe answers, read-only, whether a capability could be acquired
+	// (see Host.Probe). Never nil when the Host builds the context.
+	Probe func(Capability) (ok bool, detail string)
+}
+
+// OutcomeKind classifies what provisioning a prefix did.
+type OutcomeKind int
+
+const (
+	// Done: the plugin changed the prefix and the capability is in place.
+	Done OutcomeKind = iota
+	// AlreadySatisfied: nothing needed doing.
+	AlreadySatisfied
+	// Degraded: part of the work was skipped for a reason that is not a
+	// failure (the VC++ installer without a display); Cause says why.
+	Degraded
+	// Skipped: the plugin did nothing — disabled, or a hard dependency is
+	// unavailable (Cause is then a *CapabilityUnavailableError).
+	Skipped
+	// Failed: the plugin returned an error, which is Cause.
+	Failed
+)
+
+func (k OutcomeKind) String() string {
+	switch k {
+	case Done:
+		return "done"
+	case AlreadySatisfied:
+		return "already-satisfied"
+	case Degraded:
+		return "degraded"
+	case Skipped:
+		return "skipped"
+	case Failed:
+		return "failed"
+	}
+	return "unknown"
+}
+
+// Outcome is one plugin's result of provisioning one prefix. It is how a
+// failure of an Optional plugin reaches the application (Config.OnOutcome)
+// without failing the operation, and how "not a failure, but you should know"
+// results reach it at all.
+type Outcome struct {
+	Plugin string
+	// Key is the prefix's key ("" = the shared one).
+	Key   string
+	Kind  OutcomeKind
+	Cause error
+	// Detail is the plugin's own structured result (the VC++ plugin puts
+	// its vcredist.Result here).
+	Detail any
+}

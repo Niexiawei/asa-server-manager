@@ -312,11 +312,15 @@ func TestPluginShape(t *testing.T) {
 // 答案，否则自检说「能拿到显示」而启动被拒（反之亦然）。
 func TestProbeAndPreflightAgreeWithPlan(t *testing.T) {
 	r := testResolver(Config{})
-	_, blocked := r.Plan()
+	plans, blocked := r.Plan()
 
-	ok, why := r.Probe()
-	if ok != (blocked == "") || why != blocked {
-		t.Errorf("Probe = (%v, %q), Plan blocked = %q", ok, why, blocked)
+	ok, detail := r.Probe()
+	want := blocked
+	if blocked == "" {
+		want = plans[0].How // 能拿到时说「会用哪个」——VC++ 诊断拿它当「安装时用的显示」
+	}
+	if ok != (blocked == "") || detail != want {
+		t.Errorf("Probe = (%v, %q), want (%v, %q)", ok, detail, blocked == "", want)
 	}
 	probs := r.Preflight()
 	if (len(probs) == 0) != (blocked == "") {
