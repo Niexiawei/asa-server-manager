@@ -1,3 +1,118 @@
+# ArkApi 插件：每实例独立安装、更新、卸载与数据隔离（合并文档）
+
+> 本文由 `ARKAPI_PLUGIN_PLAN.md` 与 `ARKAPI_PLUGIN_PLAN.md` 于 2026-09-29 物理合并而成。
+> Part 1 是现行方案（每实例插件目录 + 主程序/插件安装更新卸载）；Part 2 是前身设计（「启停搬运」式数据隔离），其核心机制已被 Part 1 取代，保留用于追溯。
+> ⚠️ 本文各「落地文件 / 后端设计」写于 `RUNNER_INSTANCE_PACKAGE_SPLIT_PLAN` 重构之前，实际路径见文末「附录 Y」。
+> ⚠️ 本文存在已核实的已知缺陷，见下方「已知缺陷清单」。
+
+## 已知缺陷清单（2026-09-29 代码审计同步）
+
+以下为 2026-09-29 只读审计结论（基线 faf127c），尚未修复。
+
+### 7.2 发现
+
+#### [P1] 启动迁移用「端口是否监听」判断实例在跑，会漏判 starting 阶段/残留进程，对活库做收割
+
+- **位置**：`internal/instance/pluginlayout.go:33`（`if running, _ := procpkg.IsServerRunning(name); running {`）
+- **触发条件**：asa-server 重启时，某实例的游戏/加载器进程已存在但端口尚未绑定（ARK 启动到绑定端口常需数分钟；或上次强杀后 Wine 进程树残留）。`procpkg.IsServerRunning` 只查端口（`internal/process/process.go:116-126`，注释明确「port-only 会漏掉 starting 阶段」）。
+- **后果**：`MigrateInstance` 对**运行中**的实例执行第 1 步 `harvest`，整组拷贝正在被写入的 SQLite 文件组（`layout.go:153-157`），拿到撕裂副本；随后镜像真实 `Plugins` 目录会被 `migrateExceptionJunctions` 的 `RemoveAll` 删除（`mirror.go:380`），活数据被破坏。同一文件里 `installer.ListAliveInstances` 用的是 `IsInstanceProcessAlive`，此处判据不一致。
+- **修复建议**：改用 `procpkg.IsInstanceProcessAlive(name)`（或 `ListAliveInstances`）；并在 `MigrateInstance` 内部加一道「实例状态非 stopped/进程存活即返回错误」的护栏。
+
+#### [P1] `MirrorPluginsDir` 硬编码大小写，Linux 上使迁移抢救与旧布局搬运静默失效
+
+- **位置**：`internal/plugindata/plugindata.go:43`（`pluginsRelPath = win64RelPath + "/ArkApi/Plugins"`）、`:76-78`（`MirrorPluginsDir`）；使用点 `internal/plugindata/layout.go:154`、`plugindata.go:83/126/176`
+- **触发条件**：大小写敏感文件系统（Linux）上 server-files 落盘为 `arkapi/`（手工解压/SteamCMD 变体）。镜像里的路径按盘上实际大小写建成 `arkapi/Plugins`（`SourcePluginsRelPath`，`inspect.go:53-58` 正确），而 `MirrorPluginsDir` 拼的是 `ArkApi/Plugins` → `os.ReadDir` 失败。
+- **后果**：`listMirrorPlugins` 返回 nil，`migrateInstance` 第 1 步的 `harvest`、旧布局的 `Rescue`/`Reclaim` 全变空操作；紧接着 `migrateExceptionJunctions` 会 `RemoveAll(mirrorPath)`（用的却是实际大小写，`mirror.go:380`）——镜像里上一轮崩溃遗留、还没被抢回的新数据被直接删除（静默丢数据）。这正是 `LINUX_COMPATIBILITY_PLAN.md §5.12` 第 1 条，但代码只做只读告警（`casecheck_linux.go:23`），没修判定本身。
+- **修复建议**：`MirrorPluginsDir` 改为复用 `SourcePluginsRelPath()`（或按 `actualChildName` 动态解析 ArkApi/Plugins 两级）。
+
+#### [P1] 更新插件的两次 rename 不具崩溃原子性，崩溃窗口内插件「消失」
+
+- **位置**：`internal/arkapimanage/plugin.go:185-198`
+- **触发条件**：更新已安装插件时，`os.Rename(oldDir, bak)` 成功后、`os.Rename(staged, finalDir)` 前进程被杀/崩溃（或第二次 rename 失败但回滚也失败）。注意 `defer os.RemoveAll(tmp)`（`:158`）在失败路径会连新组装的内容一起删掉。
+- **后果**：`Plugins/N` 不存在，插件显示为「未安装」（数据与配置仍在 `ArkApi/Backups/N-<ts>`，只能靠备份恢复）。
+- **修复建议**：改成「staged→临时新名（同目录）→ old→bak → 新名→finalDir」三步，保证任一时刻 `finalDir` 要么旧版要么新版；或落可恢复 journal 并在下次启动补完。
+
+#### [P1] 禁用/启用只写配置不落位时，`instanceBusy` 之外还有「另一个插件操作占用锁」的情况，返回原因与提示不符
+
+- **位置**：`internal/arkapimanage/arkapimanage.go:65-68` 与 `internal/webapi/pluginapi/pluginapi.go:69-72`
+- **触发条件**：另一插件安装/卸载正持锁，此时拨开关 → `TryLockInstance` 失败 → 返回 `(false, nil)`。
+- **后果**：响应统一文案「实例运行中或正在启动，将在下次启动生效」，实际是「另一插件操作正在进行」，可能误导。
+- **修复建议**：区分 `TryLock` 失败与 `instanceBusy` 两种情况，返回不同 message / `reason` 字段。
+
+#### [P2] 卸载插件不清理该插件的在线快照目录，重装后展示陈旧快照
+
+- **位置**：`internal/arkapimanage/plugin.go:244-278`
+- **后果**：`instances/{name}/ArkApi/PluginSnapshots/<plugin>/` 残留，重装后新旧快照混在一起。
+- **修复建议**：卸载时把 `InstanceSnapshotsDir/<plugin>` 一并移入该插件备份目录。
+
+#### [P2] 内部 API 不校验实例名，安全完全依赖调用方
+
+- **位置**：`internal/arkapimanage/plugin.go:104-125`、`:224-242`、`:284-301`（`lockForPluginWrite` 只 `instanceExists`）
+- **修复建议**：在 `applyPluginTo`/`uninstallFrom`/`SetPluginEnabled` 开头调用 `apiresp.ValidateInstanceName`，并把「实例存在」校验放进被锁保护的函数内。
+
+#### [P2] `ValidatePluginName` 未覆盖 Windows 保留名与尾随点/空格
+
+- **位置**：`internal/plugindata/inspect.go:277-285`
+- **触发条件**：上传包目录名/dll 主名为 `CON`、`NUL`、`LPT1`、`Foo.`、` Foo`。
+- **后果**：Windows 上 `os.Rename`/`MkdirAll` 失败或名字被规范化 → `FindInstancePlugin` 找不到目录、`dll_missing` 误报。
+- **修复建议**：拒绝保留设备名（含带扩展名形式）、尾随 `.`/空格、路径长度超限。
+
+#### [P2] `apiresp.ValidateInstanceName` 放行 `.`、`:` 等，且 `SetPluginEnabled` 缺少 `instanceExists` 检查
+
+- **位置**：`internal/webapi/apiresp/apiresp.go:18-26`；`internal/arkapimanage/arkapimanage.go:47-79`
+- **修复建议**：`ValidateInstanceName` 增加 `.`/`:`/控制字符/纯空白与保留名检查；`SetPluginEnabled` 补 `instanceExists`。
+
+#### [P2] `installCore` 覆盖游戏文件时的「原件残留」处理会丢历史原件
+
+- **位置**：`internal/arkapimanage/core.go:341-350`（stale-originals 处理）、`:399-422`（`placeConfig`）
+- **后果**：`stale-originals` 被挪进**本次**备份，而备份只保留 3 份，几次更新后最初的游戏原件可能被裁掉（与 `originals/` 要留到卸载的初衷相悖）；`placeConfig` 不装新配置时只发 warning。
+- **修复建议**：`originals/` 重复时不挪走（保留最早那份）；`placeConfig` 在 `Errors` 而非 `Warnings` 里明确「本次未安装新 config.json」。
+
+#### [P2] `RetireLegacyServerPlugins` 会把用户重新放进 server-files 的插件无条件移走
+
+- **位置**：`internal/plugindata/layout.go:352-370`；调用点 `internal/instance/pluginlayout.go:46-48`
+- **触发条件**：`MigratePluginLayouts` 里 `pending==0`；或某实例目录缺 `instance_config.ini`（`pluginlayout.go:30`）被跳过、未计入 pending。
+- **后果**：全局插件被提前退役；该实例下次启动 `migrateInstance` 从已空的 `SourcePluginsDir` 拷不到插件。
+- **修复建议**：退役前枚举所有实例目录（含缺配置的）做一次「是否已迁移」硬校验，任一未迁移就跳过退役并 WARN。
+
+#### [P2] 迁移对 `DbPathOverride` 的改写不覆盖 `PluginsDisabled` / 嵌套键
+
+- **位置**：`internal/plugindata/layout.go:245-299`
+- **后果**：顶层以外的形态不被改写；旧目录改名后路径悬空，Permissions 在原路径新建空库，权限静默清零。
+- **修复建议**：对每个已知键做递归查找；或对指向 `plugins.legacy-*` 的路径统一报错提示。
+
+#### [P2] `harvest`/`replaceGroup` 的整组判定依赖 `scanPluginDir` 分类，未识别的运行期数据会被弃
+
+- **位置**：`internal/plugindata/classify.go:120-191`、`plugindata.go:223-244`
+- **修复建议**：`extraDataFiles` 目前为空（`classify.go:28`），需要时补上；迁移前把「镜像独有且未被分类的文件」列入报告/日志。
+
+#### [P2] 镜像里 `arkApiInstalled()` 与 `installer.ArkApiInstalled()` 判据不一致
+
+- **位置**：`internal/mirror/mirror.go:96-102`（只看 `Win64/ArkApi` 目录存在）
+- **修复建议**：统一改为「存在 `AsaApiLoader.exe`」。
+
+#### [P2] `movePath` 跨卷回退用 `fsutil.CopyDir/CopyFile`，会解引用插件目录里的符号链接
+
+- **位置**：`internal/arkapimanage/core.go:737-766`；`pkg/fsutil/fsutil.go:37-96`
+- **修复建议**：回退路径用 `Lstat` 判断链接并原样 `os.Symlink`/跳过，或直接报错要求手工处理。
+
+#### [P2] 清单哈希缓存与 `lookupFold` 的性能/陈旧问题（小）
+
+- **位置**：`internal/arkapimanage/manifest.go:120-152`、`:99-109`
+- **修复建议**：`lookupFold` 调用点先建一次小写索引；哈希缓存加容量上限或按 mtime 变化失效。
+
+### 7.3 文档 vs 代码偏差
+
+1. **迁移判据**：文档 §4.4 写「`ArkApi/Plugins` 目录已存在即视为已迁移」，代码用标记文件 `ArkApi/.plugin-layout`（`layout.go:41-42、87-90`）。已在实施记录 §16.3 第 1 条说明。
+2. **停止路径保留 `Reclaim`**：文档 §4.3/§7 写「删除 Reclaim 调用」，代码仍保留（`server.go:858`）。§16.3 第 2 条已说明。
+3. **`shuttleRetired` 双判据**：文档只写「镜像里 Plugins 是链接」，代码另加「实例已迁移」（`plugindata.go:71-73`）。§16.3 第 3 条已说明。
+4. **插件临时组装目录**：文档 §6.3 说「同级临时目录」，代码放在 `ArkApi/.install-*`（`plugin.go:154`）。§16.6 第 6 条已说明。
+5. **未登记的偏差**：① 文档 §7/§4.6 只说「未运行才迁移」未规定判据，代码用**端口监听**（`pluginlayout.go:33`）而非进程存活（见 P1）；② 文档 §8.2 的 `GET /api/plugins/:name` 返回示例无 `plugins_dir` 字段，代码新增（`pluginapi.go:102`）；③ 文档 §6.4 卸载语义未提快照处理；④ 文档 §5.3 插件名规则未覆盖 Windows 保留名/尾随点。
+
+---
+
+# Part 1 — ArkApi 插件改为每实例独立 + 主程序/插件的安装、更新、卸载（原 `ARKAPI_PLUGIN_INSTALL_PLAN.md`）
+
 # ArkApi 插件改为每实例独立 + 主程序/插件的安装、更新、卸载 —— 改造方案
 
 > 状态：**方案已定稿，未实施**。§1 的决策已于 2026-09-11 确认，全部按建议执行；操作范围规则见 §1.1。
@@ -14,10 +129,10 @@
 > 关联文档：
 > [`V2_MIGRATION_PLAN.md`](./V2_MIGRATION_PLAN.md)（镜像启动模式的由来；插件变成全局共享是这次迁移的副作用，
 > 两份 V2 文档里都没有涉及插件）、
-> [`ARKAPI_PLUGIN_DATA_PLAN.md`](./ARKAPI_PLUGIN_DATA_PLAN.md)（现行的「启停搬运」式数据隔离。本方案**取代**它的核心机制，
+> [`ARKAPI_PLUGIN_PLAN.md`](./ARKAPI_PLUGIN_PLAN.md)（现行的「启停搬运」式数据隔离。本方案**取代**它的核心机制，
 > 见 §15）、
 > [`ARKAPI_CACHE_PREFETCH_PLAN.md`](./ARKAPI_CACHE_PREFETCH_PLAN.md)（`ArkApi/Cache` 的归属）、
-> [`ACL_PERMISSION_HARDENING_PLAN.md`](./ACL_PERMISSION_HARDENING_PLAN.md)（Linux 下 junction 目标的权限处理）。
+> [`LINUX_RUNTIME_PRIVILEGE_PLAN.md`](./LINUX_RUNTIME_PRIVILEGE_PLAN.md)（Linux 下 junction 目标的权限处理）。
 
 ---
 
@@ -36,7 +151,7 @@
 A 只能解决「禁用」，你要的按实例安装、卸载、更新它做不到，而且保留了现有方案最脆弱的那部分。
 **B 是更彻底、代码量反而更少的解法**，采纳 B。
 
-`ARKAPI_PLUGIN_DATA_PLAN.md` §6 当初否掉「整目录 junction」的两条理由，现在都不成立了（§3.4）。
+`ARKAPI_PLUGIN_PLAN.md` §6 当初否掉「整目录 junction」的两条理由，现在都不成立了（§3.4）。
 
 ---
 
@@ -137,7 +252,7 @@ pluginapi 的读接口**改为套 `StatusResponse` 信封**，前端现有写法
 
 ### 3.2 现行的插件数据隔离（将被取代）
 
-`ARKAPI_PLUGIN_DATA_PLAN.md` 的机制是：配置与数据存放在 `instances/{name}/plugins/{P}/`，
+`ARKAPI_PLUGIN_PLAN.md` 的机制是：配置与数据存放在 `instances/{name}/plugins/{P}/`，
 启动时注入镜像、停止后收回，崩溃靠 Rescue 按 mtime 抢救，另有在线快照兜底。调用点：
 
 | 位置 | 调用 |
@@ -184,7 +299,7 @@ TidyDamsASA/config.json
 
 ### 3.4 旧方案否掉「整目录 junction」的理由为什么不再成立
 
-`ARKAPI_PLUGIN_DATA_PLAN.md` §6：
+`ARKAPI_PLUGIN_PLAN.md` §6：
 
 > 插件二进制会一并落到实例目录，每实例多存一份（当前 pdb 合计约 60 MB/实例），
 > 且插件更新时要专门回灌非数据文件，复杂度并不比搬运低。
@@ -229,7 +344,7 @@ TidyDamsASA/config.json
 ```
 
 放在实例目录下的好处：实例重命名（`os.Rename`）和删除（`os.RemoveAll`）时，插件目录天然跟着走，无需额外处理
-（同 `ARKAPI_PLUGIN_DATA_PLAN.md` §10.4）。
+（同 `ARKAPI_PLUGIN_PLAN.md` §10.4）。
 
 ### 4.2 镜像：新增一条例外 junction
 
@@ -282,10 +397,10 @@ ShooterGame/Binaries/Win64/ArkApi/Plugins → instances/{name}/ArkApi/Plugins
 所以不能指望「Walk 不穿透」来保护这里。）
 
 所以做**结构性关断**：`harvest` 与 `Inject` 开头判断镜像里的 `Plugins` 是不是链接，是就直接返回。
-这和 Linux 上「整体静默」的做法同一个思路（`ARKAPI_PLUGIN_DATA_PLAN.md` §11），不依赖任何标志位，漏不掉。
+这和 Linux 上「整体静默」的做法同一个思路（`ARKAPI_PLUGIN_PLAN.md` §11），不依赖任何标志位，漏不掉。
 
 - **判定函数**：新增 `fsutil.IsLink(path)`，就是「`os.Readlink` 成功」；`mirror.isJunctionOrSymlink` 改为调用它，两边共用一份实现。
-  放在 `pkg/fsutil` 是因为 `plugindata` 不能依赖 `mirror`（依赖方向是反过来的，见 `ARKAPI_PLUGIN_DATA_PLAN.md` §10.1）。
+  放在 `pkg/fsutil` 是因为 `plugindata` 不能依赖 `mirror`（依赖方向是反过来的，见 `ARKAPI_PLUGIN_PLAN.md` §10.1）。
   各写一份的话，迟早会有一份退化成 `ModeSymlink`。
 - **不能用 `ModeSymlink`**：在 Windows 上会漏判真 junction，关断**失效**，而且只在 Windows 上失效（§3.1.1）。
 - **不能用 `!IsDir()`**：会把「`Plugins` 不存在」也判成链接。
@@ -325,7 +440,7 @@ ShooterGame/Binaries/Win64/ArkApi/Plugins → instances/{name}/ArkApi/Plugins
       旧目录里没有 X 的数据时，保留 server-files 那一份作为初值，与今天首次启动的播种行为一致；
    3. 旧目录里的 `snapshots/` 挪到 `ArkApi/PluginSnapshots/X/`；
    4. 只在旧 `plugins/` 里有、server-files 里已经没有的插件（二进制已卸载）**不迁移**，数据留在 legacy 目录里。
-   5. **改写指向旧目录的 `DbPathOverride`**。`ARKAPI_PLUGIN_DATA_PLAN.md` §4.8 把「指向实例插件目录内」列为等价形态，
+   5. **改写指向旧目录的 `DbPathOverride`**。`ARKAPI_PLUGIN_PLAN.md` §4.8 把「指向实例插件目录内」列为等价形态，
       还把它推荐为「逃生路径」，所以可能有用户把 Permissions 的 `DbPathOverride` 设成了旧的 `instances/{name}/plugins/Permissions`
       或它的子目录。第 4 步把旧目录改名之后，这个路径就悬空了，Permissions 会在原路径新建一个空库，**权限静默清零**。
       所以迁移时按下表处理（判定复用 `override.go` 的 `pathWithin`，两平台的大小写规则不变）：
@@ -486,7 +601,7 @@ apply 对每个目标实例**独立**执行（各自持实例级锁），逐个�
 - **更新**：在临时目录里组装最终形态，然后「旧目录 → 备份、新目录 → 到位」两次 rename：
   1. 放入新包的全部文件；
   2. `config.json`：用 `MergeConfigJSON(旧, 新)` 合并。**这一份就是该实例正在使用的配置**，
-     所以新版本新增的配置键会立刻出现在用户面前，`ARKAPI_PLUGIN_DATA_PLAN.md` §10.2 那个「新配置到不了实例」的缺口也随之消失；
+     所以新版本新增的配置键会立刻出现在用户面前，`ARKAPI_PLUGIN_PLAN.md` §10.2 那个「新配置到不了实例」的缺口也随之消失；
   3. 旧目录里的数据文件（SQLite 文件组、`extraDataFiles`）原样带过来；
   4. 旧目录有、新包没有的其余文件丢弃（随旧目录进备份）。
 
@@ -710,7 +825,7 @@ StopServer
   ACL / setgid。apply 之后要对落位的子树调用 `runner.PrepareSharedTree(root)`（`runner.go:458`，Windows 上是空操作）。
 - 路径常量的大小写与 `plugindata` / `installer` 保持一致；对手工安装、大小写与常量不同的情况，例外路径按盘上实际大小写拼出（§4.2 约束 5）。
 - **ArkApi 在 Linux 上已经不是非目标**（`LINUX_COMPATIBILITY_PLAN.md` §0 修订记录、§1）：`EnableAsaPlugin` 在两个平台上走同一条启动路径。
-  所以本方案的面板、接口、迁移在 Linux 上**照常工作**。`ARKAPI_PLUGIN_DATA_PLAN.md` §11 表格第 3 条
+  所以本方案的面板、接口、迁移在 Linux 上**照常工作**。`ARKAPI_PLUGIN_PLAN.md` §11 表格第 3 条
   「Linux 上 pluginapi 应回执『本平台不支持』」已被那次决定推翻，**不要照做**。
   同一张表的第 1 条（大小写告警，`casecheck_linux.go`）与第 2 条（`override_linux.go` 不折叠大小写）都已实施，本方案沿用。
 
@@ -789,7 +904,7 @@ StopServer
 | **P5** | `pkg/archive.ExtractZip` + 校验器（纯函数，先写测试） | 无 |
 | **P6** | 插件安装/更新/卸载（当前实例 + 手动勾选的其他实例、备份与恢复、实例级锁；后端 + 前端） | P3、P5 |
 | **P7** | 主程序安装/更新/卸载（清单、`overwritten` 还原、附带插件分发） | P5、P6 |
-| **P8** | 文档：`API_REFERENCE.md`；`CLAUDE.md` 目录树与数据流（加入 `arkapimanage`、`pkg/archive/zip.go`、Plugins 例外 junction）；在 `ARKAPI_PLUGIN_DATA_PLAN.md` 末尾追加一节说明被取代的部分（§15） | 全部 |
+| **P8** | 文档：`API_REFERENCE.md`；`CLAUDE.md` 目录树与数据流（加入 `arkapimanage`、`pkg/archive/zip.go`、Plugins 例外 junction）；在 `ARKAPI_PLUGIN_PLAN.md` 末尾追加一节说明被取代的部分（§15） | 全部 |
 | 后续 | 运行中实例的操作排队到下次启动执行；插件数据纳入备份；删除退役的搬运代码 | — |
 
 ---
@@ -815,7 +930,7 @@ StopServer
 
 ---
 
-## 15. 与 `ARKAPI_PLUGIN_DATA_PLAN.md` 的关系
+## 15. 与 `ARKAPI_PLUGIN_PLAN.md` 的关系
 
 本方案**取代**该文 §1、§4.3–§4.5、§4.7、§5 的机制（启停搬运、Rescue 抢救规则、同步例外），**推翻**它 §6「不采纳整目录 junction」的结论
 （理由见 §3.4）。以下内容**继续有效**，并被本方案复用：
@@ -837,7 +952,7 @@ StopServer
 免特权的真 junction（§3.1.1）让「多一条链接」没有任何代价，基于 `Readlink` 的识别规则被本方案原样沿用，并下沉到 `pkg/fsutil`。
 那份文档不需要追加任何内容。
 
-按「PLAN 文档只增不改」的惯例，不修改 `ARKAPI_PLUGIN_DATA_PLAN.md` 的原文，只在 P8 阶段于其末尾追加一节，指向本文。
+按「PLAN 文档只增不改」的惯例，不修改 `ARKAPI_PLUGIN_PLAN.md` 的原文，只在 P8 阶段于其末尾追加一节，指向本文。
 
 ---
 
@@ -1144,6 +1259,471 @@ M18 在 Windows 上存活是预期的：NTFS 不区分大小写，`ArkApi/` 与 
 |---|---|
 | `docs/API_REFERENCE.md` | 新增「ArkApi 插件」一节：`/api/plugins/*` 4 个、`/api/arkapi/*` 7 个接口的请求、返回、权限与错误码；目录与端点统计随之更新（REST 45 → 56，合计 56 → 67） |
 | `CLAUDE.md` | 目录树加入 `plugindata/`、`arkapimanage/`、`webapi/pluginapi/`，`pkg/archive` 补上 `ExtractZip`；分层依赖加入 `plugindata`、`arkapimanage`；运行时目录加入 `instances/{name}/ArkApi/` 与 `{BaseDir}/arkapi/`；接口表加入两组路由 |
-| `docs/ARKAPI_PLUGIN_DATA_PLAN.md` | 末尾追加 §12，逐条对照被取代、被推翻、继续有效的部分（§15） |
+| `docs/ARKAPI_PLUGIN_PLAN.md` | 末尾追加 §12，逐条对照被取代、被推翻、继续有效的部分（§15） |
 
 §13 的「后续」三项仍未开始：运行中实例的插件操作排队到下次启动执行；插件数据纳入备份；删除已退役的搬运代码。
+
+---
+
+# Part 2 — ArkApi 插件数据与配置隔离（原 `ARKAPI_PLUGIN_DATA_PLAN.md`）
+
+> ⚠️ 本部分为前身设计；其核心机制（启停搬运）已被 Part 1 取代（见 Part 1 §15、本部分 §12）。保留全文用于追溯。
+
+# ArkApi 插件数据与配置隔离 —— 改造方案
+
+> 问题：ArkApi 插件把**运行期数据**和**插件二进制**放在同一个目录里。以 Permissions 插件为例，
+> 它的 SQLite 库存着玩家在本服的权限组，被镜像同步当成普通文件对待，
+> 导致每次同步都被源目录的版本覆盖；而且它落在临时的镜像目录里，随镜像清理一起消失。
+>
+> 状态：**已实施**（P1–P7 全部落地，见 §7）。实现落在 `internal/plugindata/`
+> （搬运 / 合并 / 快照）、`internal/webapi/pluginapi/`（HTTP 接口）、
+> `app/src/components/PluginDataPanel.vue`（前端），并在 `internal/mirror` 与
+> `internal/instance` 上各接了几处钩子。实施中与本文不一致的地方记在 §10。
+> 关联文档：[`MIRROR_JUNCTION_AND_WEBAUTHN_REMOVAL_PLAN.md`](./MIRROR_JUNCTION_AND_WEBAUTHN_REMOVAL_PLAN.md)
+> （第一部分已去掉管理员提权，本方案必须在无特权前提下成立）、
+> [`V2_MIRROR_STARTUP_ARCHITECTURE.md`](./V2_MIRROR_STARTUP_ARCHITECTURE.md)、
+> [`LINUX_COMPATIBILITY_PLAN.md`](./LINUX_COMPATIBILITY_PLAN.md) §5.12（本方案在 Linux 上应整体静默，见 §11）。
+
+---
+
+## 1. 结论先行
+
+**采纳：实例插件目录 + 启停搬运，作为唯一机制。配置与数据都走双向搬运。**
+
+```
+instances/{name}/plugins/{Plugin}/      ← 每实例的插件配置与运行期数据，持久
+        │  启动前注入                    ▲  停止后回收（配置按键合并、保序）
+        ▼                                │
+镜像 .../Win64/ArkApi/Plugins/{Plugin}/  ← 临时，随镜像清理
+```
+
+| 文件类别 | 方向 | 说明 |
+|---|---|---|
+| **配置**（`config.json`） | **双向** | 已验证：插件更新时会往 config.json 写入新增项，所以不能只注入不回收。回收时按键合并、**实例侧值恒优先**、**保持原有键顺序**，见 §4.6 |
+| **SQLite 数据**（按文件头识别） | **双向 + 运行期快照** | 整组替换，见 §4.5；运行期定时在线快照，见 §4.9 |
+| **其他运行期数据** | 双向 | 整组替换 |
+| **二进制/说明**（`*.dll`、`*.pdb`、`PluginInfo.json`…） | 不搬 | 维持现状，随 Win64 整棵复制 |
+
+**不把插件的可选配置项当作机制。** Permissions 的 `DbPathOverride`
+（已验证：接受的是**目录**）确实能让 SQLite 直接写实例目录、消除崩溃窗口，
+但它是某个插件的可选字段 —— 不同插件有没有、叫什么、语义如何都不保证，
+拿它当底座会得到一个按插件分叉的系统。**搬运是唯一机制**，`DbPathOverride`
+只作为「用户已手工设置时必须识别并让路」的输入处理（§4.8）。
+
+**原设想「用软链接把 db 注入镜像」不可行**：Windows 上文件符号链接需要
+`SeCreateSymbolicLinkPrivilege`（提权逻辑已随镜像去管理员化删除），
+NTFS junction 只能链目录；硬链接虽免特权，但 SQLite 的 `-wal`/`-shm` 会被动态删除重建，链接随即失效。
+
+搬运方案**有一个崩溃窗口**，靠 §4.5 的「回收优先」规则兜底、§4.9 的在线快照收窄。
+
+---
+
+## 2. 现状：问题的真实机制
+
+`server-files\ShooterGame\Binaries\Win64\ArkApi\Plugins\Permissions\` 实际内容：
+
+```
+    4,096  ArkDB.db          ← 主库，几乎是空的
+   32,768  ArkDB.db-shm      ← WAL 共享内存索引
+1,973,512  ArkDB.db-wal      ← 写前日志，数据实际都在这
+5,099,008  Permissions.dll
+17,649,664 Permissions.pdb
+      347  config.json
+      132  PluginInfo.json
+      475  notes.txt
+           ONLY FOR DEVELOPERS/
+```
+
+三点要害：
+
+1. **一个库的相关文件必须整组搬。** 主库只有 4 KB，1.9 MB 的数据全压在 `-wal` 里还没 checkpoint。
+   只搬 `ArkDB.db` 等于丢掉几乎全部数据。
+2. **数据和二进制混在同一目录**，所以不能把 `Permissions/` 整个 junction 到实例目录 —— DLL 会跟着走，插件更新断链。
+3. **静止状态下就存在 1.9 MB 的 `-wal`**，说明上次退出并没有干净 checkpoint。
+   ARK 服务端崩溃退出是常态，这一条直接决定了 §4.5 与 §4.9 都必须存在。
+
+问题出在同步的**回写**上：`reconcileEntry` 对真实文件做 MD5 比对，不一致就 `CopyFile(源 → 镜像)`。
+实例运行期写了 db → 与源版本 MD5 不同 → **下次同步被源版本覆盖**。
+所以现象不是"几个服的权限串了"，而是**每次重启，权限被重置回源目录那一份**。
+
+第二个隐患：**镜像目录是临时的**。`CleanupInstanceMirror` 在仓库里有 **7 个调用点**
+（`server.go:618` 的 `ForceStopServer`、`mirror.go:136` 同步失败重建、`mirror.go:220/233` 创建失败回滚、
+`mirror.go:532/548`），任何一个先于回收执行，数据就没了。
+
+---
+
+## 3. 可选机制对照（无管理员权限前提）
+
+| 机制 | 能否作用于文件 | 需要特权 | 对 SQLite WAL 安全 | 崩溃窗口 | 结论 |
+|---|---|---|---|---|---|
+| 文件符号链接 | ✅ | ❌ **需要** | ❌ 悬空 | 无 | 出局 |
+| 硬链接 | ✅ | ✅ 不需要 | ❌ WAL 删建后失效 | 无 | 出局 |
+| NTFS junction | ❌ 仅目录 | ✅ 不需要 | ✅ | 无 | 只能整目录，见 §6 |
+| **启停搬运（复制）** | ✅ | ✅ 不需要 | ✅（关库后整组拷） | ⚠️ 有，靠 §4.9 收窄 | **唯一机制** |
+| 插件路径重定向 | — | ✅ 不需要 | ✅ | 无 | 不作机制，仅识别（§4.8） |
+| 同步例外（不回写） | — | ✅ 不需要 | ✅ | — | 必需的配套（§5） |
+
+---
+
+## 4. 采纳设计：实例插件目录 + 启停搬运
+
+### 4.1 目录布局
+
+```
+{BaseDir}/instances/{name}/plugins/
+├── Permissions/
+│   ├── config.json
+│   ├── config.json.bak      # 每次合并前留一份镜像侧原文，出问题能回溯
+│   ├── ArkDB.db
+│   ├── ArkDB.db-wal
+│   └── snapshots/
+│       └── ArkDB.db         # 运行期在线快照，见 §4.9
+└── CrosschatAscended/
+    └── config.json
+```
+
+### 4.2 文件分类规则
+
+ArkApi 的约定是每个插件一个 `config.json`（`ExtendedRcon`、`UnicodeRCONASA` 没有配置文件；
+`CrosschatAscended` 另有 `config_help.json`、`NativeReusables` 另有 `commented_config.jsonc` ——
+**那两个是说明文档不是配置**）。
+
+| 类别 | 判定方式 | 处理 |
+|---|---|---|
+| 配置 | 文件名恰为 `config.json` | 双向搬运 + 键合并（§4.6） |
+| **SQLite 数据** | **读文件头 16 字节 == `SQLite format 3\0`** | 双向搬运 + 在线快照（§4.9） |
+| 其他数据 | `*.db`、`*.db-*`、`*.sqlite*`，外加每插件可扩展的额外清单 | 双向搬运 |
+| 其余 | 一切其他 | 不搬 |
+
+**SQLite 用文件头识别而不是扩展名**：插件把库命名成 `.dat`、`.bin` 都有可能，
+按魔数判定才不会漏掉，也才能让 §4.9 的快照对所有 SQLite 库一视同仁。
+识别到主库后，它的伴随文件按 `<主库名>-wal` / `-shm` / `-journal` 推导，构成一个**文件组**。
+
+### 4.3 注入（启动前）
+
+挂在 `instance.StartServer` 里 `SyncInstanceMirror` / `VerifyAndRepairInstanceMirror` **之后**、
+构建命令行**之前**。放在同步之后是必须的：放在之前会被同步的 MD5 回写覆盖掉。
+
+```
+SyncInstanceMirror() → VerifyAndRepair() → rescuePluginFiles() → injectPluginFiles() → 启动
+                                                  ↑ 见 §4.5
+```
+
+首次启动（实例目录下没有该插件目录）：从**镜像**目录整份播种配置与数据文件，
+即"以源服务端自带的那一份为初值"，之后实例目录成为真相。
+
+### 4.4 回收（停止后）
+
+挂在 `instance.StopServer` 确认进程完全退出之后 —— `waitServerStopped` 已提供这个时机。
+**不要在进程还活着时拷 db**：文件组之间会撕裂，拷出来的是损坏的快照。
+（运行期要拿数据只能走 §4.9 的在线快照。）
+
+以及 —— 更重要的 —— 挂在所有会销毁镜像的路径之前，见 §4.7。
+
+### 4.5 ⚠️ 崩溃窗口与「回收优先」规则
+
+**回收不执行的情况**：ARK 进程崩溃、机器断电、管理器自身被杀、服务停止超时，
+以及 `mirror.go:136` 那条"同步失败 → 清理重建"的路径（它可能在**启动阶段**就把上一轮数据清掉）。
+
+**规则：任何时候要覆盖或销毁镜像里的插件文件之前，先做一次抢救性回收。**
+
+```go
+// 注入之前 / 清理镜像之前都要先跑
+func rescuePluginFiles(instanceName string) {
+    for each 插件, each 文件组 {
+        if 镜像侧该组不存在 { continue }
+        if 实例侧该组不存在 || max(镜像侧组内 mtime) > max(实例侧组内 mtime) {
+            // 上一轮没能正常回收（崩溃 / 强杀），镜像里的才是新的
+            整组替换(镜像侧 → 实例侧)   // 配置走 §4.6 的合并
+        }
+    }
+}
+```
+
+三条细则：
+
+- **判定以组内最新的 mtime 为准**（`-wal` 通常比 `.db` 新得多），整组一起判定、一起搬。
+- **是「整组替换」不是「逐文件覆盖」**：先删掉目标侧该组的全部文件再拷。
+  否则可能出现"新的 `.db` + 残留的旧 `-wal`"这种互不匹配的组合，SQLite 打开时会拿旧 WAL 去重放。
+- **崩溃后拷未 checkpoint 的文件组是正确做法**，不要因为"看起来不干净"就改用快照。
+  SQLite 本来就能从未 checkpoint 的 `-wal` 恢复，整组拷过去等于把恢复现场原样搬走，
+  能保住到崩溃那一刻的数据；而快照只到上次快照时间。**快照是兜底，不是首选。**
+
+**绝不能无条件把实例侧拷进镜像。** 否则上一轮崩溃后，启动时会用陈旧的实例副本覆盖掉镜像里更新的数据，
+而且**不报任何错** —— 这是最难排查的一类数据丢失。
+
+### 4.6 配置的键合并（保序）
+
+已验证：插件更新时会往 `config.json` 写入新增项，所以配置必须双向。
+但整体覆盖会踩另一个坑：用户可能在运行期通过管理器改了实例侧配置，
+此时镜像侧是"旧值 + 插件新增项"，整体拷回会把用户的改动冲掉。
+
+**合并规则（已定，无例外名单）**：
+
+| 键的来源 | 取值 |
+|---|---|
+| 两侧都有 | **恒取实例侧的值** |
+| 仅镜像侧有（插件新增的默认项） | 并入 |
+| 仅实例侧有（插件已删除的旧项） | 保留（无害，插件会忽略） |
+
+> 实测未观察到插件回写已有键的值，但不排除存在。**一旦出现，按上表实例侧优先，直接覆盖掉插件的回写** ——
+> 这是明确的取舍：用户在管理器里配的东西是权威，插件运行期算出来的值不保留。
+> 不再维护"例外插件名单"。
+
+**键顺序：保持原有配置文件的顺序。** 实例侧已有的键按其原本顺序输出，镜像侧新增的键追加在末尾。
+这意味着**不能用 `map[string]any` + `encoding/json`**（Go 的 map 无序，序列化会重排）。
+需要一个保序的 JSON 表示 —— 用 `json.Decoder` 的 token 流解析成
+`[]struct{Key string; Raw json.RawMessage}`，合并后按序写回即可，不必引入新依赖。
+
+**合并要递归。** CrosschatAscended 的配置有近 8 KB，多半是嵌套结构；
+插件新增的项可能落在某个嵌套对象里，只做顶层合并会漏掉。
+对象递归合并，**数组整体当作一个值**（实例侧优先），不做逐元素合并。
+
+合并前把镜像侧原文另存为 `config.json.bak`。
+
+### 4.7 必须先回收的调用点
+
+`CleanupInstanceMirror` 的 7 个调用点里：
+
+| 位置 | 场景 | 处理 |
+|---|---|---|
+| `server.go:618` | `ForceStopServer` 强杀后清镜像 | **必须**先回收 |
+| `mirror.go:136` | 同步失败 → 清理重建 | **必须**先回收（此时可能还没走过注入） |
+| `mirror.go:220/233` | 创建镜像失败回滚 | 镜像刚建到一半，无数据，可跳过 |
+| `mirror.go:532/548` | 包内清理入口 | 按调用来源判断 |
+
+实现上更稳妥的做法是**把回收做进 `CleanupInstanceMirror` 的开头**，而不是散在各调用点 —— 少一处漏掉的风险。
+但 `mirror` 包不该反向依赖 `instance`，所以应给 `mirror` 加一个"清理前回调"钩子，由上层注入具体策略
+（见 `docs/PACKAGE_RESTRUCTURE_PLAN.md` 的分层约束）。
+
+### 4.8 如何对待用户手工设置的 `DbPathOverride`
+
+不把它当机制，但**必须识别** —— 否则用户设了它之后，我们的搬运会对着一个空目录做无用功，
+而真实的数据在别处不受保护，且不报任何错。
+
+启动前读取实例侧 `config.json`：
+
+- 为空（默认）→ 正常搬运
+- 非空且指向实例插件目录内 → 正常搬运（等价形态）
+- **非空且指向别处** → **跳过该插件的数据搬运与快照**，在日志与前端明确提示
+  「该插件的数据库路径已由用户接管，管理器不再为其做隔离、回收与快照」
+
+若将来崩溃窗口在实战中确实造成困扰，把 `DbPathOverride` 指向实例目录是一条现成的逃生路径 ——
+但那应当是**用户显式选择的每实例选项**，不是默认机制。
+
+### 4.9 运行期在线快照（对所有 SQLite 库生效）
+
+**不绑定任何具体插件。** 只要 §4.2 按文件头认出某个文件是 SQLite 库，就为它做定时在线快照，
+把最坏损失从"整个会话"收窄到"一个快照周期"。
+
+- **必须用 SQLite 自己的在线备份**：`VACUUM INTO '<目标>'`，或备份 API。
+  仓库里已有 `modernc.org/sqlite`（`auth.db` 在用），不引入新依赖。
+- 快照落到 `instances/{name}/plugins/{P}/snapshots/<库名>`，写临时文件后重命名覆盖，保留 1–2 代。
+- 周期做成实例配置项，默认给一个保守值（如 5 分钟）；库很大时自动拉长或跳过。
+
+> ⚠️ **绝不能用朴素的定时文件复制来实现这个。** 运行期文件组一直在变，
+> 逐文件拷会拷出互不一致的组合，得到的是**损坏的快照**，比没有更糟。
+> 这也是为什么必须走 SQLite 的备份接口而不是 `fsutil.CopyFile`。
+
+两个实现注意点：
+
+1. **WAL 模式下的只读连接仍需要写权限**（读者要挂上 `-shm` 共享索引）。
+   管理器与服务端同用户运行，实际不成问题，但不要试图用 `immutable=1` 之类的标志绕开 —— 那会读到过期数据。
+2. **快照只在恢复时兜底使用**：优先按 §4.5 整组搬运真实文件组，
+   只有文件组缺失或 SQLite 打不开时才回退到快照。
+
+---
+
+## 5. 配套：同步例外
+
+仓库里已有现成的模式 —— `isUnderArkApiCache`（`mirror.go:54`）把 `ArkApi/Cache` 标成运行期缓存，
+在 diff 的 `Insert` 与 `Match` 分支跳过删除与回写（`mirror.go:628`、`mirror.go:652`）。
+
+照抄它，把**插件配置与数据文件**排除出同步的回写与删除：
+
+- 否则注入进去的实例配置会在下一轮同步被源版本覆盖
+- 否则实例运行期写的 db 会被源版本覆盖（正是 §2 的原始 bug）
+
+这一条是注入能生效的**前提**，不是可选项。
+
+---
+
+## 6. 未采纳：整目录 junction
+
+把 `Plugins/{P}` 整个 junction 到实例目录，免特权、无崩溃窗口，技术上完全可行。
+不采纳的原因：插件二进制会一并落到实例目录，每实例多存一份（当前 pdb 合计约 60 MB/实例），
+且插件更新时要专门回灌非数据文件，复杂度并不比搬运低。
+
+若将来出现"数据文件多且散、按名字分不出来"的插件，这仍是可选的退路。
+
+---
+
+## 7. 分阶段实施
+
+| 阶段 | 内容 | 验收 |
+|---|---|---|
+| **P1 同步例外** | 按 §5 把插件配置与数据排除出回写/删除 | 实例里的 db 与 config 不再被源版本覆盖 |
+| **P2 搬运框架** | 实例插件目录、文件分类（含 SQLite 魔数识别与文件组推导）、注入与回收、首次播种 | 两实例各自改配置互不影响；正常停止后数据落在实例目录 |
+| **P3 抢救规则** | §4.5 的 mtime 判定、整组替换、§4.7 的钩子接入 | **强杀实例后重启，数据不丢**；同步失败重建也不丢 |
+| **P4 配置合并** | §4.6 的保序递归合并 + `.bak` 备份 | 插件更新新增的项能进来；用户改的值不被冲掉；键顺序不变 |
+| **P5 在线快照** | §4.9 对所有 SQLite 库定时 `VACUUM INTO` | 运行中强断电，重启后最多丢一个快照周期 |
+| **P6 `DbPathOverride` 识别** | §4.8 的三分支判定与提示 | 用户手工设了 override 时有明确提示而不是静默失效 |
+| **P7 前端** | 实例详情页提供插件配置编辑入口、快照周期设置 | — |
+
+七个阶段均已实施：
+
+| 阶段 | 落地位置 |
+|---|---|
+| P1 | `plugindata.IsProtectedRelPath` + `mirror.syncMirrorEntries` 的 Insert / Match 两个分支 |
+| P2 | `plugindata/classify.go`（魔数识别 + 文件组）、`plugindata.Inject` / `Reclaim` |
+| P3 | `plugindata.Rescue`，接在 `CleanupInstanceMirror` 开头与 `startServerInternal` 里 |
+| P4 | `plugindata/configmerge.go`（保序递归合并） |
+| P5 | `plugindata/snapshot.go`（`VACUUM INTO`），周期取自实例配置 `PluginSnapshotInterval` |
+| P6 | `plugindata/override.go` |
+| P7 | `webapi/pluginapi` + `PluginDataPanel.vue`（挂在实例详情页的折叠面板里） |
+
+**P3 是本方案的成败所在** —— 没有它，搬运在崩溃场景下会静默丢数据，比现在"每次被源覆盖"好不了多少。
+
+---
+
+## 8. 风险与未决项
+
+| # | 项 | 状态 |
+|---|---|---|
+| 1 | `DbPathOverride` 取值形态 | ✅ 已验证：接受目录。不作机制，仅按 §4.8 识别 |
+| 2 | 插件是否运行期改写 `config.json` | ✅ 已验证：插件更新时会写入。故配置必须双向 + 合并 |
+| 3 | 插件是否会回写**已有键**的值 | ✅ 已定策：实测未见，若出现则**实例侧优先直接覆盖**，不维护例外名单 |
+| 4 | JSON 键顺序 | ✅ 已定策：**保持原有顺序**，新增键追加末尾；需保序 JSON 处理，不能用 map |
+| 5 | **从现状迁移** | 已在跑的服，数据在 `server-files-tmp-*` 里，**文件组必须整体搬**，只搬 `.db` 会丢 WAL |
+| 6 | 实例重命名 / 删除 | 插件目录要跟着走；删实例时一并清理 |
+| 7 | 集群共享权限 | `ClusterSyncTime` + `UseMysql` 说明插件设计上支持多服共享。若用户要共享，应引导用 MySQL —— 多进程并发写同一个 SQLite 文件不可靠 |
+| 8 | 搬运耗时 | 当前 WAL 约 2 MB，可忽略；若某插件的库涨到数百 MB，停止流程会被拉长，届时该插件应改用 §6 的 junction |
+| 9 | 快照与游戏进程争用 | ✅ 已处理：超过 512 MB 的库直接跳过快照并告警（`maxSnapshotDBBytes`），停服前先 `StopSnapshots` |
+| 10 | **源侧配置更新到不了镜像** | ⚠️ 实施中发现的新缺口，见 §10.2 |
+
+---
+
+## 9. 附：顺带记录的观察
+
+- **CrosschatAscended 的 `config.json` 有 7958 字节**，同样是"每服应当不同"的配置（聊天转发目标、频道等），
+  且多半是嵌套结构 —— 这是 §4.6 合并必须递归的直接原因。
+- **pdb 体积可观**：Permissions 17 MB + CrosschatAscended 24 MB + NativeReusables 13 MB
+  + UnicodeRCONASA 6 MB ≈ **60 MB/实例**，纯调试符号。镜像时跳过 `.pdb` 是个独立优化项，
+  但 `ArkApi/pdbignores.txt` 的存在暗示 AsaApi 确实会读 pdb，需先确认再动。
+
+---
+
+## 10. 实施记录：与本文不一致之处
+
+### 10.1 §4.7 的「清理前回调」改成了直接依赖
+
+本文建议给 `mirror` 加一个钩子、由上层注入回收策略，理由是 `mirror` 不该反向依赖 `instance`。
+实际实现让 `plugindata` **不认识 mirror**（镜像目录一律由调用方以参数传入），
+于是 `mirror` 可以直接 `import plugindata` 而不成环，`CleanupInstanceMirror` 开头一行调用即可。
+
+分层没被破坏，而且比钩子更稳：钩子要有人负责注册，注册漏了或注册晚了都会静默退化成「不抢救」，
+那正是本方案最怕的失败模式。依赖是编译期的，漏不掉。
+
+### 10.2 同步例外带来的新缺口：源侧配置更新到不了镜像
+
+§5 把插件配置排除出同步的**回写**之后，出现一个本文没预料到的后果：
+用户在 `server-files` 里换了新版插件、新版自带一份改过的 `config.json`，
+这份新配置**不会**再被同步带进镜像 —— 只有镜像被整体重建时才会重新播种。
+
+没有当场修，因为两种修法都有明显代价：
+
+- 按 mtime 决定要不要回写：与 §4.5 的抢救规则用同一个信号，两套逻辑对同一组 mtime 做相反的判断，很难推理。
+- 干脆不排除配置的回写：注入排在同步之后，配置确实盖得回来 —— 但**数据**的排除必须保留，
+  于是配置与数据走两套规则，§4.2 的分类就得在同步侧再分一次叉。
+
+实际影响有限：插件运行期自己写入的新增项仍会被 §4.6 合并进来，
+真正丢的只是「用户手工替换了源目录里的 config.json」这一种情形，
+而那种情形下用户本来就是在改源服务端的默认值，不是在改某个实例的配置。
+
+### 10.3 快照周期落在实例配置里
+
+`PluginSnapshotInterval`（单位：分钟）加进了 `InstanceConfig` 与 `instance_config.ini`：
+**0 = 用默认值（5 分钟），负数 = 关闭**。写在 `MessageOfTheDay` 之前 ——
+那一项是自由文本且解析器按行读，必须留在文件末尾。
+
+### 10.4 §8.6「实例重命名 / 删除」不需要额外工作
+
+重命名走的是 `os.Rename(instances/{old}, instances/{new})`，删除走 `os.RemoveAll(instances/{name})`，
+`plugins/` 在这两个目录之内，天然跟着走。
+
+### 10.5 测试覆盖
+
+三条核心规则都做了变异验证（改坏实现确认用例会红）：
+
+- 抢救的 mtime 判定改成无条件 → `TestRescueKeepsNewerInstanceData` 失败
+- 整组替换退化成逐文件覆盖 → `TestReplaceGroupRemovesStaleCompanions` 失败
+- SQLite 魔数识别失效 → 三个用例失败，含 `IsProtectedRelPath` 的兜底分支
+- 同步例外去掉 → `TestSyncKeepsPluginDataButStillUpdatesBinaries` 精确复现原始 bug
+  （配置与权限库都被源版本覆盖、`-wal` 被当成多余条目删掉）
+
+在线快照用**真库**验证：WAL 模式下写 50 行不 checkpoint、连接不关，
+`VACUUM INTO` 出来的快照能读到全部 50 行，且不带 `-wal`。
+
+---
+
+## 11. Linux 兼容：编译得过，但应当整体静默
+
+`internal/plugindata` 已核对为**跨平台**：无 `golang.org/x/sys/windows` 与 `syscall` 引用；
+相对路径一律以 forward slash 为规范形式、落盘前过 `filepath.FromSlash`；
+`slashBase` 而非 `filepath.Base`（`plugindata.go:323` 有注释说明）；
+`modernc.org/sqlite` 是纯 Go 驱动，不破坏 Linux 侧 `CGO_ENABLED=0` 的静态编译目标。
+
+但 `LINUX_COMPATIBILITY_PLAN.md` §1 已把 ArkApi / `AsaApiLoader.exe` 列为 **Linux 不支持**
+（Wine 下的进程注入与 DLL hook 不可靠）。所以本方案在 Linux 上的正确形态是**什么都不做**。
+
+**默认就是静默的，而且是结构性的**：`listMirrorPlugins`（`plugindata.go:57`）以镜像里
+实际存在的插件目录为准，`os.ReadDir` 失败即返回空 —— Linux 上
+`ShooterGame/Binaries/Win64/ArkApi/Plugins` 根本不存在，`Inject` / `Reclaim` / `Rescue`
+全部退化成空循环，`StartSnapshots` 不起 goroutine，`IsProtectedRelPath` 第一行前缀判断就返回 false。
+
+四条要在 Linux 落地时显式确认（已登记进 `LINUX_COMPATIBILITY_PLAN.md` §5.12）：
+
+| # | 项 | 说明 |
+|---|---|---|
+| 1 | `pluginsRelPath` 硬编码大小写 | 常量是 `ShooterGame/Binaries/Win64/ArkApi/Plugins`。大小写敏感文件系统上一旦与 SteamCMD 落盘的大小写不符，前缀匹配静默失效。当前「本来就不该匹配」所以无害，但支持 ArkApi 后这是第一个要改的地方 |
+| 2 | `override.go:85` 的 `strings.ToLower` | 路径包含判定折叠了大小写，Linux 上会把 `/a/DB` 与 `/a/db` 判为同一路径，导致 `DbPathOverride` 被误判成「指向实例目录内」而继续搬运。同样只在支持 ArkApi 后成为真 bug |
+| 3 | `webapi/pluginapi` 与 `PluginDataPanel.vue` | Linux 上应回执明确的「本平台不支持 ArkApi」而**不是空数据** —— 空数据会让用户以为是自己配错了。前端据此隐藏整个面板 |
+| 4 | `PluginSnapshotInterval` | Linux 上读写正常但永不生效。**保持存在不要删** —— 实例配置在两平台间迁移时字段消失更难解释 |
+
+---
+
+## 12. 已被 `ARKAPI_PLUGIN_PLAN.md` 取代的部分（2026-09-11 追加）
+
+本文的核心机制已被 [`ARKAPI_PLUGIN_PLAN.md`](./ARKAPI_PLUGIN_PLAN.md) 取代，并已实施：插件整个放进实例目录
+`instances/{name}/ArkApi/Plugins/`，镜像里的 `Win64/ArkApi/Plugins` 是指向它的例外 junction，插件直接读写实例目录，
+不再需要启停搬运，也就没有崩溃窗口。按「PLAN 文档只增不改」的惯例，上文原样保留，逐条对照如下：
+
+| 本文内容 | 现状 |
+|---|---|
+| §1、§4.3–§4.5、§4.7 启停搬运（Inject / Reclaim / Rescue） | **取代**。启动路径不再调用 Inject；Rescue 只供一次性迁移使用；`harvest` / `Inject` 开头有结构性关断（镜像里的 Plugins 是链接，或实例已迁移，就直接返回）。Reclaim 仍在停止路径上，只为升级那一刻正在运行、尚未迁移的实例服务，对已迁移的实例是空操作 |
+| §5 同步例外 `IsProtectedRelPath` | 保留但不再起作用：同步走到 junction 就 `SkipDir`，进不到 Plugins。随搬运代码一起删除 |
+| §6「不采纳整目录 junction」 | **推翻**，理由见该文 §3.4：镜像的 Win64 本来就是每实例一份真实拷贝，磁盘占用不变；「更新时回灌非数据文件」正是按实例安装、更新插件这个功能本身 |
+| §4.2 文件分类（SQLite 按文件头识别、文件组推导） | 继续有效：插件更新与「从备份恢复」时据此决定哪些数据文件要带过去 |
+| §4.6 保序递归配置合并 | 继续有效：插件更新与 ArkApi 主程序 `config.json` 更新时使用 |
+| §4.8 `DbPathOverride` 识别 | 继续有效，仅用于展示；「指向实例内部」的判定根目录改为 `ArkApi/Plugins/{P}`。指向旧 `plugins/{P}` 的值在迁移时被清空或改写（该文 §4.4 第 2 步第 5 项） |
+| §4.9 在线快照 | 继续有效，改为扫描实例的 `ArkApi/Plugins/`，写进 `ArkApi/PluginSnapshots/{P}/` |
+| §8 第 8 条「库大到搬运不可接受时改用 junction」 | 已经提前成为默认 |
+| §10.2「源侧配置更新到不了镜像」 | 随之消失：插件更新时 `config.json` 在实例目录里就地合并，新版本的配置键立刻可见 |
+| §11 表格第 3 条「Linux 上 pluginapi 应回执本平台不支持」 | 已被 `LINUX_COMPATIBILITY_PLAN.md` 推翻（ArkApi 在 Linux 上已经是目标），**不要照做**；第 1、2 条已实施 |
+
+迁移之后，实例目录里旧的 `plugins/` 被改名为 `plugins.legacy-<时间戳>/` 保留，不再读写；server-files 里的全局插件在所有实例都
+迁移完之后，移入 `{BaseDir}/arkapi/backups/legacy-server-plugins-<时间戳>/`。
+
+---
+
+# 附录 Y：文件路径对照（2026-09-29）
+
+| 文档中的路径 | 实际路径（当前代码） |
+|---|---|
+| 旧顶层包 `asaserver/` | 已整体迁入 `internal/` |
+| `internal/arkapimanage/`、`internal/plugindata/` | 与文档一致（本文真实落点） |
+| `internal/instance/pluginlayout.go` | 与文档一致 |
+
+# 附录 Z：合并与同步记录（2026-09-29）
+
+本文件由 `docs/ARKAPI_PLUGIN_INSTALL_PLAN.md` 与 `docs/ARKAPI_PLUGIN_DATA_PLAN.md` 于 2026-09-29 逐字物理合并而成（方案甲）；「已知缺陷清单」同步自 `docs/PLAN_IMPLEMENTATION_AUDIT_2026-09-29.md` §7（只读审计，基线 `faf127c`）；两个源文件保持原样，未作删减或改写。
