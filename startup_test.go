@@ -8,9 +8,11 @@ func TestStartupModeFor(t *testing.T) {
 		args []string
 		want startupMode
 	}{
-		{"无参", []string{"asa"}, defaultStartup},
+		{"无参（Linux：api）", []string{"asa"}, defaultStartup},
 		{"api", []string{"asa", "api"}, defaultStartup},
-		{"setup 暂保持旧行为（C6 再切）", []string{"asa", "setup", "--basedir", "x"}, defaultStartup},
+		{"setup", []string{"asa", "setup", "--basedir", "x"}, firstRunStartup},
+		{"gui", []string{"asa", "gui"}, firstRunStartup},
+		{"setup --help 仍是只读", []string{"asa", "setup", "--help"}, readOnlyStartup},
 		{"config init", []string{"asa", "config", "init"}, readOnlyStartup},
 		{"config 带参数", []string{"asa", "config", "init", "--dir", "/tmp/x"}, readOnlyStartup},
 		{"全局取值 flag 在前", []string{"asa", "--port", "1", "config", "init"}, readOnlyStartup},
@@ -30,9 +32,19 @@ func TestStartupModeFor(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := startupModeFor(c.args); got != c.want {
+			if got := startupModeFor("linux", c.args); got != c.want {
 				t.Errorf("startupModeFor(%q) = %+v，期望 %+v", c.args, got, c.want)
 			}
 		})
+	}
+}
+
+// Windows 无参进 GUI：GUI 的首次启动向导自己处理配置缺失。
+func TestStartupModeForWindowsNoArgs(t *testing.T) {
+	if got := startupModeFor("windows", []string{"asa.exe"}); got != firstRunStartup {
+		t.Errorf("Windows 无参应为 firstRunStartup，实际 %+v", got)
+	}
+	if got := startupModeFor("windows", []string{"asa.exe", "api"}); got != defaultStartup {
+		t.Errorf("Windows api 应为 defaultStartup，实际 %+v", got)
 	}
 }

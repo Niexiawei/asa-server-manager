@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -129,11 +130,14 @@ func main() {
 	// 5 个数据子目录。服务模式没有命令行可看，恒为旧行为。
 	mode := defaultStartup
 	if !isService {
-		mode = startupModeFor(os.Args)
+		mode = startupModeFor(runtime.GOOS, os.Args)
 	}
 	appCfg := loadAppConfig(mode)
 
-	if mode.ensureDirs {
+	// 目录变量总是指向解析出的 BaseDir；要不要真的建出来、把文件日志切过去，看模式。
+	// setup / GUI 在配置缺失时推迟到它们生成配置之后（bootstrap.Reload）。
+	cfgpkg.SetDirectories(cfgpkg.BaseDir)
+	if mode.ensureDirs && !(mode.deferDirsIfMissing && appconfig.ConfigMissing()) {
 		if err := cfgpkg.EnsureDirectories(cfgpkg.BaseDir); err != nil {
 			log.Fatal(err)
 		}
@@ -283,13 +287,7 @@ func loadAppConfig(mode startupMode) *appconfig.Config {
 // 交互式运行时这里的赋值随后会被 flag 解析覆盖成同样的值（未显式传参）
 // 或命令行指定的值（显式传参），两条路径结果都正确。
 func applyAppConfig(cfg *appconfig.Config) {
-	webapi.ApiServerPort = cfg.Server.Port
-	webapi.EnableTLS = cfg.Server.TLS.Enabled
-	webapi.TrustLocalCA = cfg.Server.TLS.TrustLocalCA
-	webapi.TLSCertFile = cfg.Server.TLS.CertFile
-	webapi.TLSKeyFile = cfg.Server.TLS.KeyFile
-	webapi.TLSDomains = strings.Join(cfg.Server.TLS.Domains, ",")
-	webapi.TrustedProxies = strings.Join(cfg.Server.TrustedProxies, ",")
+	webapi.ApplyConfig(cfg)
 
 	// download / runner 的字段映射只在 bootstrap.Apply 里写一份，setup 与 GUI 向导
 	// 重新加载配置时走同一个函数（docs/SETUP_FLOW_OPTIMIZATION_PLAN.md Part 2 §P2-3.6）。
