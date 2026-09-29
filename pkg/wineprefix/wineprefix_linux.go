@@ -40,6 +40,25 @@ type Manager struct {
 	prefixLocks   sync.Map // prefix path -> *sync.Mutex
 	creationSlots chan struct{}
 
+	// lowerMu separates "the shared lower is being modified" from "a writable
+	// layer is being mounted on it" (prefix_mode overlay). PrepareSharedWrite
+	// holds it exclusively for the whole write window it opens;
+	// ensureOverlayPrefix holds it shared while it mounts, and fails fast
+	// rather than wait (a window can last minutes; a start request should say
+	// why it can't proceed instead of hanging). lowerOp names the open window
+	// for that error message.
+	lowerMu sync.RWMutex
+	lowerOp atomic.Pointer[string]
+
+	// leases counts, per key, the callers that are about to use or are
+	// starting to use that key's writable layer (HoldLayer). Between a layer
+	// being mounted and its wineserver appearing there is nothing on disk or
+	// in /proc to say the layer is in use, so PrepareSharedWrite used to
+	// judge it idle and unmount it out from under the starting instance
+	// (docs/PLAN_IMPLEMENTATION_AUDIT_2026-09-29.md §3.2 P1-7).
+	leaseMu sync.Mutex
+	leases  map[string]int
+
 	// remounted is unused here; overlay mounts don't touch SocketDir-style
 	// remount state — kept out on purpose, unlike xvfb.
 }
@@ -47,7 +66,7 @@ type Manager struct {
 // New returns a Manager for cfg, using umuRT to warm prefixes and detect
 // live wineserver processes.
 func New(cfg Config, umuRT *umu.Runtime) *Manager {
-	m := &Manager{umu: umuRT, creationSlots: make(chan struct{}, 2)}
+	m := &Manager{umu: umuRT, creationSlots: make(chan struct{}, 2), leases: map[string]int{}}
 	m.cfg.Store(&cfg)
 	return m
 }
@@ -388,6 +407,12 @@ func dirSize(root string) int64 {
 	return total
 }
 
+// dirNonEmpty reports whether path is a directory with at least one entry.
+func dirNonEmpty(path string) bool {
+	entries, err := os.ReadDir(path)
+	return err == nil && len(entries) > 0
+}
+
 func dirExists(path string) bool {
 	fi, err := os.Stat(path)
 	return err == nil && fi.IsDir()
@@ -416,25 +441,58 @@ func (m *Manager) ensureOverlayPrefix(ctx context.Context, cfg Config, key strin
 		return notInitialized(lower)
 	}
 
+	// Never mount on a lower that is being modified — see Manager.lowerMu.
+	// Same lock order as PrepareSharedWrite: lowerMu, then the key's lock.
+	if !m.lowerMu.TryRLock() {
+		op := "未知操作"
+		if p := m.lowerOp.Load(); p != nil {
+			op = *p
+		}
+		return fmt.Errorf("共享 Wine 前缀 %s 正在被修改（%s），实例 %s 暂时无法挂载它的可写层，请等该操作结束后重试",
+			lower, op, key)
+	}
+	defer m.lowerMu.RUnlock()
+
 	instDir := overlayInstanceDir(cfg, key)
 	unlock := m.lockPrefix(instDir)
 	defer unlock()
 
 	merged := overlayMergedDir(cfg, key)
 	want := lowerStamp(cfg, lower)
+	stamp := readOverlayStamp(cfg, key)
 
 	mounted := overlayMounted(merged)
 	// Not mounted but a usable prefix on disk = the copy fallback ran on an
 	// earlier start. Both shapes are valid, and both live at the same path.
 	seeded := !mounted && umu.PrefixInitialized(merged)
+	// The mounted shape at rest: after a host reboot (or PrepareSharedWrite
+	// unmounting an idle layer) merged is an empty mount point, but upper is
+	// still on disk with everything this instance's Wine ever wrote. This
+	// shape used to fall straight through to the wipe below — silently, since
+	// the rebuild message only covered the other two — so "the layer survives
+	// restarts" held only until the first reboot
+	// (docs/PLAN_IMPLEMENTATION_AUDIT_2026-09-29.md §3.2).
+	resting := !mounted && !seeded && dirNonEmpty(overlayUpperDir(cfg, key))
 
-	if (mounted || seeded) && readOverlayStamp(cfg, key) == want {
-		return fixPfxSymlink(merged, cfg.chownPath, logf)
+	if stamp == want {
+		switch {
+		case mounted, seeded:
+			return fixPfxSymlink(merged, cfg.chownPath, logf)
+		case resting:
+			if err := os.MkdirAll(merged, 0755); err != nil {
+				return fmt.Errorf("创建 %s 失败: %w", merged, err)
+			}
+			err := mountOverlay(cfg, key, logf)
+			if err == nil {
+				return fixPfxSymlink(merged, cfg.chownPath, logf)
+			}
+			logf("实例 %s 的 Wine 可写层重新挂载失败（%v），改为重建", key, err)
+		}
 	}
 
-	if mounted || seeded {
-		logf("实例 %s 的 Wine 可写层是基于旧的底层前缀建立的（记录 %q，当前 %q），正在重建",
-			key, orUnknown(readOverlayStamp(cfg, key)), orUnknown(want))
+	if mounted || seeded || resting {
+		logf("实例 %s 的 Wine 可写层需要重建（记录 %q，当前 %q）",
+			key, orUnknown(stamp), orUnknown(want))
 	}
 	if mounted {
 		if err := unmountOverlay(merged); err != nil {
@@ -804,21 +862,38 @@ func (m *Manager) LowerNeedsWork() bool {
 // underneath, the .lower-stamp mismatch rebuilds it, which is exactly what
 // should happen.
 //
+// A layer counts as live when its wineserver is running **or** someone holds
+// it via HoldLayer — the latter covers an instance between "layer mounted"
+// and "wineserver up", when nothing on disk says it is in use.
+//
 // op names the operation for the log; the returned closure marks the end of
 // the window in which the shared prefix may be written (defer is the
-// natural shape). Never nil when err is nil, and a no-op outside prefix_mode
-// "overlay".
+// natural shape) and **must** be called: until then no writable layer can be
+// mounted (ensureOverlayPrefix fails fast, naming op). It is idempotent, and
+// never nil when err is nil. Outside prefix_mode "overlay" nothing is
+// mounted, so the window only serializes writers of the lower.
 func (m *Manager) PrepareSharedWrite(op string) (func(), error) {
 	cfg := m.config()
+
+	// Held until the returned closer runs: no layer may be mounted on the
+	// lower while it is being modified (Manager.lowerMu). Taken first, so the
+	// mount list below cannot grow behind our back.
+	m.lowerMu.Lock()
 
 	var live, freed []string
 	for _, key := range overlayKeysMounted(cfg) {
 		merged := overlayMergedDir(cfg, key)
-		if umu.WineserverHoldsPrefix(merged) {
+		// The key's own lock: ensureOverlayPrefix holds it while it mounts
+		// and fixes up the layer, so this judgement sees a finished layer.
+		unlock := m.lockPrefix(overlayInstanceDir(cfg, key))
+		if m.layerLeased(key) || umu.WineserverHoldsPrefix(merged) {
+			unlock()
 			live = append(live, key)
 			continue
 		}
-		if err := unmountOverlay(merged); err != nil {
+		err := unmountOverlay(merged)
+		unlock()
+		if err != nil {
 			// Can't unmount and can't prove it's idle: treat as live
 			// rather than writing the lower anyway.
 			logger.Warnf("卸载空闲的 Wine 可写层 %s 失败：%v", merged, err)
@@ -834,14 +909,56 @@ func (m *Manager) PrepareSharedWrite(op string) (func(), error) {
 			len(freed), strings.Join(freed, "、"))
 	}
 	if len(live) == 0 {
-		return openLowerWriteWindow(cfg, op), nil
+		m.lowerOp.Store(&op)
+		closeWindow := openLowerWriteWindow(cfg, op)
+		var once sync.Once
+		return func() {
+			once.Do(func() {
+				closeWindow()
+				m.lowerOp.Store(nil)
+				m.lowerMu.Unlock()
+			})
+		}, nil
 	}
 
+	m.lowerMu.Unlock()
 	sort.Strings(live)
 	return nil, fmt.Errorf("底层 Wine 前缀 %s 现在不能被修改：实例 %s 还在运行，它们的可写层正挂在它上面"+
 		"（prefix_mode=overlay）。修改被挂载引用的 lowerdir 是 overlayfs 明确的未定义行为，"+
-		"请先停止这些实例后重试",
+		"请先停止这些实例（或等它们启动完成）后重试",
 		m.Dir(""), strings.Join(live, "、"))
+}
+
+// HoldLayer marks key's writable layer as in use until the returned func is
+// called (idempotent). A caller about to start something on the layer takes
+// it *before* EnsurePrefix and releases it once the started process holds the
+// layer itself (its wineserver shows up in /proc) or has failed to start.
+// While held, PrepareSharedWrite treats the layer as live instead of
+// unmounting it. A no-op for an empty key; harmless in the non-overlay modes,
+// where PrepareSharedWrite never looks at leases.
+func (m *Manager) HoldLayer(key string) (release func()) {
+	if key == "" {
+		return func() {}
+	}
+	m.leaseMu.Lock()
+	m.leases[key]++
+	m.leaseMu.Unlock()
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			m.leaseMu.Lock()
+			if m.leases[key]--; m.leases[key] <= 0 {
+				delete(m.leases, key)
+			}
+			m.leaseMu.Unlock()
+		})
+	}
+}
+
+func (m *Manager) layerLeased(key string) bool {
+	m.leaseMu.Lock()
+	defer m.leaseMu.Unlock()
+	return m.leases[key] > 0
 }
 
 // openLowerWriteWindow marks the span during which the shared lower prefix
