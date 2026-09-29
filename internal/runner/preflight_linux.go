@@ -7,19 +7,22 @@ import (
 	"strings"
 
 	"asa-server/pkg/linuxdeps"
+	"asa-server/pkg/umuruntime/plugins/xdisplay"
 	"asa-server/pkg/xvfb"
 )
 
 // preflight runs the host dependency checks scripts/ark_instance_manager.sh
 // does in check_dependencies()/check_userns_restriction() (32-bit glibc,
 // Python, libzstd, tar, the AppArmor userns restriction — the portable part
-// lives in pkg/linuxdeps), plus the checks that need this package's own
-// config/subsystem state (display, ACL support, overlayfs).
+// lives in pkg/linuxdeps), plus the runtime plugins' own self-checks (the
+// display) worded for this program by describePluginProblem, plus the checks
+// that need this package's own config/subsystem state (ACL support,
+// overlayfs).
 func preflight() []Problem {
 	problems := linuxdeps.Check(pythonProblem)
 
-	if p := checkDisplay(); p != nil {
-		problems = append(problems, *p)
+	for _, p := range hostFor(getConfig()).Preflight() {
+		problems = append(problems, describePluginProblem(p))
 	}
 	if p := checkACLSupport(); p != nil {
 		problems = append(problems, *p)
@@ -103,7 +106,7 @@ func runtimeUserProblems() []Problem { return verifyRuntimeAccess(false) }
 // rather than by what actually breaks. Whoever needs ArkApi still sees the
 // advisory during setup, in `asa-server verify-arkapi`, and at launch.
 //
-// # Why it asks planDisplay
+// # Why it asks the display plugin
 //
 // "Some xvfb package is installed" turned out not to imply "a display is
 // obtainable" — twice. On WSLg /tmp/.X11-unix is a read-only mount, so Xvfb
@@ -112,29 +115,43 @@ func runtimeUserProblems() []Problem { return verifyRuntimeAccess(false) }
 // though Xvfb does (docs/XVFB_CROSS_DISTRO_DISPLAY_PLAN.md §1). Sharing the
 // resolver means this check answers exactly the question the launch will ask.
 //
-// planDisplay, not acquire: a self-check must not start an X server as a side
-// effect of being asked.
+// The plugin's Preflight only reads the candidate chain (Plan), never
+// acquires: a self-check must not start an X server as a side effect of
+// being asked.
 //
-// Detail carries planDisplay's own reason string. It used to be a fixed
+// Detail carries the plugin's own reason string. It used to be a fixed
 // sentence, which meant a host with Xvfb installed and a permission problem on
 // /tmp/.X11-unix was told, and told only, to go install Xvfb
 // (docs/XVFB_CROSS_DISTRO_DISPLAY_PLAN.md §11).
 func checkDisplay() *Problem {
-	_, blocked := planDisplay()
-	if blocked == "" {
-		return nil
+	for _, p := range hostFor(getConfig()).Preflight() {
+		if p.Name == xdisplay.ProblemName {
+			d := describePluginProblem(p)
+			return &d
+		}
 	}
-	return &Problem{
-		Name:    "x11-display",
-		Warning: true,
-		Detail: blocked + "。ArkApi 的 AsaApiLoader.exe 与微软的 VC++ 安装器都会创建 Win32 窗口，" +
-			"Wine 下没有显示时它们直接失败（加载器 5 秒后以退出码 3 退出，一行日志都不写）。" +
-			"**不启用 ArkApi 的实例不受影响** —— ArkAscendedServer.exe 本身不需要显示，" +
-			"所以这一项不阻断安装",
-		Fix: xvfb.InstallHint + "。若 " + xvfb.SocketDir + " 是只读挂载（WSLg 就是这么挂的），" +
-			"asa-server 以 root 运行时会尝试把它重新挂载为可写（linux.allow_x11_remount，" +
-			"默认开）；这一步也失败时，需要系统里有一个不需要 xauth cookie 就能连的 X 服务，" +
-			"并可用 config.yaml 的 linux.display 指定它",
-	}
+	return nil
 }
 
+// describePluginProblem puts this program's words and severity on a
+// runtime plugin's self-check problem. Plugins report only the mechanism
+// ("no Xvfb here"); what that breaks in *this* program — and so whether it
+// is a blocker — is decided here. See docs/UMU_RUNTIME_PLUGIN_PLAN.md §6.
+func describePluginProblem(p Problem) Problem {
+	switch p.Name {
+	case xdisplay.ProblemName:
+		return Problem{
+			Name:    p.Name,
+			Warning: true,
+			Detail: p.Detail + "。ArkApi 的 AsaApiLoader.exe 与微软的 VC++ 安装器都会创建 Win32 窗口，" +
+				"Wine 下没有显示时它们直接失败（加载器 5 秒后以退出码 3 退出，一行日志都不写）。" +
+				"**不启用 ArkApi 的实例不受影响** —— ArkAscendedServer.exe 本身不需要显示，" +
+				"所以这一项不阻断安装",
+			Fix: xvfb.InstallHint + "。若 " + xvfb.SocketDir + " 是只读挂载（WSLg 就是这么挂的），" +
+				"asa-server 以 root 运行时会尝试把它重新挂载为可写（linux.allow_x11_remount，" +
+				"默认开）；这一步也失败时，需要系统里有一个不需要 xauth cookie 就能连的 X 服务，" +
+				"并可用 config.yaml 的 linux.display 指定它",
+		}
+	}
+	return p
+}

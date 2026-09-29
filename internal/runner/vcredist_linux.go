@@ -19,6 +19,7 @@ import (
 	"io"
 	"path/filepath"
 
+	"asa-server/pkg/umuruntime"
 	"asa-server/pkg/vcredist"
 	"asa-server/pkg/xvfb"
 )
@@ -38,20 +39,26 @@ func vcRedistInstallerFor(cfg Config, logf func(string, ...any)) *vcredist.Insta
 		Umu:          hostFor(cfg).Umu(),
 		ChownPath:    chownPathForRuntime,
 
-		// 与 ArkApi 启动路径共用同一个显示解析：两者需要显示的原因是同一个
-		// （Wine 的 winex11.drv），见 umu_linux.go 的 displayRes。blocked 与 err 在这里归一
-		// 成一个 error：pkg 只需要分「压根没有显示能力」与「有能力但这次没拿到」，
-		// 而**哪种算哪种**是本程序的判断（checkDisplay 把缺显示定为建议项，所以
-		// 一台没装 Xvfb 的机器走到 blocked 是常规路径，不是意外）。
+		// 与 ArkApi 启动路径向宿主要的是同一个能力（win32.gui）：两者需要显示的原因
+		// 是同一个（Wine 的 winex11.drv）。「压根没有显示能力」与「有能力但这次没
+		// 拿到」在这里翻成 pkg/vcredist 的两档；**哪种算哪种**是本程序的判断
+		// （checkDisplay 把缺显示定为建议项，所以一台没装 Xvfb 的机器走到前一档是
+		// 常规路径，不是意外）。
 		AcquireDisplay: func() ([]string, string, error) {
-			disp, blocked, err := acquireDisplay()
+			lease, err := hostFor(cfg).Acquire(context.Background(), umuruntime.CapGUI)
+			var (
+				unavailable *umuruntime.CapabilityUnavailableError
+				failed      *umuruntime.AcquireError
+			)
 			switch {
-			case blocked != "":
-				return nil, "", fmt.Errorf("%w: %s", vcredist.ErrNoDisplay, blocked)
+			case errors.As(err, &unavailable):
+				return nil, "", fmt.Errorf("%w: %s", vcredist.ErrNoDisplay, unavailable.Why)
+			case errors.As(err, &failed):
+				return nil, "", failed.Err
 			case err != nil:
 				return nil, "", err
 			}
-			return disp.Env, disp.How, nil
+			return lease.Apply(nil), lease.Describe(), nil
 		},
 
 		// 下载**之前**说，不是事后 —— 事后说的时候 24 MiB 已经无校验地下完了。

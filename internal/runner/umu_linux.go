@@ -30,7 +30,14 @@ import (
 // runtimeHost is this process's single runtime host. "Only one per process"
 // holds because it is constructed exactly once, here; configuration changes
 // go through hostFor's Reconfigure, never a second New.
-var runtimeHost = umuruntime.MustNew(umuruntime.Config{})
+//
+// Plugins registered here are the only ones the process has. The display is
+// Optional: nothing it does can fail Host.Ensure today, and should that change,
+// a missing display must still not fail environment setup — only ArkApi needs
+// one (see checkDisplay).
+var runtimeHost = umuruntime.MustNew(umuruntime.Config{},
+	umuruntime.With(displayRes, umuruntime.Optional),
+)
 
 // runtimeIdentity is the drop-privileges account every Wine-side mechanism
 // runs as. Each callback reads the config fresh: the account may not exist
@@ -86,11 +93,9 @@ func xvfbStatePath(cfg Config) string {
 // DisplayStatus、`verify-arkapi --check-only` 只许问它。
 func planDisplay() ([]xdisplay.Plan, string) { return displayFor(getConfig()).Plan() }
 
-// acquireDisplay 是启动路径的唯一入口：先判断，再沿候选链动手（必要时拉起 Xvfb）。
-func acquireDisplay() (xdisplay.Target, string, error) { return displayFor(getConfig()).Acquire() }
-
-// stopManagedDisplay 是 runner.StopManagedDisplay 的实现。
-func stopManagedDisplay() { displayFor(getConfig()).Stop() }
+// stopManagedDisplay 是 runner.StopManagedDisplay 的实现：关闭所有插件（今天只有
+// 显示插件持有进程级资源）。
+func stopManagedDisplay() { hostFor(getConfig()).Close() }
 
 // displayStatus 是 runner.DisplayStatus 的实现。
 func displayStatus() DisplayInfo { return displayFor(getConfig()).Status() }
@@ -98,7 +103,11 @@ func displayStatus() DisplayInfo { return displayFor(getConfig()).Status() }
 // hostFor refreshes runtimeHost's config from cfg and returns it. Cheap (a
 // few atomic pointer stores) — called before every use rather than only from
 // Configure(), so it needs no special hook there.
+//
+// Plugins are configured here too: the host never configures the plugins it
+// was handed, so this is the one place that keeps them in step with cfg.
 func hostFor(cfg Config) *umuruntime.Host {
+	displayFor(cfg)
 	runtimeHost.Reconfigure(hostConfig(cfg))
 	return runtimeHost
 }

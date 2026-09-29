@@ -3,8 +3,12 @@
 package runner
 
 import (
+	"errors"
 	"strings"
 	"testing"
+
+	"asa-server/pkg/umuruntime"
+	"asa-server/pkg/umuruntime/plugins/xdisplay"
 )
 
 // 候选链本身的用例在 asa-server/pkg/umuruntime/plugins/xdisplay（Plan 顺序、blocked 文案、Target 的
@@ -72,5 +76,59 @@ func TestDisplayStatusMatchesResolver(t *testing.T) {
 	if got, want := displayStatus(), displayFor(getConfig()).Status(); got.Available != want.Available ||
 		got.Blocked != want.Blocked || got.How != want.How {
 		t.Errorf("displayStatus() = %+v, resolver said %+v", got, want)
+	}
+}
+
+// TestDisplayPluginRegistered: 组合根把显示插件挂上了宿主，并且只挂了一份——
+// 「进程内只有一个自管显示」靠的就是这一份。
+func TestDisplayPluginRegistered(t *testing.T) {
+	var found int
+	for _, st := range hostFor(getConfig()).Status() {
+		if st.Name == xdisplay.Name {
+			found++
+			if len(st.Provides) != 1 || st.Provides[0] != umuruntime.CapGUI {
+				t.Errorf("xdisplay provides %v, want [%s]", st.Provides, umuruntime.CapGUI)
+			}
+		}
+	}
+	if found != 1 {
+		t.Fatalf("xdisplay registered %d times, want exactly once", found)
+	}
+	if r, ok := runtimeHost.Graph().Lookup(xdisplay.Name); !ok || r.Plugin != umuruntime.Plugin(displayRes) {
+		t.Error("the registered display plugin is not displayRes — a second resolver would mean a second Xvfb manager")
+	}
+}
+
+func TestLaunchNeeds(t *testing.T) {
+	if got := launchNeeds(Options{}); len(got) != 0 {
+		t.Errorf("launchNeeds(no display) = %v, want none", got)
+	}
+	if got := launchNeeds(Options{NeedsDisplay: true}); len(got) != 1 || got[0] != umuruntime.CapGUI {
+		t.Errorf("launchNeeds(NeedsDisplay) = %v, want [%s]", got, umuruntime.CapGUI)
+	}
+}
+
+// TestDescribeLaunchErrorKeepsWording: 插件化之后，两种「拿不到显示」给用户的话必须与
+// 之前逐字相同——「这台机器不行」要说原因并解释为什么提前拒绝，「这次没成功」要带上
+// 原始错误（里面有 xvfb.log 的现场）。
+func TestDescribeLaunchErrorKeepsWording(t *testing.T) {
+	exe := "/srv/ShooterGame/Binaries/Win64/AsaApiLoader.exe"
+
+	got := describeLaunchError(exe, &umuruntime.CapabilityUnavailableError{Cap: umuruntime.CapGUI, Why: "本机没有可用的图形显示"})
+	if want := "无法启动 AsaApiLoader.exe：它需要图形显示，但本机没有可用的图形显示。" +
+		"AsaApiLoader.exe（ArkApi）在 Wine 下没有显示会静默退出，" +
+		"所以这里提前拒绝，而不是让实例假装启动成功"; got.Error() != want {
+		t.Errorf("unavailable:\n got %q\nwant %q", got, want)
+	}
+
+	boom := errors.New("Xvfb 启动失败：缺字体")
+	got = describeLaunchError(exe, &umuruntime.AcquireError{Cap: umuruntime.CapGUI, Plugin: xdisplay.Name, Err: boom})
+	if want := "无法启动 AsaApiLoader.exe：拿不到图形显示。Xvfb 启动失败：缺字体"; got.Error() != want || !errors.Is(got, boom) {
+		t.Errorf("acquire failure:\n got %q\nwant %q (wrapping the cause)", got, want)
+	}
+
+	other := errors.New("别的错误")
+	if got := describeLaunchError(exe, other); got != other {
+		t.Errorf("unrelated error rewritten: %v", got)
 	}
 }

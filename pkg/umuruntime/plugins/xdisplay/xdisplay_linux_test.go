@@ -3,11 +3,13 @@
 package xdisplay
 
 import (
+	"context"
 	"errors"
 	"os"
 	"strings"
 	"testing"
 
+	"asa-server/pkg/umuruntime"
 	"asa-server/pkg/xvfb"
 )
 
@@ -284,4 +286,87 @@ func TestPlanNoPhantomXvfbNote(t *testing.T) {
 			t.Errorf("自管 Xvfb 在链里，却有候选声称它不可用：%q", p.How)
 		}
 	}
+}
+
+// --- 插件接口 -------------------------------------------------------------------
+
+// TestPluginShape: 显示插件提供 win32.gui，不依赖任何能力——VC++ 插件软依赖它，
+// 反过来成环就没有 Provision 顺序可言。
+func TestPluginShape(t *testing.T) {
+	r := testResolver(Config{})
+	if r.Name() != Name {
+		t.Errorf("Name = %q", r.Name())
+	}
+	if p := r.Provides(); len(p) != 1 || p[0] != umuruntime.CapGUI {
+		t.Errorf("Provides = %v, want [%s]", p, umuruntime.CapGUI)
+	}
+	if len(r.Needs()) != 0 {
+		t.Errorf("Needs = %v, want none", r.Needs())
+	}
+	if _, err := umuruntime.Resolve([]umuruntime.Registered{umuruntime.With(r, umuruntime.Optional)}); err != nil {
+		t.Errorf("Resolve: %v", err)
+	}
+}
+
+// TestProbeAndPreflightAgreeWithPlan: 插件接口上的三个只读判断必须与候选链是同一个
+// 答案，否则自检说「能拿到显示」而启动被拒（反之亦然）。
+func TestProbeAndPreflightAgreeWithPlan(t *testing.T) {
+	r := testResolver(Config{})
+	_, blocked := r.Plan()
+
+	ok, why := r.Probe()
+	if ok != (blocked == "") || why != blocked {
+		t.Errorf("Probe = (%v, %q), Plan blocked = %q", ok, why, blocked)
+	}
+	probs := r.Preflight()
+	if (len(probs) == 0) != (blocked == "") {
+		t.Errorf("Preflight = %+v, Plan blocked = %q", probs, blocked)
+	}
+	for _, p := range probs {
+		if p.Name != ProblemName || p.Detail != blocked || p.Fix == "" {
+			t.Errorf("Preflight problem = %+v, want name %q carrying the Plan reason", p, ProblemName)
+		}
+	}
+	rep := r.Report()
+	info, isInfo := rep.Data.(Info)
+	if !isInfo || rep.Ready != (blocked == "") || info.Blocked != blocked {
+		t.Errorf("Report = %+v, Plan blocked = %q", rep, blocked)
+	}
+}
+
+// TestPluginReadOnlySurfaceStartsNothing: Probe/Preflight/Report 同样不许拉起 X 服务端
+// ——它们就是 GET /api/system/preflight 背后调用的东西。
+func TestPluginReadOnlySurfaceStartsNothing(t *testing.T) {
+	r := New(Config{})
+	before := r.XvfbStatus()
+	_, _ = r.Probe()
+	_ = r.Preflight()
+	_ = r.Report()
+	if r.XvfbStatus() != before {
+		t.Error("Probe/Preflight/Report started an X server as a side effect")
+	}
+}
+
+// TestAcquireUnavailableIsTyped: 这台机器压根拿不到显示时，Acquire 的错误必须能被
+// errors.Is(ErrCapabilityUnavailable) 认出来——宿主靠它换下一个提供者，调用方靠它
+// 区分「这台机器不行」与「这次没成功」。
+func TestAcquireUnavailableIsTyped(t *testing.T) {
+	r := testResolver(Config{})
+	if _, blocked := r.Plan(); blocked == "" {
+		t.Skip("这台机器能拿到显示；Acquire 会真的动手，不在单测里做")
+	}
+	_, err := r.Acquire(context.Background())
+	var ue *umuruntime.CapabilityUnavailableError
+	if !errors.As(err, &ue) || ue.Cap != umuruntime.CapGUI || ue.Why == "" {
+		t.Fatalf("Acquire err = %v, want CapabilityUnavailableError for %s with a reason", err, umuruntime.CapGUI)
+	}
+}
+
+// TestTargetIsALease: Target 就是租约，Describe 即 How。
+func TestTargetIsALease(t *testing.T) {
+	var l umuruntime.Lease = Target{Env: []string{"DISPLAY=:5"}, How: "显示 :5"}
+	if l.Describe() != "显示 :5" {
+		t.Errorf("Describe = %q", l.Describe())
+	}
+	l.Release() // 不许 panic
 }

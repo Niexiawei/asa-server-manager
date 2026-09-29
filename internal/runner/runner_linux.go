@@ -4,6 +4,7 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"path/filepath"
@@ -22,36 +23,13 @@ import (
 func run(ctx context.Context, exePath string, args []string, opt Options) (*Handle, error) {
 	c, err := umuCommandLine(ctx, exePath, args, opt)
 	if err != nil {
-		return nil, err
+		return nil, describeLaunchError(exePath, err)
 	}
 	env := c.Env
-
-	// AsaApiLoader.exe creates real Win32 windows, so under Wine it needs an X
-	// display even though the workload is a headless game server: without one
-	// CreateWindow fails and the loader exits with code 3 having written
-	// nothing at all — no console output, not even its own logs/ directory
-	// (measured 2026-08-30, see the xdisplay package doc). Fail fast with something
-	// actionable instead of reporting a "started" instance that is already
-	// dead. Applied after the runtime-user env rewrite on purpose — see
-	// display.Target.Apply.
-	if opt.NeedsDisplay {
-		disp, blocked, dispErr := acquireDisplay()
-		switch {
-		case blocked != "":
-			// 这台机器压根没有显示能力。
-			return nil, fmt.Errorf("无法启动 %s：它需要图形显示，但%s。"+
-				"AsaApiLoader.exe（ArkApi）在 Wine 下没有显示会静默退出，"+
-				"所以这里提前拒绝，而不是让实例假装启动成功",
-				filepath.Base(exePath), blocked)
-		case dispErr != nil:
-			// 有能力但这次没拿到（多半是 Xvfb 起不来）。这条失败面是自管 Xvfb
-			// 才有的 —— xvfb-run 在 Xvfb 起不来时照跑命令，于是同样的故障以前是
-			// 静默的，只能从「加载器零输出退出」反推。
-			return nil, fmt.Errorf("无法启动 %s：拿不到图形显示。%w",
-				filepath.Base(exePath), dispErr)
+	for _, l := range c.Leases {
+		if l.Cap == umuruntime.CapGUI {
+			logger.Infof("runner: %s 需要图形显示，本次使用 %s", filepath.Base(exePath), l.Lease.Describe())
 		}
-		logger.Infof("runner: %s 需要图形显示，本次使用 %s", filepath.Base(exePath), disp.How)
-		env = disp.Apply(env)
 	}
 
 	if opt.PTY {
@@ -148,8 +126,49 @@ func umuCommandLine(ctx context.Context, exePath string, args []string, opt Opti
 	c, err := hostFor(getConfig()).Command(ctx, exePath, args, umuruntime.LaunchSpec{
 		PrefixKey: opt.PrefixKey,
 		Env:       opt.Env,
+		Needs:     launchNeeds(opt),
 	})
 	return c, withSetupHint(err)
+}
+
+// launchNeeds translates Options into the capabilities the launch needs.
+//
+// AsaApiLoader.exe creates real Win32 windows, so under Wine it needs an X
+// display even though the workload is a headless game server: without one
+// CreateWindow fails and the loader exits with code 3 having written nothing
+// at all — no console output, not even its own logs/ directory (measured
+// 2026-08-30, see the xdisplay package doc). The host acquires it after the
+// runtime-user env rewrite, on purpose — see umuruntime.Host.Command.
+func launchNeeds(opt Options) []umuruntime.Capability {
+	if opt.NeedsDisplay {
+		return []umuruntime.Capability{umuruntime.CapGUI}
+	}
+	return nil
+}
+
+// describeLaunchError puts this program's words on a capability the launch
+// could not get. Failing fast here, with something actionable, beats
+// reporting a "started" instance that is already dead.
+func describeLaunchError(exePath string, err error) error {
+	var (
+		unavailable *umuruntime.CapabilityUnavailableError
+		failed      *umuruntime.AcquireError
+	)
+	switch {
+	case errors.As(err, &unavailable) && unavailable.Cap == umuruntime.CapGUI:
+		// 这台机器压根没有显示能力。
+		return fmt.Errorf("无法启动 %s：它需要图形显示，但%s。"+
+			"AsaApiLoader.exe（ArkApi）在 Wine 下没有显示会静默退出，"+
+			"所以这里提前拒绝，而不是让实例假装启动成功",
+			filepath.Base(exePath), unavailable.Why)
+	case errors.As(err, &failed) && failed.Cap == umuruntime.CapGUI:
+		// 有能力但这次没拿到（多半是 Xvfb 起不来）。这条失败面是自管 Xvfb
+		// 才有的 —— xvfb-run 在 Xvfb 起不来时照跑命令，于是同样的故障以前是
+		// 静默的，只能从「加载器零输出退出」反推。
+		return fmt.Errorf("无法启动 %s：拿不到图形显示。%w",
+			filepath.Base(exePath), failed.Err)
+	}
+	return err
 }
 
 // gamePath is the platform seam for runner.GamePath (runner_windows.go has

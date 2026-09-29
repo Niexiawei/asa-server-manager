@@ -57,3 +57,10 @@ type Target struct {
 func (t Target) Apply(env []string) []string {
 	return append(append([]string{}, env...), t.Env...)
 }
+
+// Describe is How, for umuruntime.Lease.
+func (t Target) Describe() string { return t.How }
+
+// Release is a no-op: the managed display is a process-wide singleton that
+// outlives every launch, and a borrowed one was never ours to release.
+func (t Target) Release() {}
