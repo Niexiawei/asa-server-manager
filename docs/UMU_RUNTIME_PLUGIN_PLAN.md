@@ -1,6 +1,7 @@
 # `pkg/umuruntime`：Wine/Proton 运行时独立成包 + 运行时组件插件化
 
-> 状态：📝 **计划稿，未动代码**（2026-09-29，基线 `faf127c`）。等审阅通过后按 §9 分阶段实施。
+> 状态：🚧 **阶段 0–2b 已完成**（2026-09-29，分支 `refactor/umuruntime-plugins`，`6f36c3b`..`654c841`）；
+> 阶段 3–6 未开始。实施中与设计的偏离见 §13「实施记录」。
 > 相关文档：`docs/UMU_PREFIX_PLAN.md`（prefix 模式与已知缺陷）、`docs/XVFB_DISPLAY_PLAN.md`（显示解析与自管 Xvfb）、
 > `docs/ARKAPI_LINUX_VCREDIST_PLAN.md`（VC++ 运行时）、`docs/RUNNER_INSTANCE_PACKAGE_SPLIT_PLAN.md`（上一轮拆包，本文是它的续篇）。
 > 用户原话里的包名是 `pkg/umnruntime`，按拼写错误处理，本文统一写作 **`pkg/umuruntime`**（见 §12 第 1 条）。
@@ -623,6 +624,59 @@ wsl -e zsh -lc 'cd /mnt/d/golang/asa-server && go test -race ./pkg/umuruntime/..
 4. **能力按需求命名**（`win32.gui`），理由见 §4.1。**不**提供 `Need.Provider` 钉死提供者的字段 ——
    等真出现「必须由某个特定插件提供」的需求再加。
 5. **`ArkApiNeeds` 放 `internal/installer`**（零新包）。以后出现第二个带特殊需求的 exe，再抽出 `internal/launchprofile`。
+
+---
+
+## 13. 实施记录
+
+### 13.1 阶段 0–2b（2026-09-29）
+
+| 阶段 | 提交 | 内容 |
+|---|---|---|
+| 0 | `6f36c3b` | `pkg/umuruntime/{capability,plugin,errors,graph}.go` + `graph_test.go` |
+| 1 | `a56b9d2` | `Host`（`host_linux.go`）+ `host_linux_test.go`；`internal/runner` 改为组合根；`NotReadyError` |
+| 2a | `b4798ea` | `git mv pkg/display → pkg/umuruntime/plugins/xdisplay`；删 `internal/runner/{display,xvfb}_linux.go` |
+| 2b | `654c841` | xdisplay 实现插件接口并注册进 Host；启动、VC++ 安装器、preflight、退出改走 Host |
+
+验证：Windows `go build ./...` / `go vet` / `go test`；WSL2 `go vet ./internal/... ./pkg/umuruntime/...`、
+`go test`（umuruntime、xdisplay、xvfb、vcredist、wineprefix、umu、runner、instance、installer、actions）与 `-race`（umuruntime、runner）全过。
+另用一个一次性用例在 WSL2 上走了一遍**真实**路径：`Host.Acquire(win32.gui)` → 插件起了自管 Xvfb（`:0`，
+经 `/tmp/.X11-unix` 只读 remount）→ `stopManagedDisplay`（即 `Host.Close`）后 Xvfb 退出、挂载还原为 `ro`、无残留进程。
+**尚未做 §10.3 的真机验收**（setup / ArkApi 实例启动），留到阶段 3 之后一起做。
+
+### 13.2 与设计的偏离
+
+1. **插件接口放在无 tag 的 `plugin.go`**，而不是 §3.1 写的 `plugin_linux.go`：`Plugin`/`EnvProvider`/`Lease`/
+   `Preflighter`/`Statuser`/`Closer` 都不引用 `pkg/umu` 的类型，放无 tag 文件后依赖图可以用假插件在 Windows 上单测。
+   阶段 3 的 `PrefixProvisioner`/`ProvisionContext` 要引用 `*umu.Runtime`，届时放 linux 文件。
+2. **三个方法改名**，都是为了让 `xdisplay.Resolver` 直接实现接口而不撞已有方法：
+   - `Statuser.Status()` → **`Report()`**：`Resolver.Status() Info` 被原 `pkg/display` 的单测直接调用，按 2a
+     「不改断言」的约束保留原名原签名。
+   - `Lease.How()` → **`Describe()`**：`Target` 已有字段 `How`，同名方法不合法。
+   - 原 `Resolver.Acquire() (Target, string, error)` → 未导出的 **`acquireChain()`**，把 `Acquire` 让给
+     `EnvProvider.Acquire(ctx) (Lease, error)`。它原来只有 `internal/runner` 的胶水在调，已随 2b 删除。
+3. **`xdisplay` 保留类型名 `Resolver`**（§4.4 写的是改名 `Plugin`）：改名会动到原单测的 `testResolver` 签名，没有收益。
+4. **`xdisplay.Config` 内嵌 `xvfb.Config`**，而不是「xvfb 的四个字段 + `Identity`」：插件因此不依赖 `umuruntime.Identity`，
+   身份回调由组合根从 `runtimeIdentity` 填进 `xvfb.Config`。
+5. **`Identity.Credential` 返回 `(cred, home, err)`**（§4.5 写的是两值）：启动时 HOME 改写用的是这个 home，
+   与原来 `resolveRuntimeCredential` 的语义逐字一致；传给 `pkg/umu`/`pkg/xvfb` 时丢掉 home。
+6. **`NotReadyError` 定义在 `pkg/umu`**，`umuruntime.NotReadyError` 是它的别名：`pkg/umu`、`pkg/wineprefix` 要产生它，
+   而它们在 `umuruntime` 之下，不能反向 import。`internal/runner` 的 `withSetupHint` 在 `CheckRuntime`/`EnsurePrefix`/
+   `EnsureRuntime`/`Run` 四个出口统一追加「请运行 asa-server setup 完成环境准备」，文案与原来逐字相同。
+   `RUNNER_INSTANCE_PACKAGE_SPLIT_PLAN.md` Part 2 §6.7 记为「本轮未改」的那四处硬编码随之清掉。
+7. **`EnvProvider.Acquire` 自己报「不可用」**，宿主不先调 `Probe`：否则候选链每次启动要算两遍。
+   `Probe` 只给只读调用方用。
+8. **`AutoDownload` 关闭时返回哨兵 `ErrAutoDownloadDisabled`**，原来那句带 `GET /api/system/preflight` 的英文错误由 runner 拼。
+9. **启动时 per-instance/overlay prefix 目录不存在**的错误措辞改了：`runner: Wine prefix not found at … (call EnsureRuntime first)`
+   → `umuruntime: Wine prefix not found at … (call EnsurePrefix first)`。这条正常路径上碰不到（启动前总会先 `EnsurePrefix`），
+   原来建议的 `EnsureRuntime` 也不对（它只建共享前缀）。
+10. **顺手去掉了 runner 里的第二个 Python 解析器**：`python_linux.go` 原有一个独立的 `pyfinder.Resolver`，
+    与 `umu.Runtime` 内那个用同一个 `PythonBin`、各自缓存。现在 preflight 与启动问的是同一个。
+11. **显示插件的 `Preflight` 不设 `Warning`**，交给组合根的 `describePluginProblem` 决定（连同 ArkApi 文案）：
+    插件不知道谁需要显示。`TestDisplayProblemIsAdvisory` 继续钉住「是建议项」。
+12. **`planDisplay` 保留**（`vcRedistStatus` 与 runner 的接线单测在用），`acquireDisplay` 删除；`stopManagedDisplay`
+    改为 `Host.Close()`。`runner.DisplayStatus`/`StopManagedDisplay`/`Options.NeedsDisplay` 按计划留到阶段 4。
+13. `hostFor(cfg)` 先刷新显示插件的配置再刷新宿主：宿主从不配置别人交给它的插件，组合根是唯一让它们跟上 `cfg` 的地方。
 
 ---
 
