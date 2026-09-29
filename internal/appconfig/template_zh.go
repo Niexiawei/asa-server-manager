@@ -177,6 +177,9 @@ linux:
   #                overlayfs；挂不上会自动降级成「从底层复制一份」并告警，实例照常启动。
   # 切回 shared 后旧目录不会自动消失，用 "asa-server prefix status" / "asa-server prefix gc" 查看与清理。
   prefix_mode: shared
+  # 仅 shared 模式：一台实例超过这么久还没初始化完成，就不再让后面的实例排队等它
+  #（它本身不会被停止）。不得小于 1m。
+  launch_gate_timeout: 20m
   # 留空 = {程序目录}/umu-prefix
   # per-instance 模式下这是**前缀**而非目录本身，实际路径为 "<prefix_dir>-<实例名>"
   # overlay 模式下它只决定底层在哪，每实例可写层固定在 {程序目录}/umu-prefix-overlay/

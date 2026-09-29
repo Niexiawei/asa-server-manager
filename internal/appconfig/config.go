@@ -179,6 +179,14 @@ type LinuxConfig struct {
 	// 切回 shared 后，另两种模式留下的目录不会自动消失，
 	// 用 `asa-server prefix status | gc` 查看与清理。
 	PrefixMode string `mapstructure:"prefix_mode"`
+	// LaunchGateTimeout 只在 prefix_mode=shared 下有意义：一台实例持有启动闸门
+	// 超过这么久仍没到达 start_initialization_successful，就放行闸门让后面的实例
+	// 继续启动（那台实例**不会**被停止，状态照常随它自己的进度更新）。
+	//
+	// 没有它时，一台卡在初始化之前、进程却一直活着的实例会让之后的所有启动永远
+	// 排队（docs/PLAN_IMPLEMENTATION_AUDIT_2026-09-29.md §6.2）。默认 20 分钟，
+	// 给大地图与首次下载 mod 留足余量。
+	LaunchGateTimeout time.Duration `mapstructure:"launch_gate_timeout"`
 	// PrefixDir 留空 = {BaseDir}/umu-prefix。
 	// 注意：per-instance 模式下这个值是**前缀**而不是目录本身，
 	// 实际路径为 "<prefix_dir>-<实例名>"。
@@ -715,16 +723,17 @@ func defaultConfig() Config {
 			Retries: 3,
 		},
 		Linux: LinuxConfig{
-			Runtime:         "umu",
-			UmuVersion:      "1.4.4",
-			ProtonVersion:   "GE-Proton10-34",
-			PrefixMode:      "shared",
-			AutoDownload:    true,
-			SteamRTPrefetch: true,
-			InstallVCRedist: true,
-			AllowX11Remount: true,
-			GameID:          "umu-default",
-			UmuRuntimeUser:  "asa-umu-runtime",
+			Runtime:           "umu",
+			UmuVersion:        "1.4.4",
+			ProtonVersion:     "GE-Proton10-34",
+			PrefixMode:        "shared",
+			LaunchGateTimeout: 20 * time.Minute,
+			AutoDownload:      true,
+			SteamRTPrefetch:   true,
+			InstallVCRedist:   true,
+			AllowX11Remount:   true,
+			GameID:            "umu-default",
+			UmuRuntimeUser:    "asa-umu-runtime",
 		},
 		ArkApiCache: ArkApiCacheConfig{
 			Enabled: true,
@@ -785,6 +794,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("linux.umu_version", d.Linux.UmuVersion)
 	v.SetDefault("linux.proton_version", d.Linux.ProtonVersion)
 	v.SetDefault("linux.prefix_mode", d.Linux.PrefixMode)
+	v.SetDefault("linux.launch_gate_timeout", d.Linux.LaunchGateTimeout)
 	v.SetDefault("linux.prefix_dir", "")
 	v.SetDefault("linux.umu_python_bin", "")
 	v.SetDefault("linux.auto_download", d.Linux.AutoDownload)

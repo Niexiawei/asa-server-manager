@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"time"
 )
 
 // Validate 校验配置并就地做归一化（小写、补默认值）。
@@ -189,6 +190,10 @@ func (l *LinuxConfig) validate() error {
 	l.PrefixMode = strings.ToLower(strings.TrimSpace(l.PrefixMode))
 	if !slices.Contains([]string{"shared", "per-instance", "overlay"}, l.PrefixMode) {
 		return fmt.Errorf("linux.prefix_mode: 只能是 shared / per-instance / overlay，当前为 %q", l.PrefixMode)
+	}
+	// 没有「0 = 不限」这一档：不限就是那个让后续启动永远排队的缺陷本身。
+	if l.LaunchGateTimeout < time.Minute {
+		return fmt.Errorf("linux.launch_gate_timeout: 不得小于 1m，当前为 %s", l.LaunchGateTimeout)
 	}
 	if l.Runtime == "umu" {
 		if l.UmuVersion == "" {
