@@ -145,12 +145,19 @@ func (m *Manager) lockPrefix(path string) func() {
 	return mu.Unlock
 }
 
+// notInitialized is the "this prefix was never warmed" error. Typed rather
+// than worded with a fix: how to warm it is the calling program's command.
+func notInitialized(prefix string) error {
+	return &umu.NotReadyError{Component: "wine-prefix", Path: prefix,
+		Summary: fmt.Sprintf("Wine 前缀尚未初始化：%s", prefix)}
+}
+
 // CheckSharedReady reports whether the shared prefix has been warmed at
-// least once, with no network access. Error text is end-user facing.
+// least once, with no network access. A failure is a *umu.NotReadyError.
 func (m *Manager) CheckSharedReady() error {
 	prefix := m.Dir("")
 	if _, err := os.Stat(filepath.Join(prefix, "system.reg")); err != nil {
-		return fmt.Errorf("Wine 前缀尚未初始化：%s。请运行 asa-server setup 完成环境准备", prefix)
+		return notInitialized(prefix)
 	}
 	return nil
 }
@@ -161,7 +168,7 @@ func (m *Manager) CheckSharedReady() error {
 //
 // It never downloads umu/GE-Proton/the Steam Linux Runtime — those are
 // global, shared, and remain the caller's EnsureRuntime job; a missing one
-// is reported as "run asa-server setup" rather than silently fetched on a
+// is reported as a *umu.NotReadyError rather than silently fetched on a
 // start path. An empty key therefore only verifies the shared prefix, it
 // never rebuilds it.
 func (m *Manager) EnsurePrefix(ctx context.Context, key string, progress io.Writer) error {
@@ -202,18 +209,17 @@ func (m *Manager) EnsurePrefix(ctx context.Context, key string, progress io.Writ
 
 	// Fast path, and the reason this is cheap to call on every start.
 	if umu.PrefixInitialized(prefix) && umu.PrefixMarker(prefix) == cfg.ProtonVersion {
-		// ...但 VC++ 的 DLL override 要单独过一眼。装它的那一步（warmPrefix 之后）
-		// 只在**新建 prefix** 时跑，所以任何比那段代码更早创建的 per-instance
-		// prefix 会永远停在没有 override 的状态：闸门放行、实例起来、ArkApi 加载
-		// 不了，而且每次启动都只有一条「没检测到 VC++ 运行时」的告警。
-		//
-		// 判据用 override 而不是「有没有原生 DLL」：安装器在无头机上装不上，
-		// 用它当判据会让每次启动都重跑一遍 regedit 容器。
-		if !cfg.hasVCRedistOverrides(prefix) {
-			if cfg.EnsureVCRedist != nil {
-				if err := cfg.EnsureVCRedist(ctx, key, logf); err != nil {
-					logf("实例 %s 的 Wine 前缀里补装 VC++ 运行时失败（%v）；不使用 ArkApi 可忽略", key, err)
-				}
+		// ...but what the caller layers on top may still be missing. Provision
+		// runs when a prefix is *created*, so any prefix created before a
+		// provisioner existed would otherwise stay without it forever — the
+		// VC++ DLL overrides were the case that bit: the gate lets the
+		// instance through, ArkApi can't load, and every start logs one more
+		// "no VC++ runtime" warning. Pending is the caller's cheap judgement
+		// of "is there work left" (for VC++: the overrides, not the native
+		// DLLs, which a headless host can never install).
+		if cfg.pending(prefix) {
+			if err := cfg.provision(ctx, key, prefix, logf); err != nil {
+				return fmt.Errorf("实例 %s 的 Wine 前缀补装运行时组件失败: %w", key, err)
 			}
 		}
 		return nil
@@ -237,13 +243,8 @@ func (m *Manager) EnsurePrefix(ctx context.Context, key string, progress io.Writ
 		return fmt.Errorf("创建实例 %s 的 Wine 前缀失败: %w", key, err)
 	}
 
-	// Same rule as EnsureRuntime: ArkApi is optional, so a failed VC++
-	// install must not block a start — but it has to be loud, because the
-	// people who need it have no other way to find out.
-	if cfg.EnsureVCRedist != nil {
-		if err := cfg.EnsureVCRedist(ctx, key, logf); err != nil {
-			logf("实例 %s 的 Wine 前缀里安装 VC++ 运行时失败（%v）；不使用 ArkApi 可忽略", key, err)
-		}
+	if err := cfg.provision(ctx, key, prefix, logf); err != nil {
+		return fmt.Errorf("实例 %s 的 Wine 前缀安装运行时组件失败: %w", key, err)
 	}
 	return nil
 }
@@ -362,7 +363,7 @@ func (m *Manager) overlayStatus(cfg Config) []Info {
 			Key:           key,
 			Path:          merged,
 			Initialized:   umu.PrefixInitialized(merged),
-			ProtonVersion: readOverlayStamp(cfg, key),
+			ProtonVersion: stampProtonVersion(readOverlayStamp(cfg, key)),
 			InUse:         umu.WineserverHoldsPrefix(merged),
 			SizeBytes:     dirSize(measured),
 			Overlay:       true,
@@ -412,7 +413,7 @@ func (m *Manager) ensureOverlayPrefix(ctx context.Context, cfg Config, key strin
 
 	lower := m.Dir("")
 	if !umu.PrefixInitialized(lower) {
-		return fmt.Errorf("Wine 前缀尚未初始化：%s。请运行 asa-server setup 完成环境准备", lower)
+		return notInitialized(lower)
 	}
 
 	instDir := overlayInstanceDir(cfg, key)
@@ -420,7 +421,7 @@ func (m *Manager) ensureOverlayPrefix(ctx context.Context, cfg Config, key strin
 	defer unlock()
 
 	merged := overlayMergedDir(cfg, key)
-	want := umu.PrefixMarker(lower)
+	want := lowerStamp(cfg, lower)
 
 	mounted := overlayMounted(merged)
 	// Not mounted but a usable prefix on disk = the copy fallback ran on an
@@ -723,6 +724,17 @@ func (m *Manager) removeOverlayPrefix(cfg Config, key string) error {
 	return os.RemoveAll(instDir)
 }
 
+// lowerStamp is the .lower-stamp value lower would give a layer built on it
+// now: its Proton marker plus the caller's ProvisionFingerprint, read live
+// from disk (cheap: a marker file and whatever the fingerprint reads).
+func lowerStamp(cfg Config, lower string) string {
+	fp := ""
+	if cfg.ProvisionFingerprint != nil {
+		fp = cfg.ProvisionFingerprint(lower)
+	}
+	return composeLowerStamp(umu.PrefixMarker(lower), fp)
+}
+
 func readOverlayStamp(cfg Config, key string) string {
 	b, err := os.ReadFile(overlayStampPath(cfg, key))
 	if err != nil {
@@ -770,8 +782,8 @@ func (m *Manager) LowerNeedsWork() bool {
 		return true // a version bump would move it aside and rebuild
 	case !m.umu.SteamLinuxRuntimeReady():
 		return true // WarmPrefix would run wineboot again
-	case cfg.Runtime == "umu" && cfg.InstallVCRedist && !cfg.hasVCRedistOverrides(lower):
-		return true // EnsureVCRedist would write the prefix registry
+	case cfg.pending(lower):
+		return true // Provision would write the prefix (the VC++ registry, for one)
 	}
 	return false
 }

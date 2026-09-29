@@ -90,6 +90,22 @@ var (
 	TrustedProxies = "127.0.0.1,::1"
 )
 
+// ApplyConfig 把应用配置写进上面这组包级变量。main.go 启动时调一次；GUI 首次启动
+// 向导重新加载配置（bootstrap.Reload）后再调一次——否则用户在向导里改的端口 / TLS，
+// 要重启程序才会被 GUI 内启动的 API 服务用上。
+//
+// 不放进 internal/bootstrap：那样 bootstrap 就得 import webapi，依赖 bootstrap 的
+// actions 也就把整个 webapi 拖进了自己的依赖闭包。
+func ApplyConfig(cfg *appconfig.Config) {
+	ApiServerPort = cfg.Server.Port
+	EnableTLS = cfg.Server.TLS.Enabled
+	TrustLocalCA = cfg.Server.TLS.TrustLocalCA
+	TLSCertFile = cfg.Server.TLS.CertFile
+	TLSKeyFile = cfg.Server.TLS.KeyFile
+	TLSDomains = strings.Join(cfg.Server.TLS.Domains, ",")
+	TrustedProxies = strings.Join(cfg.Server.TrustedProxies, ",")
+}
+
 // NewAPIServer creates a new API server instance
 func NewAPIServer() *APIServer {
 	hub := realtime.NewHub()
@@ -553,9 +569,9 @@ func ActionAPI(ctx context.Context, cmd *cli.Command) error {
 
 	<-ctx2.Done()
 	log.Printf("shutting down... \n")
-	// 收掉自管的 Xvfb（Linux/ArkApi 才有，其余情况是空操作）。需要显示的实例挂在
-	// PTY 上，本进程一走它们也跟着走，留下 X 服务端保不住任何东西 ——
-	// 见 runner.StopManagedDisplay。
-	runner.StopManagedDisplay()
+	// 收掉运行时插件持有的进程级资源——自管的 Xvfb（Linux/ArkApi 才有，其余情况
+	// 是空操作）。需要显示的实例挂在 PTY 上，本进程一走它们也跟着走，留下 X 服务端
+	// 保不住任何东西 —— 见 runner.Close。
+	runner.Close()
 	return apiServer.Stop()
 }

@@ -17,7 +17,7 @@
 | Gap D | `runInPrefix` 与 `umu.WarmPrefix` 是同一个机制写了两遍 | Part 2 §4 | ✅ 已于 2026-09-05 执行完成 |
 | Gap E | vcredist 的 DLL 判定 / 诊断，文件读取那半边 | Part 2 §5 | ✅ 已于 2026-09-05 执行完成 |
 | Gap F | vcredist 编排整体下沉（结论被推翻过一次，见 §6.1） | Part 2 §6 | ✅ 已执行（代码）；⬜ **真机验证尚未进行**，见 Part 2 §7、§8 末条 |
-| — | `pkg/umu` 与 `pkg/wineprefix` 四处面向用户的错误文本硬编码「请运行 `asa-server setup` 完成环境准备」（按同标准应改哨兵错误） | Part 2 §6.7 | ⬜ 本轮未改（记此供日后取舍） |
+| — | `pkg/umu` 与 `pkg/wineprefix` 四处面向用户的错误文本硬编码「请运行 `asa-server setup` 完成环境准备」（按同标准应改哨兵错误） | Part 2 §6.7 | ✅ 已于 2026-09-29 执行（`a56b9d2`：类型化的 `umu.NotReadyError`，文案由 `internal/runner` 的 `withSetupHint` 追加；见 `docs/UMU_RUNTIME_PLUGIN_PLAN.md` §13.2 第 6 条） |
 | **P1** | `pkg/xvfb` watch 看门狗退避序列退化为常量（`restartBackoff[0]`，5s/15s 永不生效）+ ①③④ 三条诊断日志全部丢失（行为回归） | Part 3 §1 | 🔴 **未修复**；2026-09-29 独立审计再次确认（`docs/XVFB_DISPLAY_PLAN.md`「已知缺陷清单」、`docs/PLAN_IMPLEMENTATION_AUDIT_2026-09-29.md` §1.2 记为 P2） |
 | P3 | 三处重复的 `noSuchID` 常量（`pkg/xvfb`、`internal/runner/runtimeuser_linux.go`、`pkg/sysuser`） | Part 3 §2 | ⬜ 未修复（建议清理） |
 | P3 | `findAdminTool` 三处重复实现（`pkg/shareacl`、`internal/runner`、`pkg/sysuser`） | Part 3 §3 | ⬜ 保留现状；建议加对位注释互引（尚未加） |
@@ -1219,6 +1219,8 @@ pkg/asaversion    →  stdlib only
 ---
 
 # 附录 Y：文件路径对照（2026-09-29）
+
+> ⚠️ 本表之后路径又经 `docs/UMU_RUNTIME_PLUGIN_PLAN.md`（2026-09-29）调整：`pkg/display` 整体迁入 `pkg/umuruntime/plugins/xdisplay`；`internal/runner/{display,xvfb}_linux.go` 已删除（显示解析器由 `umu_linux.go` 持有，并注册为宿主插件）；VC++ 的编排改由 `pkg/umuruntime/plugins/vcrt` 接入（`internal/runner/vcredist_linux.go` 只剩配置映射与文案）；`internal/runner/vcredist_windows.go` 更名为 `plugins_windows.go`；环境准备/就绪检查/启动命令拼装在 `pkg/umuruntime/host_linux.go`。
 
 | 文档中的路径 | 实际路径 / 现状（核对于 2026-09-29） |
 |---|---|

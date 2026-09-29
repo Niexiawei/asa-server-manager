@@ -384,7 +384,7 @@ Chinese overview, or jump straight to a topic below.
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | System architecture and design patterns |
 | [PACKAGE_RESTRUCTURE_PLAN.md](docs/PACKAGE_RESTRUCTURE_PLAN.md) | Splitting the `asaserver` god-package into domain packages |
 | [STATE_CONTROL.md](docs/STATE_CONTROL.md) | Instance state machine, CAS transitions, mutual exclusion |
-| [V2_MIRROR_STARTUP_ARCHITECTURE.md](docs/V2_MIRROR_STARTUP_ARCHITECTURE.md) | NTFS junction mirrors for parallel instance startup |
+| [MIRROR_STARTUP_PLAN.md](docs/MIRROR_STARTUP_PLAN.md) | NTFS mirror startup: v2 migration plan, architecture, changelog and admin-privilege removal |
 | [HTTP2_CONNECTION_OPTIMIZATION.md](docs/HTTP2_CONNECTION_OPTIMIZATION.md) | HTTP/2 plan to lift the browser's 6-connection-per-origin cap on SSE |
 | [instance-manager-daemon.md](docs/instance-manager-daemon.md) | Instance manager daemon design |
 | [LOGGER_REDESIGN_PLAN.md](docs/LOGGER_REDESIGN_PLAN.md) | `logger` package redesign (implemented, now `pkg/logger`): console/file multi-sink, chainable `WithConsole()`, full call-site migration |
@@ -438,7 +438,7 @@ Chinese overview, or jump straight to a topic below.
 | Document | What it covers |
 |----------|----------------|
 | [MIGRATION.md](docs/MIGRATION.md) | Migrating from the old bash scripts |
-| [V2_MIGRATION_PLAN.md](docs/V2_MIGRATION_PLAN.md) · [V2_MIGRATION_CHANGELOG.md](docs/V2_MIGRATION_CHANGELOG.md) | v2 migration plan and changelog |
+| [WEBAUTHN_REMOVAL_PLAN.md](docs/WEBAUTHN_REMOVAL_PLAN.md) | Removing WebAuthn — keeping password + TOTP + recovery codes only |
 | [STARTUP_FIXES.md](docs/STARTUP_FIXES.md) | Startup/shutdown fixes log |
 
 ### Tooling

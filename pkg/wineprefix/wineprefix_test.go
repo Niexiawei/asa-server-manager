@@ -100,3 +100,24 @@ func TestMountOptionsSafe(t *testing.T) {
 		}
 	}
 }
+
+// TestLowerStampFormat: .lower-stamp 以 Proton 标记打头、组件指纹接在分号后面；
+// 状态视图要能从里面把 Proton 版本原样取回来——新旧两种格式都要。
+func TestLowerStampFormat(t *testing.T) {
+	if got := composeLowerStamp("GE-Proton10-34", ""); got != "GE-Proton10-34" {
+		t.Errorf("no fingerprint: %q, want the bare marker (the pre-2026-09 format)", got)
+	}
+	s := composeLowerStamp("GE-Proton10-34", "vcrt=overrides=1,native=0,installer=-")
+	if s != "GE-Proton10-34;vcrt=overrides=1,native=0,installer=-" {
+		t.Errorf("composeLowerStamp = %q", s)
+	}
+	for stamp, want := range map[string]string{
+		s:                "GE-Proton10-34",
+		"GE-Proton10-34": "GE-Proton10-34", // 旧格式
+		"":               "",
+	} {
+		if got := stampProtonVersion(stamp); got != want {
+			t.Errorf("stampProtonVersion(%q) = %q, want %q", stamp, got, want)
+		}
+	}
+}

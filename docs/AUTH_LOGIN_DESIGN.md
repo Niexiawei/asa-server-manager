@@ -5,7 +5,7 @@
 > ⚠️ **2026-08 更新：WebAuthn / Passkey 功能已整体移除**，现行认证方式为
 > **密码 + TOTP 两步验证 + 恢复码**。§7 已替换为移除说明；其余章节（§1/§2/§3/§8/§11~§17）
 > 中关于 WebAuthn 的描述**保留为历史设计记录**，不再反映当前代码，阅读时请以本横幅为准。
-> 移除的动机、改动清单与迁移方案见 `docs/MIRROR_JUNCTION_AND_WEBAUTHN_REMOVAL_PLAN.md` 第二部分。
+> 移除的动机、改动清单与迁移方案见 `docs/WEBAUTHN_REMOVAL_PLAN.md` 第二部分。
 > 涉及包：新增 `appconfig/`、`auth/`、`webapi/authapi/`；改动 `webapi/actions.go`、`realtime/`、`main.go`、`actions/`、前端 `app/`
 > 关联文档：`docs/HTTP2_CONNECTION_OPTIMIZATION.md`（TLS / h2 前提）、`docs/PACKAGE_RESTRUCTURE_PLAN.md`（分层约束）
 
@@ -767,7 +767,7 @@ func ValidateTOTP(u *User, code string, skew uint) (bool, error) {
 - `audit_log` 中历史的 `cred_add` / `cred_delete` 记录保留，前端仍能正常显示。
 - 令牌的 `amr` 字段不再出现 `webauthn` / `uv`；历史令牌里带这两个值也能正常解析（`amr` 不参与校验）。
 
-**详见**：`docs/MIRROR_JUNCTION_AND_WEBAUTHN_REMOVAL_PLAN.md` 第二部分（含完整改动清单与验收标准）。
+**详见**：`docs/WEBAUTHN_REMOVAL_PLAN.md` 第二部分（含完整改动清单与验收标准）。
 
 ---
 

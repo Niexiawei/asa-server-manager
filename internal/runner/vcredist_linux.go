@@ -4,138 +4,101 @@ package runner
 
 // ArkApi 前置：Wine prefix 里的微软 VC++ 运行时。
 //
-// 编排本身（下载安装包、写 DLL override、跑安装器、写标记）在
-// asa-server/pkg/vcredist；本文件是组合根胶水 + **把结构化结果翻成人话**的那一层。
+// 机制在 asa-server/pkg/vcredist（下载安装包、写 DLL override、跑安装器、写标记），
+// 「什么时候装、装进哪个 prefix、写共享前缀前过守卫」在 umuruntime 的 vcrt 插件与
+// Host 里。本文件只剩组合根的两件事：把 runner.Config 翻成插件配置，以及**把插件
+// 的结构化结果翻成人话**。
 //
 // 后者是这个包边界的关键：凡是要提到 `asa-server setup`、`linux.install_vcredist`、
 // 「ArkApi 实例同样起不来」这些本程序自己的名字的地方，pkg 侧一律返回类型
-// （Result.Skip / *AutoDownloadDisabledError / OnUnverifiedDownload 钩子），
-// 文案全部在这里拼。见 docs/RUNNER_INSTANCE_PACKAGE_SPLIT_TODO.md §6。
+// （umuruntime.Outcome / vcredist.Result.Skip / *AutoDownloadDisabledError /
+// OnUnverifiedDownload 钩子），文案全部在这里拼。见 docs/UMU_RUNTIME_PLUGIN_PLAN.md §6。
 
 import (
-	"context"
 	"errors"
 	"fmt"
-	"io"
 	"path/filepath"
 
+	"asa-server/pkg/umuruntime"
+	"asa-server/pkg/umuruntime/plugins/vcrt"
 	"asa-server/pkg/vcredist"
 	"asa-server/pkg/xvfb"
 )
 
-func vcRedistDir(cfg Config) string { return filepath.Join(cfg.BaseDir, "vcredist") }
+// vcrtPlugin 是本进程唯一的 VC++ 插件，与 displayRes 一同注册进 runtimeHost。
+var vcrtPlugin = vcrt.New(vcrt.Config{})
 
-// vcRedistInstallerFor 用当下的 Config 现建一个 Installer。
-//
-// 不做包级单例：Installer 不持有任何跨调用状态（同 sysUserFor / pkg/sysuser.Manager，
-// 与必须 Reconfigure 的 umuRuntime / xvfbMgr 相反）。
-func vcRedistInstallerFor(cfg Config, logf func(string, ...any)) *vcredist.Installer {
-	return vcredist.New(vcredist.Config{
-		Dir:          vcRedistDir(cfg),
+// vcrtFor 用 cfg 刷新 vcrtPlugin 并返回它。
+func vcrtFor(cfg Config) *vcrt.Plugin {
+	vcrtPlugin.Reconfigure(vcrt.Config{
+		// custom 运行时的 prefix 是用户自己搭的，不归我们改。
+		Managed:      cfg.Runtime == "umu",
+		Install:      cfg.InstallVCRedist,
+		Dir:          filepath.Join(cfg.BaseDir, "vcredist"),
 		URL:          cfg.VCRedistURL,
 		SHA256:       cfg.VCRedistSHA256,
 		AutoDownload: cfg.AutoDownload,
-		Umu:          umuRuntimeFor(cfg),
-		ChownPath:    chownPathForRuntime,
-
-		// 与 ArkApi 启动路径共用同一个显示解析：两者需要显示的原因是同一个
-		// （Wine 的 winex11.drv），见 display_linux.go。blocked 与 err 在这里归一
-		// 成一个 error：pkg 只需要分「压根没有显示能力」与「有能力但这次没拿到」，
-		// 而**哪种算哪种**是本程序的判断（checkDisplay 把缺显示定为建议项，所以
-		// 一台没装 Xvfb 的机器走到 blocked 是常规路径，不是意外）。
-		AcquireDisplay: func() ([]string, string, error) {
-			disp, blocked, err := acquireDisplay()
-			switch {
-			case blocked != "":
-				return nil, "", fmt.Errorf("%w: %s", vcredist.ErrNoDisplay, blocked)
-			case err != nil:
-				return nil, "", err
-			}
-			return disp.Env, disp.How, nil
-		},
-
 		// 下载**之前**说，不是事后 —— 事后说的时候 24 MiB 已经无校验地下完了。
 		// 后半句提到本程序的配置项，所以只能在这一侧写。
-		OnUnverifiedDownload: func(url string) {
+		OnUnverifiedDownload: func(url string, logf func(string, ...any)) {
 			logf("警告：%s 的地址里没有可用的 SHA256（自定义镜像？），本次下载不做校验；"+
 				"可用 linux.vcredist_sha256 显式指定", url)
 		},
 	})
+	return vcrtPlugin
 }
 
-// ensurePrefixVCRedist 是 runner.EnsurePrefixVCRedist 的实现。
-func ensurePrefixVCRedist(ctx context.Context, prefixKey string, progress io.Writer) error {
-	return ensureVCRedist(ctx, getConfig(), prefixKey, progressLogger(progress))
+// describeOutcome 是 Host 的 OnOutcome：把插件在 Ensure / EnsurePrefix 里的结果翻成
+// 面向本程序用户的话。目前只有 vcrt 会产生结果。
+func describeOutcome(o umuruntime.Outcome, logf func(string, ...any)) {
+	if o.Plugin != vcrt.Name {
+		if o.Kind == umuruntime.Failed {
+			logf("运行时组件 %s 安装失败（%v）", o.Plugin, o.Cause)
+		}
+		return
+	}
+
+	switch o.Kind {
+	case umuruntime.Failed:
+		// 失败不阻断：VC++ 服务的是一个**可选功能**，不开 ArkApi 的用户占绝大多数，
+		// 为它让环境准备或实例启动失败不成比例。但必须响亮 —— 真要用 ArkApi 的人
+		// 必须看见这条。见 docs/ARKAPI_LINUX_VCREDIST_PLAN.md §3.2。
+		if o.Key == "" {
+			logf("VC++ 运行时安装失败（%v）；不使用 ArkApi 可忽略，使用 ArkApi 请看上面的输出",
+				describeVCRedistError(o.Cause))
+		} else {
+			logf("实例 %s 的 Wine 前缀里安装 VC++ 运行时失败（%v）；不使用 ArkApi 可忽略",
+				o.Key, describeVCRedistError(o.Cause))
+		}
+
+	case umuruntime.Degraded:
+		// 两种「跳过安装器」都**不是失败**：第一步的 DLL override 已经写好，普通实例
+		// 不受影响。但代价要说清楚 —— ArkApi 在这台机器上同样起不来（AsaApiLoader.exe
+		// 也要求有图形显示），不是只有 system32 没补齐。
+		res, _ := o.Detail.(vcredist.Result)
+		switch res.Skip {
+		case vcredist.SkipDisplayUnavailable:
+			// 有显示能力但这次没拿到（多半是 Xvfb 起不来）。与下面「本机没有显示」
+			// 同样只跳过安装、不阻断 setup，但原因不同，要如实说。
+			logf("跳过 VC++ 运行时安装：拿不到图形显示。%v", o.Cause)
+			logf("  override 已经写好，普通实例不受影响；但 **ArkApi 实例同样起不来**")
+		case vcredist.SkipNoDisplay:
+			// 缺显示在 preflight 里只是**建议项**（缺它只影响 ArkApi，见 checkDisplay），
+			// 所以一台没装 Xvfb 的机器会一路走到这里 —— 这条分支是常规路径，不是意外。
+			logf("跳过 VC++ 运行时安装：%v。", o.Cause)
+			logf("  override 已经写好，普通实例不受影响；但 **ArkApi 实例同样起不来** ——")
+			logf("  AsaApiLoader.exe 也要求有图形显示。请%s，然后重跑 asa-server setup。", xvfb.InstallHint)
+		}
+	}
 }
 
-// ensureVCRedist 把微软 VC++ 运行时装进指定 prefix，并把 pkg 侧的结构化结果翻成
-// 面向本程序用户的指引。
-//
-// 两个 Skip 分支都**不是失败**：第一步的 DLL override 已经写好，普通实例不受影响。
-// 但代价要说清楚 —— ArkApi 在这台机器上同样起不来（AsaApiLoader.exe 也要求有图形
-// 显示），不是只有 system32 没补齐。
-func ensureVCRedist(ctx context.Context, cfg Config, prefixKey string, logf func(string, ...any)) error {
-	if !cfg.InstallVCRedist {
-		return nil
-	}
-	// custom 运行时的 prefix 是用户自己搭的，不归我们改。
-	if cfg.Runtime != "umu" {
-		return nil
-	}
-
-	// 全程用同一份 cfg（不是每处各取一次 getConfig()）：中途 Configure 换了指针会
-	// 导致「装到 A 前缀、校验 B 前缀」。
-	res, err := vcRedistInstallerFor(cfg, logf).Ensure(ctx, wineprefixMgrFor(cfg).Dir(prefixKey), logf)
-
+// describeVCRedistError 把「自动下载关了、本地又没有安装包」翻成带本程序配置项的指引。
+func describeVCRedistError(err error) error {
 	var noDownload *vcredist.AutoDownloadDisabledError
 	if errors.As(err, &noDownload) {
 		return fmt.Errorf("auto_download 已关闭且本地没有 %s；"+
 			"请手动下载 %s 放到该路径，或设 linux.install_vcredist: false",
 			noDownload.Dest, noDownload.URL)
 	}
-	if err != nil {
-		return err
-	}
-
-	switch res.Skip {
-	case vcredist.SkipDisplayUnavailable:
-		// 有显示能力但这次没拿到（多半是 Xvfb 起不来）。与下面「本机没有显示」
-		// 同样只跳过安装、不阻断 setup，但原因不同，要如实说。
-		logf("跳过 VC++ 运行时安装：拿不到图形显示。%v", res.SkipCause)
-		logf("  override 已经写好，普通实例不受影响；但 **ArkApi 实例同样起不来**")
-	case vcredist.SkipNoDisplay:
-		// 缺显示在 preflight 里只是**建议项**（缺它只影响 ArkApi，见 checkDisplay），
-		// 所以一台没装 Xvfb 的机器会一路走到这里 —— 这条分支是常规路径，不是意外。
-		logf("跳过 VC++ 运行时安装：%v。", res.SkipCause)
-		logf("  override 已经写好，普通实例不受影响；但 **ArkApi 实例同样起不来** ——")
-		logf("  AsaApiLoader.exe 也要求有图形显示。请%s，然后重跑 asa-server setup。", xvfb.InstallHint)
-	}
-	return nil
-}
-
-// prefixHasVCRedist 只读判断某个 prefix 里有没有微软原生 VC++ 运行时。
-// 不联网、不改动，可以放心在实例启动这种热路径上调。判据见 vcredist.InstalledIn。
-func prefixHasVCRedist(prefixKey string) bool {
-	return vcredist.InstalledIn(wineprefixMgrFor(getConfig()).Dir(prefixKey))
-}
-
-// --- 诊断 ---------------------------------------------------------------------
-
-// vcRedistStatus 汇总 prefix 的 VC++ 运行时现状，供 `asa-server verify-arkapi` 展示。
-// 只读，不联网。gameDir 传游戏 exe 所在目录（可为空则跳过那一列）。
-//
-// 只读的那一半整个在 vcredist.Inspect 里；这里补的两样都是本包才知道的：运行时
-// 选型，以及显示候选链 —— 且**只问计划不动手**，`verify-arkapi --check-only`
-// 不该顺手起个 X 服务。报候选链的头一档：安装真跑起来时先试的就是它。
-func vcRedistStatus(prefixKey, gameDir string) VCRedistInfo {
-	cfg := getConfig()
-	info := vcredist.Inspect(wineprefixMgrFor(cfg).Dir(prefixKey), gameDir)
-	info.Managed = cfg.Runtime == "umu"
-
-	if plans, blocked := planDisplay(); blocked != "" {
-		info.InstallerBlocked = blocked
-	} else {
-		info.InstallerDisplay = plans[0].How
-	}
-	return info
+	return err
 }

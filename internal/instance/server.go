@@ -440,7 +440,7 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 	}
 
 	// 本实例这次启动用哪个 Wine 前缀：shared 模式与 Windows 上恒为 ""（共享前缀），
-	// per-instance 模式下是实例名。下面 VC++ 检查、EnsurePrefix、runner.Run 三处
+	// per-instance 模式下是实例名。下面 CheckNeeds、EnsurePrefix、runner.Run 三处
 	// 必须用同一个值，否则会出现「检查的是共享前缀、跑的是独立前缀」这种错位。
 	prefixKey := runner.PrefixKeyFor(instanceName)
 
@@ -452,7 +452,14 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 		return startErr
 	}
 
-	// ArkApi 的三条前置条件。三段都在 Windows 上恒为「满足」，所以不需要构建约束。
+	// ArkApi 对运行环境的要求（图形显示 + VC++ 运行时）在 installer.ArkApiNeeds 一处
+	// 定义，下面的前置检查与 runner.Run 用的是同一份。纯 ArkAscendedServer.exe 什么都不要。
+	var needs []runner.Capability
+	if arkAsaApiRunning {
+		needs = installer.ArkApiNeeds
+	}
+
+	// ArkApi 的前置条件。在 Windows 上恒为「满足」，所以不需要构建约束。
 	if arkAsaApiRunning {
 		// ⓪ 共享 Wine prefix 下已经有另一个 ArkApi 实例在跑 —— **阻断**。
 		// 判据是三个确定事实的合取（共享模式 / 对方在运行 / 对方也开了 ArkApi），
@@ -469,26 +476,21 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 			return startErr
 		}
 
-		// ① 图形显示 —— **硬性**，因而阻断。AsaApiLoader.exe 会创建真正的 Win32
-		// 窗口，Wine 连不上 X 服务时 CreateWindow 直接失败，加载器退出码 3 且
-		// **什么都不打**（连自己的 logs/ 目录都不建）。这不是启发式判断，是
-		// 「有没有一个能连的显示」这一个二值事实，所以这里可以、也应该拦下来 ——
-		// 否则实例会被记成 started，然后悄无声息地空跑。
-		// 见 docs/ARKAPI_LINUX_VCREDIST_PLAN.md §9。
-		if d := runner.DisplayStatus(); !d.Available {
-			startErr = fmt.Errorf("实例 %s 启用了 ArkApi，但%s；"+
-				"AsaApiLoader.exe 在 Wine 下没有图形显示会静默退出，已中止启动",
-				instanceName, d.Blocked)
-			return startErr
-		}
-
-		// ② VC++ 运行时 —— 只告警、不阻断：判据是对 PE 头标记的启发式判断，用一个
-		// 可能误判的检查拦住启动，正是 docs/LINUX_COMPATIBILITY_PLAN.md §1 目标 5
-		// 反对的「程序替用户决定 ArkApi 能不能用」。见 ARKAPI_LINUX_VCREDIST_PLAN §3.6。
-		if !runner.PrefixHasVCRedist(prefixKey) {
-			logger.Warnf("实例 %s 启用了 ArkApi，但 Wine 前缀里没有检测到微软 VC++ 运行时，"+
-				"AsaApiLoader.exe 可能起不来。执行 asa-server setup 会自动安装；"+
-				"或确认 config.yaml 的 linux.install_vcredist 没有被关掉。", instanceName)
+		// ①② 运行时能力。阻断还是告警由检查本身说了算（Readiness.Definitive），
+		// 不在这里逐项记：
+		//   - 图形显示是**事实**，因而阻断。AsaApiLoader.exe 会创建真正的 Win32 窗口，
+		//     Wine 连不上 X 服务时 CreateWindow 直接失败，加载器退出码 3 且**什么都不打**
+		//     （连自己的 logs/ 目录都不建）。不拦的话实例会被记成 started，然后悄无声息地
+		//     空跑。见 docs/ARKAPI_LINUX_VCREDIST_PLAN.md §9。
+		//   - VC++ 运行时是**启发式**（PE 头标记），因而只告警：用一个可能误判的检查拦住
+		//     启动，正是 docs/LINUX_COMPATIBILITY_PLAN.md §1 目标 5 反对的「程序替用户决定
+		//     ArkApi 能不能用」。见 ARKAPI_LINUX_VCREDIST_PLAN §3.6。
+		for _, u := range runner.CheckNeeds(prefixKey, needs) {
+			if u.Readiness.Definitive {
+				startErr = fmt.Errorf("实例 %s 启用了 ArkApi，但%s，已中止启动", instanceName, runner.DescribeUnmet(u))
+				return startErr
+			}
+			logger.Warnf("实例 %s 启用了 ArkApi，但%s", instanceName, runner.DescribeUnmet(u))
 		}
 	}
 
@@ -573,10 +575,10 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 	handle, err := runner.Run(context.Background(), arkExe, args, runner.Options{
 		Dir: exeWorkDir,
 		PTY: arkAsaApiRunning,
-		// 同一个条件的三个后果：AsaApiLoader 要终端排版（PTY）、要图形显示
-		// （NeedsDisplay），而 ArkAscendedServer.exe 两样都不要。
-		NeedsDisplay: arkAsaApiRunning,
-		// 与上面 EnsurePrefix / PrefixHasVCRedist 同源，见 prefixKey 的注释。
+		// 与上面的前置检查同一份需求：AsaApiLoader 要终端排版（PTY）与 ArkApiNeeds，
+		// 而 ArkAscendedServer.exe 两样都不要。
+		Needs: needs,
+		// 与上面 EnsurePrefix / CheckNeeds 同源，见 prefixKey 的注释。
 		PrefixKey: prefixKey,
 	})
 	if err != nil {

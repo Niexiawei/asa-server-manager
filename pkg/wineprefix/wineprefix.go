@@ -7,10 +7,10 @@
 // It does not know about ASA or instances — key is an opaque identifier the
 // caller derives (an instance name, or "" for the shared prefix). It depends
 // on asa-server/pkg/umu for the actual "warm a Wine prefix"/"is a wineserver
-// still using it" mechanism, and takes VC++-runtime installation as an
-// injected callback (asa-server/pkg/vcredist's orchestration stays with the
-// caller — this package only knows "call this after creating a prefix", not
-// what VC++ is).
+// still using it" mechanism. Anything installed *into* a prefix afterwards
+// (the VC++ runtime, today) is the caller's: it is injected as the generic
+// Provision/Pending hooks, so this package knows "call this after creating a
+// prefix", never what gets installed.
 package wineprefix
 
 import (
@@ -34,23 +34,27 @@ type Config struct {
 	// ProtonVersion is compared against a prefix's own marker to detect a
 	// Proton-generation bump that requires a rebuild.
 	ProtonVersion string
-	// Runtime gates the VC++-runtime callback: only "umu" ever needs it — a
-	// "custom" runtime's prefix is the operator's own.
-	Runtime string
-	// InstallVCRedist gates the same callback from the config side.
-	InstallVCRedist bool
-
 	// ChownPath chowns a single path (non-recursive) to the runtime user.
 	ChownPath func(path string) error
-	// EnsureVCRedist installs the Microsoft VC++ runtime into the prefix
-	// identified by prefixKey (for wording only — the callback resolves its
-	// own directory). Injected so this package never needs to know what
-	// VC++ is.
-	EnsureVCRedist func(ctx context.Context, prefixKey string, logf func(string, ...any)) error
-	// HasVCRedistOverrides reports whether a prefix's DLL overrides are
-	// already applied — the fast, no-network judgement of "does this
-	// prefix still need EnsureVCRedist".
-	HasVCRedistOverrides func(prefix string) bool
+
+	// Provision installs whatever the caller layers on top of a bare prefix
+	// (asa-server/pkg/umuruntime's prefix-provisioner plugins). EnsurePrefix
+	// calls it after creating a prefix, and on an existing one whenever
+	// Pending says there is work left. key is the prefix's key (for wording),
+	// prefix its directory. An error fails EnsurePrefix — the caller decides
+	// which of its failures are worth that, and swallows the rest. nil = none.
+	Provision func(ctx context.Context, key, prefix string, logf func(string, ...any)) error
+	// Pending reports, cheaply and offline, whether Provision still has work
+	// to do in prefix. It gates EnsurePrefix's fast path and LowerNeedsWork.
+	// nil = never.
+	Pending func(prefix string) bool
+	// ProvisionFingerprint summarises, cheaply and offline, the state of
+	// whatever Provision layered onto prefix. It becomes part of the lower
+	// stamp an overlay writable layer is built against (see lowerStampName),
+	// so provisioning the lower later — the VC++ runtime installed once a
+	// display became available — invalidates the layers built before it.
+	// Must not contain ';' or a newline. nil or "" = the Proton marker alone.
+	ProvisionFingerprint func(prefix string) string
 }
 
 func (c Config) chownPath(path string) error {
@@ -60,11 +64,15 @@ func (c Config) chownPath(path string) error {
 	return c.ChownPath(path)
 }
 
-func (c Config) hasVCRedistOverrides(prefix string) bool {
-	if c.HasVCRedistOverrides == nil {
-		return true // unconfigured: assume satisfied rather than reinstalling forever
+func (c Config) pending(prefix string) bool {
+	return c.Pending != nil && c.Pending(prefix)
+}
+
+func (c Config) provision(ctx context.Context, key, prefix string, logf func(string, ...any)) error {
+	if c.Provision == nil {
+		return nil
 	}
-	return c.HasVCRedistOverrides(prefix)
+	return c.Provision(ctx, key, prefix, logf)
 }
 
 // Info is one Wine prefix directory found on disk.
@@ -103,9 +111,34 @@ type Info struct {
 const overlayDirName = "umu-prefix-overlay"
 
 // lowerStampName records which lower the writable layer was built on, so a
-// lower that has since been rebuilt (new Proton, reinstalled VC++) can be
-// detected instead of being silently mixed with copy-ups from the old one.
+// lower that has since changed (new Proton, a component provisioned into it
+// later) is detected instead of being silently mixed with copy-ups from the
+// old one — an upper that copied up system.reg or system32 before the change
+// would otherwise shadow it for good.
+//
+// Its content is composeLowerStamp's: the lower's Proton marker, then one
+// ";"-separated ProvisionFingerprint part. Until 2026-09 it was the Proton
+// marker alone, which could not see a VC++ install at all
+// (docs/UMU_PREFIX_PLAN.md §8.1); layers stamped that way no longer match
+// and are rebuilt once, which loses nothing — the upper holds no user data.
 const lowerStampName = ".lower-stamp"
+
+// composeLowerStamp builds a .lower-stamp value. protonMarker comes first so
+// that stampProtonVersion can always recover it.
+func composeLowerStamp(protonMarker, provisionFingerprint string) string {
+	if provisionFingerprint == "" {
+		return protonMarker
+	}
+	return protonMarker + ";" + provisionFingerprint
+}
+
+// stampProtonVersion is the Proton marker part of a .lower-stamp value — what
+// Info.ProtonVersion reports for an overlay layer. Old, marker-only stamps
+// come back unchanged.
+func stampProtonVersion(stamp string) string {
+	v, _, _ := strings.Cut(stamp, ";")
+	return v
+}
 
 func overlayRoot(cfg Config) string { return filepath.Join(cfg.BaseDir, overlayDirName) }
 

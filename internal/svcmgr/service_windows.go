@@ -13,3 +13,8 @@ func configurePlatform(cfg *service.Config) {}
 // warnBeforeInstall is a no-op on Windows: LocalSystem is the normal,
 // expected way to run a Windows service, unlike root on Linux.
 func warnBeforeInstall() {}
+
+// finalizePlatform is a no-op on Windows: kardianos writes EnvVars into the
+// service's registry key as REG_MULTI_SZ entries, where spaces in values need
+// no quoting.
+func finalizePlatform(cfg *service.Config) error { return nil }

@@ -21,9 +21,8 @@ import (
 
 	"github.com/aymanbagabas/go-pty"
 
-	"asa-server/pkg/display"
 	"asa-server/pkg/problem"
-	"asa-server/pkg/vcredist"
+	"asa-server/pkg/umuruntime"
 	"asa-server/pkg/wineprefix"
 )
 
@@ -48,20 +47,20 @@ type Options struct {
 	// Empty always means the default shared prefix, including under
 	// "per-instance" mode. Ignored on Windows.
 	PrefixKey string
-	// NeedsDisplay marks an exe that creates Win32 windows and therefore
-	// cannot run under Wine without an X display, however headless the
-	// workload looks. Set it for AsaApiLoader.exe (ArkApi) and nothing else:
-	// ArkAscendedServer.exe itself boots fine with no display, and giving
-	// every launch a display would add a failure mode for no gain. Ignored on
-	// Windows, which always has a window station.
+	// Needs lists the capabilities the launched exe needs from its
+	// environment beyond "a Windows exe can run" — see Capability. Empty for
+	// ArkAscendedServer.exe, which boots with no display at all;
+	// installer.ArkApiNeeds for AsaApiLoader.exe (ArkApi), which creates real
+	// Win32 windows and loads the VC++ runtime. Ignored on Windows, where the
+	// window station and the system VC++ runtime satisfy both natively.
 	//
-	// On Linux the launch either uses a display that is already there (the
-	// linux.display setting, DISPLAY, or a running X server) or gets one from
-	// the Xvfb this program starts and keeps for itself; when neither is
-	// possible Run fails fast with an actionable error rather than letting the
-	// loader die silently. See internal/runner/display_linux.go and
-	// xvfb_linux.go.
-	NeedsDisplay bool
+	// On Linux a need the host can provide by acquiring something (a display:
+	// a configured one, the Xvfb this program starts and keeps, or a running
+	// X server) is acquired for the launch; when that is impossible Run fails
+	// fast with an actionable error rather than letting the loader die
+	// silently. A prefix-installed capability (the VC++ runtime) is only
+	// checked — see CheckNeeds for the caller-side warning.
+	Needs []Capability
 }
 
 // Handle is a running launch.
@@ -176,7 +175,7 @@ type PrefixInfo = wineprefix.Info
 //
 // This is the single place that turns "which mode are we in" into "which
 // prefix does this instance use" — callers pass the result straight through to
-// Options.PrefixKey, EnsurePrefix and PrefixHasVCRedist without repeating the
+// Options.PrefixKey, EnsurePrefix and CheckNeeds without repeating the
 // mode check. See docs/UMU_PREFIX_PER_INSTANCE_PLAN.md §9.
 func PrefixKeyFor(instanceName string) string { return prefixKeyFor(instanceName) }
 
@@ -250,91 +249,73 @@ func PrepareSharedPrefixWrite(op string) (func(), error) { return prepareSharedP
 // idle" is the normal resting state, not garbage.
 func ReconcilePrefixes() { reconcilePrefixes() }
 
-// EnsurePrefixVCRedist makes sure the Microsoft VC++ runtime that ArkApi's
-// AsaApiLoader.exe depends on is installed into a Wine prefix — Wine and
-// GE-Proton ship only their own implementations of those DLLs. No-op on
-// Windows, where the runtime is a system-level component.
-//
-// prefixKey has the same meaning as Options.PrefixKey: empty selects the
-// default shared prefix. progress receives human-readable status lines, the
-// same shape EnsureRuntime uses. Idempotent — a prefix that already has it
-// costs a couple of local file reads.
-//
-// See docs/ARKAPI_LINUX_VCREDIST_PLAN.md.
-func EnsurePrefixVCRedist(ctx context.Context, prefixKey string, progress io.Writer) error {
-	return ensurePrefixVCRedist(ctx, prefixKey, progress)
-}
-
-// PrefixHasVCRedist reports whether a Wine prefix already carries the native
-// Microsoft VC++ runtime. Read-only and offline, so callers on a hot path
-// (instance start) can use it for diagnostics. Always true on Windows.
-//
-// Deliberately NOT a launch gate: the judgement is a heuristic over registry
-// text and a PE header marker, and blocking a start on a possibly-wrong check
-// is exactly what docs/LINUX_COMPATIBILITY_PLAN.md §1 goal 5 rules out — the
-// program doesn't get to decide ArkApi is unusable on the user's behalf.
-func PrefixHasVCRedist(prefixKey string) bool {
-	return prefixHasVCRedist(prefixKey)
-}
-
-// DLLOrigin says where a DLL in a Wine prefix came from. Alias of
-// pkg/vcredist.DLLOrigin — see docs/RUNNER_INSTANCE_PACKAGE_SPLIT_PLAN.md 阶段 H.
-type DLLOrigin = vcredist.DLLOrigin
+// Capability names something a launched Windows exe needs from its
+// environment (can create Win32 windows; can load the VC++ runtime). Named
+// by the need, never by what provides it. Alias of umuruntime.Capability —
+// see docs/UMU_RUNTIME_PLUGIN_PLAN.md §4.1.
+type Capability = umuruntime.Capability
 
 const (
-	DLLMissing = vcredist.DLLMissing
-	DLLWine    = vcredist.DLLWine   // Wine 自己的占位/内建 PE
-	DLLNative  = vcredist.DLLNative // 微软原生
+	// CapGUI: the exe creates Win32 windows. Linux: needs an X display.
+	CapGUI = umuruntime.CapGUI
+	// CapMSVCRT: the exe loads the Microsoft VC++ 2015-2022 runtime. Linux:
+	// needs it installed into / overridden in the Wine prefix.
+	CapMSVCRT = umuruntime.CapMSVCRT
 )
 
-// VCRedistDLLInfo is one runtime DLL's origin, in the prefix and next to the game.
-//
-// Both columns matter: Windows resolves a DLL from the **application directory
-// first**, and ARK ships native copies of most of the VC++ runtime right next
-// to ArkAscendedServer.exe — so what Wine ends up loading is decided by the
-// DllOverrides setting, not only by what is in system32.
-type VCRedistDLLInfo = vcredist.DLLInfo
+// Unmet is one needed capability that isn't available. Alias of
+// umuruntime.Unmet: Readiness.Definitive says whether it is a fact (refuse
+// the launch) or a heuristic (warn only).
+type Unmet = umuruntime.Unmet
 
-// VCRedistInfo is the read-only view of a prefix's VC++ runtime state, for
-// `asa-server verify-arkapi`.
+// CheckNeeds reports which of caps are not available for a launch in the
+// Wine prefix identified by prefixKey. Read-only and offline: a display is
+// probed, never started. Always empty on Windows, where every capability is
+// native.
 //
-// Installed is the single judgement "the native runtime is in system32",
-// decided by ProbeDLL's PE header. RegistryVersion is NOT part of it —
-// GE-Proton pre-fakes the standard detection key in a brand-new prefix (see
-// pkg/vcredist), so it is diagnostic text only.
-//
-// OverridesSet/WantOverrides describe the DllOverrides entries in the
-// prefix — the load-bearing half of this whole thing. ARK ships native
-// copies of most of the runtime next to its exe, and the override is what
-// makes Wine prefer them over its own builtins.
-//
-// InstallerDisplay / InstallerBlocked: Microsoft's redist installer refuses
-// to run under Wine without a reachable X display (exit 203), even with
-// /quiet. On a headless host — this project's main deployment shape —
-// Installed stays false by design and only the overrides apply.
-type VCRedistInfo = vcredist.Info
+// It is the pre-launch check behind Options.Needs. Run enforces the
+// definitive part again at launch time; this is where a caller gets to say
+// so early, in its own words (with DescribeUnmet), and to warn about the
+// heuristic part — which Run deliberately never blocks on
+// (docs/LINUX_COMPATIBILITY_PLAN.md §1 goal 5).
+func CheckNeeds(prefixKey string, caps []Capability) []Unmet { return checkNeeds(prefixKey, caps) }
 
-// VCRedistStatus summarises a prefix's VC++ runtime state. Read-only, offline.
-// gameDir is the directory holding the game exe (empty skips that column).
-// On Windows: {Managed: false} with everything else zero.
-func VCRedistStatus(prefixKey, gameDir string) VCRedistInfo {
-	return vcRedistStatus(prefixKey, gameDir)
+// Provision (re)installs whatever provides caps — every prefix-installed
+// component when caps is empty — into the Wine prefix identified by
+// prefixKey, now. The "install it now" entry point (`verify-arkapi
+// --install-vcredist`); EnsureRuntime and EnsurePrefix already provision
+// on their own. No-op on Windows and for a "custom" runtime.
+//
+// Writing the shared prefix is guarded inside (see PrepareSharedPrefixWrite):
+// under prefix_mode "overlay" it refuses while instances' writable layers
+// are live on it. progress receives human-readable status lines.
+func Provision(ctx context.Context, prefixKey string, progress io.Writer, caps ...Capability) error {
+	return provision(ctx, prefixKey, progress, caps)
 }
 
-// DisplayInfo is how (and whether) this host can give a Wine process an X
-// display — the precondition Options.NeedsDisplay depends on. On Windows it is
-// always available: there is a real window station.
-type DisplayInfo = display.Info
+// PluginStatus is one runtime plugin's diagnostic snapshot. Alias of
+// umuruntime.PluginStatus; Data holds the plugin's own structured detail
+// (xdisplay.Info for the display, vcredist.Info for the VC++ runtime).
+type PluginStatus = umuruntime.PluginStatus
 
-// DisplayStatus reports the host's display situation. Read-only and offline —
-// a PATH lookup, a stat and at most a few local socket handshakes. It never
-// starts an X server, even when the answer is "we'd start one".
-func DisplayStatus() DisplayInfo { return displayStatus() }
+// PluginStatuses reports every runtime plugin's state, as seen from the
+// shared Wine prefix. Read-only and offline — nothing is acquired. Empty on
+// Windows.
+func PluginStatuses() []PluginStatus { return pluginStatuses() }
 
-// StopManagedDisplay shuts down the Xvfb this process started, if any. Call it
-// from process-exit paths; it is idempotent and a no-op on Windows, when no
-// display was ever needed, and for a display adopted from another asa-server
-// process (that one is not ours to kill).
+// CapabilityStatus reports the plugins providing c, as seen from the Wine
+// prefix identified by prefixKey, for an exe living in exeDir (may be empty;
+// DLL-shaped capabilities look there too, since Windows resolves a DLL from
+// the application directory first). Read-only and offline. Empty on Windows.
+func CapabilityStatus(c Capability, prefixKey, exeDir string) []PluginStatus {
+	return capabilityStatus(c, prefixKey, exeDir)
+}
+
+// Close releases what the runtime holds for the process's lifetime — today
+// the Xvfb this process started, if any. Call it from process-exit paths; it
+// is idempotent and a no-op on Windows, when no display was ever needed, and
+// for a display adopted from another asa-server process (that one is not
+// ours to kill).
 //
 // The instances that need a display do not outlive asa-server anyway: ArkApi
 // launches run on a PTY whose slave is their controlling terminal, so closing
@@ -342,8 +323,8 @@ func DisplayStatus() DisplayInfo { return displayStatus() }
 // behind would preserve nothing and accumulate one process per restart.
 //
 // This is the deterministic layer only — Pdeathsig covers the crash/SIGKILL
-// case where nothing gets to run. See internal/runner/xvfb_linux.go.
-func StopManagedDisplay() { stopManagedDisplay() }
+// case where nothing gets to run. See asa-server/pkg/xvfb.
+func Close() { closeRuntime() }
 
 // Preflight runs host dependency checks. Always empty on Windows.
 func Preflight() []Problem {

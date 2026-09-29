@@ -1386,12 +1386,16 @@ os.Rename(stageDir, genDir) // 同文件系统，原子
 
 ### 8.1 `.lower-stamp` 只记录 Proton 版本，不感知 VC++ 补装（模块 3 / 4 / 5 三处独立命中）
 
+> ✅ **已修复（2026-09-29，`2edd91c`）**：`.lower-stamp` 现为「Proton 标记;组件指纹」，组件指纹由各 `PrefixProvisioner.Fingerprint` 按插件名排序拼成（VC++ 插件报 override 是否齐、system32 是否原生、安装包校验值），经 `wineprefix.Config.ProvisionFingerprint` 钩子现读现算；底层后来补装 VC++ 时已有可写层重建。旧格式的层升级后一次性重建。回归用例 `TestOverlayLayerFollowsLowerProvisioning`。见 `docs/UMU_RUNTIME_PLUGIN_PLAN.md` §5.4。
+
 - **位置**：注释 `pkg/wineprefix/wineprefix.go:105-108`；实现 `pkg/wineprefix/wineprefix_linux.go:423`（`want := umu.PrefixMarker(lower)`）、`:483`（写 stamp）；Proton 标记写入 `pkg/umu/umu_linux.go:511-518`（只按 `cfg.ProtonVersion`），`internal/runner/vcredist_linux.go`、`pkg/vcredist/install_linux.go` 全无对该文件的写入。
 - **后果**：注释与文档 `PLAN §3.3`/`§6.1` 都声称可检出「reinstalled VC++」，实际检测能力为零。旧 `upper` 里已 copy-up 的 `system.reg`/`system32` 遮蔽新 lower，补装的 VC++ override 对已有实例不生效；ArkApi 起不来且无提示。
 - **修复建议**：把 VC++ 有效状态纳入 stamp：`want := umu.PrefixMarker(lower) + "|" + vcredistLowerStamp(lower)`，其中指纹可用 `vcredist.OverridesApplied(lower)` + `user.reg` 摘要。补装成功后 fingerprint 变化 → 命中 `readOverlayStamp != want` → 按现有逻辑清理重建。
 
 
 ## X.3 文件路径对照（2026-09-29）
+
+> ⚠️ 本表之后路径又经 `docs/UMU_RUNTIME_PLUGIN_PLAN.md`（2026-09-29）调整：`pkg/display` 整体迁入 `pkg/umuruntime/plugins/xdisplay`；`internal/runner/{display,xvfb}_linux.go` 已删除（显示解析器由 `umu_linux.go` 持有，并注册为宿主插件）；VC++ 的编排改由 `pkg/umuruntime/plugins/vcrt` 接入（`internal/runner/vcredist_linux.go` 只剩配置映射与文案）；`internal/runner/vcredist_windows.go` 更名为 `plugins_windows.go`；环境准备/就绪检查/启动命令拼装在 `pkg/umuruntime/host_linux.go`。
 
 | 文档中的路径 | 实际路径 / 现状（核对于 2026-09-29） |
 |---|---|

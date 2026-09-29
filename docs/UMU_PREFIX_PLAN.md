@@ -13,6 +13,8 @@
 
 #### [P0] `verify-arkapi --install-vcredist` 无守卫地写共享底层 lower
 
+> ✅ **已修复（2026-09-29，`36862d8`）**：写共享前缀的守卫下沉进 `umuruntime.Host.Provision` 本身（即这里「更彻底的做法」），`verify-arkapi --install-vcredist` 改走 `runner.Provision(..., runner.CapMSVCRT)`，`--check-only` 不写任何东西。见 `docs/UMU_RUNTIME_PLUGIN_PLAN.md` §5.3。
+
 - **位置**：`internal/actions/verify_arkapi.go:53-60`（`runner.EnsurePrefixVCRedist(ctx, "", os.Stdout)`）；实现 `internal/runner/vcredist_linux.go:67-69`，落点 `:88`（`wineprefixMgrFor(cfg).Dir("")` 即共享底层）
 - **触发条件**：`prefix_mode: overlay`，且存在实例的可写层正把 lower 当 `lowerdir`（实例运行中，或实例已停但挂载仍在——§3.3 有意不卸载）。执行 `asa-server verify-arkapi --install-vcredist`。**带 `--check-only` 时更糟**：`PrepareSharedPrefixWrite` 只在 `installer.VerifyArkApiInstallation`（`internal/installer/verify_arkapi.go:74`）里，`--check-only` 根本不会走到，这一步全程零守卫。
 - **后果**：`Ensure` 向共享底层写 DLL override 注册表（`pkg/vcredist/install_linux.go:317-344` 的 `applyOverrides`），可能还写 `system32`。对正被 `lowerdir` 引用的目录写入是 overlayfs 明确的未定义行为，症状随机且落在**实例**身上。文档 `UMU_PREFIX_PLAN.md §12.4` 称守卫覆盖三处，**这是未覆盖的第四处**。
@@ -148,7 +150,7 @@ for _, key := range overlayKeysMounted(cfg) {
 ### 3.3 文档 vs 代码偏差
 
 1. **文件落点整体失效**：`UMU_PREFIX_PLAN.md §7/§13.3` 指向的 `internal/runner/{overlay_linux.go,prefix_linux.go,prefix.go}` **在仓库中不存在**，实现位于 `pkg/wineprefix/`、`pkg/umu/`。
-2. **`.lower-stamp` 的「感知 VC++ 补装」未实现**：`PLAN §3.3`/`§6.1` 与 `wineprefix.go:105-108` 都声称可检测「重装了 VC++」，实现只比 Proton 版本（见 §8.1）。
+2. ✅（2026-09-29 已实现，见 §8.1）**`.lower-stamp` 的「感知 VC++ 补装」未实现**：`PLAN §3.3`/`§6.1` 与 `wineprefix.go:105-108` 都声称可检测「重装了 VC++」，实现只比 Proton 版本（见 §8.1）。
 3. **写保护覆盖范围不足**：`PLAN §12.4`/`§13.1` 说守卫覆盖三处；`verify-arkapi --install-vcredist`（`internal/actions/verify_arkapi.go:56`）是未覆盖的第四处。
 4. **`prefix gc` 判据**：`PLAN §3.3` 原写「拒绝删除仍处于挂载状态的」，实现改为只按 wineserver 占用（§13.1 已回填），但 `actions/prefix.go:170` 的 `bak-` 直接删除又额外绕过了这唯一确认，文档未记录。
 5. **闸门持有上界**：`UMU_PREFIX_PLAN.md §8.3` 与 `waitServerStartup` 无超时的实现不符。
@@ -241,7 +243,7 @@ for _, key := range overlayKeysMounted(cfg) {
 
 1. **§9 声称 `runtimeEnv` 的 XDG 剥离「也仍覆盖调用方通过 `Options.Env` 显式传入的环境」** — 对 `DBUS_SESSION_BUS_ADDRESS` 等不成立（`RuntimeEnv` 只剥 `XDG_*`）。
 2. **§7 将 D4 列为「仍待办」** — 与代码一致，但文档未提示其与 D2 的强耦合：**单独修 D2 会立即引爆 D4**。
-3. **`.lower-stamp` 的注释声称能检测「reinstalled VC++」** — 代码只写/比 Proton tag（见 §8.1）。
+3. ✅（2026-09-29 已实现，见 §8.1）**`.lower-stamp` 的注释声称能检测「reinstalled VC++」** — 代码只写/比 Proton tag（见 §8.1）。
 4. **overlay 层「跨重启存活、内容还在 upper」** — 与 `ensureOverlayPrefix` 对未挂载层的擦拭重建矛盾（见 §3、§8.3）。
 5. **§4 的 D0 剥离清单位置与 D1 位置** — 重构后已失效，实际在 `pkg/sysuser/sysuser_linux.go:462-482` 与 `pkg/umu/umu_linux.go:226-281`。
 6. **§3.3 的行号（`runner/umu_linux.go:285` 的 "ready"）** — 现为 `pkg/umu/umu_linux.go:279`。
@@ -249,6 +251,8 @@ for _, key := range overlayKeysMounted(cfg) {
 ---
 
 ### 8.1 `.lower-stamp` 只记录 Proton 版本，不感知 VC++ 补装（模块 3 / 4 / 5 三处独立命中）
+
+> ✅ **已修复（2026-09-29，`2edd91c`）**：`.lower-stamp` 现为「Proton 标记;组件指纹」，组件指纹由各 `PrefixProvisioner.Fingerprint` 按插件名排序拼成（VC++ 插件报 override 是否齐、system32 是否原生、安装包校验值），经 `wineprefix.Config.ProvisionFingerprint` 钩子现读现算；底层后来补装 VC++ 时已有可写层重建。旧格式的层升级后一次性重建。回归用例 `TestOverlayLayerFollowsLowerProvisioning`。见 `docs/UMU_RUNTIME_PLUGIN_PLAN.md` §5.4。
 
 - **位置**：注释 `pkg/wineprefix/wineprefix.go:105-108`；实现 `pkg/wineprefix/wineprefix_linux.go:423`（`want := umu.PrefixMarker(lower)`）、`:483`（写 stamp）；Proton 标记写入 `pkg/umu/umu_linux.go:511-518`（只按 `cfg.ProtonVersion`），`internal/runner/vcredist_linux.go`、`pkg/vcredist/install_linux.go` 全无对该文件的写入。
 - **后果**：注释与文档 `PLAN §3.3`/`§6.1` 都声称可检出「reinstalled VC++」，实际检测能力为零。旧 `upper` 里已 copy-up 的 `system.reg`/`system32` 遮蔽新 lower，补装的 VC++ override 对已有实例不生效；ArkApi 起不来且无提示。
@@ -2430,6 +2434,8 @@ umu-run 的子进程环境（urllib3 认这两个变量）。**注意这与 D0 �
 ---
 
 # 附录 Y：文件路径对照（2026-09-29）
+
+> ⚠️ 本表之后路径又经 `docs/UMU_RUNTIME_PLUGIN_PLAN.md`（2026-09-29）调整：`pkg/display` 整体迁入 `pkg/umuruntime/plugins/xdisplay`；`internal/runner/{display,xvfb}_linux.go` 已删除（显示解析器由 `umu_linux.go` 持有，并注册为宿主插件）；VC++ 的编排改由 `pkg/umuruntime/plugins/vcrt` 接入（`internal/runner/vcredist_linux.go` 只剩配置映射与文案）；`internal/runner/vcredist_windows.go` 更名为 `plugins_windows.go`；环境准备/就绪检查/启动命令拼装在 `pkg/umuruntime/host_linux.go`。
 
 | 文档中的路径 | 实际路径（当前代码） |
 |---|---|

@@ -19,6 +19,8 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/kardianos/service"
@@ -70,9 +72,10 @@ func (p *program) Start(s service.Service) error {
 // Stop stops the service
 func (p *program) Stop(s service.Service) error {
 	log.Printf("Stopping %s service \n", ServiceName)
-	// 与 webapi.ActionAPI 的收尾同源：停掉自管的 Xvfb。放在最前面是因为它与
-	// apiServer 是否初始化无关 —— 下面那个 nil 分支会直接 return。
-	runner.StopManagedDisplay()
+	// 与 webapi.ActionAPI 的收尾同源：关掉运行时插件持有的进程级资源（自管的
+	// Xvfb）。放在最前面是因为它与 apiServer 是否初始化无关 —— 下面那个 nil
+	// 分支会直接 return。
+	runner.Close()
 	if p.apiServer == nil {
 		log.Printf("API server not initialized, nothing to stop\n")
 		return nil
@@ -88,14 +91,43 @@ func (p *program) Stop(s service.Service) error {
 
 // newServiceConfig builds the base service.Config and lets the platform file
 // (service_windows.go / service_linux.go) layer on anything OS-specific.
-func newServiceConfig() *service.Config {
+func newServiceConfig() (*service.Config, error) {
 	cfg := &service.Config{
 		Name:        ServiceName,
 		DisplayName: ServiceDisplayName,
 		Description: ServiceDescription,
 	}
 	configurePlatform(cfg)
-	return cfg
+	injectConfigLocation(cfg, os.Getenv("ASA_CFG"))
+	// 环境变量齐了之后再定稿平台相关的部分：Linux 要把它们渲染成带引号的
+	// Environment= 行写进 unit 模板（见 systemdScriptWithEnv）。
+	if err := finalizePlatform(cfg); err != nil {
+		return nil, err
+	}
+	return cfg, nil
+}
+
+// injectConfigLocation 把安装时生效的 ASA_CFG 烤进服务自己的环境。
+//
+// 服务进程看不到安装者的环境：Windows 服务以 LocalSystem 运行，读不到安装者
+// HKCU 里的用户级环境变量（GUI 向导「自定义配置目录」写的正是那里）；systemd
+// 服务也不继承 shell 里 export 的变量。不注入的话，服务会按「exe 同级 > 系统目录」
+// 去找配置，读到另一份（或者一份都没有）。kardianos 在 Windows 上把 EnvVars 写进
+// 服务注册表项的 Environment（REG_MULTI_SZ），在 systemd 上写成 unit 的 Environment=。
+//
+// 这是安装时的快照：之后改配置位置要重装服务。见
+// docs/SETUP_FLOW_OPTIMIZATION_PLAN.md Part 2 §P2-3.5.1。
+func injectConfigLocation(cfg *service.Config, asaCfg string) {
+	if asaCfg == "" {
+		return
+	}
+	if abs, err := filepath.Abs(asaCfg); err == nil {
+		asaCfg = abs
+	}
+	if cfg.EnvVars == nil {
+		cfg.EnvVars = map[string]string{}
+	}
+	cfg.EnvVars["ASA_CFG"] = asaCfg
 }
 
 // InstallService installs the OS service
@@ -103,7 +135,11 @@ func InstallService() error {
 	warnBeforeInstall()
 
 	prg := &program{}
-	s, err := service.New(prg, newServiceConfig())
+	cfg, err := newServiceConfig()
+	if err != nil {
+		return err
+	}
+	s, err := service.New(prg, cfg)
 	if err != nil {
 		return err
 	}
@@ -120,7 +156,11 @@ func InstallService() error {
 // RemoveService removes the OS service
 func RemoveService() error {
 	prg := &program{}
-	s, err := service.New(prg, newServiceConfig())
+	cfg, err := newServiceConfig()
+	if err != nil {
+		return err
+	}
+	s, err := service.New(prg, cfg)
 	if err != nil {
 		return err
 	}
@@ -148,7 +188,11 @@ func RemoveService() error {
 // StartService starts the OS service
 func StartService() error {
 	prg := &program{}
-	s, err := service.New(prg, newServiceConfig())
+	cfg, err := newServiceConfig()
+	if err != nil {
+		return err
+	}
+	s, err := service.New(prg, cfg)
 	if err != nil {
 		return err
 	}
@@ -165,7 +209,11 @@ func StartService() error {
 // StopService stops the OS service
 func StopService() error {
 	prg := &program{}
-	s, err := service.New(prg, newServiceConfig())
+	cfg, err := newServiceConfig()
+	if err != nil {
+		return err
+	}
+	s, err := service.New(prg, cfg)
 	if err != nil {
 		return err
 	}
@@ -182,7 +230,11 @@ func StopService() error {
 // RunService runs the service
 func RunService() error {
 	prg := &program{}
-	s, err := service.New(prg, newServiceConfig())
+	cfg, err := newServiceConfig()
+	if err != nil {
+		return err
+	}
+	s, err := service.New(prg, cfg)
 	if err != nil {
 		log.Printf("Failed to create service: %v\n", err)
 		return err

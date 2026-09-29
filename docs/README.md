@@ -61,6 +61,22 @@ cd ..
 .\asa-server.exe update
 ```
 
+### 首次部署：先配置、后初始化
+
+双击 exe 时 GUI 会弹出首次设置向导：选配置文件位置（程序目录 / 系统目录 / 自定义目录）→ 选数据目录 →
+检查配置（可用记事本打开修改）→ 初始化环境。命令行的等价流程：
+
+```powershell
+.\asa-server.exe config init --basedir E:\ASA-Data   # 只生成 config.yaml，不建目录、不下载
+notepad .\config.yaml                                # 改下载代理、端口等
+.\asa-server.exe config validate                     # 校验
+.\asa-server.exe setup                               # SteamCMD + ARK 本体（约 25GB）
+```
+
+`asa-server config path` 显示当前使用的是哪一份 `config.yaml`、数据目录来自哪里。
+配置文件放在程序目录与 `%ProgramData%\ASAServerManager` 之外时，用 `config init --dir <目录> --set-env`
+设置环境变量 `ASA_CFG`。Linux 见 [LINUX_DEPLOYMENT.md](LINUX_DEPLOYMENT.md) §2.1。
+
 ### 默认端口
 
 HTTP API 默认端口：**19193**，默认以 HTTPS + HTTP/2 提供服务。
@@ -90,7 +106,8 @@ asa-server/
 │  ── 领域包（自底向上，无环；已整体收进 internal/）──
 ├── internal/
 │   ├── config/              # 目录布局、InstanceConfig、INI 读写、配置同步
-│   ├── appconfig/           # config.yaml 应用配置与校验
+│   ├── appconfig/           # config.yaml 应用配置与校验；模板渲染（中 / 英）与 config init
+│   ├── bootstrap/           # 应用配置 → 下载器与 runner 的唯一应用点（Apply / Reload）
 │   ├── process/             # PID 文件存储 + IsServerRunning（解 state ↔ instance 环的关键层）
 │   ├── certmgr/             # 本地 CA + 叶子证书、受信任根存储（HTTPS/h2）
 │   ├── rconx/               # RCON 连接与命令执行（重试、哨兵错误）
@@ -125,6 +142,7 @@ asa-server/
 │                            #   netutil problem procmatch procnet proctree procx pyfinder
 │                            #   resourcegate serverinfo shareacl steamrt sysuser tail umu
 │                            #   vcredist wineprefix winnetetw xvfb arkcache display
+│                            #   userenv（持久化环境变量）folderpicker（原生选择文件夹对话框）
 ├── app/                     # 内嵌 Vue.js 前端（//go:embed dist）
 └── docs/                    # 文档（索引见下）
 ```
@@ -181,7 +199,7 @@ asa-server/
 | [ARCHITECTURE.md](ARCHITECTURE.md) | 系统架构与设计模式 |
 | [PACKAGE_RESTRUCTURE_PLAN.md](PACKAGE_RESTRUCTURE_PLAN.md) | `asaserver` 神包按领域拆分方案 |
 | [STATE_CONTROL.md](STATE_CONTROL.md) | 实例状态机、CAS 转换与互斥机制 |
-| [V2_MIRROR_STARTUP_ARCHITECTURE.md](V2_MIRROR_STARTUP_ARCHITECTURE.md) | NTFS 镜像目录方案，支持多实例并行启动 |
+| [MIRROR_STARTUP_PLAN.md](MIRROR_STARTUP_PLAN.md) | NTFS 镜像启动：v2 迁移方案、技术架构、迁移变更日志与镜像去管理员化（真 junction） |
 | [HTTP2_CONNECTION_OPTIMIZATION.md](HTTP2_CONNECTION_OPTIMIZATION.md) | **HTTPS + HTTP/2**（已实施）——本地 CA、受信任存储、反向代理兼容 |
 | [instance-manager-daemon.md](instance-manager-daemon.md) | 实例管理守护进程设计 |
 | [LOGGER_REDESIGN_PLAN.md](LOGGER_REDESIGN_PLAN.md) | `logger` 包重构方案（已实施，现为 `pkg/logger`）：console/file 多路 sink、`WithConsole` 链式调用、调用点全量迁移 |
@@ -202,7 +220,7 @@ asa-server/
 | [ARKAPI_CACHE_PREFETCH_PLAN.md](ARKAPI_CACHE_PREFETCH_PLAN.md) | ArkApi offsets cache 预取：多 CDN、断点续传、`validateSerializedMap` 格式复刻 |
 | [ARKAPI_LINUX_LOGGING_AND_PID_PLAN.md](ARKAPI_LINUX_LOGGING_AND_PID_PLAN.md) | ArkApi 日志转抄与游戏 PID 识别（`GameThread` comm 判据） |
 | [ARKAPI_PLUGIN_PLAN.md](ARKAPI_PLUGIN_PLAN.md) | ArkApi 插件按实例独立安装 / 更新 / 卸载，与插件数据、配置隔离 |
-| [SETUP_FLOW_OPTIMIZATION_PLAN.md](SETUP_FLOW_OPTIMIZATION_PLAN.md) | 环境未初始化时的引导：`setup` 跨平台化、`api`/`service install` 就绪门禁、Windows GUI 带实时进度的初始化面板（已实施） |
+| [SETUP_FLOW_OPTIMIZATION_PLAN.md](SETUP_FLOW_OPTIMIZATION_PLAN.md) | 环境未初始化时的引导：`setup` 跨平台化、`api`/`service install` 就绪门禁、Windows GUI 带实时进度的初始化面板；Part 2：`config init` 先配置后初始化、配置文件乱码、GUI 首次设置向导、`ASA_CFG` 持久化（均已实施） |
 | [PLAN_IMPLEMENTATION_AUDIT_2026-09-29.md](PLAN_IMPLEMENTATION_AUDIT_2026-09-29.md) | 上述 Linux / umu / ArkApi 计划的**只读代码审计**：P0×3 / P1×23，附修复排期、文档合并说明与路径对照 |
 
 ### 功能设计
@@ -235,7 +253,7 @@ asa-server/
 | 文档 | 说明 |
 |------|------|
 | [MIGRATION.md](MIGRATION.md) | 从 bash 脚本迁移指南 |
-| [V2_MIGRATION_PLAN.md](V2_MIGRATION_PLAN.md) · [V2_MIGRATION_CHANGELOG.md](V2_MIGRATION_CHANGELOG.md) | v2 迁移方案与变更日志 |
+| [WEBAUTHN_REMOVAL_PLAN.md](WEBAUTHN_REMOVAL_PLAN.md) | 移除 WebAuthn，只保留密码 + TOTP 两步验证 + 恢复码 |
 | [STARTUP_FIXES.md](STARTUP_FIXES.md) | 启动/停止流程修复记录 |
 
 ### 工具

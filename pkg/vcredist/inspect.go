@@ -4,6 +4,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // 本文件是「给一个 Wine 前缀的路径，读几个文件，交给 vcredist.go 的纯逻辑判断」
@@ -62,6 +63,24 @@ func OverridesApplied(prefix string) bool {
 		return false
 	}
 	return CountOverrides(data) >= len(OverrideDLLs)
+}
+
+// InstalledChecksum 读 prefix 里的安装标记（MarkerFileName），返回当时所装安装包的
+// sha256；没装过、标记缺失或读不懂都返回空串。只读一个小文件。
+//
+// 与 writeMarker 是一对：标记只在安装器**跑成功**之后才写，所以非空即意味着
+// 「这个 prefix 里的原生运行时是用这个安装包装的」。
+func InstalledChecksum(prefix string) string {
+	data, err := os.ReadFile(filepath.Join(prefix, MarkerFileName))
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "checksum="); ok {
+			return v
+		}
+	}
+	return ""
 }
 
 // Inspect 汇总一个 prefix 的 VC++ 运行时现状。只读，不联网。

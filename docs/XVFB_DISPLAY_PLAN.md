@@ -1544,6 +1544,8 @@ func reportVerificationFailure(logsDir string, emit func(string)) {
 
 # 附录 Y：文件路径对照（2026-09-29）
 
+> ⚠️ 本表之后路径又经 `docs/UMU_RUNTIME_PLUGIN_PLAN.md`（2026-09-29）调整：`pkg/display` 整体迁入 `pkg/umuruntime/plugins/xdisplay`；`internal/runner/{display,xvfb}_linux.go` 已删除（显示解析器由 `umu_linux.go` 持有，并注册为宿主插件）；VC++ 的编排改由 `pkg/umuruntime/plugins/vcrt` 接入（`internal/runner/vcredist_linux.go` 只剩配置映射与文案）；`internal/runner/vcredist_windows.go` 更名为 `plugins_windows.go`；环境准备/就绪检查/启动命令拼装在 `pkg/umuruntime/host_linux.go`。
+
 | 文档中的路径 | 实际路径（当前代码） |
 |---|---|
 | `internal/runner/display_linux.go`（业务逻辑） | `pkg/display/{display.go,display_linux.go}`（`internal/runner/display_linux.go` 只剩 45 行组合根胶水） |

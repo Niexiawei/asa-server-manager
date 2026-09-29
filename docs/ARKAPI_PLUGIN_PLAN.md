@@ -127,7 +127,7 @@
 > 6. 「启用 ASA 插件」开关从基础配置 Tab 移入插件配置面板。
 >
 > 关联文档：
-> [`V2_MIGRATION_PLAN.md`](./V2_MIGRATION_PLAN.md)（镜像启动模式的由来；插件变成全局共享是这次迁移的副作用，
+> [`MIRROR_STARTUP_PLAN.md`](./MIRROR_STARTUP_PLAN.md)（镜像启动模式的由来；插件变成全局共享是这次迁移的副作用，
 > 两份 V2 文档里都没有涉及插件）、
 > [`ARKAPI_PLUGIN_PLAN.md`](./ARKAPI_PLUGIN_PLAN.md)（现行的「启停搬运」式数据隔离。本方案**取代**它的核心机制，
 > 见 §15）、
@@ -234,7 +234,7 @@ pluginapi 的读接口**改为套 `StatusResponse` 信封**，前端现有写法
 
 ### 3.1.1 去管理员化之后的 junction 事实
 
-来源：[`MIRROR_JUNCTION_AND_WEBAUTHN_REMOVAL_PLAN.md`](./MIRROR_JUNCTION_AND_WEBAUTHN_REMOVAL_PLAN.md) 第一部分（已实施）。
+来源：[`MIRROR_STARTUP_PLAN.md`](./MIRROR_STARTUP_PLAN.md) 第一部分（已实施）。
 
 - **免特权**：Windows 上 `createJunction` 是真 NTFS junction（`DeviceIoControl` + `FSCTL_SET_REPARSE_POINT`，`junction_windows.go`），
   普通用户就能创建（该文 §1.2 实测）；Linux 上是 `os.Symlink`。两边的语义一致：目标用绝对路径，链接路径已存在时报错、不覆盖。
@@ -856,7 +856,7 @@ StopServer
   - server-files 里是 `arkapi/`（大小写不同）时，junction 建在实际大小写的路径上，镜像里不会出现两份插件目录；
   - **镜像相关用例在 Windows 上必须用真 NTFS junction 跑**（直接调 `createJunction`），不能只在 Linux/symlink 上跑：
     两者在 `Lstat`/`Mode` 上的表现不同（§3.1.1），只测 symlink 会漏掉只在 Windows 上出现的问题。
-- **实例插件目录零误删**（对应 `MIRROR_JUNCTION_AND_WEBAUTHN_REMOVAL_PLAN.md` §1.5 第 3 条的验收思路）：
+- **实例插件目录零误删**（对应 `MIRROR_STARTUP_PLAN.md` §1.5 第 3 条的验收思路）：
   依次走一遍新建镜像、增量同步、`VerifyAndRepairInstanceMirror` 触发的清理重建、正常停止、`ForceStopServer`（会清镜像）、
   卸载主程序后的同步，每一步之后都把实例插件目录与跑之前**逐文件比对**，必须一致。
   其中「卸载主程序后的同步」专门覆盖 §4.2 约束 4：`RemoveAll` 删除一个内含 junction 的真实目录。
@@ -948,7 +948,7 @@ StopServer
   在新布局下这些路径**本身就不碰实例数据**（清理只摘链接），崩溃和强杀不再有丢数据的风险；
 - §11 表格第 3 条已被 `LINUX_COMPATIBILITY_PLAN.md` 推翻（见 §10）。
 
-`MIRROR_JUNCTION_AND_WEBAUTHN_REMOVAL_PLAN.md` 第一部分是本方案的**前提**，而不是被取代的对象：
+`MIRROR_STARTUP_PLAN.md` 第一部分是本方案的**前提**，而不是被取代的对象：
 免特权的真 junction（§3.1.1）让「多一条链接」没有任何代价，基于 `Readlink` 的识别规则被本方案原样沿用，并下沉到 `pkg/fsutil`。
 那份文档不需要追加任何内容。
 
@@ -1279,9 +1279,9 @@ M18 在 Windows 上存活是预期的：NTFS 不区分大小写，`ArkApi/` 与 
 > （搬运 / 合并 / 快照）、`internal/webapi/pluginapi/`（HTTP 接口）、
 > `app/src/components/PluginDataPanel.vue`（前端），并在 `internal/mirror` 与
 > `internal/instance` 上各接了几处钩子。实施中与本文不一致的地方记在 §10。
-> 关联文档：[`MIRROR_JUNCTION_AND_WEBAUTHN_REMOVAL_PLAN.md`](./MIRROR_JUNCTION_AND_WEBAUTHN_REMOVAL_PLAN.md)
+> 关联文档：[`MIRROR_STARTUP_PLAN.md`](./MIRROR_STARTUP_PLAN.md)
 > （第一部分已去掉管理员提权，本方案必须在无特权前提下成立）、
-> [`V2_MIRROR_STARTUP_ARCHITECTURE.md`](./V2_MIRROR_STARTUP_ARCHITECTURE.md)、
+> [`MIRROR_STARTUP_PLAN.md`](./MIRROR_STARTUP_PLAN.md)、
 > [`LINUX_COMPATIBILITY_PLAN.md`](./LINUX_COMPATIBILITY_PLAN.md) §5.12（本方案在 Linux 上应整体静默，见 §11）。
 
 ---

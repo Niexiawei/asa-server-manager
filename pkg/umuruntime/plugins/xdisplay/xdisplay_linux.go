@@ -1,8 +1,9 @@
 //go:build linux
 
-package display
+package xdisplay
 
 import (
+	"context"
 	"errors"
 	"os"
 	"sort"
@@ -11,6 +12,8 @@ import (
 	"sync/atomic"
 
 	"asa-server/pkg/logger"
+	"asa-server/pkg/problem"
+	"asa-server/pkg/umuruntime"
 	"asa-server/pkg/xvfb"
 )
 
@@ -18,31 +21,46 @@ import (
 type Config struct {
 	// Display 是 `linux.display` 点名的显示号（":0"）。空 = 没点名。
 	Display string
+	// Xvfb 配置本 Resolver 自持的那个自管 Xvfb（二进制、屏幕规格、状态文件、
+	// 是否允许 remount、以及它以哪个身份运行）。
+	Xvfb xvfb.Config
 }
 
 // Resolver 回答「这台机器怎么给 Wine 进程一个显示」。
 //
-// 它持有的 *xvfb.Manager 由调用方传入而**不是自己 New 的**：xvfb.Manager 里跑着一个
-// LockOSThread 且永不返回的 spawn-loop goroutine，「进程内只有一个自管显示」这条不变量
-// 靠「组合根只持有一份 Manager」保证。见 pkg/xvfb.Manager 的注释与
-// docs/RUNNER_INSTANCE_PACKAGE_SPLIT_PLAN.md §4.3。
+// 它**自己持有**唯一一个 *xvfb.Manager。xvfb.Manager 里跑着一个 LockOSThread 且永不
+// 返回的 spawn-loop goroutine，所以「进程内只有一个自管显示」要求**每进程只 New 一个
+// Resolver**，配置变化一律走 Reconfigure —— 重新 New 会泄漏一个看门狗。
+// 见 pkg/xvfb.Manager 的注释与 docs/RUNNER_INSTANCE_PACKAGE_SPLIT_PLAN.md §4.3。
+//
+// （它以前是注入进来的，由组合根另持一份。那份 Manager 除了喂给这里之外没有别的
+// 使用者，而「刷新显示配置前必须先刷新 Xvfb 配置」这个两步顺序是个随时会漏的陷阱，
+// 于是收了进来。见 docs/UMU_RUNTIME_PLUGIN_PLAN.md §4.4。）
 type Resolver struct {
 	cfg  atomic.Pointer[Config]
 	xvfb *xvfb.Manager
 }
 
 // New returns a Resolver for cfg. Constructing one starts nothing.
-func New(cfg Config, mgr *xvfb.Manager) *Resolver {
-	r := &Resolver{xvfb: mgr}
+//
+// **每进程只许调一次**（测试除外）：见 Resolver 的注释。
+func New(cfg Config) *Resolver {
+	r := &Resolver{xvfb: xvfb.New(cfg.Xvfb)}
 	r.cfg.Store(&cfg)
 	return r
 }
 
-// Reconfigure updates the live Config. Cheap (an atomic pointer store), so the
-// caller can refresh before every use instead of hooking its own Configure().
-// The injected *xvfb.Manager is untouched — it has its own Reconfigure, and
-// the caller owns it.
-func (r *Resolver) Reconfigure(cfg Config) { r.cfg.Store(&cfg) }
+// Reconfigure updates the live Config, including the owned Xvfb manager's.
+// Cheap (atomic pointer stores), so the caller can refresh before every use
+// instead of hooking its own Configure(). Nothing already running is
+// disturbed — see xvfb.Manager.Reconfigure.
+func (r *Resolver) Reconfigure(cfg Config) {
+	r.xvfb.Reconfigure(cfg.Xvfb)
+	r.cfg.Store(&cfg)
+}
+
+// XvfbStatus is the owned Xvfb manager's own read-only snapshot.
+func (r *Resolver) XvfbStatus() xvfb.Info { return r.xvfb.Status() }
 
 func (r *Resolver) config() Config {
 	if c := r.cfg.Load(); c != nil {
@@ -265,14 +283,14 @@ func (r *Resolver) acquire(p Plan) (Target, error) {
 	return Target{}, errors.New("本机没有可用的图形显示")
 }
 
-// Acquire 是启动路径的唯一入口：先判断，再沿候选链动手。
+// acquireChain 是启动路径的唯一入口（经插件接口 Acquire）：先判断，再沿候选链动手。
 // blocked 非空 = 这台机器压根没有显示可用（调用方给自己的上下文文案）；
 // err 非空 = 链上每一档都试过且都失败了，错误是**头一档**的（它才是本该用的那个），
 // 里面带着 xvfb.log 的现场。
 //
 // 回退必须**大声**：日志一条 WARN，并且把原因缀进 How ——「本来该用自管 Xvfb，
 // 结果用了宿主的 :0」是排障时第一个要知道的事，静默回退等于把它藏起来。
-func (r *Resolver) Acquire() (target Target, blocked string, err error) {
+func (r *Resolver) acquireChain() (target Target, blocked string, err error) {
 	plans, blocked := r.Plan()
 	if blocked != "" {
 		return Target{}, blocked, nil
@@ -372,3 +390,86 @@ func firstUsableX11Display() string {
 	}
 	return ""
 }
+
+// --- umuruntime 插件接口 -------------------------------------------------------
+//
+// Resolver 本身就是插件：候选链就是 win32.gui 这个能力的全部内容，没有另包一层
+// 适配器的必要（见 docs/UMU_RUNTIME_PLUGIN_PLAN.md §3.1）。
+
+// Name is this plugin's name in a umuruntime.Host.
+const Name = "xdisplay"
+
+// ProblemName is the Name of the problem Preflight reports when no display
+// can be had.
+const ProblemName = "x11-display"
+
+var (
+	_ umuruntime.EnvProvider = (*Resolver)(nil)
+	_ umuruntime.Preflighter = (*Resolver)(nil)
+	_ umuruntime.Statuser    = (*Resolver)(nil)
+	_ umuruntime.Closer      = (*Resolver)(nil)
+)
+
+func (r *Resolver) Name() string { return Name }
+
+func (r *Resolver) Provides() []umuruntime.Capability {
+	return []umuruntime.Capability{umuruntime.CapGUI}
+}
+
+func (r *Resolver) Needs() []umuruntime.Need { return nil }
+
+// Probe is Plan reduced to a yes/no, with the chain head's description when
+// yes and Plan's reason when no. **Read-only** — like Plan, it never starts
+// an X server.
+func (r *Resolver) Probe() (bool, string) {
+	plans, blocked := r.Plan()
+	if blocked != "" {
+		return false, blocked
+	}
+	return true, plans[0].How
+}
+
+// Acquire walks the candidate chain, starting the managed Xvfb if that is the
+// candidate to use. A host with no display candidate at all is a
+// *umuruntime.CapabilityUnavailableError carrying Plan's reason; a chain
+// whose every candidate failed returns the head candidate's error as is.
+func (r *Resolver) Acquire(context.Context) (umuruntime.Lease, error) {
+	target, blocked, err := r.acquireChain()
+	switch {
+	case blocked != "":
+		return nil, &umuruntime.CapabilityUnavailableError{Cap: umuruntime.CapGUI, Why: blocked}
+	case err != nil:
+		return nil, err
+	}
+	return target, nil
+}
+
+// Preflight reports a host with no display candidate. Detail is Plan's own
+// reason; Fix names only the mechanism. What the missing display breaks —
+// and therefore how severe it is — depends on which executables the calling
+// program runs, so Warning is left for the caller to decide.
+func (r *Resolver) Preflight() []problem.Problem {
+	_, blocked := r.Plan()
+	if blocked == "" {
+		return nil
+	}
+	return []problem.Problem{{
+		Name:   ProblemName,
+		Detail: blocked,
+		Fix:    xvfb.InstallHint,
+	}}
+}
+
+// Report is Status for umuruntime.Host.Status; the Info is in Data.
+// Read-only.
+func (r *Resolver) Report() umuruntime.Status {
+	info := r.Status()
+	detail := info.How
+	if !info.Available {
+		detail = info.Blocked
+	}
+	return umuruntime.Status{Ready: info.Available, Detail: detail, Data: info}
+}
+
+// Close stops the managed Xvfb, if this process started one. See Stop.
+func (r *Resolver) Close() { r.Stop() }

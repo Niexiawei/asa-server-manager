@@ -58,6 +58,18 @@ func configurePlatform(cfg *service.Config) {
 	}
 }
 
+// finalizePlatform 在 EnvVars 定下来之后（HOME + 注入的 ASA_CFG）把它们渲染成
+// `Environment="K=V"` 写进自定义 unit 模板，见 systemdScriptWithEnv。只影响
+// systemd；sysv / upstart 等其他 init 系统照常由 kardianos 使用 cfg.EnvVars。
+func finalizePlatform(cfg *service.Config) error {
+	script, err := systemdScriptWithEnv(umuRuntimeSystemdScript, cfg.EnvVars)
+	if err != nil {
+		return err
+	}
+	cfg.Option["SystemdScript"] = script
+	return nil
+}
+
 // serviceHomeDir resolves the HOME to bake into the unit. cfg.UserName is
 // left empty (root, matching the Windows LocalSystem default — see
 // warnBeforeInstall for why that's not necessarily what you want), so this

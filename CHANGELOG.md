@@ -3,6 +3,57 @@
 本文件记录 ASA Server Manager 每个版本面向使用者的变化。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 设计与取舍的细节在 `docs/` 下对应的计划文档里，这里只写结论；条目后括注的文档名即出处。
 
+## [Unreleased]
+
+### 升级须知
+
+- **Linux，`linux.prefix_mode: overlay`**：升级后每个实例第一次启动时，它的 Wine 可写层会**重建一次**（几秒到几十秒），
+  之后恢复秒起。原因是底层前缀的指纹格式变了（见下方「修复」）；可写层里没有用户数据（存档在 `instances/<实例>/Save`），
+  不会丢任何东西。`shared` / `per-instance` 模式不受影响。
+- `GET /api/system/preflight` 的响应里，`display` 字段换成了 `runtimePlugins`（每个 Linux 运行时组件——图形显示、
+  VC++ 运行时——的状态列表）。自带的前端没有用到它；自己写了脚本读这个字段的需要改读新字段。
+- **`config.yaml` 不再在任意命令启动时顺手生成**：`--help`、`config` 子命令完全不碰磁盘；`setup` 与 Windows GUI 在没有配置时
+  由自己引导生成。`api` 与服务模式缺配置时仍自动生成，已有 `config.yaml` 的部署不受影响
+  （`docs/SETUP_FLOW_OPTIMIZATION_PLAN.md` Part 2）。
+- **Linux，systemd 服务**：unit 里的环境变量改为带引号的 `Environment="K=V"`。旧 unit 在路径不含空格时照常工作；
+  配置 / 数据目录路径里有空格的，`service remove` 后重新 `service install` 一次。
+
+### 新增
+
+- **`asa-server config init | path | validate`**：先生成配置、改好下载代理等，再运行 `setup` 下载几百 MB / 几十 GB。
+  `config init` 只写 `config.yaml`（不建目录、不下载），已存在时需 `--force`（先备份）；`config path` 显示三级查找各自的状态、
+  当前使用哪一份以及数据目录的来源；`config validate` 只校验不修改（`docs/SETUP_FLOW_OPTIMIZATION_PLAN.md` Part 2）。
+- **`setup` 在没有配置时会停下来等你改**：生成配置后打印需要检查的项，回车后重新加载（含下载代理）再开始下载；改坏了可以修正后重试。
+- **Windows GUI 首次设置向导**：配置文件位置（程序目录 / 系统目录 / 自定义目录）→ 数据目录 → 检查配置（记事本打开、重新校验）→
+  初始化环境。「浏览…」用系统原生的选择文件夹对话框。
+- **`config init --set-env`**：把 `ASA_CFG` 持久化为配置目录——Windows 写当前用户环境变量（GUI 选自定义目录时同此），
+  Linux 以 root 写 `/etc/profile.d/asa-server.sh`。`service install` 会把安装时的 `ASA_CFG` 一并写进服务配置。
+
+### 修复
+
+- **Linux，overlay 模式**：共享底层前缀后来才补装上 VC++ 运行时（典型：先在无头机上建好实例，后来装了 Xvfb 再跑
+  `asa-server setup`）时，已有实例的可写层不会察觉，早先复制上来的注册表与 system32 会一直挡住新装的运行时，
+  ArkApi 起不来且没有任何提示。现在底层装了新组件，已有的可写层会在下次启动时自动重建（`docs/UMU_PREFIX_PLAN.md` §8.1）。
+- **Linux，overlay 模式**：`asa-server verify-arkapi --install-vcredist` 在有实例运行时会直接改写被它们挂载着的共享底层前缀
+  （overlayfs 明确的未定义行为，症状落在正在运行的实例上）。现在它与 `setup` 走同一道保护：有实例的可写层挂在上面时拒绝并说明原因
+  （`docs/UMU_PREFIX_PLAN.md` P0）。
+- `setup` 与 GUI 选定数据目录后重新加载配置时，漏了重新应用下载器配置：配置里改的下载代理要重启程序才生效。
+- `asa-server --help` 会在程序旁边生成 `config.yaml` 并建 5 个空的数据目录。
+- **Linux，systemd 服务**：路径含空格的环境变量（`ASA_CFG`、`HOME`）被 systemd 按空白切开，服务读到的是另一个目录。
+- 设置了 `ASA_CFG` 时，首次引导写入数据目录会去改程序目录下一份并不存在的配置文件。
+- Windows GUI 的首次启动对话框可能被随后显示的主窗口压在下面。
+
+### 变更
+
+- **`config.yaml` 的编码**：Windows 上写成带 BOM 的 UTF-8 + CRLF 换行，Windows Server 自带记事本打开不再乱码、不再挤成一行。
+  Linux 上交互式 `config init` / `setup` 会先问一句「能否正常显示中文」来选注释语言；非交互时终端 locale 不是 UTF-8 则生成纯 ASCII
+  的英文注释版（`--lang zh|en` 可指定）。`cat` / vim 里中文都是乱码时，通常是 SSH 客户端按 GBK 解码，把客户端改成 UTF-8 即可
+  （`docs/LINUX_DEPLOYMENT.md` §2.2）。
+- `setup` 询问数据目录时直接回车，表示「与配置文件同目录」（以前要求必须填写）。
+- **Linux 运行时内部重构**（`docs/UMU_RUNTIME_PLUGIN_PLAN.md`）：umu / Proton 运行时的编排独立成 `pkg/umuruntime`，
+  图形显示（自管 Xvfb）与 VC++ 运行时改为声明依赖的插件，实例启动只声明「需要什么能力」。对使用者的行为、日志与报错文字保持不变，
+  只有一处例外：ArkApi 实例启动时「没有检测到 VC++ 运行时」那条告警的措辞略有调整。
+
 ## [0.1.0] - 2026-09-25
 
 `v0.0.1`（2026-06-22）之后的全部变化，按领域归类。
