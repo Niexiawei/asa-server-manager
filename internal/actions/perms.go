@@ -98,9 +98,20 @@ func actionPermsFix(ctx context.Context, cmd *cli.Command) error {
 		return nil
 	}
 
+	// 独占目录（Wine 前缀、clusters、各实例镜像）整棵交给运行时用户。先做这一步：
+	// 它顺带确保运行时用户存在，下面的共享树要用到它的 gid。镜像是启动时的自动
+	// 修复刻意跳过的部分（每次启动都遍历几万条链接太贵），也就只有这里会整体处理。
+	fmt.Print("处理运行时用户独占的目录（Wine 前缀、clusters、各实例镜像）... ")
+	start := time.Now()
+	if err := runner.FixRuntimeOwnership(ctx); err != nil {
+		fmt.Println("失败")
+		return fmt.Errorf("修复独占目录的属主失败: %w", err)
+	}
+	fmt.Printf("完成（%s）\n", time.Since(start).Round(time.Millisecond))
+
 	trees := runner.SharedTrees()
 	if len(trees) == 0 {
-		fmt.Println("没有需要处理的目录树（server-files / instances 尚未创建）。")
+		fmt.Println("没有需要处理的共享目录树（server-files / instances 尚未创建）。")
 		return nil
 	}
 
@@ -114,7 +125,7 @@ func actionPermsFix(ctx context.Context, cmd *cli.Command) error {
 		// server-files 有约 5 万个条目，遍历要几秒；先打印再动手，
 		// 否则用户会以为卡住了。
 		fmt.Printf("处理 %s ... ", tree)
-		start := time.Now()
+		start = time.Now()
 		if err := runner.PrepareSharedTree(tree); err != nil {
 			fmt.Println("失败")
 			return fmt.Errorf("处理 %s 失败: %w", tree, err)
