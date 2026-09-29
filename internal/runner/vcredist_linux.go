@@ -28,7 +28,7 @@ func vcRedistDir(cfg Config) string { return filepath.Join(cfg.BaseDir, "vcredis
 // vcRedistInstallerFor 用当下的 Config 现建一个 Installer。
 //
 // 不做包级单例：Installer 不持有任何跨调用状态（同 sysUserFor / pkg/sysuser.Manager，
-// 与必须 Reconfigure 的 runtimeHost / xvfbMgr 相反）。
+// 与必须 Reconfigure 的 runtimeHost / displayRes 相反）。
 func vcRedistInstallerFor(cfg Config, logf func(string, ...any)) *vcredist.Installer {
 	return vcredist.New(vcredist.Config{
 		Dir:          vcRedistDir(cfg),
@@ -39,7 +39,7 @@ func vcRedistInstallerFor(cfg Config, logf func(string, ...any)) *vcredist.Insta
 		ChownPath:    chownPathForRuntime,
 
 		// 与 ArkApi 启动路径共用同一个显示解析：两者需要显示的原因是同一个
-		// （Wine 的 winex11.drv），见 display_linux.go。blocked 与 err 在这里归一
+		// （Wine 的 winex11.drv），见 umu_linux.go 的 displayRes。blocked 与 err 在这里归一
 		// 成一个 error：pkg 只需要分「压根没有显示能力」与「有能力但这次没拿到」，
 		// 而**哪种算哪种**是本程序的判断（checkDisplay 把缺显示定为建议项，所以
 		// 一台没装 Xvfb 的机器走到 blocked 是常规路径，不是意外）。

@@ -15,13 +15,16 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
 	"syscall"
 
 	"asa-server/pkg/logger"
 	"asa-server/pkg/umu"
 	"asa-server/pkg/umuruntime"
+	"asa-server/pkg/umuruntime/plugins/xdisplay"
 	"asa-server/pkg/vcredist"
 	"asa-server/pkg/wineprefix"
+	"asa-server/pkg/xvfb"
 )
 
 // runtimeHost is this process's single runtime host. "Only one per process"
@@ -41,6 +44,56 @@ var runtimeIdentity = umuruntime.Identity{
 	ChownPath: chownPathForRuntime,
 	UserName:  func() string { return runtimeUserName(getConfig()) },
 }
+
+// displayRes is this process's single display resolver. It owns the one
+// *xvfb.Manager — "only one self-managed display per process" holds because
+// this is the only xdisplay.New call outside tests. See
+// docs/UMU_RUNTIME_PLUGIN_PLAN.md §4.4.
+//
+// 为什么本项目在 Linux 上把「图形显示」当依赖（尽管跑的是无头服务端），见
+// xdisplay 的包注释与 docs/ARKAPI_LINUX_VCREDIST_PLAN.md §9：ArkAscendedServer.exe
+// 本身**不需要**显示，只有 AsaApiLoader.exe（ArkApi）与 vc_redist.x64.exe 这两条路径要。
+var displayRes = xdisplay.New(xdisplay.Config{})
+
+// displayFor refreshes displayRes (and its Xvfb manager) from cfg and returns it.
+func displayFor(cfg Config) *xdisplay.Resolver {
+	displayRes.Reconfigure(xdisplay.Config{
+		Display: cfg.Display,
+		Xvfb: xvfb.Config{
+			Bin:             cfg.XvfbBin,
+			Screen:          cfg.XvfbScreen,
+			StatePath:       xvfbStatePath(cfg),
+			AllowX11Remount: cfg.AllowX11Remount,
+			HomeDir:         runtimeIdentity.HomeDir,
+			ChildIDs:        runtimeIdentity.ChildIDs,
+			Credential: func() (*syscall.Credential, error) {
+				cred, _, err := runtimeIdentity.Credential()
+				return cred, err
+			},
+		},
+	})
+	return displayRes
+}
+
+func xvfbStatePath(cfg Config) string {
+	if cfg.BaseDir == "" {
+		return ""
+	}
+	return filepath.Join(cfg.BaseDir, "xvfb.state")
+}
+
+// planDisplay 是只读的候选链判断：**绝不**拉起 X 服务端。preflight、
+// DisplayStatus、`verify-arkapi --check-only` 只许问它。
+func planDisplay() ([]xdisplay.Plan, string) { return displayFor(getConfig()).Plan() }
+
+// acquireDisplay 是启动路径的唯一入口：先判断，再沿候选链动手（必要时拉起 Xvfb）。
+func acquireDisplay() (xdisplay.Target, string, error) { return displayFor(getConfig()).Acquire() }
+
+// stopManagedDisplay 是 runner.StopManagedDisplay 的实现。
+func stopManagedDisplay() { displayFor(getConfig()).Stop() }
+
+// displayStatus 是 runner.DisplayStatus 的实现。
+func displayStatus() DisplayInfo { return displayFor(getConfig()).Status() }
 
 // hostFor refreshes runtimeHost's config from cfg and returns it. Cheap (a
 // few atomic pointer stores) — called before every use rather than only from

@@ -30,7 +30,7 @@ func run(ctx context.Context, exePath string, args []string, opt Options) (*Hand
 	// display even though the workload is a headless game server: without one
 	// CreateWindow fails and the loader exits with code 3 having written
 	// nothing at all — no console output, not even its own logs/ directory
-	// (measured 2026-08-30, see display_linux.go). Fail fast with something
+	// (measured 2026-08-30, see the xdisplay package doc). Fail fast with something
 	// actionable instead of reporting a "started" instance that is already
 	// dead. Applied after the runtime-user env rewrite on purpose — see
 	// display.Target.Apply.

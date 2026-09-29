@@ -91,7 +91,7 @@ func runtimeUserProblems() []Problem { return verifyRuntimeAccess(false) }
 // dependency, and preflight was treating it as an **install** dependency:
 //
 //   - ArkAscendedServer.exe itself never needs a display (same host, listening
-//     in 42 seconds) — see display_linux.go's header;
+//     in 42 seconds) — see the xdisplay package doc;
 //   - the vc_redist step already degrades on its own (vcredist_linux.go: no
 //     display means skip the install, keep the DLL overrides, don't fail);
 //   - a launch that really needs one fails loudly at runner.Run with the same

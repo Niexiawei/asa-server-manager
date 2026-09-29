@@ -1,5 +1,6 @@
-// Package display answers one question: how does a Wine process on this host
-// get an X display?
+// Package xdisplay is the umuruntime plugin that answers one question: how
+// does a Wine process on this host get an X display? (It was pkg/display
+// until the runtime became plugin-hosted; see docs/UMU_RUNTIME_PLUGIN_PLAN.md.)
 //
 // Wine 侧的「图形显示」是本项目在 Linux 上的一个**硬依赖**，尽管跑的是无头服务端。
 // Wine 的 winex11.drv 连不上 X 服务时，`CreateWindow` 一律失败
@@ -9,15 +10,15 @@
 // 连自己的 logs/ 目录都不会建；补上一个能用的显示，同一条命令就跑通。
 // 见 docs/ARKAPI_LINUX_VCREDIST_PLAN.md §9 与 docs/XVFB_CROSS_DISTRO_DISPLAY_PLAN.md。
 //
-// 本包只回答「显示从哪来」这个候选链问题；自管虚拟显示的机制本身（拉起/看门狗/
-// 认领/socket 目录 remount）在 asa-server/pkg/xvfb，由调用方构造好一个
-// *xvfb.Manager 注入进来 —— 「进程内只有一个自管显示」这条不变量落地为
-// 「组合根只持有一份 *xvfb.Manager」，不是由本包或 pkg/xvfb 自建单例。
+// 本包回答「显示从哪来」这个候选链问题；自管虚拟显示的机制本身（拉起/看门狗/
+// 认领/socket 目录 remount）在 asa-server/pkg/xvfb。Resolver **自己持有**唯一一个
+// *xvfb.Manager —— 「进程内只有一个自管显示」这条不变量落地为「组合根只持有一个
+// Resolver」，不是由本包或 pkg/xvfb 自建包级单例。
 //
 // 本文件**不带 build tag**：Info 要被 HTTP API 层在任何平台上引用（Windows 上
 // internal/runner 直接返回一个「总是可用」的 Info，压根不构造 Resolver），
 // 而 Target 的追加语义是纯切片操作，可以在任何平台上单测。
-package display
+package xdisplay
 
 // Info is how (and whether) this host can give a Wine process an X display.
 // On Windows the caller reports it as always available: there is a real

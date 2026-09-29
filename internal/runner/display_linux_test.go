@@ -7,20 +7,20 @@ import (
 	"testing"
 )
 
-// 候选链本身的用例在 asa-server/pkg/display（Plan 顺序、blocked 文案、Target 的
+// 候选链本身的用例在 asa-server/pkg/umuruntime/plugins/xdisplay（Plan 顺序、blocked 文案、Target 的
 // 追加语义等）。这里只剩「组合根把它接对了没有」以及 preflight 那一侧的断言 ——
-// checkDisplay 属于 internal/runner，pkg/display 不认识 Problem。
+// checkDisplay 属于 internal/runner，xdisplay 不认识本程序的文案。
 
 // TestDisplayStatusStartsNothing: 诊断视图不许有副作用。自管那一档的「拿到显示」
 // 意味着真的 fork 一个 X 服务端，被 GET /api/system/preflight 问一句就起一个是不行的。
 //
-// pkg/display 里有同名不变量的用例；这一条是**接线**的版本：它走的是真正被 API
-// 调用的那两个入口（displayStatus/checkDisplay）和进程唯一的那个 xvfbMgr。
+// xdisplay 里有同名不变量的用例；这一条是**接线**的版本：它走的是真正被 API
+// 调用的那两个入口（displayStatus/checkDisplay）和进程唯一的那个 displayRes。
 func TestDisplayStatusStartsNothing(t *testing.T) {
-	before := xvfbManager().Status()
+	before := displayFor(getConfig()).XvfbStatus()
 	_ = displayStatus()
 	_ = checkDisplay()
-	if xvfbManager().Status() != before {
+	if displayFor(getConfig()).XvfbStatus() != before {
 		t.Error("displayStatus/checkDisplay started an X server as a side effect")
 	}
 }
@@ -67,9 +67,9 @@ func TestCheckDisplayAgreesWithPlan(t *testing.T) {
 }
 
 // TestDisplayStatusMatchesResolver: 组合根不许在转发的路上把答案改掉 ——
-// runner.DisplayStatus() 就是 pkg/display 的 Status()，一个字段都不加工。
+// runner.DisplayStatus() 就是 xdisplay 的 Status()，一个字段都不加工。
 func TestDisplayStatusMatchesResolver(t *testing.T) {
-	if got, want := displayStatus(), displayResolver().Status(); got.Available != want.Available ||
+	if got, want := displayStatus(), displayFor(getConfig()).Status(); got.Available != want.Available ||
 		got.Blocked != want.Blocked || got.How != want.How {
 		t.Errorf("displayStatus() = %+v, resolver said %+v", got, want)
 	}

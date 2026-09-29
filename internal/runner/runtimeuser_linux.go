@@ -32,7 +32,7 @@ import (
 // account). runtimeChildIDs hands it back when the runtime user doesn't
 // exist yet, so a permission judgement built on it lands on the conservative
 // branch instead of silently assuming ownership. Mirrors the identically-
-// named sentinel in pkg/sysuser (unexported there): xvfb_linux.go compares
+// named sentinel in pkg/sysuser (unexported there): pkg/xvfb compares
 // runtimeChildIDs' result against it directly.
 const noSuchID = ^uint32(0)
 

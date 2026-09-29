@@ -1,6 +1,6 @@
 //go:build linux
 
-package display
+package xdisplay
 
 import (
 	"errors"
@@ -14,7 +14,7 @@ import (
 // testResolver 建一个带自己的 *xvfb.Manager 的解析器。构造 Manager 不启动任何东西
 // （第一次 Acquire 才动手），而这些用例只问 Plan/Status，所以没有副作用。
 func testResolver(cfg Config) *Resolver {
-	return New(cfg, xvfb.New(xvfb.Config{}))
+	return New(cfg)
 }
 
 // TestX11SocketPathParsing: DISPLAY 的解析必须只认本地形式，并且落到真实文件上。
@@ -171,8 +171,8 @@ func TestStatusMatchesPlan(t *testing.T) {
 // 真的 fork 一个 X 服务端，被 GET /api/system/preflight 问一句就起一个是不行的。
 // 这是本包最承重的不变量 —— Plan 只读、acquire 才动手那条分界的落地检验。
 func TestStatusStartsNothing(t *testing.T) {
-	mgr := xvfb.New(xvfb.Config{})
-	r := New(Config{}, mgr)
+	r := New(Config{})
+	mgr := r.xvfb
 
 	before := mgr.Status()
 	_ = r.Status()

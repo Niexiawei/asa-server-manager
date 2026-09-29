@@ -21,8 +21,8 @@ import (
 
 	"github.com/aymanbagabas/go-pty"
 
-	"asa-server/pkg/display"
 	"asa-server/pkg/problem"
+	"asa-server/pkg/umuruntime/plugins/xdisplay"
 	"asa-server/pkg/vcredist"
 	"asa-server/pkg/wineprefix"
 )
@@ -59,8 +59,7 @@ type Options struct {
 	// linux.display setting, DISPLAY, or a running X server) or gets one from
 	// the Xvfb this program starts and keeps for itself; when neither is
 	// possible Run fails fast with an actionable error rather than letting the
-	// loader die silently. See internal/runner/display_linux.go and
-	// xvfb_linux.go.
+	// loader die silently. See asa-server/pkg/umuruntime/plugins/xdisplay.
 	NeedsDisplay bool
 }
 
@@ -324,7 +323,7 @@ func VCRedistStatus(prefixKey, gameDir string) VCRedistInfo {
 // DisplayInfo is how (and whether) this host can give a Wine process an X
 // display — the precondition Options.NeedsDisplay depends on. On Windows it is
 // always available: there is a real window station.
-type DisplayInfo = display.Info
+type DisplayInfo = xdisplay.Info
 
 // DisplayStatus reports the host's display situation. Read-only and offline —
 // a PATH lookup, a stat and at most a few local socket handshakes. It never
@@ -342,7 +341,7 @@ func DisplayStatus() DisplayInfo { return displayStatus() }
 // behind would preserve nothing and accumulate one process per restart.
 //
 // This is the deterministic layer only — Pdeathsig covers the crash/SIGKILL
-// case where nothing gets to run. See internal/runner/xvfb_linux.go.
+// case where nothing gets to run. See asa-server/pkg/xvfb.
 func StopManagedDisplay() { stopManagedDisplay() }
 
 // Preflight runs host dependency checks. Always empty on Windows.
