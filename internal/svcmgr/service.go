@@ -19,6 +19,8 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/kardianos/service"
@@ -96,7 +98,31 @@ func newServiceConfig() *service.Config {
 		Description: ServiceDescription,
 	}
 	configurePlatform(cfg)
+	injectConfigLocation(cfg, os.Getenv("ASA_CFG"))
 	return cfg
+}
+
+// injectConfigLocation 把安装时生效的 ASA_CFG 烤进服务自己的环境。
+//
+// 服务进程看不到安装者的环境：Windows 服务以 LocalSystem 运行，读不到安装者
+// HKCU 里的用户级环境变量（GUI 向导「自定义配置目录」写的正是那里）；systemd
+// 服务也不继承 shell 里 export 的变量。不注入的话，服务会按「exe 同级 > 系统目录」
+// 去找配置，读到另一份（或者一份都没有）。kardianos 在 Windows 上把 EnvVars 写进
+// 服务注册表项的 Environment（REG_MULTI_SZ），在 systemd 上写成 unit 的 Environment=。
+//
+// 这是安装时的快照：之后改配置位置要重装服务。见
+// docs/SETUP_FLOW_OPTIMIZATION_PLAN.md Part 2 §P2-3.5.1。
+func injectConfigLocation(cfg *service.Config, asaCfg string) {
+	if asaCfg == "" {
+		return
+	}
+	if abs, err := filepath.Abs(asaCfg); err == nil {
+		asaCfg = abs
+	}
+	if cfg.EnvVars == nil {
+		cfg.EnvVars = map[string]string{}
+	}
+	cfg.EnvVars["ASA_CFG"] = asaCfg
 }
 
 // InstallService installs the OS service
