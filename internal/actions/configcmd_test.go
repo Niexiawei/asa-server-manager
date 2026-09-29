@@ -260,22 +260,38 @@ func TestConfigPath(t *testing.T) {
 	}
 }
 
+// stubPersist 替换两个平台的持久化实现，记录调用；测试绝不能真写注册表或 /etc/profile.d。
+func stubPersist(t *testing.T, profileErr error) *[]string {
+	t.Helper()
+	var calls []string
+	origUser, origProfile := setUserEnv, setProfileEnv
+	setUserEnv = func(name, value string) error {
+		calls = append(calls, "user:"+name+"="+value)
+		return nil
+	}
+	setProfileEnv = func(file, name, value string) (string, error) {
+		calls = append(calls, "profile:"+file+":"+name+"="+value)
+		if profileErr != nil {
+			return "", profileErr
+		}
+		return "/etc/profile.d/" + file, nil
+	}
+	t.Cleanup(func() { setUserEnv, setProfileEnv = origUser, origProfile })
+	return &calls
+}
+
 // --set-env：不再警告「下次读不到」，写成功后持久化 ASA_CFG 并同步到当前进程。
 func TestConfigInit_SetEnvPersistsConfigDir(t *testing.T) {
 	newConfigEnv(t)
 	custom := filepath.Join(t.TempDir(), "custom")
-
-	var gotName, gotValue string
-	orig := setUserEnv
-	setUserEnv = func(name, value string) error { gotName, gotValue = name, value; return nil }
-	t.Cleanup(func() { setUserEnv = orig })
+	calls := stubPersist(t, nil)
 
 	out, err := run(t, configInitOptions{Dir: custom, Lang: "zh", SetEnv: true}, "")
 	if err != nil {
 		t.Fatalf("config init --set-env: %v\n%s", err, out)
 	}
-	if gotName != "ASA_CFG" || gotValue != custom {
-		t.Errorf("应持久化 ASA_CFG=%q，实际 %s=%q", custom, gotName, gotValue)
+	if len(*calls) != 1 || !strings.HasSuffix((*calls)[0], "ASA_CFG="+custom) {
+		t.Errorf("应恰好持久化一次 ASA_CFG=%q，实际 %v", custom, *calls)
 	}
 	if os.Getenv("ASA_CFG") != custom {
 		t.Errorf("当前进程的 ASA_CFG 应同步为 %q，实际 %q", custom, os.Getenv("ASA_CFG"))
@@ -285,19 +301,61 @@ func TestConfigInit_SetEnvPersistsConfigDir(t *testing.T) {
 	}
 }
 
-// 不支持持久化的平台：不报错，打印手动设置方法。
-func TestConfigInit_SetEnvUnsupportedPrintsHint(t *testing.T) {
-	newConfigEnv(t)
-	custom := filepath.Join(t.TempDir(), "custom")
-	orig := setUserEnv
-	setUserEnv = func(string, string) error { return userenv.ErrUnsupported }
-	t.Cleanup(func() { setUserEnv = orig })
-
-	out, err := run(t, configInitOptions{Dir: custom, Lang: "zh", SetEnv: true}, "")
-	if err != nil {
-		t.Fatalf("config init --set-env: %v", err)
+func TestPersistConfigDir_Windows(t *testing.T) {
+	t.Setenv("ASA_CFG", "")
+	calls := stubPersist(t, nil)
+	var out bytes.Buffer
+	if err := persistConfigDir("windows", &out, `D:\cfg`, zhOnly); err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(out, "export ASA_CFG="+custom) {
-		t.Errorf("应打印 export 提示:\n%s", out)
+	if len(*calls) != 1 || (*calls)[0] != `user:ASA_CFG=D:\cfg` {
+		t.Errorf("Windows 应写用户级环境变量，实际 %v", *calls)
 	}
 }
+
+// Linux：写 /etc/profile.d，并如实告诉用户当前终端要 source 一次。
+func TestPersistConfigDir_LinuxWritesProfileD(t *testing.T) {
+	t.Setenv("ASA_CFG", "")
+	t.Setenv("SHELL", "/usr/bin/zsh")
+	calls := stubPersist(t, nil)
+	var out bytes.Buffer
+	if err := persistConfigDir("linux", &out, "/opt/asa cfg", zhOnly); err != nil {
+		t.Fatal(err)
+	}
+	if len(*calls) != 1 || (*calls)[0] != "profile:asa-server.sh:ASA_CFG=/opt/asa cfg" {
+		t.Errorf("Linux 应写 /etc/profile.d/asa-server.sh，实际 %v", *calls)
+	}
+	s := out.String()
+	for _, want := range []string{
+		"source /etc/profile.d/asa-server.sh", // 当前终端怎么生效
+		"sudo -i",                             // sudo 会清环境变量
+		"~/.zprofile",                         // zsh 用户的额外提示
+		`Environment="ASA_CFG=/opt/asa cfg"`,  // 服务不依赖这个文件
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("输出应包含 %q:\n%s", want, s)
+		}
+	}
+	if os.Getenv("ASA_CFG") != "/opt/asa cfg" {
+		t.Error("当前进程的 ASA_CFG 应已同步")
+	}
+}
+
+// 非 root：不报错，退回打印 export 语句，并说明用 root 重跑即可自动写入。
+func TestPersistConfigDir_LinuxNeedsRoot(t *testing.T) {
+	t.Setenv("ASA_CFG", "")
+	stubPersist(t, userenv.ErrNeedRoot)
+	var out bytes.Buffer
+	if err := persistConfigDir("linux", &out, "/opt/cfg", zhOnly); err != nil {
+		t.Fatalf("非 root 不应报错: %v", err)
+	}
+	s := out.String()
+	if !strings.Contains(s, "export ASA_CFG=/opt/cfg") || !strings.Contains(s, "root") {
+		t.Errorf("应打印 export 语句并提示 root:\n%s", s)
+	}
+	if os.Getenv("ASA_CFG") != "" {
+		t.Error("没写成功时不应改当前进程的 ASA_CFG")
+	}
+}
+
+func zhOnly(zh, en string) string { return zh }

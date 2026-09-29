@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"github.com/urfave/cli/v3"
 
@@ -51,7 +52,7 @@ func ConfigCommand() *cli.Command {
 					},
 					&cli.BoolFlag{
 						Name:  "set-env",
-						Usage: "写完后把环境变量 ASA_CFG 持久化为该目录（Windows 写当前用户环境变量；Linux 打印设置方法）。--dir 指向程序默认不会查找的位置时需要它",
+						Usage: "写完后把环境变量 ASA_CFG 持久化为该目录（Windows 写当前用户环境变量；Linux 以 root 写 /etc/profile.d/asa-server.sh）。--dir 指向程序默认不会查找的位置时需要它",
 					},
 					&cli.BoolFlag{
 						Name:  "non-interactive",
@@ -111,6 +112,7 @@ type configInitResult struct {
 var (
 	validateBaseDir = appconfig.ValidateBaseDir
 	setUserEnv      = userenv.SetUser
+	setProfileEnv   = userenv.SetProfileScript
 )
 
 func actionConfigInit(ctx context.Context, cmd *cli.Command) error {
@@ -281,29 +283,65 @@ func runConfigInit(o configInitOptions, p *prompter) (configInitResult, error) {
 	// 5) 写成功之后才持久化 ASA_CFG：顺序反过来的话，写失败会留下一个指向空目录的
 	//    环境变量，之后每次启动都找不到配置。
 	if o.SetEnv {
-		if err := persistConfigDir(out, dir, L); err != nil {
+		if err := persistConfigDir(runtime.GOOS, out, dir, L); err != nil {
 			return res, err
 		}
 	}
 	return res, nil
 }
 
-// persistConfigDir 实现 --set-env。Windows 写用户级 ASA_CFG（不需要管理员）并同步到
-// 当前进程；其余平台不替用户选 shell 配置文件，只打印怎么做。
-func persistConfigDir(out io.Writer, dir string, L func(zh, en string) string) error {
-	err := setUserEnv("ASA_CFG", dir)
-	if errors.Is(err, userenv.ErrUnsupported) {
-		fmt.Fprintf(out, L("\n本平台不会自动持久化环境变量，请把下面这行加进你使用的 shell 配置（如 ~/.bashrc）：\n  export ASA_CFG=%s\n`asa-server service install` 会把安装时的 ASA_CFG 写进服务，无需另行配置。\n",
-			"\nThis platform does not persist environment variables automatically; add this line to your shell profile (e.g. ~/.bashrc):\n  export ASA_CFG=%s\n`asa-server service install` bakes the ASA_CFG in effect at install time into the service.\n"), dir)
+// persistConfigDir 实现 --set-env，并把当前进程的 ASA_CFG 同步过去。
+//
+//   - Windows：写当前用户的环境变量（HKCU\Environment，不需要管理员）并广播，
+//     此后从资源管理器启动的程序与新开的终端都能看到。
+//   - Linux：以 root 写 /etc/profile.d/asa-server.sh，此后新的登录 shell 都能看到。
+//     非 root 时退回打印 export 语句。
+//
+// 两个平台都**改不了启动本程序的那个 shell**：子进程无法修改父进程的环境变量，
+// 所以「写完自动在当前终端生效」做不到，只能告诉用户重开终端或 source 一次。
+// 服务不依赖这里：service install 会把安装时的 ASA_CFG 写进服务自己的配置
+// （Windows 注册表 / systemd 的 Environment="ASA_CFG=..."）。
+func persistConfigDir(goos string, out io.Writer, dir string, L func(zh, en string) string) error {
+	if goos == "windows" {
+		if err := setUserEnv("ASA_CFG", dir); err != nil {
+			return fmt.Errorf(L("配置已生成，但设置环境变量 ASA_CFG 失败：%w", "The config was generated, but setting ASA_CFG failed: %w"), err)
+		}
+		_ = os.Setenv("ASA_CFG", dir)
+		fmt.Fprintf(out, L("\n已为当前用户设置环境变量 ASA_CFG=%s\n新打开的终端、从资源管理器启动的程序会生效；已经开着的终端需要重新打开。\n装成服务时会把它一并写进服务配置。\n",
+			"\nSet ASA_CFG=%s for the current user.\nNew terminals and programs started from Explorer pick it up; reopen terminals that are already open.\nInstalling the service bakes it into the service configuration.\n"), dir)
 		return nil
 	}
-	if err != nil {
+
+	path, err := setProfileEnv("asa-server.sh", "ASA_CFG", dir)
+	switch {
+	case err == nil:
+		_ = os.Setenv("ASA_CFG", dir)
+		fmt.Fprintf(out, L("\n已写入 %s：export ASA_CFG=%s\n之后新登录的 shell（SSH 登录、su -、sudo -i）会自动带上它。\n",
+			"\nWrote %s: export ASA_CFG=%s\nNew login shells (SSH login, su -, sudo -i) pick it up automatically.\n"), path, dir)
+		fmt.Fprintf(out, L("当前终端请手动执行一次（程序改不了启动它的 shell 的环境变量）：\n  source %s\n",
+			"In the current terminal run this once (a program cannot change the environment of the shell that started it):\n  source %s\n"), path)
+		fmt.Fprintf(out, L("注意：\n  · sudo 默认会清掉环境变量：用 sudo 运行 asa-server 时先 sudo -i 进入 root 登录 shell，或写成 sudo ASA_CFG=%s asa-server …\n",
+			"Notes:\n  · sudo resets the environment by default: use sudo -i for a root login shell first, or run sudo ASA_CFG=%s asa-server ...\n"), dir)
+		if strings.HasSuffix(os.Getenv("SHELL"), "zsh") {
+			fmt.Fprintf(out, L("  · 部分发行版（如 Debian/Ubuntu）的 zsh 登录时不读 /etc/profile.d，需要在 ~/.zprofile 里加一行：source %s\n",
+				"  · On some distros (e.g. Debian/Ubuntu) zsh does not read /etc/profile.d at login; add this line to ~/.zprofile: source %s\n"), path)
+		}
+		fmt.Fprintf(out, L("  · asa-server service install 会把它写进 systemd unit（Environment=\"ASA_CFG=%s\"），服务不依赖这个文件。\n",
+			"  · asa-server service install writes it into the systemd unit (Environment=\"ASA_CFG=%s\"); the service does not depend on this file.\n"), dir)
+		return nil
+	case errors.Is(err, userenv.ErrNeedRoot), errors.Is(err, userenv.ErrUnsupported):
+		reason := L("写入 /etc/profile.d 需要 root 权限", "writing /etc/profile.d requires root")
+		if errors.Is(err, userenv.ErrUnsupported) {
+			reason = L("本平台不支持自动持久化环境变量", "this platform cannot persist environment variables automatically")
+		}
+		fmt.Fprintf(out, L("\n未能自动设置 ASA_CFG（%s）。请用 root 重跑本命令加 --force --set-env，或把下面这行加进你使用的 shell 配置（如 ~/.bashrc）：\n  export ASA_CFG=%s\n",
+			"\nCould not set ASA_CFG automatically (%s). Rerun this command as root with --force --set-env, or add this line to your shell profile (e.g. ~/.bashrc):\n  export ASA_CFG=%s\n"), reason, dir)
+		fmt.Fprintln(out, L("asa-server service install 会把安装时的 ASA_CFG 写进服务，无需另行配置。",
+			"asa-server service install bakes the ASA_CFG in effect at install time into the service."))
+		return nil
+	default:
 		return fmt.Errorf(L("配置已生成，但设置环境变量 ASA_CFG 失败：%w", "The config was generated, but setting ASA_CFG failed: %w"), err)
 	}
-	_ = os.Setenv("ASA_CFG", dir)
-	fmt.Fprintf(out, L("\n已为当前用户设置环境变量 ASA_CFG=%s\n新打开的终端、从资源管理器启动的程序会生效；已经开着的终端需要重新打开。\n装成服务时会把它一并写进服务配置。\n",
-		"\nSet ASA_CFG=%s for the current user.\nNew terminals and programs started from Explorer pick it up; reopen terminals that are already open.\nInstalling the service bakes it into the service configuration.\n"), dir)
-	return nil
 }
 
 // printConfigInitSummary 打印生成结果与「开始安装前通常需要检查的配置」。
