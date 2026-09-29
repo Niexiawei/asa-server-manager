@@ -176,19 +176,11 @@ func IsInstanceProcessAlive(instanceName string) bool {
 		return true
 	}
 
-	// 方法 2：检查保存的 PID 对应的进程是否还在，且确实是本项目会启动的可执行文件。
-	// 端口没绑上不代表进程真的还在跑，但也不能只凭 PID 号码存在就判定存活——
-	// 见 isExpectedProcess 的说明。
-	pid, err := GetInstancePID(instanceName)
-	if err != nil || pid <= 0 {
-		return false
-	}
-
-	exited, err := procx.IsProcessExited(uint32(pid))
-	if err != nil || exited {
-		return false
-	}
-	return isExpectedProcess(uint32(pid))
+	// 方法 2：保存的游戏 PID 仍属于这个实例（存活 + 本项目的可执行文件 + 命令行带着
+	// 本实例的 SaveDir）。端口没绑上不代表进程真的还在跑，但也不能只凭 PID 号码存在、
+	// 甚至只凭「是个游戏进程」就判定存活——那可能是别的实例的，见 identity.go。
+	_, ok := VerifiedPID(instanceName, PIDGame)
+	return ok
 }
 
 // ListAliveInstances returns the names of all instances currently judged alive.
