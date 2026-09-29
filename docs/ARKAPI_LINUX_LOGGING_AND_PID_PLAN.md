@@ -1,5 +1,7 @@
 # ArkApi 实例在 Linux 上的两个后续缺陷：日志串台与游戏 PID 找不到
 
+> ⚠️ **本文存在已核实的已知缺陷（2026-09-29 只读审计，基线 `faf127c`）**：见文末「附录：2026-09-29 代码审计同步」。该附录另含「文件路径对照」——文中部分路径写于 `RUNNER_INSTANCE_PACKAGE_SPLIT_PLAN` 重构之前，以对照表为准。
+
 > 前置：`docs/ARKAPI_LINUX_VCREDIST_PLAN.md`（VC++ 运行时 + §9 图形显示）。
 > 那两条解决之后，ArkApi 实例**能真正跑起来了**，随之暴露出下面两个此前被
 > 「根本起不来」掩盖住的问题。两个都是 **Linux 专属**，Windows 行为不受影响。
@@ -70,7 +72,7 @@ go func() {
 | | PTY 里跑的是谁 | 于是 `handle.PTY` 里流的是什么 |
 |---|---|---|
 | Windows | `AsaApiLoader.exe` 本体 | 加载器的控制台输出 —— 正是「插件日志」想要的 |
-| Linux | `python3 → umu-run → srt-bwrap → pv-adverb → proton → wine`（早期版本前面还有一层 `xvfb-run`，改成自管 Xvfb 后没有了，见 `docs/XVFB_CROSS_DISTRO_DISPLAY_PLAN.md`） | 这整条链的 stdout/stderr。加载器在最里面，而且**它不往控制台打业务日志** |
+| Linux | `python3 → umu-run → srt-bwrap → pv-adverb → proton → wine`（早期版本前面还有一层 `xvfb-run`，改成自管 Xvfb 后没有了，见 `docs/XVFB_DISPLAY_PLAN.md`） | 这整条链的 stdout/stderr。加载器在最里面，而且**它不往控制台打业务日志** |
 
 `runner` 包的设计取向是「对每个 exe 一视同仁」（见包注释），这是对的；
 问题出在 `instance` 层沿用了 Windows 的语义解释 Linux 的 PTY。
@@ -374,3 +376,160 @@ ss -lunp | grep <Port>
 head -5 {BaseDir}/instances/<name>/arkAsaApi.log          # 现在是 umu 噪声
 ls -t {BaseDir}/server-files-tmp-<name>/ShooterGame/Binaries/Win64/logs/ | head -1
 ```
+
+
+---
+
+# 附录：2026-09-29 代码审计同步
+
+> ⚠️ 以下为 2026-09-29 对**实际代码**的只读审计结论（基线 `faf127c`），缺陷**尚未修复**。级别 P0/P1/P2 沿用审计报告。
+
+## X.1 已知缺陷清单（审计 §6.2 发现 + §6.3 文档 vs 代码偏差）
+
+### 6.2 发现
+
+#### [P1] 日志转抄协程被 5 分钟超时 ctx 强制终止（相对原实现是回归）
+
+- **位置**：`internal/instance/asaapilog_linux.go:119`、`:129`、`:149`
+- **触发条件**：任何启用了 ArkApi 的 Linux 实例启动。`copyArkApiLog` 用 `context.WithTimeout(..., arkApiLogAppearTimeout)`（5 分钟）建 ctx，既传给 `tail.WaitNewest`（等文件出现），**又原样传给 `iox.Relay`（持续转抄）**。`iox.Relay` 在 `ctx.Done()` 后跑完最后一轮就读到 EOF 退出（`pkg/iox/relay.go:43-49`）。
+- **后果**：一个正常运行的 ArkApi 实例（数小时）在启动约 5 分钟后，`arkAsaApi.log` 就再也收不到新行，「插件日志」面板从此冻结，用户只能看到开服前 5 分钟日志，且无任何提示。原始实现（提交 `2e01756`）里 `follow()` 只由 `done` 驱动、无 deadline，这是重构 `a9c0000` 引入的**行为退化**。
+- **修复建议**：把「等出现」与「持续跟随」的取消信号分开：
+
+```go
+appearCtx, appearCancel := context.WithTimeout(context.Background(), arkApiLogAppearTimeout)
+defer appearCancel()
+srcPath, err := tail.WaitNewest(appearCtx, dir, launchedAt, isArkApiLogName, arkApiLogPollInterval)
+...
+relayCtx, relayCancel := context.WithCancel(context.Background())
+defer relayCancel()
+go func() { select { case <-done: case <-ctx.Done(): }; relayCancel() }()
+iox.Relay(relayCtx, src, dst, arkApiLogPollInterval, ...)
+```
+
+#### [P1] marker 用 `AltSaveDirectoryName=` 前缀子串匹配，跨实例串扰；SaveDir 默认等于实例名，极易命中
+
+- **位置**：`internal/instance/common.go:156`（`marker := fmt.Sprintf("AltSaveDirectoryName=%s", saveDir)`）、`pkg/procmatch/procmatch_linux.go:24`（`procx.QueryProcess("", cmdlineMarker)` 做 `strings.Contains`）
+- **触发条件**：两个实例名互为前缀，如 `srv` 与 `srv2`。`SaveDir` 默认值就是实例名（`internal/appconfig/config.go:398`），于是 `srv2` 的进程 cmdline 里的 `AltSaveDirectoryName=srv2` **包含**子串 `AltSaveDirectoryName=srv`，会被实例 `srv` 的 `waitForGamePID`/`findServerPIDBySaveDir` 当成自己的进程收下。
+- **后果**：`srv` 启动时把 `srv2` 的游戏 PID 存进自己的 pid 文件；随后对 `srv` 的停止/强制停止会去 kill `srv2` 的进程，造成**杀错实例**。Windows 侧同样按子串匹配，问题等价。
+- **修复建议**：匹配要求 token 边界（正则 `AltSaveDirectoryName=srv(?:\?|\s|$)` 替代 `strings.Contains`）；或改用每次启动唯一的随机 token 作标记。
+
+#### [P1] 失败收尾对「已被 Wait 回收」的 launcher PID 调 `KillTree`，PID 复用时会杀掉无关进程
+
+- **位置**：`internal/instance/server.go:607-613`（`handle.Wait()` 回收后 `close(launcherExited)`）、`:641`、`:649`（`procx.KillTree(handle.LauncherPID)`）
+- **触发条件**：加载器/umu-run 秒退（ArkApi 常见失败形态）。`handle.Wait()` 返回即表示子进程已被 `wait` 回收，其 PID 立即可能被内核复用；随后 `ErrLauncherExited` 分支执行 `KillTree(handle.LauncherPID)`。`procx.processTree` 对不存在的 pid 只返回 `[root]`（`pkg/procx/procx_linux.go:211-239`），`signalTree` 会直接对这个**已被复用**的 PID 发 SIGKILL（`:194-201`）。
+- **后果**：在繁忙主机上可能连带 SIGKILL 一个完全无关的新进程及其子树。代码中没有任何 starttime/cmdline/PID 归属校验（全仓 `starttime` 仅出现在文档/改名，**无实现**）。
+- **修复建议**：启动时记录 launcher 的 `/proc/<pid>/stat` 第 22 字段 starttime（或 `pidfd_open`），kill 前比对；或在 `launcherExited` 已触发时不 `KillTree(LauncherPID)`，改为按保存的游戏 PID/procmatch 再查一次。
+
+#### [P1] 停止/强制停止对未校验的保存 PID 直接 kill，PID 复用会误杀
+
+- **位置**：`internal/instance/server.go:849-851`（`procx.Kill(pid2)`）、`:877`/`:882`/`:888`（`ForceStopServer` 对 `findServerPIDBySaveDir`、`GetInstancePID`、`GetLauncherPID` 无条件 `killGameServer`）
+- **触发条件**：实例正常停止或崩溃后 PID 文件不清理（`process.SaveInstancePID` 无删除逻辑），号码被内核复用给新进程。
+- **后果**：误杀无关进程。项目其它路径已用 `isExpectedProcess`（`internal/process/process.go:146-148`）防复用，唯独这两处收尾 kill 没有。
+- **修复建议**：kill 前套用同一判据 `if isExpectedProcess(pid) { procx.Kill(pid) }`；停止成功后清空 `pid`/`launcher_pid`/`asa_api_pid` 文件。
+
+#### [P1] ArkApi 下 `PIDByPort` 可能归属到共享 wineserver，停止时会误伤整个 Wine 会话
+
+- **位置**：`internal/instance/server.go:791`（`procx.PIDByPort(config.Port)`）、`:811`（`Terminate(pid)`）、`:843`（超时后 `KillTree(pid)`）；`pkg/procx/port.go:17-28`（返回第一个命中者）
+- **触发条件**：文档 §2.2 的真机 `ss -lunp` 显示游戏端口 `41778` 同时被 `("GameThread", pid=2722)` 与 `("wineserver", pid=2636)` 持有。gopsutil 遍历 `/proc/*/fd` 匹配 socket inode 时归属顺序不确定，可能返回 wineserver。`prefix_mode=shared` 下这个 wineserver 是所有实例共用的。
+- **后果**：停止实例 A 时若 `pid` 取到共享 wineserver，`waitServerStopped` 会等 A 的日志 `Log file closed` **且** 该 pid 退出；wineserver 因 B 仍在运行不会退出 → 5 分钟超时 → `KillTree(wineserver)` 把共享 wineserver 杀掉，导致**实例 B 一起挂掉**。
+- **修复建议**：停止路径改用已保存且经校验的游戏 PID（`GetInstancePID` + `isExpectedProcess`），或复用 `gameProcMatcher.Find(marker)`（comm=GameThread）定位；至少在终止前校验该 PID 的 comm 是 `GameThread`。
+
+#### [P1] `launchgate` 可能被永久持有：`startServerInternal` 的等待 select 没有 ctx/超时，且闸门本身无超时
+
+- **位置**：`internal/instance/server.go:708-712`（`select { case <-initFailed: case <-initSuccessful: }` 无 `ctx.Done()`）、`:548-555`；`internal/instance/launchgate.go:42-52`；`internal/webapi/serverapi/serverapi.go:407-414`（未传 `WithCtx`，`ParentCtx` 默认 `context.Background()`，见 `server.go:213`）
+- **触发条件**：游戏进程起来了，但 `ShooterGame.log` 始终没有 `Initialize Primal Game Data Override`，且进程一直活着。此时 `initSuccessful`/`initFailed` 都不触发（`waitServerStartup` 的失败回调只在进程退出时发，`common.go:482-493`）。
+- **后果**：该实例的 `startServerInternal` 永久阻塞，`defer` 的释放永不执行；ctx 是 `Background` 派生也不会取消，后续所有共享 prefix 的启动在 `acquireLaunchGate` 上**永久排队并泄漏协程**。
+- **修复建议**：`select` 中加 `case <-ctx.Done(): return ctx.Err()`，并给整段启动加有上限的 timeout；`opts.WaitServerCompleted` 的 `<-startupSuccess`（`:720`）同样要带 ctx。
+
+#### [P2] `killGameServer` 的 SIGTERM→SIGKILL 升级是假的
+
+- **位置**：`internal/instance/common.go:113-118`
+- **触发条件**：`procx.TerminateTree(pid)` 当 SIGTERM 投递成功时返回 nil（`pkg/procx/procx_linux.go:165-203`，只有发送失败才 error），即使目标忽略 SIGTERM。于是分支 `if err != nil { procx.KillTree(pid) }` 永远不走。
+- **后果**：忽略/延迟 SIGTERM 的 Wine 进程存活成孤儿，「强杀」不生效，端口与 Wine 会话被占用。
+- **修复建议**：`TerminateTree` 后用 `procx.WaitProcessExit(ctx, pid, 间隔)` 轮询，超时再无条件 `KillTree`。
+
+#### [P2] 多个 `GameThread` 候选时按 `/proc` 字典序取首个，可能命中旧失败残留进程
+
+- **位置**：`pkg/procmatch/procmatch.go:77-82`、`pkg/procmatch/procmatch_linux.go:23-39`（候选顺序来自 `os.ReadDir("/proc")` 字典序）
+- **后果**：可能选中陈旧进程 PID，`SaveInstancePID` 存错，停止时杀错对象。
+- **修复建议**：候选多于一个时用 starttime 最新者或与 `handle.LauncherPID` 进程树就近判定。
+
+#### [P2] `Relay` 只持有 fd、不跟踪 inode，ArkApi 日志被替换/轮转后不再跟随
+
+- **位置**：`internal/instance/asaapilog_linux.go:142-149`（`os.Open` 一次后 `iox.Relay`）、`pkg/iox/relay.go:20-50`
+- **后果**：转抄停止更新。项目里 `pkg/tail` 有 `fileKey`（inode+dev）做轮转检测，这里未复用。
+- **修复建议**：转抄循环定期 `Stat` 当前路径并按 `fileKey` 比对 inode，变化则重新 `Open`。
+
+#### [P2] `launcher.log` 的读取可能晚于 PTY 关闭，快速退出的加载器会丢诊断输出
+
+- **位置**：`internal/instance/server.go:607-613`（`handle.Wait()` 后 `handle.PTY.Close()`）与 `:619`（之后才起读取协程）
+- **后果**：恰在最需要它的「加载器零输出/退出码 3」排障场景下 `launcher.log` 可能是空的。
+- **修复建议**：把 PTY 读取协程提前到 `runner.Run` 返回后、`Wait` goroutine 之前；或不要把 PTY 关闭放在 `Wait` goroutine 里。
+
+#### [P2] `conflictingArkApiInstance` 以端口判「在运行」，漏掉 starting 窗口
+
+- **位置**：`internal/instance/launchgate.go:121`、`internal/instance/server.go:467`
+- **修复建议**：改用 `procpkg.IsInstanceProcessAlive` / `ListAliveInstances`（覆盖 starting 阶段，`process.go:172-192`）。
+
+#### [P2] 转抄失败/超时后静默停止，无说明行
+
+- **位置**：`internal/instance/asaapilog_linux.go:149-151`
+- **修复建议**：Relay 返回后向 `dst` 写一行 `[asa-server] …` 说明（区分「启动链结束」「等待/转抄超时」）。
+
+#### [P2] `processComm` 读失败时静默丢候选
+
+- **位置**：`pkg/procmatch/procmatch_linux.go:47-53`
+- **修复建议**：读失败时记一条 debug 日志，或区分「读不到 comm」与「comm 不匹配」。
+
+#### [P2] `waitForGamePID` 的轮询 goroutine 与 `time.After` 计时器未及时回收
+
+- **位置**：`internal/instance/common.go:168-194`、`:210`
+- **修复建议**：用可取消子 ctx 显式终止轮询 goroutine；超时改用 `time.NewTimer` + `defer Stop()`。
+
+#### [P2] `launcher.log` 路径解析/打开失败时整段丢弃启动输出，无兜底
+
+- **位置**：`internal/instance/asaapilog_linux.go:79-89`
+- **后果**：PTY 流没有读取者，启动输出完全丢失（且 PTY 不读可能导致缓冲写满、阻塞子进程输出）。
+- **修复建议**：打开失败时至少启动 `io.Copy(io.Discard, ptyStream)` 的排空协程。
+
+#### [P2] `instanceLogFilePath` 的 Stat+WriteFile 有竞态且会为从未启动的实例创建空文件
+
+- **位置**：`internal/instance/server.go:72-82`
+- **修复建议**：改为 `OpenFile(O_CREATE)` 后立即关闭。
+
+#### [P2] `signalTree` 的进程组清扫先于叶优先顺序
+
+- **位置**：`pkg/procx/procx_linux.go:180-187`
+- **修复建议**：把进程组清扫放到叶优先循环之后。
+
+### 6.3 文档 vs 代码偏差
+
+1. **文件布局**：文档 §3 声称的 `internal/instance/arkapilog.go`、`gameproc.go`、`gameproc_linux.go`、`gameproc_windows.go` **都不存在**——实际在 `pkg/procmatch/`、`pkg/tail/waitnewest.go`、`pkg/iox/relay.go`。
+2. **函数/类型名**：`isWineSideGameCmdline`/`pickGameProcess`/`gameCandidate`/`gameProcessComm` → 实际 `procmatch.Matcher.isWineSideCmdline`/`pick`/`candidate`/`processComm`。
+3. **哨兵错误**：`newestArkApiLog`/`ErrNoArkApiLog` 不存在，实际靠 `errors.Is(err, context.DeadlineExceeded)` 二分（`asaapilog_linux.go:133`）。
+4. **协程生命周期描述不符（且是回归）**：文档说「协程生命周期绑在 `launcherExited` 上」，实际绑在**带 5 分钟超时的 ctx** 上（见 P1）。
+5. **单测名与位置**：文档列的 `TestNewestArkApiLog*`/`TestPickGameProcess*` 实际为 `pkg/tail/waitnewest_test.go` 与 `pkg/procmatch/procmatch_test.go`，**均不在 `internal/instance/`**。
+6. **未记载的交互面**：文档完全没提 `internal/instance/launchgate.go`，而它是本功能最重要的相邻交互面。
+7. **「不静默」部分成立**：等待/找不到/找到了有 `note`，但转抄正常结束或因超时结束时没有说明行。
+
+---
+
+
+## X.2 文件路径对照（2026-09-29）
+
+| 文档中的路径 | 实际路径 / 现状（核对于 2026-09-29） |
+|---|---|
+| `internal/instance/asaapilog_linux.go`、`internal/instance/asaapilog_windows.go` | 与文档一致 |
+| `internal/instance/server.go`、`internal/instance/common.go` | 与文档一致 |
+| `internal/instance/arkapilog.go` | **不存在**：日志转抄实现在 `internal/instance/asaapilog_linux.go` + `pkg/iox/relay.go` + `pkg/tail/waitnewest.go` |
+| `internal/instance/gameproc.go`、`internal/instance/gameproc_linux.go`、`internal/instance/gameproc_windows.go` | **均不存在**：进程判定实现在 `pkg/procmatch/{procmatch.go,procmatch_linux.go,procmatch_windows.go}` |
+| `internal/instance/{gameproc,arkapilog}_test.go` | **均不存在**：测试现为 `pkg/procmatch/procmatch_test.go`、`pkg/tail/waitnewest_test.go` |
+| `internal/process/process_linux.go` | 与文档一致 |
+| `internal/webapi/logapi/logapi.go` | 与文档一致 |
+| 旧顶层包 `asaserver/` | 已整体迁入 `internal/` |
+
+## X.3 同步记录
+
+本附录由 `docs/PLAN_IMPLEMENTATION_AUDIT_2026-09-29.md` 于 2026-09-29 同步而来（只读审计，基线 `faf127c`）。
+
+本附录只做**追加**：文档原文（含标题、真机记录、被划掉的段落、代码块、表格）一字未改。清单中的缺陷**尚未修复**，级别 P0/P1/P2 沿用审计报告。

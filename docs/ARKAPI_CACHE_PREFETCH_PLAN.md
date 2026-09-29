@@ -1,5 +1,7 @@
 # ArkApi offsets cache 预取方案（在 ArkApi 之前把缓存备好）
 
+> ⚠️ **本文存在已核实的已知缺陷（2026-09-29 只读审计，基线 `faf127c`）**：见文末「附录：2026-09-29 代码审计同步」。该附录另含「文件路径对照」——文中部分路径写于 `RUNNER_INSTANCE_PACKAGE_SPLIT_PLAN` 重构之前，以对照表为准。
+
 > 目标：在启动 `AsaApiLoader.exe` **之前**，由 asa-server 自己把 ArkApi 需要的 offsets
 > cache 下好、解压好、按 ArkApi 认得的格式提交好（断点续传、多 CDN、可走
 > `download.http_proxy`），让 ArkApi 启动时直接采用本地缓存。
@@ -1024,3 +1026,162 @@ ArkApi 版本一换、字段语义一变，我们写出去的东西就可能让�
 也正是 §6.2 决定不收紧那个超时的理由）。
 
 §17 第 5b 项（实测那个等待到底多长）因此**变得更值得做**，而不是更不值得。
+
+
+---
+
+# 附录：2026-09-29 代码审计同步
+
+> ⚠️ 以下为 2026-09-29 对**实际代码**的只读审计结论（基线 `faf127c`），缺陷**尚未修复**。级别 P0/P1/P2 沿用审计报告。
+
+## X.1 已知缺陷清单（审计 §5.2 发现 + §5.3 文档 vs 代码偏差）
+
+### 5.2 发现
+
+#### [P0] 跨哈希并发时 `pruneGenerations` 会删掉 metadata 正指向的 generation
+
+- **位置**：`pkg/arkcache/arkcache.go:205`、`:121-123`、`pkg/arkcache/generation.go:256-277`
+- **触发条件**：进程内互斥是**按哈希**的（`hashMutex(hash)`），而 `pruneGenerations` 的行为是「**非当前哈希的 generation 一律删**」。两个不同 hash 的 `Prepare` 重叠时（实例 A 在 ARK 更新前算得旧 hash `h1` 正在下载，更新流程/实例 B 随后以新 hash `h2` 预取）会交错成：`A.writeMetadata(h1)` → `B.writeMetadata(h2)`（指针现指向 `h2`）→ `A.pruneGenerations(h1)` 把 `h2` 的 generation 目录整棵删除。现有单测 `TestPruneGenerationsKeepsCurrentHash`（`generation_test.go:177`）只验证「删别的哈希」，无并发用例。
+- **后果**：产生方案 §4.4 明令禁止、C++ 侧最难诊断的形态——**metadata 指向不存在的 generation**。ArkApi 读到后判缓存失效并整包重下（预取白做），严重时加载器行为异常。
+- **修复建议**：① 把「提交 metadata + 清理」放进同一把**全局**互斥（不能按哈希分片）；② don't-delete-if-referenced：
+
+```go
+var commitMu sync.Mutex // 包级，覆盖所有哈希的提交/清理
+
+commitMu.Lock()
+cur, _ := Inspect(req.CacheRoot, "")
+if err := writeMetadata(...); err != nil { commitMu.Unlock(); ... }
+pruneGenerations(req.CacheRoot, hash, genRel, req.Keep, false, cur.Generation)
+commitMu.Unlock()
+```
+
+`pruneGenerations` 加 `protected string` 参数，循环里 `if generationRelPath(name) == protected { continue }`。③ generation 先写临时目录再 `os.Rename` 进 `generations/`。
+
+#### [P1] `writeMetadata` 的 `.tmp` 文件名跨哈希共享，可写出撕裂的 JSON
+
+- **位置**：`pkg/arkcache/generation.go:203-204`（`tmp := final + ".tmp"`）
+- **触发条件**：两个不同哈希的 `Prepare` 并发进入 `writeMetadata`，同开 `cached_key.cache.tmp` 写、`Sync`、`Close`、`Rename`，互相截断/覆盖。
+- **后果**：`cached_key.cache` 可能是非法 JSON 或字段错乱，ArkApi 直接判缓存无效。
+- **修复建议**：临时名带唯一后缀且同目录 rename：`tmp := fmt.Sprintf("%s.%d.%d.tmp", final, os.Getpid(), time.Now().UnixNano())`；配合 P0 的 `commitMu` 双保险。
+
+#### [P1] 下载体没有真正的字节上限，可打满磁盘
+
+- **位置**：`pkg/download/download.go:29-35`、`:113-124`、`pkg/arkcache/fetch.go:175`、`:207`
+- **触发条件**：`download.Options` **没有** `MaxBytes`，`fetchOnce` 用 `io.Copy(out, resp.Body)` 原样落盘；arkcache 仅用 HEAD 声明的 `Content-Length` 做前置判断，下载后再比对 `fi.Size()`。若 GET 实际 body 大于 HEAD 声称长度（CDN 配置错误、重定向到错误大文件、恶意镜像），`fetchOnce` 会一直写到磁盘满；`download.Client()` 刻意不设 `client.Timeout`（`proxy.go:90-92`），启动路径 ctx 通常无 deadline；`Resume=true` 时 `.part` 为 `O_APPEND`，重试继续追加。
+- **后果**：磁盘被 `.part` 打满，且无时间上限。文档 §14 的 `max_size` 并未真正约束下载体。
+- **修复建议**：给下载器加硬上限 `MaxBytes`，`fetchOnce` 用 `io.LimitReader(resp.Body, opt.MaxBytes+1)` 并在 `written > MaxBytes` 时报错删 `.part`；由 arkcache 传 `MaxBytes: req.MaxSize`。
+
+#### [P1] 陈旧锁阈值（30 分钟）短于可能的下载时长，会夺锁并造成双写
+
+- **位置**：`pkg/arkcache/arkcache.go:269-273`、`:292-295`（锁文件仅在创建时写一次时间戳，`:285`）
+- **触发条件**：`staleLockAge = 30*time.Minute`，而 `max_size` 默认 768 MiB；低带宽链路上一次预取超过 30 分钟完全可能。另一进程的 `lockIsStale` 判为陈旧，`os.Remove` 后重新 `O_EXCL` 拿锁。
+- **后果**：两进程同时写同一 `<hash>.part` → ZIP 字节交错、损坏；并放大 P0/P1。`release()` 无条件 `os.Remove(path)` 还会删掉对方后来建的锁。
+- **修复建议**：锁加心跳（`download.Options.Progress` 回调周期性 `os.Chtimes`），陈旧判据改为「锁文件 mtime 超过 N 分钟」；`release()` 前先读锁内容确认 PID 是自己再删。
+
+#### [P1] 陈旧锁存在 TOCTOU，两个等待者可同时持锁
+
+- **位置**：`pkg/arkcache/arkcache.go:289-295`、`:307-321`
+- **触发条件**：A、B 同时读到同一份陈旧内容，A `Remove` 后立刻 O_EXCL 建新锁，B 随后仍执行已决策的 `Remove`，把 A 的**新锁**删掉再建自己的。
+- **后果**：与上一条相同的双写损坏，且更难复现。
+- **修复建议**：夺锁做成原子操作（rename 到唯一名后校验；或建锁后回读内容确认 PID 是自己）。`lockIsStale` 只做只读判断。
+
+#### [P1] 源缓存写入与镜像同步**不是**互斥，镜像可能同步到半成品 generation
+
+- **位置**：`internal/instance/server.go:273`、`internal/instance/arkcache.go:100-120`、`internal/mirror/mirror.go:118`、`:137-138`、`:846`
+- **触发条件**：`mirrorSyncMu` 只保护 `SyncInstanceMirror` 自身；而 `PrepareArkApiCache`（`server.go:273`）在**进入** `mirrorSyncMu` 之前写源目录，`PrefetchArkApiCacheAfterUpdate`（更新/CLI 路径）完全独立触发、不加锁。`extractCacheZip` 直接把 47MB 的 `cached_offsets.cache` 写进**最终** generation 目录（`arkcache.go:169-171`），存在被同步 Walk 读到的中间态。
+- **后果**：镜像里被复制进**截断/不完整**的 `.cache`；managed 模式下 `syncMirrorEntries` 对 `generations/` 下文件**跳过 MD5 对账**（`mirror.go:846`），损坏**永不被修复**，直到 ARK 更新换代。文档 §11.4「与镜像同步互斥」的论断对更新路径与跨实例不成立。
+- **修复建议**：① 预取写源阶段包进 `mirror.WithSyncLock`；② generation 先写临时目录再原子改名进 `generations/`：
+
+```go
+stageDir := genDir + ".staging"
+extractCacheZip(out.zipPath, stageDir, req.MaxSize)
+os.Rename(stageDir, genDir) // 同文件系统，原子
+```
+
+#### [P1] VC++ override 写进共享 lower 却被 overlay 实例 upper 里的旧 `user.reg` 遮蔽（`.lower-stamp` 不感知 VC++ 变更）
+
+- **位置**：`pkg/wineprefix/wineprefix_linux.go:423`、`pkg/wineprefix/wineprefix.go:105-108`、`pkg/wineprefix/wineprefix_linux.go:195-197`、`internal/runner/umu_linux.go:189`
+- **触发条件**：`ensureRuntime` 把 override 装进**共享 lower**（prefixKey 为空）；overlay 模式下实例 `merged` 里已存在 `user.reg`（跑过一次后 Wine 会 copy-up 进 `upper`），则 merged 看到的是 upper 旧文件，lower 新写的 override 被遮蔽。而 overlay 分支 `EnsurePrefix` 直接 `return m.ensureOverlayPrefix(...)`（`:195-197`），**没有** per-instance 分支的 `hasVCRedistOverrides` 补装检查（`:204-220`）。`.lower-stamp` 内容只是 `umu.PrefixMarker(lower)`（Proton 版本，`:423`），VC++ 重装不改变它 → 可写层不被重建。
+- **后果**：`PrefixHasVCRedist(merged)`/`OverridesApplied(merged)` 恒 false，ArkApi 仍加载 Wine 内建 DLL，加载失败或行为异常；启动路径只给一条告警（`server.go:488`）。同时 `LowerNeedsWork`（`:773`）每次 API 启动都可能因读不到 lower 期望状态而反复进入「重建」。
+- **修复建议**：把 VC++ override 状态纳入 `.lower-stamp`（记录 `<proton>\n<overrides-fingerprint>`，`want` 也带指纹）；或给 overlay 分支补上与 per-instance 相同的 `hasVCRedistOverrides(merged)` 快路径补装。指纹可用 `vcredist.CountOverrides(user.reg)`。
+
+#### [P2] `hashMutex` 无生命周期管理，且 `sync.Mutex.Lock` 不响应 ctx
+
+- **位置**：`pkg/arkcache/arkcache.go:96-101`、`:121-123`
+- **触发条件**：`hashMutexes sync.Map` 每次新 hash 就永久留下一个 `*sync.Mutex`；同一 hash 的第二个实例启动会在 `mu.Lock()` 上**无超时、不响应 ctx** 地等待第一个实例的整段下载（可达数十分钟），而该等待发生在 `mirror.SyncInstanceMirror` 与 `acquireLaunchGate` 之前（`server.go:273`）。
+- **后果**：轻微内存增长；实例 B 启动被无上限拖延，用户取消无法打断。
+- **修复建议**：改用带 ctx 的信号量（`golang.org/x/sync/semaphore` 或 `chan struct{}` + `select { case <-ctx.Done(): }`），空闲后清理 `hashMutexes`。
+
+#### [P2] 复用同尺寸的遗留 `<hash>.zip` 而不校验来源
+
+- **位置**：`pkg/arkcache/fetch.go:186-200`、`:215`
+- **触发条件**：`if fi.Size() != info.contentLength` 才重下——只要遗留 ZIP 字节数等于当前 HEAD 长度就直接跳过下载并提取，该 ZIP 可能来自另一 CDN/另一版内容；而 metadata 的 `last_modified` 取自当前 `info`。
+- **后果**：低概率但严重的「内容与来源/时间戳不一致」：ArkApi 的 HEAD 匹配 metadata 于是采用这份缓存，实际 offsets 可能不对应。
+- **修复建议**：复用无条件要求 sidecar 与当前 `info` 同源同版本，否则删除重下。
+
+#### [P2] `GC` 可删除正在进行的刷新所需的 `.lock`/`.part`
+
+- **位置**：`pkg/arkcache/arkcache.go:246-262`、`internal/actions/arkapicache.go:191`
+- **触发条件**：跳过当前哈希中转物的条件是 `strings.HasPrefix(name, hash) && !current.Ready`。当缓存有效（`current.Ready==true`）但正处于 `FromRefresh` 重下（锁已持有、`.part` 正在增长）时，`gc --apply` 把该 `.part`、`.meta.json`、`.lock` 一并删除。
+- **后果**：破坏进行中的下载，并让锁被删后其他进程可进入。
+- **修复建议**：GC 对属于当前哈希的 `*.lock`/`*.part`/`*.meta.json` 一律跳过。
+
+#### [P2] `writeMetadata` 失败时遗留几百 MB 的 `<hash>.zip`
+
+- **位置**：`pkg/arkcache/arkcache.go:198-201`
+- **触发条件**：`writeMetadata` 返回错误时只 `os.RemoveAll(genDir)`，未删 `out.zipPath`。
+- **后果**：偶发的中转 ZIP 磁盘泄漏。
+- **修复建议**：该分支同样 `os.Remove(out.zipPath); os.Remove(out.zipPath+".part")`。
+
+#### [P2] 历史「裸 64 位哈希」metadata 会被误判为「我们接管的缓存」，翻转镜像守卫
+
+- **位置**：`pkg/arkcache/generation.go:52-54`、`:137-177`、`internal/mirror/mirror.go:80-88`、`:807`
+- **触发条件**：`parseMetadata` 对裸哈希返回 `CacheDirectory=""`，`Inspect` 随后在 Cache 根找两个 `.cache` 并置 `Ready=true`；`sourceCacheManaged()` 只看 `Ready`，于是把 ArkApi 自己留下的历史格式缓存认成「我们备的」，使 `arkApiCache` 守卫失效。
+- **后果**：权威性判断被错误翻转，可能删掉 ArkApi 运行期写入镜像的文件。
+- **修复建议**：`sourceCacheManaged` 额外要求 `res.Generation != ""`。
+
+#### [P2] 下载器不校验 206 的 `Content-Range` 起始偏移，错位续传会静默拼接
+
+- **位置**：`pkg/download/download.go:102-111`
+- **触发条件**：收到 206 时直接按本地 `.part` 大小继续 `O_APPEND`，不校验 `Content-Range` 的 start。
+- **后果**：字节被拼到错误偏移。
+- **修复建议**：解析 `Content-Range` 并断言起点；不符则按 200 截断重下。
+
+#### [P2] 快路径不清理源目录里其他哈希的旧代
+
+- **位置**：`pkg/arkcache/arkcache.go:140-145`、`:205`
+- **触发条件**：`Prepare` 命中快路径直接 `return existing`，只有走到下载提交才 `pruneGenerations`。
+- **后果**：源目录可能长期保留上一版 ARK 的 generation（数十到数百 MB）。
+- **修复建议**：快路径命中后也执行一次 `pruneGenerations`（成本极低）。
+
+### 5.3 文档 vs 代码偏差
+
+1. **文档 §11.4「与镜像同步互斥」不成立**：`mirrorSyncMu` 只串行化同步本身；`PrepareArkApiCache` 在进入该锁之前写源，`PrefetchArkApiCacheAfterUpdate` 完全在锁外。
+2. **文档 §5/§8 提到的落点与现状不符**：`internal/runner/vcredist.go` 等已迁到 `pkg/vcredist/`；`pkg/arkcache/loaderconfig.go` 已按 §22 移除（代码中确实无此文件）。
+3. **`.lower-stamp` 注释与实现不一致**（见 §8.1）。
+4. **overlay 模式的 VC++ 补装缺失**：`ARKAPI_LINUX_VCREDIST_PLAN.md §2.2` 强调的「快路径加 `prefixHasVCRedistOverrides` 判断」只在 per-instance 分支实现，overlay 分支提前返回未覆盖。
+5. **`max_size` 的语义被高估**：文档 §14 称是「下载体与解压总量的上限」，下载器本身无硬上限。
+6. **`Inspect` 的「裸哈希历史格式」破坏 `sourceCacheManaged` 语义**（见 P2）。
+
+---
+
+
+## X.2 文件路径对照（2026-09-29）
+
+| 文档中的路径 | 实际路径 / 现状（核对于 2026-09-29） |
+|---|---|
+| `pkg/arkcache/arkcache.go` 等 `pkg/arkcache/*` | 与文档一致（本文真实落点） |
+| `internal/instance/arkcache.go` | 与文档一致 |
+| `internal/actions/arkapicache.go` | 与文档一致 |
+| `internal/mirror/mirror.go`、`internal/mirror/arkapi_cache_sync_test.go` | 与文档一致 |
+| `internal/plugindata/configmerge.go` | 与文档一致 |
+| `internal/instance/server.go`、`internal/instance/common.go` | 与文档一致 |
+| `pkg/arkcache/loaderconfig.go` | **已按本文 §22 移除，仓库中不存在** |
+| `pkg/arkcache/prepare_test.go`、`pkg/arkcache/revalidate_test.go` | 与文档一致 |
+| 旧顶层包 `asaserver/` | 已整体迁入 `internal/` |
+
+## X.3 同步记录
+
+本附录由 `docs/PLAN_IMPLEMENTATION_AUDIT_2026-09-29.md` 于 2026-09-29 同步而来（只读审计，基线 `faf127c`）。
+
+本附录只做**追加**：文档原文（含标题、真机记录、被划掉的段落、代码块、表格）一字未改。清单中的缺陷**尚未修复**，级别 P0/P1/P2 沿用审计报告。
