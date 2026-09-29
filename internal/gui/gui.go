@@ -5,9 +5,9 @@ package gui
 import (
 	"asa-server/internal/actions"
 	"asa-server/internal/appconfig"
+	"asa-server/internal/bootstrap"
 	cfgpkg "asa-server/internal/config"
 	procpkg "asa-server/internal/process"
-	"asa-server/internal/runner"
 	"asa-server/internal/svcmgr"
 	"asa-server/internal/webapi"
 	"asa-server/pkg/logger"
@@ -403,7 +403,12 @@ func (g *GUIApp) showBaseDirPicker() {
 			g.showError(fmt.Errorf("写入配置失败: %w", werr))
 			return
 		}
-		g.applyChosenBaseDir(chosen)
+		// 原地刷新，不需要重启程序（G3 的验收判据之一）：重新加载 → 建数据目录 →
+		// 日志切过去 → 下载器与 runner 重新配置，与 main.go 启动时同一顺序。
+		if _, _, rerr := bootstrap.Reload(); rerr != nil {
+			g.showError(rerr)
+			return
+		}
 		g.refreshEnvBanner()
 		g.showConfirm("初始化环境",
 			"数据目录已设置为:\n"+chosen+"\n\n现在下载安装 SteamCMD 与 ARK 服务端本体（约 25 GB）？\n"+
@@ -412,53 +417,6 @@ func (g *GUIApp) showBaseDirPicker() {
 	}, g.window)
 	fd.SetConfirmText("选择此目录")
 	fd.Show()
-}
-
-// applyChosenBaseDir 在向导写完 config.yaml 之后原地刷新 BaseDir：重新走一遍
-// appconfig.Load() → cfgpkg.EnsureDirectories → logger.InitLoggerWithBaseDir →
-// runner.Configure，与 main.go 启动时的初始化顺序一致，只是这次是在已经运行的
-// 进程里重新做一遍，不需要重启程序（G3 的验收判据之一）。
-func (g *GUIApp) applyChosenBaseDir(chosen string) {
-	baseDir, err := appconfig.Load()
-	if err != nil {
-		g.showError(fmt.Errorf("重新加载配置失败: %w", err))
-		return
-	}
-	cfgpkg.BaseDir = baseDir
-	if err := cfgpkg.EnsureDirectories(baseDir); err != nil {
-		g.showError(fmt.Errorf("创建数据目录失败: %w", err))
-		return
-	}
-	logger.InitLoggerWithBaseDir(baseDir)
-
-	// 与 internal/actions/setup.go 同理：runner.Configure 是整体覆盖，字段必须给齐，
-	// 漏一项就是把它清空。见 docs/XVFB_CROSS_DISTRO_DISPLAY_PLAN.md §11。
-	appCfg := appconfig.Get()
-	runner.Configure(runner.Config{
-		Runtime:          appCfg.Linux.Runtime,
-		UmuVersion:       appCfg.Linux.UmuVersion,
-		ProtonVersion:    appCfg.Linux.ProtonVersion,
-		PrefixMode:       appCfg.Linux.PrefixMode,
-		PrefixDir:        appCfg.Linux.PrefixDir,
-		PythonBin:        appCfg.Linux.UmuPythonBin,
-		AutoDownload:     appCfg.Linux.AutoDownload,
-		SteamRTPrefetch:  appCfg.Linux.SteamRTPrefetch,
-		InstallVCRedist:  appCfg.Linux.InstallVCRedist,
-		VCRedistURL:      appCfg.Linux.VCRedistURL,
-		VCRedistSHA256:   appCfg.Linux.VCRedistSHA256,
-		WineDLLOverrides: appCfg.Linux.WineDLLOverrides,
-		Display:          appCfg.Linux.Display,
-		XvfbBin:          appCfg.Linux.XvfbBin,
-		XvfbScreen:       appCfg.Linux.XvfbScreen,
-		AllowX11Remount:  appCfg.Linux.AllowX11Remount,
-		GameID:           appCfg.Linux.GameID,
-		BaseDir:          baseDir,
-		RuntimeUser:      appCfg.Linux.UmuRuntimeUser,
-		RuntimeUID:       appCfg.Linux.UmuRuntimeUID,
-		RuntimeGID:       appCfg.Linux.UmuRuntimeGID,
-		RunAsRoot:        appCfg.Linux.UmuRunAsRoot,
-		RuntimeDeepProbe: appCfg.Linux.UmuRuntimeDeepProbe,
-	})
 }
 
 // isAdmin checks if the current process is running with admin privileges

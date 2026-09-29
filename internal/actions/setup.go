@@ -2,9 +2,9 @@ package actions
 
 import (
 	"asa-server/internal/appconfig"
+	"asa-server/internal/bootstrap"
 	cfgpkg "asa-server/internal/config"
 	"asa-server/internal/runner"
-	"asa-server/pkg/logger"
 	"bufio"
 	"context"
 	"fmt"
@@ -66,46 +66,10 @@ func ActionSetup(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
-	if baseDir != cfgpkg.BaseDir {
-		fmt.Printf("正在应用新的数据目录: %s\n", baseDir)
-		cfgpkg.BaseDir = baseDir
-		if err := cfgpkg.EnsureDirectories(baseDir); err != nil {
-			return fmt.Errorf("创建数据目录失败: %w", err)
-		}
-		logger.InitLoggerWithBaseDir(baseDir)
-	}
-
-	// runner.Configure **整体覆盖**（runner.go 的 current.Store），所以这里必须把
-	// linux.* 全给齐 —— 漏一项就等于在 setup 中途把它悄悄清空。曾经漏掉的正是
-	// display/xvfb_bin/xvfb_screen 与 umu_runtime_*：preflight 跑在这一行之前，
-	// 用的是 main.go 灌进去的完整配置，过了自检之后却换成一份残缺的，
-	// 同一条命令里前后两种行为。见 docs/XVFB_CROSS_DISTRO_DISPLAY_PLAN.md §11。
-	appCfg := appconfig.Get()
-	runner.Configure(runner.Config{
-		Runtime:          appCfg.Linux.Runtime,
-		UmuVersion:       appCfg.Linux.UmuVersion,
-		ProtonVersion:    appCfg.Linux.ProtonVersion,
-		PrefixMode:       appCfg.Linux.PrefixMode,
-		PrefixDir:        appCfg.Linux.PrefixDir,
-		PythonBin:        appCfg.Linux.UmuPythonBin,
-		AutoDownload:     appCfg.Linux.AutoDownload,
-		SteamRTPrefetch:  appCfg.Linux.SteamRTPrefetch,
-		InstallVCRedist:  appCfg.Linux.InstallVCRedist,
-		VCRedistURL:      appCfg.Linux.VCRedistURL,
-		VCRedistSHA256:   appCfg.Linux.VCRedistSHA256,
-		WineDLLOverrides: appCfg.Linux.WineDLLOverrides,
-		Display:          appCfg.Linux.Display,
-		XvfbBin:          appCfg.Linux.XvfbBin,
-		XvfbScreen:       appCfg.Linux.XvfbScreen,
-		AllowX11Remount:  appCfg.Linux.AllowX11Remount,
-		GameID:           appCfg.Linux.GameID,
-		BaseDir:          baseDir,
-		RuntimeUser:      appCfg.Linux.UmuRuntimeUser,
-		RuntimeUID:       appCfg.Linux.UmuRuntimeUID,
-		RuntimeGID:       appCfg.Linux.UmuRuntimeGID,
-		RunAsRoot:        appCfg.Linux.UmuRunAsRoot,
-		RuntimeDeepProbe: appCfg.Linux.UmuRuntimeDeepProbe,
-	})
+	// 数据目录、日志与运行时配置此时都已就位：沿用已有配置时由 main.go 启动时应用，
+	// 新选数据目录时由 resolveSetupBaseDir 里的 bootstrap.Reload 应用——两条路径都经
+	// bootstrap.Apply，runner.Config 字段给齐由那一处保证（整体覆盖，漏一项就是清空，
+	// 见 docs/XVFB_CROSS_DISTRO_DISPLAY_PLAN.md §11）。
 
 	if runtime.GOOS == "linux" {
 		fmt.Println("正在准备 umu/GE-Proton 运行时（首次运行需要下载，可能需要几分钟）...")
@@ -244,10 +208,13 @@ func resolveSetupBaseDir(flagBaseDir string, nonInteractive bool) (string, error
 	if err := appconfig.WriteInitialConfig(chosen); err != nil {
 		return "", fmt.Errorf("写入 config.yaml 失败: %w", err)
 	}
-	baseDir, err := appconfig.Load()
+	// Reload = 重新加载 → 建数据目录 → 日志切过去 → 下载器与 runner 重新配置。
+	// 以前这里只 Load 再由调用方补 runner.Configure，download.Configure 被漏掉了。
+	baseDir, _, err := bootstrap.Reload()
 	if err != nil {
-		return "", fmt.Errorf("重新加载配置失败: %w", err)
+		return "", err
 	}
+	fmt.Printf("已应用新的数据目录: %s\n", baseDir)
 	return baseDir, nil
 }
 

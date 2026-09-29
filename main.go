@@ -3,19 +3,18 @@ package main
 import (
 	"asa-server/internal/actions"
 	"asa-server/internal/appconfig"
+	"asa-server/internal/bootstrap"
 	"asa-server/internal/certmgr"
 	cfgpkg "asa-server/internal/config"
 	"asa-server/internal/runner"
 	"asa-server/internal/svcmgr"
 	"asa-server/internal/webapi"
-	"asa-server/pkg/download"
 	"asa-server/pkg/logger"
 	"context"
 	"errors"
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -247,7 +246,7 @@ func loadAppConfig() *appconfig.Config {
 	if errors.Is(err, appconfig.ErrAuthConfigInvalid) {
 		logger.Errorf("%v", err)
 		log.Fatalf("配置有误且已启用鉴权，服务不会以无鉴权状态启动。\n"+
-			"请修正 %s 后重试。\n%v", filepath.Join(cfgpkg.BaseDir, appconfig.ConfigFileName), err)
+			"请修正 %s 后重试。\n%v", appconfig.ConfigPath(), err)
 	}
 
 	msg := fmt.Sprintf("加载 %s 失败，将使用默认配置继续启动: %v", appconfig.ConfigFileName, err)
@@ -255,7 +254,8 @@ func loadAppConfig() *appconfig.Config {
 	return appconfig.Get()
 }
 
-// applyAppConfig 把配置写进 webapi 的包级变量。
+// applyAppConfig 把配置写进 webapi 的包级变量，再经 bootstrap.Apply 应用到
+// 下载器与 runner。
 //
 // 看起来和下面 flag 的 Value 重复，其实不是：作为 Windows 服务运行时
 // app.Run() 根本不会执行（RunService 在那之前就 return 了），flag 的 Destination
@@ -273,38 +273,9 @@ func applyAppConfig(cfg *appconfig.Config) {
 	webapi.TLSDomains = strings.Join(cfg.Server.TLS.Domains, ",")
 	webapi.TrustedProxies = strings.Join(cfg.Server.TrustedProxies, ",")
 
-	download.Configure(download.Config{
-		GithubProxy: cfg.Download.GithubProxy,
-		HTTPProxy:   cfg.Download.HTTPProxy,
-		Timeout:     cfg.Download.Timeout,
-		Retries:     cfg.Download.Retries,
-	})
-
-	runner.Configure(runner.Config{
-		Runtime:          cfg.Linux.Runtime,
-		UmuVersion:       cfg.Linux.UmuVersion,
-		ProtonVersion:    cfg.Linux.ProtonVersion,
-		PrefixMode:       cfg.Linux.PrefixMode,
-		PrefixDir:        cfg.Linux.PrefixDir,
-		PythonBin:        cfg.Linux.UmuPythonBin,
-		AutoDownload:     cfg.Linux.AutoDownload,
-		SteamRTPrefetch:  cfg.Linux.SteamRTPrefetch,
-		InstallVCRedist:  cfg.Linux.InstallVCRedist,
-		VCRedistURL:      cfg.Linux.VCRedistURL,
-		VCRedistSHA256:   cfg.Linux.VCRedistSHA256,
-		WineDLLOverrides: cfg.Linux.WineDLLOverrides,
-		Display:          cfg.Linux.Display,
-		XvfbBin:          cfg.Linux.XvfbBin,
-		XvfbScreen:       cfg.Linux.XvfbScreen,
-		AllowX11Remount:  cfg.Linux.AllowX11Remount,
-		GameID:           cfg.Linux.GameID,
-		BaseDir:          cfgpkg.BaseDir,
-		RuntimeUser:      cfg.Linux.UmuRuntimeUser,
-		RuntimeUID:       cfg.Linux.UmuRuntimeUID,
-		RuntimeGID:       cfg.Linux.UmuRuntimeGID,
-		RunAsRoot:        cfg.Linux.UmuRunAsRoot,
-		RuntimeDeepProbe: cfg.Linux.UmuRuntimeDeepProbe,
-	})
+	// download / runner 的字段映射只在 bootstrap.Apply 里写一份，setup 与 GUI 向导
+	// 重新加载配置时走同一个函数（docs/SETUP_FLOW_OPTIMIZATION_PLAN.md Part 2 §P2-3.6）。
+	bootstrap.Apply(cfg, cfgpkg.BaseDir)
 }
 
 // exitRuntimeUserUnsatisfied is EX_CONFIG from sysexits.h — a config/environment
