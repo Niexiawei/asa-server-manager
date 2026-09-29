@@ -85,6 +85,14 @@ const socketDirMode = os.ModeSticky | 0o777
 // 调用会再试一次，并把原因原原本本报给用户。
 var restartBackoff = []time.Duration{2 * time.Second, 5 * time.Second, 15 * time.Second}
 
+// 系统调用与休眠的接缝：只为测试能在不真的改宿主挂载表、不真的睡几十秒的前提下
+// 钉住「什么时候还原 mount」与「看门狗按什么节奏重试」。
+var (
+	mountFn  = syscall.Mount
+	accessFn = syscall.Access
+	sleepFn  = time.Sleep
+)
+
 // ErrNoBinary：本机找不到 Xvfb 可执行文件。
 var ErrNoBinary = errors.New("Xvfb not found")
 
@@ -223,6 +231,7 @@ func (m *Manager) ensure() (*managedXvfb, error) {
 			return cur, nil
 		}
 		// 中途死了（被 OOM、被人 kill、自己崩了）。收尸后重开，这一档因此是可自愈的。
+		cfg.warnf("xvfb: 自管 Xvfb（pid=%d，显示 %s）不可用：%s；重新拉起", cur.pid, cur.display, cur.unusableReason())
 		cur.stop()
 		m.current.Store(nil)
 	}
@@ -248,6 +257,9 @@ func (m *Manager) ensure() (*managedXvfb, error) {
 
 	x, err := m.start(cfg, bin)
 	if err != nil {
+		// 为了这次启动把 SocketDir 改成了可写，而现在手里没有 Xvfb：没有理由让它
+		// 以可写状态挂一整个进程生命周期。下一次需要时会再 remount（一次 mount(2)）。
+		m.restoreSocketDirRO()
 		return nil, err
 	}
 	m.current.Store(x)
@@ -262,9 +274,14 @@ func (m *Manager) ensure() (*managedXvfb, error) {
 func (m *Manager) Stop() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.stopGen.Add(1)
 
 	x := m.current.Load()
 	if x == nil {
+		// 没有 current 不代表没改过挂载：Xvfb 起失败、或中途死了且没能补起时
+		// current 都是 nil，而 remount 早已发生。还原与「手里有没有 Xvfb」无关
+		// （docs/PLAN_IMPLEMENTATION_AUDIT_2026-09-29.md §1.2 P1-1）。
+		m.restoreSocketDirRO()
 		return
 	}
 	// 先置位再停：看门狗醒来时必须能看出「这是计划内的」，否则它会在关停途中
@@ -284,20 +301,35 @@ func (m *Manager) Stop() {
 // 另一个显示号。看门狗的价值有两条：① 把「显示莫名其妙没了」变成日志里
 // 一句「Xvfb 于某时退出，原因是…」；② 让下一次调用不必现等一个冷启动的 X 服务。
 func (m *Manager) watch(x *managedXvfb) {
+	stopGen := m.stopGen.Load()
 	x.waitExit()
 	if x.intentional.Load() || m.current.Load() != x {
 		return // 我们自己停的，或者已经被换掉了 —— 都不该由这里插手
 	}
+	cfg := m.config()
+	cfg.warnf("xvfb: 自管 Xvfb（pid=%d，显示 %s）意外退出：%s；正在补起", x.pid, x.display, x.unusableReason())
 
-	for range restartBackoff {
-		time.Sleep(restartBackoff[0])
-		if x.intentional.Load() || m.current.Load() != x {
+	var lastErr error
+	for _, d := range restartBackoff {
+		sleepFn(d)
+		// 「被换掉了」只认一个**别的** Xvfb。第一次补起失败后 ensure 已把 current
+		// 清成 nil，以前把 nil 也当成「被换掉」，于是退避数组写多长都只试一次。
+		// 宿主在退避期间调了 Stop 时 current 也可能是 nil，x 也就没被置 intentional，
+		// 所以另看 Stop 的代号。
+		if x.intentional.Load() || m.stopGen.Load() != stopGen {
+			return
+		}
+		if cur := m.current.Load(); cur != nil && cur != x {
 			return
 		}
 		if _, err := m.ensure(); err == nil {
 			return // ensure 会为新的那个另起一只看门狗
+		} else {
+			lastErr = err
 		}
 	}
+	cfg.warnf("xvfb: 连续 %d 次补起 Xvfb 都失败，放弃；下一次需要显示时会再试。最后一次的错误：%v",
+		len(restartBackoff), lastErr)
 }
 
 // waitExit 等到这个 Xvfb 真的没了。自己 fork 的那种等 Wait 通道（事件驱动、零轮询）；
@@ -354,6 +386,7 @@ func (m *Manager) ensureSocketDir(cfg Config) error {
 		if chErr := os.Chmod(SocketDir, socketDirMode); chErr != nil {
 			return fmt.Errorf("把 %s 设为 1777 失败: %w", SocketDir, chErr)
 		}
+		cfg.infof("xvfb: %s 不存在，已创建为 1777（X 服务端的约定权限）", SocketDir)
 		return nil
 	case err != nil:
 		return fmt.Errorf("检查 %s 失败: %w", SocketDir, err)
@@ -368,6 +401,8 @@ func (m *Manager) ensureSocketDir(cfg Config) error {
 	if err := os.Chmod(SocketDir, socketDirMode); err != nil {
 		return fmt.Errorf("把 %s 改为 1777 失败: %w", SocketDir, err)
 	}
+	cfg.infof("xvfb: 运行时用户写不进 %s（原权限 %04o），已把它扶正为 1777（X 服务端的约定权限）",
+		SocketDir, fi.Mode().Perm())
 	return nil
 }
 
@@ -391,7 +426,7 @@ func (m *Manager) ensureSocketDir(cfg Config) error {
 //
 // 目录本来就可写时是**空操作**。
 func (m *Manager) remountSocketDirRW(cfg Config) error {
-	aerr := syscall.Access(SocketDir, writeOK)
+	aerr := accessFn(SocketDir, writeOK)
 	if aerr == nil || !errors.Is(aerr, syscall.EROFS) {
 		// 已经可写，或者不是只读挂载的问题（目录不存在、或别的错误）。后者交给下游
 		// 按老路处理：目录缺了会被建出来，别的错误会在那里被如实报出。
@@ -402,13 +437,14 @@ func (m *Manager) remountSocketDirRW(cfg Config) error {
 			"AllowX11Remount 为 false，不尝试把它重新挂载为可写。"+
 			"可点名一个现成的 X 显示", SocketDir)
 	}
-	if err := syscall.Mount("", SocketDir, "", syscall.MS_REMOUNT|syscall.MS_BIND, ""); err != nil {
+	if err := mountFn("", SocketDir, "", syscall.MS_REMOUNT|syscall.MS_BIND, ""); err != nil {
 		return fmt.Errorf("%s 是只读挂载（WSLg 就是这么挂的），Xvfb 建不出 socket；"+
 			"把它重新挂载为可写也失败了（%v）。可点名一个现成的 X 显示"+
 			"（WSLg 的是 :0），或关闭 AllowX11Remount 以省掉这次尝试",
 			SocketDir, err)
 	}
 	m.remounted.Store(true)
+	cfg.infof("xvfb: %s 是只读挂载，已重新挂载为可写（AllowX11Remount）；自管 Xvfb 停止时会还原为只读", SocketDir)
 	return nil
 }
 
@@ -421,7 +457,12 @@ func (m *Manager) restoreSocketDirRO() {
 	if !m.remounted.CompareAndSwap(true, false) {
 		return
 	}
-	_ = syscall.Mount("", SocketDir, "", syscall.MS_REMOUNT|syscall.MS_BIND|syscall.MS_RDONLY, "")
+	cfg := m.config()
+	if err := mountFn("", SocketDir, "", syscall.MS_REMOUNT|syscall.MS_BIND|syscall.MS_RDONLY, ""); err != nil {
+		cfg.warnf("xvfb: 把 %s 还原为只读失败：%v；可手动执行 mount -o remount,ro %s", SocketDir, err, SocketDir)
+		return
+	}
+	cfg.infof("xvfb: 已把 %s 还原为只读", SocketDir)
 }
 
 // statWritableBy 按 POSIX 的顺序算某个 uid/gid 对这个目录的写权限：属主位优先，
@@ -948,6 +989,3 @@ func displayTaken(n int) bool {
 	return pathExists(filepath.Join(SocketDir, "X"+num)) ||
 		pathExists(filepath.Join("/tmp", ".X"+num+"-lock"))
 }
-
-
-// atomicBoolImpl is sync/atomic.Bool. Defined via import below.
