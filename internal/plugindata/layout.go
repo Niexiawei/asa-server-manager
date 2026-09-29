@@ -2,6 +2,7 @@ package plugindata
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -126,12 +127,24 @@ func InitInstanceLayout(instanceName string) error {
 //
 // 全程幂等、可在任意一步中断：组装在 Plugins.migrating 里进行，rename 到位是提交点，
 // 之后才写标记、才动旧目录；旧目录与 server-files 都只改名不删除。
-func MigrateInstance(instanceName, mirrorDir string) error {
+//
+// running 由调用方提供「这个实例此刻是否在运行（含正在启动）」的判定，在实例锁内
+// 调用；为真时不迁移，返回 ErrInstanceRunning。本包在 process/state 之下、自己判断
+// 不了，但护栏必须在这里：「只迁移已停止的实例」曾经只靠调用方自觉，而调用方用的
+// 是「端口在监听」，漏掉了正在启动的实例（docs/PLAN_IMPLEMENTATION_AUDIT_2026-09-29.md
+// §7.2 P1-20）。参数是必填的，新的调用方必须显式回答这个问题。
+func MigrateInstance(instanceName, mirrorDir string, running func() bool) error {
 	mu := instanceLock(instanceName)
 	mu.Lock()
 	defer mu.Unlock()
+	if running() {
+		return ErrInstanceRunning
+	}
 	return migrateInstance(instanceName, mirrorDir)
 }
+
+// ErrInstanceRunning：实例在运行或正在启动，此时不能迁移它的插件目录。
+var ErrInstanceRunning = errors.New("实例正在运行或启动，推迟到它下一次启动时迁移")
 
 // migrateInstance 是 MigrateInstance 的本体，调用方持有实例级锁。
 func migrateInstance(instanceName, mirrorDir string) error {
