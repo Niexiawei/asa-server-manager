@@ -3,7 +3,10 @@ package instance
 import (
 	"context"
 	"fmt"
+	"sync"
+	"time"
 
+	"asa-server/internal/appconfig"
 	cfgpkg "asa-server/internal/config"
 	"asa-server/internal/installer"
 	procpkg "asa-server/internal/process"
@@ -60,6 +63,43 @@ func acquireLaunchGate(ctx context.Context, instanceName string) (release func()
 	return release, nil
 }
 
+// defaultLaunchGateTimeout 与 appconfig 的默认值一致；应用配置尚未加载时（单测、
+// 极早期的调用）用它。
+const defaultLaunchGateTimeout = 20 * time.Minute
+
+// launchGateTimeout 是一台实例最多能让后面的启动等它多久（linux.launch_gate_timeout）。
+func launchGateTimeout() time.Duration {
+	if c := appconfig.Get(); c != nil && c.Linux.LaunchGateTimeout > 0 {
+		return c.Linux.LaunchGateTimeout
+	}
+	return defaultLaunchGateTimeout
+}
+
+// awaitInitialization 等到实例初始化成功（返回 nil）、失败（返回 initFailed 的
+// 错误）或 ctx 结束（返回 ctx.Err()）。
+//
+// 等满 gateTimeout 仍没有结果时调用一次 onGateTimeout（放行启动闸门），然后**继续
+// 等**——超时不是失败：进程还活着，可能只是慢；真失败时 initFailed 会在进程退出时
+// 到达。见 startServerInternal 里调用处的注释。
+func awaitInitialization(ctx context.Context, initFailed <-chan error, initSuccessful <-chan bool,
+	gateTimeout time.Duration, onGateTimeout func()) error {
+
+	gateTimer := time.NewTimer(gateTimeout)
+	defer gateTimer.Stop()
+	for {
+		select {
+		case err := <-initFailed:
+			return err
+		case <-initSuccessful:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-gateTimer.C:
+			onGateTimeout()
+		}
+	}
+}
+
 // conflictingArkApiInstance 找出「已经在跑、并且也启用了 ArkApi」的实例，
 // 空字符串表示没有冲突。只在共享 Wine prefix 下有意义。
 //
@@ -99,7 +139,40 @@ func acquireLaunchGate(ctx context.Context, instanceName string) (release func()
 // 只有 ArkApi 会撞：ArkAscendedServer.exe 根本不碰显示，所以共享 prefix 下
 // 多个纯 ARK 实例是正常可用的——参考脚本 ark_instance_manager.sh 一直如此，
 // 它压根不支持 ArkApi，这也是它从没暴露过这个问题的原因。
+//
+// # 「在跑」的判据（docs/PLAN_IMPLEMENTATION_AUDIT_2026-09-29.md §3.2）
+//
+// 曾经是 procpkg.IsServerRunning——**端口在监听**。而端口要到游戏完全起来才绑定，
+// 远晚于闸门的放行点（start_initialization_successful）：A 放行闸门时端口多半还没
+// 绑，B 的检查于是通过，拿到闸门后径直进了同一个 Wine 会话——闸门反而把两者排成了
+// 必然相撞的时序。现在的判据是两者的并集：
+//
+//   - arkApiLaunches：本进程里正在走启动流程的 ArkApi 实例（登记到它的
+//     startServerInternal 返回为止，那时游戏 PID 已落盘）；
+//   - arkApiInstanceAlive：端口在监听，或保存的游戏 PID 仍属于那个实例。
 func conflictingArkApiInstance(self string) string {
+	arkApiLaunches.Lock()
+	defer arkApiLaunches.Unlock()
+	return conflictingArkApiInstanceLocked(self)
+}
+
+// arkApiLaunches 是本进程里正在启动的 ArkApi 实例。只在共享 Wine 会话下使用。
+var arkApiLaunches = struct {
+	sync.Mutex
+	names map[string]struct{}
+}{names: map[string]struct{}{}}
+
+// 以下三个是冲突判定对外部世界的全部依赖，做成变量只为测试能替换。
+var (
+	listInstanceNames   = cfgpkg.GetAvailableInstances
+	arkApiInstanceAlive = procpkg.IsInstanceProcessAlive
+	arkApiEnabledFor    = func(name string) bool {
+		cfg, err := cfgpkg.LoadInstanceConfig(name)
+		return err == nil && cfg != nil && cfg.EnableAsaPlugin
+	}
+)
+
+func conflictingArkApiInstanceLocked(self string) string {
 	// 只有共享 Wine 会话时才存在这个冲突。Windows 与 per-instance 下必须直接放行 ——
 	// 漏了这一条就会把**本来完全合法**的第二个 ArkApi 实例拦下来，而且拦得理直气壮：
 	// 报错信息还会建议用户去改一个他已经改好了的配置项。
@@ -107,7 +180,7 @@ func conflictingArkApiInstance(self string) string {
 		return ""
 	}
 
-	names, err := cfgpkg.GetAvailableInstances()
+	names, err := listInstanceNames()
 	if err != nil {
 		// 读不到实例列表不该拦住启动：这个检查是为了给出好的错误信息，
 		// 它自己失败时应当让位给原本的启动流程。
@@ -118,16 +191,42 @@ func conflictingArkApiInstance(self string) string {
 		if name == self {
 			continue
 		}
-		if running, _ := procpkg.IsServerRunning(name); !running {
+		if _, launching := arkApiLaunches.names[name]; !launching && !arkApiInstanceAlive(name) {
 			continue
 		}
-		cfg, err := cfgpkg.LoadInstanceConfig(name)
-		if err != nil || cfg == nil || !cfg.EnableAsaPlugin {
+		if !arkApiEnabledFor(name) {
 			continue
 		}
 		return name
 	}
 	return ""
+}
+
+// claimArkApiSlot 在同一把锁内完成「查冲突 + 把自己登记为正在启动」。
+//
+// 检查与登记必须原子：分开做的话，A、B 同时检查都看不到对方，然后双双登记、
+// 双双启动。有冲突时返回对方的名字、不登记；否则返回注销函数（幂等），调用方在
+// 启动流程结束时调用——成功时游戏 PID 已经落盘，存活判定从那一刻接手。
+// 不共享 Wine 会话时什么都不登记。
+func claimArkApiSlot(self string) (other string, release func()) {
+	arkApiLaunches.Lock()
+	defer arkApiLaunches.Unlock()
+
+	if other := conflictingArkApiInstanceLocked(self); other != "" {
+		return other, func() {}
+	}
+	if !runner.SharesWinePrefix() {
+		return "", func() {}
+	}
+	arkApiLaunches.names[self] = struct{}{}
+	var once sync.Once
+	return "", func() {
+		once.Do(func() {
+			arkApiLaunches.Lock()
+			delete(arkApiLaunches.names, self)
+			arkApiLaunches.Unlock()
+		})
+	}
 }
 
 // arkApiConflictError 是那条冲突的唯一措辞。两个调用点（HTTP 层的 PrecheckStart

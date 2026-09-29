@@ -4,6 +4,7 @@ package instance
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -150,5 +151,96 @@ func TestLaunchGate_WaitIsCancellable(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("cancelling the context did not unblock the waiter")
+	}
+}
+
+// stubArkApiWorld 替换冲突判定对外部世界的三个依赖：实例列表、存活判定、是否启用 ArkApi。
+func stubArkApiWorld(t *testing.T, names []string, alive map[string]bool) {
+	t.Helper()
+	origList, origAlive, origEnabled := listInstanceNames, arkApiInstanceAlive, arkApiEnabledFor
+	listInstanceNames = func() ([]string, error) { return names, nil }
+	arkApiInstanceAlive = func(name string) bool { return alive[name] }
+	arkApiEnabledFor = func(string) bool { return true }
+	t.Cleanup(func() {
+		listInstanceNames, arkApiInstanceAlive, arkApiEnabledFor = origList, origAlive, origEnabled
+	})
+}
+
+// 回归 docs/PLAN_IMPLEMENTATION_AUDIT_2026-09-29.md §3.2 P1-6：A 还在启动、端口没绑、
+// 进程判不出存活时，B 也必须被拦下——以前的判据只看端口，这一段完全看不见 A。
+func TestClaimArkApiSlot_SeesInstanceStillStarting(t *testing.T) {
+	configurePrefixMode(t, "shared")
+	stubArkApiWorld(t, []string{"A", "B"}, nil)
+
+	other, releaseA := claimArkApiSlot("A")
+	if other != "" {
+		t.Fatalf("A should claim with nobody else around, got conflict with %q", other)
+	}
+	if other, _ := claimArkApiSlot("B"); other != "A" {
+		t.Fatalf("B must see A while A is still starting, got %q", other)
+	}
+	if got := conflictingArkApiInstance("B"); got != "A" {
+		t.Fatalf("the in-gate re-check must see A too, got %q", got)
+	}
+
+	releaseA()
+	releaseA() // 幂等
+	other, releaseB := claimArkApiSlot("B")
+	if other != "" {
+		t.Fatalf("B should claim after A's launch ended and A isn't alive, got %q", other)
+	}
+	releaseB()
+}
+
+// 已经在跑（存活判定为真、没有登记）的 ArkApi 实例同样构成冲突。
+func TestClaimArkApiSlot_SeesRunningInstance(t *testing.T) {
+	configurePrefixMode(t, "shared")
+	stubArkApiWorld(t, []string{"A", "B"}, map[string]bool{"A": true})
+
+	if other, _ := claimArkApiSlot("B"); other != "A" {
+		t.Fatalf("B must see running A, got %q", other)
+	}
+}
+
+// 并发：N 个同时抢，只能有一个成功。检查与登记分两步做就会有不止一个。
+func TestClaimArkApiSlot_OnlyOneWinsConcurrently(t *testing.T) {
+	configurePrefixMode(t, "shared")
+	names := []string{"A", "B", "C", "D", "E", "F", "G", "H"}
+	stubArkApiWorld(t, names, nil)
+
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var releases []func()
+	winners := 0
+	for _, n := range names {
+		wg.Add(1)
+		go func(n string) {
+			defer wg.Done()
+			if other, release := claimArkApiSlot(n); other == "" {
+				mu.Lock()
+				winners++
+				releases = append(releases, release)
+				mu.Unlock()
+			}
+		}(n)
+	}
+	wg.Wait()
+	for _, r := range releases {
+		r()
+	}
+	if winners != 1 {
+		t.Fatalf("%d concurrent claims succeeded, want exactly 1", winners)
+	}
+}
+
+// per-instance 下不共享 Wine 会话：什么都不登记，两台都能过。
+func TestClaimArkApiSlot_NoopUnderPerInstance(t *testing.T) {
+	configurePrefixMode(t, "per-instance")
+	stubArkApiWorld(t, []string{"A", "B"}, nil)
+
+	_, releaseA := claimArkApiSlot("A")
+	defer releaseA()
+	if other, _ := claimArkApiSlot("B"); other != "" {
+		t.Fatalf("per-instance must not report a conflict, got %q", other)
 	}
 }

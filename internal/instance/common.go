@@ -153,7 +153,7 @@ var ErrLauncherExited = errors.New("启动器进程在游戏进程出现之前�
 // 失败从「干等满超时」变成「立刻报错，并说出退出状态」—— 尤其在 ArkApi 那档超时
 // 长达 3 分钟之后，这一条是必需的而不是优化。可以传 nil（永不触发）。
 func waitForGamePID(ctx context.Context, saveDir string, timeout time.Duration, launcherExited <-chan struct{}) (uint32, error) {
-	marker := fmt.Sprintf("AltSaveDirectoryName=%s", saveDir)
+	marker, accept := procpkg.SaveDirMarker(saveDir), ownedBy(saveDir)
 
 	var (
 		processErr = make(chan error, 1)
@@ -170,7 +170,7 @@ func waitForGamePID(ctx context.Context, saveDir string, timeout time.Duration, 
 			if ctx.Err() != nil {
 				return
 			}
-			proc, ok, err := gameProcMatcher.Find(marker)
+			proc, ok, err := gameProcMatcher.Find(marker, accept)
 			if err != nil {
 				select {
 				case processErr <- err:
@@ -201,7 +201,7 @@ func waitForGamePID(ctx context.Context, saveDir string, timeout time.Duration, 
 	case <-launcherExited:
 		// 最后再查一次：轮询间隔是 200ms，「游戏进程刚出现、启动器恰好同时退出」
 		// 这个窗口真实存在，直接判失败会误杀一次本来成功的启动。
-		if proc, ok, err := gameProcMatcher.Find(marker); err == nil && ok {
+		if proc, ok, err := gameProcMatcher.Find(marker, accept); err == nil && ok {
 			return proc.ProcessId, nil
 		}
 		return 0, ErrLauncherExited
@@ -514,10 +514,17 @@ func waitServerStartup(pid int, gameLogPath string, callback waitServerStartupFu
 	<-startup
 }
 
-// findServerPIDBySaveDir 通过进程命令行中的 AltSaveDirectoryName 查找 ArkAscendedServer.exe 的 PID。
-// 不依赖端口是否被监听，适用于启动中等过渡状态（匹配规则按平台拆分，见 gameproc_*.go）。
+// ownedBy 是「这条命令行属于 saveDir 那个实例」的精确判定，交给
+// gameProcMatcher.Find 在子串预筛之后使用。见 procpkg.CmdlineHasSaveDir。
+func ownedBy(saveDir string) func(cmdline string) bool {
+	return func(cmdline string) bool { return procpkg.CmdlineHasSaveDir(cmdline, saveDir) }
+}
+
+// findServerPIDBySaveDir 通过进程命令行中的 AltSaveDirectoryName 查找游戏进程的 PID。
+// 不依赖端口是否被监听，适用于启动中等过渡状态（匹配规则按平台拆分，见 pkg/procmatch）。
+// Linux 上按 comm == GameThread 选出真正的游戏进程，不会拿到 wineserver 或加载器。
 func findServerPIDBySaveDir(saveDir string) (int, error) {
-	proc, ok, err := gameProcMatcher.Find(fmt.Sprintf("AltSaveDirectoryName=%s", saveDir))
+	proc, ok, err := gameProcMatcher.Find(procpkg.SaveDirMarker(saveDir), ownedBy(saveDir))
 	if err != nil {
 		return 0, fmt.Errorf("process query failed: %w", err)
 	}
@@ -525,6 +532,51 @@ func findServerPIDBySaveDir(saveDir string) (int, error) {
 		return 0, fmt.Errorf("no ArkAscendedServer process found with AltSaveDirectoryName=%s", saveDir)
 	}
 	return int(proc.ProcessId), nil
+}
+
+// resolveGamePID 找出要停止的那个游戏进程。
+//
+// **不按端口找**：Wine 下 wineserver 持有游戏 socket 的副本，procx.PIDByPort 返回
+// 「第一个持有该端口的进程」，而 wineserver 通常先启动、PID 更小，恰恰更容易被选中。
+// shared prefix 下它是所有实例共用的——拿它去 Terminate、超时再 KillTree，停一个实例
+// 会带走同一 Wine 会话里的全部实例。
+//
+// 顺序：进程表里按实例标记查（Linux 以 comm == GameThread 选出真正的游戏进程）→
+// 保存的游戏 PID（校验仍属于本实例）。
+func resolveGamePID(instanceName, saveDir string) (int, error) {
+	pid, findErr := findServerPIDBySaveDir(saveDir)
+	if findErr == nil {
+		return pid, nil
+	}
+	if pid, ok := procpkg.VerifiedPID(instanceName, procpkg.PIDGame); ok {
+		return pid, nil
+	}
+	return 0, fmt.Errorf("找不到实例 %s 的游戏进程: %w", instanceName, findErr)
+}
+
+// killInstanceProcesses 按实例标记收掉这个实例的整条启动链：loader、游戏、以及
+// Linux 上 umu-run / pressure-vessel 的各层包装——它们的命令行都带着同一串
+// AltSaveDirectoryName 参数。返回被处理的 PID。
+//
+// 用于「启动器已经退出」之后的清场：那时它的后代早已被 reparent，对它的 PID 做
+// KillTree 走不到任何一个（而且那个 PID 已被回收，可能属于别的进程了）。
+func killInstanceProcesses(saveDir string) []int {
+	procs, err := procx.QueryProcess("", procpkg.SaveDirMarker(saveDir))
+	if err != nil {
+		logger.Warnf("按实例标记查找进程失败（%s）：%v", saveDir, err)
+		return nil
+	}
+	self := os.Getpid()
+	var killed []int
+	for _, p := range procs {
+		pid := int(p.ProcessId)
+		if pid == self || !procpkg.CmdlineHasSaveDir(p.CommandLine, saveDir) {
+			continue
+		}
+		_ = procx.KillTree(pid)
+		killed = append(killed, pid)
+	}
+	return killed
 }
 
 // asaVersionResolver 是本进程唯一一份 ASA 版本解析器，内部按 exe 的 modTime+size
