@@ -338,18 +338,16 @@ func (m *Manager) Problems(check AccessCheck, forceDeep bool) []problem.Problem 
 		problems = append(problems, *p)
 	}
 
-	for _, dir := range check.OwnershipDirs {
-		if !pathExists(dir) {
-			continue
+	if dir, bad := ownerDrift(uid, check.OwnershipDirs); bad != "" {
+		fix := check.DriftFix
+		if fix == "" {
+			fix = fmt.Sprintf("把 %s 整棵 chown 给 %s；chown 之后仍不对，多半是 SELinux / 只读挂载 / NFS root_squash", dir, name)
 		}
-		if bad := sampleOwnerMismatch(dir, uid); bad != "" {
-			problems = append(problems, problem.Problem{
-				Name:   "umu-runtime-owner-drift",
-				Detail: fmt.Sprintf("%s 下存在非 %s 拥有的条目（例：%s）", dir, name, bad),
-				Fix:    "重启 asa-server 会自动 chown 修复；修不回来多半是 SELinux / 只读挂载 / NFS root_squash",
-			})
-			break
-		}
+		problems = append(problems, problem.Problem{
+			Name:   "umu-runtime-owner-drift",
+			Detail: fmt.Sprintf("%s 下存在非 %s 拥有的条目（例：%s）", dir, name, bad),
+			Fix:    fix,
+		})
 	}
 
 	if check.TraversableDir != "" {
@@ -378,6 +376,37 @@ func (m *Manager) Problems(check AccessCheck, forceDeep bool) []problem.Problem 
 		}
 	}
 	return problems
+}
+
+// OwnerDrift samples dirs for an entry the managed user doesn't own, the same
+// judgement Problems makes for AccessCheck.OwnershipDirs, without any of
+// Problems' other checks. Returns the first offending dir and a sample path,
+// or ("", "") when every sampled entry is fine, when no drop is managed, or
+// when the account doesn't exist yet (there is no owner to compare against).
+//
+// Meant for advisory reporting on trees the caller repairs lazily rather than
+// at startup, so they must not become a startup blocker.
+func (m *Manager) OwnerDrift(dirs ...string) (dir, sample string) {
+	if !m.Managed() {
+		return "", ""
+	}
+	uid, _, _ := m.ChildIDs()
+	if uid == noSuchID {
+		return "", ""
+	}
+	return ownerDrift(int(uid), dirs)
+}
+
+func ownerDrift(uid int, dirs []string) (dir, sample string) {
+	for _, d := range dirs {
+		if !pathExists(d) {
+			continue
+		}
+		if bad := sampleOwnerMismatch(d, uid); bad != "" {
+			return d, bad
+		}
+	}
+	return "", ""
 }
 
 func checkOwnedDir(path string, wantUID int, id, label string) *problem.Problem {
