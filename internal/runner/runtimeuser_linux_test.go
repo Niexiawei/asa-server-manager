@@ -152,6 +152,39 @@ func TestRuntimeUser_CreateReconcileVerify(t *testing.T) {
 		t.Fatalf("verifyRuntimeAccess after reconcile: %v", probs)
 	}
 
+	// The P0 of docs/PLAN_IMPLEMENTATION_AUDIT_2026-09-29.md §2.2: a
+	// root-owned per-instance mirror (an upgrade from before drop-privileges,
+	// a manual chown -R) is something the startup reconcile never repairs, so
+	// the startup gate must not report it — or asa-server stays down for good.
+	mirror := filepath.Join(base, "server-files-tmp-legacy")
+	if err := os.MkdirAll(filepath.Join(mirror, "ShooterGame"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureRuntimeUser(context.Background()); err != nil {
+		t.Fatalf("ensureRuntimeUser with a root-owned mirror: %v", err)
+	}
+	if probs := verifyRuntimeAccess(false); len(probs) != 0 {
+		t.Fatalf("startup gate must not block on a mirror the startup reconcile doesn't repair, got %v", probs)
+	}
+	// ...but it is still visible: as an advisory, and as a blocker at that
+	// instance's own launch (where ChownMirrorForRuntime runs first).
+	if p := checkMirrorOwnership(); p == nil || !p.Warning {
+		t.Fatalf("root-owned mirror not reported as an advisory: %+v", p)
+	}
+	if probs := verifyRuntimeAccess(false, mirror); len(probs) == 0 {
+		t.Fatal("launch check including the mirror must report its drift")
+	}
+	// perms fix repairs it.
+	if err := fixRuntimeOwnership(context.Background()); err != nil {
+		t.Fatalf("fixRuntimeOwnership: %v", err)
+	}
+	if p := checkMirrorOwnership(); p != nil {
+		t.Fatalf("mirror still drifted after fixRuntimeOwnership: %+v", p)
+	}
+	if probs := verifyRuntimeAccess(false, mirror); len(probs) != 0 {
+		t.Fatalf("launch check after fixRuntimeOwnership: %v", probs)
+	}
+
 	// Break ownership, self-check must catch it.
 	_ = os.Lchown(filepath.Join(base, "umu-prefix"), 0, 0)
 	probs := verifyRuntimeAccess(false)

@@ -30,6 +30,9 @@ func preflight() []Problem {
 	if p := checkOverlayfs(); p != nil {
 		problems = append(problems, *p)
 	}
+	if p := checkMirrorOwnership(); p != nil {
+		problems = append(problems, *p)
+	}
 	return problems
 }
 
