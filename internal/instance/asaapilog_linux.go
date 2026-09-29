@@ -49,11 +49,17 @@ const (
 	// 之后的重试间隔。ArkApi 的写入是低频的（每条日志一行），1 秒的延迟对面板足够，
 	// 而更密的轮询只会在一次几十分钟的开服过程里空转几万次。
 	arkApiLogPollInterval = time.Second
-	// arkApiLogAppearTimeout 是等文件出现的上限。加载器要先下载 offsets cache 才会
-	// 开始写日志，真机上是几十秒；给到 5 分钟之后仍然没有，基本可以判定 ArkApi 没被
-	// 加载 —— 此时写一行说明并退出，而不是留一个永远在转的协程。
-	arkApiLogAppearTimeout = 5 * time.Minute
 )
+
+// arkApiLogAppearTimeout 是等文件**出现**的上限。加载器要先下载 offsets cache 才会
+// 开始写日志，真机上是几十秒；给到 5 分钟之后仍然没有，基本可以判定 ArkApi 没被
+// 加载 —— 此时写一行说明并退出，而不是留一个永远在转的协程。
+//
+// 它只约束「等出现」，**绝不**约束之后的转抄：转抄要跟到启动链结束（实例停止）
+// 为止，可能是几天。两者曾共用一个带这个超时的 ctx，结果每个 ArkApi 实例开服
+// 5 分钟后插件日志就不再更新（docs/PLAN_IMPLEMENTATION_AUDIT_2026-09-29.md §6.2）。
+// 变量而非常量只为测试能缩短它。
+var arkApiLogAppearTimeout = 5 * time.Minute
 
 // arkApiLogDir 返回某个实例镜像里的 ArkApi 日志目录。
 func arkApiLogDir(mirrorDir string) string {
@@ -111,27 +117,43 @@ func copyArkApiLog(instanceName, mirrorDir string, launchedAt time.Time, done <-
 	}
 	defer dst.Close()
 
-	dir := arkApiLogDir(mirrorDir)
+	relayArkApiLog(dst, arkApiLogDir(mirrorDir), launchedAt, done, arkApiLogAppearTimeout,
+		func(msg string) {
+			logger.Warnf("ArkApi log relay for instance %s stopped: %s", instanceName, msg)
+		})
+}
+
+// relayArkApiLog 是 copyArkApiLog 去掉「打开目标文件」之后的主体：等 dir 里出现本次
+// 启动的 ArkApi 日志（至多 appearTimeout），然后把它持续转抄进 dst，直到 done 关闭。
+//
+// 两段用**两个**取消信号：等出现的 ctx 带超时，转抄的 ctx 只随 done 结束。
+func relayArkApiLog(dst io.Writer, dir string, launchedAt time.Time, done <-chan struct{},
+	appearTimeout time.Duration, warn func(string)) {
+
 	note(dst, "正在等待 ArkApi 日志出现（%s）；启动链本身的输出在同目录的 launcher.log", dir)
 
-	// done 关闭与「等待超时」合并成一个 ctx：WaitNewest 只需要认识一种取消信号，
-	// 而 ctx.Err() 的两种取值（Canceled/DeadlineExceeded）恰好够区分下面的措辞。
-	ctx, cancel := context.WithTimeout(context.Background(), arkApiLogAppearTimeout)
-	defer cancel()
+	// 等出现：done 关闭与超时二者先到者为准。ctx.Err() 的两种取值
+	// （Canceled/DeadlineExceeded）恰好够区分下面的措辞。
+	appearCtx, appearCancel := context.WithTimeout(context.Background(), appearTimeout)
+	defer appearCancel()
+	// 转抄：只随 done 结束。
+	relayCtx, relayCancel := context.WithCancel(context.Background())
+	defer relayCancel()
 	go func() {
 		select {
 		case <-done:
-			cancel()
-		case <-ctx.Done():
+			appearCancel()
+			relayCancel()
+		case <-relayCtx.Done():
 		}
 	}()
 
-	srcPath, err := tail.WaitNewest(ctx, dir, launchedAt, isArkApiLogName, arkApiLogPollInterval)
+	srcPath, err := tail.WaitNewest(appearCtx, dir, launchedAt, isArkApiLogName, arkApiLogPollInterval)
 	if err != nil {
 		// 说清楚而不是留一个空文件 —— 「静默」正是这个问题最初难查的原因。
 		reason := "启动链已结束，仍未生成 ArkApi 日志"
 		if errors.Is(err, context.DeadlineExceeded) {
-			reason = fmt.Sprintf("等待超过 %s", arkApiLogAppearTimeout)
+			reason = fmt.Sprintf("等待超过 %s", appearTimeout)
 		}
 		note(dst, "未能找到本次启动的 ArkApi 日志：%s", reason)
 		note(dst, "多半意味着 ArkApi 没有被加载。请看 launcher.log，或跑 asa-server verify-arkapi")
@@ -146,9 +168,17 @@ func copyArkApiLog(instanceName, mirrorDir string, launchedAt time.Time, done <-
 	}
 	defer src.Close()
 
-	iox.Relay(ctx, src, dst, arkApiLogPollInterval, func(msg string) {
-		logger.Warnf("ArkApi log relay for instance %s stopped: %s", instanceName, msg)
+	var stopped string
+	iox.Relay(relayCtx, src, dst, arkApiLogPollInterval, func(msg string) {
+		stopped = msg
+		warn(msg)
 	})
+	// 结束时留一行说明：面板上的日志不再更新时，用户应当知道是为什么。
+	if stopped != "" {
+		note(dst, "转抄中断：%s", stopped)
+	} else {
+		note(dst, "启动链已结束，停止转抄")
+	}
 }
 
 // note 往转抄目标里写一行 asa-server 自己的说明，与 ArkApi 的行区分开。
