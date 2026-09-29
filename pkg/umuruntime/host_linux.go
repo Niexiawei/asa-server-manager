@@ -195,6 +195,15 @@ func (h *Host) Ensure(ctx context.Context, logf func(string, ...any)) error {
 		logf = func(string, ...any) {}
 	}
 
+	// ensureMu only serializes this process; another asa-server process (a
+	// `setup` from a terminal next to the running service) needs the file
+	// lock. See runtimeLockFile.
+	ctx, unlock, err := h.Lock(ctx, logf)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
 	// The dropped-privileges account comes first: WarmPrefix below runs
 	// wineboot as that user, and it must be able to write the prefix and
 	// its own HOME. See docs/UMU_RUNTIME_USER_PLAN.md §3.2.
@@ -239,13 +248,19 @@ func (h *Host) Ensure(ctx context.Context, logf func(string, ...any)) error {
 	// 判据是「还有没有事要做」而不是「有没有挂载」：本函数在每次 API 启动时都会
 	// 后台跑一遍，而挂载是**故意**跨重启存活的（停实例不卸载），一见挂载就报错
 	// 等于第一个实例起过之后永远起不来。见 wineprefix.Manager.LowerNeedsWork。
+	//
+	// overlay 模式下先问「有没有事要做」，没有就根本不打开写窗口：打开窗口会先卸载
+	// 所有空闲的可写层，而本函数每次 API 启动都跑——以前是「先卸载、再判断」，
+	// 挂载跨重启存活的设计因此名存实亡（docs/PLAN_IMPLEMENTATION_AUDIT_2026-09-29.md §3.2）。
+	// 其余模式没有可写层可卸，照旧走完下面的预热与补装（例如显示后来可用了，
+	// VC++ 插件会借这一趟补装原生运行时）。
+	if cfg.Prefix.PrefixMode == "overlay" && !h.prefixes.LowerNeedsWork() {
+		logf("共享 Wine 前缀已是最新，无需修改")
+		return nil
+	}
 	doneWrite, err := h.prefixes.PrepareSharedWrite("环境准备 EnsureRuntime")
 	if err != nil {
-		if h.prefixes.LowerNeedsWork() {
-			return err
-		}
-		logf("共享 Wine 前缀已是最新，跳过重建（当前有实例的可写层挂在它上面）")
-		return nil
+		return err
 	}
 	defer doneWrite()
 
@@ -283,6 +298,12 @@ func (h *Host) Provision(ctx context.Context, key string, logf func(string, ...a
 	if logf == nil {
 		logf = func(string, ...any) {}
 	}
+	ctx, unlock, err := h.Lock(ctx, logf)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
 	prefix := h.prefixes.Dir(key)
 	if prefix == h.prefixes.Dir("") {
 		done, err := h.prefixes.PrepareSharedWrite("Provision " + capsString(caps))
