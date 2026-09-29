@@ -34,7 +34,11 @@ func TestInjectConfigLocation(t *testing.T) {
 func TestNewServiceConfigInjectsASACFG(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("ASA_CFG", dir)
-	if got := newServiceConfig().EnvVars["ASA_CFG"]; got != dir {
+	cfg, err := newServiceConfig()
+	if err != nil {
+		t.Fatalf("newServiceConfig: %v", err)
+	}
+	if got := cfg.EnvVars["ASA_CFG"]; got != dir {
 		t.Errorf("newServiceConfig 应注入当前 ASA_CFG=%q，实际 %q", dir, got)
 	}
 }

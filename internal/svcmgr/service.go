@@ -91,7 +91,7 @@ func (p *program) Stop(s service.Service) error {
 
 // newServiceConfig builds the base service.Config and lets the platform file
 // (service_windows.go / service_linux.go) layer on anything OS-specific.
-func newServiceConfig() *service.Config {
+func newServiceConfig() (*service.Config, error) {
 	cfg := &service.Config{
 		Name:        ServiceName,
 		DisplayName: ServiceDisplayName,
@@ -99,7 +99,12 @@ func newServiceConfig() *service.Config {
 	}
 	configurePlatform(cfg)
 	injectConfigLocation(cfg, os.Getenv("ASA_CFG"))
-	return cfg
+	// 环境变量齐了之后再定稿平台相关的部分：Linux 要把它们渲染成带引号的
+	// Environment= 行写进 unit 模板（见 systemdScriptWithEnv）。
+	if err := finalizePlatform(cfg); err != nil {
+		return nil, err
+	}
+	return cfg, nil
 }
 
 // injectConfigLocation 把安装时生效的 ASA_CFG 烤进服务自己的环境。
@@ -130,7 +135,11 @@ func InstallService() error {
 	warnBeforeInstall()
 
 	prg := &program{}
-	s, err := service.New(prg, newServiceConfig())
+	cfg, err := newServiceConfig()
+	if err != nil {
+		return err
+	}
+	s, err := service.New(prg, cfg)
 	if err != nil {
 		return err
 	}
@@ -147,7 +156,11 @@ func InstallService() error {
 // RemoveService removes the OS service
 func RemoveService() error {
 	prg := &program{}
-	s, err := service.New(prg, newServiceConfig())
+	cfg, err := newServiceConfig()
+	if err != nil {
+		return err
+	}
+	s, err := service.New(prg, cfg)
 	if err != nil {
 		return err
 	}
@@ -175,7 +188,11 @@ func RemoveService() error {
 // StartService starts the OS service
 func StartService() error {
 	prg := &program{}
-	s, err := service.New(prg, newServiceConfig())
+	cfg, err := newServiceConfig()
+	if err != nil {
+		return err
+	}
+	s, err := service.New(prg, cfg)
 	if err != nil {
 		return err
 	}
@@ -192,7 +209,11 @@ func StartService() error {
 // StopService stops the OS service
 func StopService() error {
 	prg := &program{}
-	s, err := service.New(prg, newServiceConfig())
+	cfg, err := newServiceConfig()
+	if err != nil {
+		return err
+	}
+	s, err := service.New(prg, cfg)
 	if err != nil {
 		return err
 	}
@@ -209,7 +230,11 @@ func StopService() error {
 // RunService runs the service
 func RunService() error {
 	prg := &program{}
-	s, err := service.New(prg, newServiceConfig())
+	cfg, err := newServiceConfig()
+	if err != nil {
+		return err
+	}
+	s, err := service.New(prg, cfg)
 	if err != nil {
 		log.Printf("Failed to create service: %v\n", err)
 		return err
