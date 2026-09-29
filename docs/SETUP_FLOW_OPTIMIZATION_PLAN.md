@@ -520,8 +520,8 @@ func (g *GUIApp) showSetupProgress() {
 
 # Part 2：`config init` —— 先配置、后初始化
 
-> 状态：**C0–C7 已实施**（2026-09-29），C8（文档）待实施；GUI 向导的完整手测清单见 §P2-9 末尾。
-> 实施记录与设计偏离见 §P2-7、§P2-8、§P2-9。
+> 状态：**C0–C8 全部已实施**（2026-09-29）。GUI 向导的人工手测清单见 §P2-9 末尾（未自动化，尚未走完）。
+> 实施记录与设计偏离见 §P2-7、§P2-8、§P2-9、§P2-10。
 >
 > 目标：把「生成 config.yaml」从「任意命令启动时的副作用」里拆出来，成为一个显式步骤，
 > 让用户在 `setup` 下载几百 MB / 几十 GB **之前**就能把下载代理、端口、prefix 模式、降权用户
@@ -918,7 +918,8 @@ BaseDir，失败打印错误并非零退出。文件不存在时提示先 `confi
   `service_windows.go` 的 `configurePlatform` 目前是空实现，这里是它第一次有内容。
 - Linux：`service_linux.go` 目前 `cfg.EnvVars = map[string]string{"HOME": …}` **整体赋值**，改成在同一个
   map 里追加 `ASA_CFG`。这顺带修掉一个既有缺口：Linux 用户在 shell 里 `export ASA_CFG` 后
-  `service install`，生成的 unit 里并没有它，服务读的是另一份配置。
+  `service install`，生成的 unit 里并没有它，服务读的是另一份配置。unit 里写成带引号的
+  `Environment="ASA_CFG=…"`（kardianos 默认渲染的是不带引号的形式，路径含空格会被切开，见 §P2-10）。
 - 装服务之后再在 GUI 里改配置位置：服务里烤进去的仍是旧值。第 1 页检测到服务已安装且
   `ASA_CFG` 将要变化时提示「需要重新安装服务才能让服务使用新位置」，重装本身走现有需管理员的路径，
   不在向导里自动做。
@@ -938,8 +939,8 @@ BaseDir，失败打印错误并非零退出。文件不存在时提示先 `confi
 `ErrUnsupported`）。零领域依赖、无全局状态，符合 `pkg/` 准入标准；GUI 与 `config init --set-env` 共用。
 
 **CLI 等价物**（§10.7 不变量 2）：`config init --dir DIR --set-env`。Windows 上写用户级 `ASA_CFG` 并广播；
-Linux 上不改任何 shell 配置文件（`.bashrc` / `.zshrc` / `/etc/environment` 选哪个都是替用户做主），
-只打印 `export ASA_CFG=…` 与「`service install` 会把当前 `ASA_CFG` 写进 unit」两条提示。
+Linux 上以 root 写 `/etc/profile.d/asa-server.sh`（2026-09-29 按用户要求改，原设计是只打印 export 语句，
+见 §P2-10），非 root 时退回打印 `export ASA_CFG=…`。
 
 #### P2-3.5.2 原生目录选择器
 
@@ -994,7 +995,7 @@ func Reload() (string, *appconfig.Config, error)
 | **C7b** ✅ | `pkg/folderpicker`（`IFileOpenDialog` + `FOS_PICKFOLDERS`，独立 STA 线程；直接走 vtable，未引入 go-ole） | `pkg/folderpicker/` |
 | **C7c** ✅ | 服务安装注入 `ASA_CFG`：两平台共用 `injectConfigLocation`（在 `configurePlatform` 之后并入 `EnvVars`） | `internal/svcmgr/service.go` |
 | **C7** ✅ | GUI 三页向导（含自定义目录、已有 `ASA_CFG` 四种情况、服务已安装时的重装提示）、原生选择器（失败回退 Fyne）、取消退路、删 `applyChosenBaseDir` | `internal/gui/config_wizard.go`、`internal/gui/gui.go` |
-| **C8** | 文档：`LINUX_DEPLOYMENT.md` 部署步骤改为 `config init → 编辑 → config validate → setup`；`docs/README.md` 与本文件状态；CLAUDE.md Build & Run 补 `config init`，Project Structure 补 `pkg/userenv`、`pkg/folderpicker` | docs |
+| **C8** ✅ | 文档：`LINUX_DEPLOYMENT.md` 新增 §2.1 首次部署流程（`config init → 编辑 → config validate → setup`、`--set-env` 的三点限制）、§2.2 配置文件乱码、第 3 节下载代理、第 4 节 unit 里的 `Environment="ASA_CFG=…"`、两条故障排查；`docs/README.md` 首次部署 / 项目结构 / 索引；CLAUDE.md Build & Run、`appconfig`/`bootstrap`/`gui`/`svcmgr`/`pkg/userenv`/`pkg/folderpicker` 条目、依赖分层、启动副作用说明、运行时目录里的 `config.yaml`；`CHANGELOG.md` [Unreleased] | docs、`CHANGELOG.md`、`CLAUDE.md` |
 
 C1、C2、C4、C7a、C7b、C7c 互不依赖；C3 依赖 C2；C5/C6 依赖 C3+C4；C7 依赖 C1+C3+C7a+C7b。每步独立可提交。
 
@@ -1192,4 +1193,45 @@ Windows `go test ./internal/appconfig/ ./internal/actions/ ./internal/installer/
 - [ ] 第 1 页点取消 / 关窗：程序目录生成默认配置，重启后不再弹向导。
 - [ ] 以自定义目录 `service install`（管理员）：`reg query HKLM\SYSTEM\CurrentControlSet\Services\ASA-Server-Manager /v Environment`
       含 `ASA_CFG`，服务启动后日志里的 BaseDir 与 GUI 一致。
+
+## P2-10. Linux 的 `--set-env` 与 systemd 环境变量（2026-09-29）
+
+用户要求：Linux 上 `--set-env` 不要只打印 export 语句，而是自动写进 `/etc/profile.d/`；服务模式的环境变量写成
+`[Service]` 下的 `Environment="ASA_CFG=…"`。
+
+### P2-10.1 `/etc/profile.d/asa-server.sh`
+
+- `pkg/userenv.SetProfileScript(file, name, value)`（仅 Linux，需 root，否则 `ErrNeedRoot`；其他平台 `ErrUnsupported`）：
+  原子写入、0644、首行标记 `# Managed by asa-server.`——**同名文件不是本程序写的就拒绝覆盖**。值用 POSIX 单引号包裹
+  （`'` → `'\''`），换行 / NUL 拒绝，变量名按 `[A-Za-z_][A-Za-z0-9_]*` 校验。
+- `config init --set-env` 在 Linux 上改走它：成功后同步当前进程的 `ASA_CFG`，并提示当前终端 `source` 一次；
+  非 root 时退回打印 export 语句并提示「用 root 重跑加 `--force --set-env`」。
+- **「自动 source」做不到**：子进程无法修改父进程（启动它的 shell）的环境变量，这是 Unix 进程模型，没有绕过办法。
+  能做到的是：写完之后**新的登录 shell** 自动生效，当前终端由用户 `source` 一次——输出里把这条命令原样给出。
+- 输出里另外两条如实告知的限制：
+  - **sudo 默认 `env_reset`**，`sudo asa-server …` 看不到 `ASA_CFG`：用 `sudo -i` 进 root 登录 shell，或 `sudo ASA_CFG=… asa-server …`。
+    不去改 `/etc/sudoers.d`（安全策略文件，改错会把 sudo 整个弄坏）。
+  - **部分发行版（Debian/Ubuntu）的 zsh 登录时不读 `/etc/profile.d`**：`$SHELL` 是 zsh 时提示在 `~/.zprofile` 加一行 `source`。
+    不去改 `/etc/zsh/*`（发行版自己的文件，升级时会冲突）。
+
+### P2-10.2 systemd unit 里的 `Environment="…"`
+
+- 原状：kardianos v1.3.0 把 `EnvVars` 渲染成**不带引号**的 `Environment=ASA_CFG=/path`。路径含空格时 systemd 按空白切开，
+  服务读的是另一个目录，而 unit 语法检查不报错。WSL 实测：`systemd-run -p 'Environment=ASA_CFG=/opt/asa data/cfg'`
+  直接报 `Invalid environment block`；带引号的 `Environment="ASA_CFG=/opt/asa data/cfg"` 正确得到 `ASA_CFG=/opt/asa data/cfg`。
+- kardianos 的模板引擎是自研的迷你引擎（不是 `text/template`），只有 string→string 的 `cmd` / `cmdEscape`，`cmd` 会把整行
+  连 `Environment=` 一起加引号，模板里拼不出正确形式。所以改为**安装时预渲染**：`systemdScriptWithEnv` 把自定义模板里的
+  `{{range EnvVars}}…{{end}}` 段替换成按 key 排序的 `Environment="K=V"` 行（`\` → `\\`、`"` → `\"`、`%` → `%%`；
+  换行与 `{{` / `}}` 拒绝——渲染结果还要再过一遍 kardianos 的模板解析）。
+- 接线：`newServiceConfig` 在 `configurePlatform` + `injectConfigLocation` 之后调新的 `finalizePlatform`（Linux 写
+  `Option["SystemdScript"]`，Windows 空实现——注册表 `REG_MULTI_SZ` 不需要引号），为此 `newServiceConfig` 改为返回 error，
+  5 个调用点同步。`umuRuntimeSystemdScript` 常量**不动**，上游漂移测试照旧有效；HOME 也随之变成带引号的形式（语义不变）。
+
+### P2-10.3 验证
+
+- 单测：`pkg/userenv`（写入 / 覆盖自己的文件 / 拒绝覆盖别人的文件 / 非法输入；WSL 上用真实 `sh` source 含单引号、`$HOME`、
+  双引号、反斜杠的值，读回逐字节一致）；`internal/svcmgr`（引号与转义、拒绝换行和模板标记、`newServiceConfig` 组装出的 unit
+  模板里 `ASA_CFG` 带引号）；`internal/actions`（Windows / Linux / 非 root 三条路径，两个持久化实现都被替换，测试不碰注册表和 `/etc`）。
+- WSL 真实二进制：`config init --dir "/tmp/pd cfg" --set-env` 写出 `/etc/profile.d/asa-server.sh`；新的 bash 登录 shell 读到
+  `ASA_CFG=/tmp/pd cfg`，在其中运行 `config path` 显示正在使用该配置；zsh 登录 shell 读不到（印证上面的提示）。测后已删除该文件。
 
