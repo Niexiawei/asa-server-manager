@@ -22,6 +22,7 @@ import (
 
 	"github.com/spf13/viper"
 
+	"asa-server/pkg/fsutil"
 	"asa-server/pkg/logger"
 )
 
@@ -537,6 +538,13 @@ func fileOnlyBaseDirAt(path string) string {
 // locateConfigDir 定位要读的 config.yaml **所在目录**（不是 BaseDir 本身，见 Load
 // 的文档），三级查找，完整覆盖语义。
 func locateConfigDir() (string, error) {
+	return locateConfigDirWith(fileExists)
+}
+
+// locateConfigDirWith 是 locateConfigDir 的算法本体，exists 决定「某个路径上有没有
+// config.yaml」。ConfigPathAfterInit 用它回答「假如在这里生成一份，下次会读哪份」，
+// 保证预测与实际查找是同一套规则。
+func locateConfigDirWith(exists func(string) bool) (string, error) {
 	if cfgEnv := os.Getenv("ASA_CFG"); cfgEnv != "" {
 		return cfgEnv, nil
 	}
@@ -544,14 +552,44 @@ func locateConfigDir() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("解析可执行文件目录失败: %w", err)
 	}
-	if fileExists(filepath.Join(exeDir, ConfigFileName)) {
+	if exists(filepath.Join(exeDir, ConfigFileName)) {
 		return exeDir, nil
 	}
-	if sysDir := systemConfigDir(); sysDir != "" && fileExists(filepath.Join(sysDir, ConfigFileName)) {
+	if sysDir := systemConfigDir(); sysDir != "" && exists(filepath.Join(sysDir, ConfigFileName)) {
 		return sysDir, nil
 	}
 	// 三档都没有：落回 exe 同级，Load 会在这里生成默认模板。
 	return exeDir, nil
+}
+
+// SearchDirs 是三级查找的三个位置（排障展示用）。ASACfg 为空表示没设环境变量，
+// SystemDir 为空表示本平台取不到（如 Windows 缺 %ProgramData%）。
+type SearchDirs struct {
+	ASACfg    string
+	ExeDir    string
+	SystemDir string
+}
+
+// ConfigSearchDirs 返回当前进程的三级查找位置，顺序即优先级。
+func ConfigSearchDirs() (SearchDirs, error) {
+	exeDir, err := executableDir()
+	if err != nil {
+		return SearchDirs{}, fmt.Errorf("解析可执行文件目录失败: %w", err)
+	}
+	return SearchDirs{ASACfg: os.Getenv("ASA_CFG"), ExeDir: exeDir, SystemDir: systemConfigDir()}, nil
+}
+
+// ConfigPathAfterInit 预测「假如在 target（config.yaml 的完整路径）生成一份配置，
+// 下次启动 Load 会读哪一份」。返回值 != target 说明新文件不会被读取：要么更高一级
+// 已经有配置把它遮住了，要么 target 根本不在三级查找范围内（需要设置 ASA_CFG）。
+func ConfigPathAfterInit(target string) (string, error) {
+	dir, err := locateConfigDirWith(func(p string) bool {
+		return fsutil.SamePath(p, target) || fileExists(p)
+	})
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, ConfigFileName), nil
 }
 
 // executableDirFn / systemConfigDirFn 是可在测试里替换的查找函数变量（生产代码
