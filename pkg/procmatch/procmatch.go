@@ -38,6 +38,17 @@ func New(exeNames []string, commName string) *Matcher {
 	return &Matcher{exeNames: append([]string(nil), exeNames...), commName: commName}
 }
 
+// accepts applies Find's optional exact filter.
+//
+// Find's prefilter is a substring, and a substring cannot tell instances
+// apart when one identifying value is a prefix of another: the marker
+// "AltSaveDirectoryName=srv" is contained in srv2's command line. Callers
+// that need "this instance's process" pass an accept func that checks the
+// value's boundary.
+func accepts(accept func(string) bool, cmdline string) bool {
+	return accept == nil || accept(cmdline)
+}
+
 // candidate is a process whose command line looks like the game, plus its
 // comm.
 type candidate struct {

@@ -471,10 +471,16 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 		// 「启动」时就看见原因）。那一份是**提示**，这一份是**权威**：只有走到
 		// 这里才知道镜像里到底有没有 AsaApiLoader.exe，也只有这里的时刻才是真正
 		// 要进 Wine 会话的时刻。
-		if other := conflictingArkApiInstance(instanceName); other != "" {
+		//
+		// claimArkApiSlot 把「查冲突」与「登记自己正在启动」合成一步：并发的另一台
+		// ArkApi 启动从这一刻起就能看见本实例，而不必等到端口绑定（那要晚得多）。
+		// 登记持续到本函数返回，届时游戏 PID 已落盘，存活判定接手。
+		other, releaseArkApiSlot := claimArkApiSlot(instanceName)
+		if other != "" {
 			startErr = arkApiConflictError(instanceName, other)
 			return startErr
 		}
+		defer releaseArkApiSlot()
 
 		// ①② 运行时能力。阻断还是告警由检查本身说了算（Readiness.Definitive），
 		// 不在这里逐项记：
@@ -518,7 +524,7 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 	// the runtime user still exists and can actually write the dirs it needs
 	// (with the real-write deep probe forced on). No-op on Windows / when not
 	// managing a dropped user. See docs/UMU_RUNTIME_USER_PLAN.md §4.4.
-	if probs := runner.VerifyRuntimeAccessForLaunch(); len(probs) > 0 {
+	if probs := runner.VerifyRuntimeAccessForLaunch(mirrorDir); len(probs) > 0 {
 		startErr = fmt.Errorf("无法启动实例：降权运行时环境自检未通过：\n%s", formatRunnerProblems(probs))
 		return startErr
 	}
@@ -555,6 +561,15 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 	// defer 兜住下面每一条早退路径；正常路径会在初始化成功后**提前**显式放行，
 	// 不必等到 WaitServerCompleted 的完整启动（见函数末尾）。
 	defer releaseLaunchGate()
+
+	// 闸门内再权威地查一次 ArkApi 冲突：排队等闸门的这段时间里，前一台可能刚把
+	// 自己的 ArkApi 实例跑起来。这一刻之后直到 runner.Run 不再有等待。
+	if arkAsaApiRunning {
+		if other := conflictingArkApiInstance(instanceName); other != "" {
+			startErr = arkApiConflictError(instanceName, other)
+			return startErr
+		}
+	}
 
 	// Launch arkExe (ArkAscendedServer.exe, or AsaApiLoader.exe wrapping it
 	// with the same arguments — runner treats both identically, see
@@ -648,10 +663,24 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 			// 收掉整条启动链。没有这一步的后果是实测过的：游戏进程还活着、实例却
 			// 被记成停止，用户看到「窗口还在但面板显示已停止」，而且下一次启动会
 			// 撞上仍被占用的端口。见 docs/ARKAPI_LINUX_LOGGING_AND_PID_PLAN.md §2.5c。
-			if killErr := procx.KillTree(handle.LauncherPID); killErr != nil {
-				logger.Warnf("Failed to clean up the launch tree of instance %s (launcher PID %d): %v",
-					instanceName, handle.LauncherPID, killErr)
+			//
+			// 启动器还没被回收（launcherExited 未关闭）时，它的 PID 仍被它占着、
+			// 不可能被复用，按进程树收是安全的。已经退出时则**不能**再用那个 PID：
+			// 它已被 Wait 回收、号码可能归了别的进程，而它的后代早被 reparent，
+			// 按树也走不到。两种情况最后都按实例标记再扫一遍，收掉残留的包装链与
+			// 游戏进程（docs/PLAN_IMPLEMENTATION_AUDIT_2026-09-29.md §6.2）。
+			select {
+			case <-launcherExited:
+			default:
+				if killErr := procx.KillTree(handle.LauncherPID); killErr != nil {
+					logger.Warnf("Failed to clean up the launch tree of instance %s (launcher PID %d): %v",
+						instanceName, handle.LauncherPID, killErr)
+				}
 			}
+			if left := killInstanceProcesses(config.SaveDir); len(left) > 0 {
+				logger.Warnf("实例 %s 启动失败后按实例标记清理了残留进程：%v", instanceName, left)
+			}
+			_ = procpkg.ClearInstancePIDs(instanceName)
 			startErr = fmt.Errorf("failed to start server: %w", err)
 			return startErr
 		}
@@ -707,10 +736,29 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 		opts.PidCallback(pid)
 	}
 
-	select {
-	case err := <-initFailed:
+	// 等到初始化成功或失败。「失败」只在进程退出时才会发出（waitServerStartup），
+	// 所以一台进程活着、却迟迟到不了初始化的实例会让这里一直等——这本身无妨，
+	// 但它手里攥着启动闸门，shared prefix 下之后的所有启动都会永远排队。
+	//
+	// 超时之后**只放行闸门、继续等**，不返回错误：StartServer 会把出错的启动记成
+	// stopped，而那台实例的进程还活着、可能只是慢——记成停止会让用户再点一次启动、
+	// 撞上仍被占用的端口。它的状态照常由 waitServerStartup 的回调随进度更新，进程
+	// 退出时 initFailed 也照常到达，这条协程不会永远挂住。
+	// 见 docs/PLAN_IMPLEMENTATION_AUDIT_2026-09-29.md §6.2。
+	gateTimeout := launchGateTimeout()
+	if err := awaitInitialization(ctx, initFailed, initSuccessful, gateTimeout, func() {
+		if runner.SharesWinePrefix() {
+			logger.Warnf("实例 %s 在 %s 内没有到达 start_initialization_successful，"+
+				"已放行启动闸门，后面的实例不再等它；它本身继续启动，状态随进度更新"+
+				"（linux.launch_gate_timeout）", instanceName, gateTimeout)
+		}
+		releaseLaunchGate()
+	}); err != nil {
+		if ctx.Err() != nil {
+			killGameServer(pid)
+			startErr = err
+		}
 		return err
-	case <-initSuccessful:
 	}
 
 	// 到达 start_initialization_successful 就放行下一台（§8 的放行判据）。
@@ -719,7 +767,15 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 	releaseLaunchGate()
 
 	if opts.WaitServerCompleted {
-		<-startupSuccess
+		// 初始化之后进程仍可能退出：那时只有 initFailed 会到达，startupSuccess 永远
+		// 不会——只等后者就会永久挂住。
+		select {
+		case <-startupSuccess:
+		case err := <-initFailed:
+			return err
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 	return nil
 }
@@ -790,7 +846,8 @@ func stopServerInternal(instanceName string) error {
 		stopErr = fmt.Errorf("failed to load instance config: %w", configErr)
 		return stopErr
 	}
-	pid, err = procx.PIDByPort(config.Port)
+	// 不按端口取 PID：Wine 下它可能是共享 wineserver，见 resolveGamePID。
+	pid, err = resolveGamePID(instanceName, config.SaveDir)
 	if err != nil {
 		stopErr = fmt.Errorf("failed to find process PID: %w", err)
 		return stopErr
@@ -846,12 +903,13 @@ func stopServerInternal(instanceName string) error {
 		waitCancel() // 取消 waitServerStopped goroutine 的 context
 	}
 
-	// Cleanup
-	if config.EnableAsaPlugin {
-		if pid2, pidErr := procpkg.GetInstancePID(instanceName); pidErr == nil {
-			_ = procx.Kill(pid2)
-		}
-	}
+	// Cleanup：游戏进程已经退出。这里曾经对保存的游戏 PID 再 Kill 一次——对一个刚
+	// 退出的进程毫无作用，号码却可能已被复用。也**不**对启动器收进程树：shared
+	// prefix 下共用的 wineserver 可能正是先启动那个实例的启动链的后代，收它的树会
+	// 带走同一 Wine 会话里的其他实例。启动链在游戏退出后会自己结束。
+	//
+	// PID 文件在这里清掉：留着它们，下一次强停或存活判断就会拿一个过期的号码做决定。
+	_ = procpkg.ClearInstancePIDs(instanceName)
 
 	// 只对旧布局实例生效：升级时正在运行的实例，活数据还在镜像的真实 Plugins 目录里，
 	// 照旧收回旧的 plugins/，下次启动再迁移。已迁移的实例上它是空操作（结构性关断）。
@@ -869,8 +927,11 @@ func ForceStopServer(instanceName string) error {
 	// 0. 停掉插件数据库快照；镜像里的插件数据由 CleanupInstanceMirror 内部的
 	//    Rescue 抢救回实例目录，这里不必再单独回收
 	plugindata.StopSnapshots(instanceName)
+	// 保存的 PID 一律先核对归属：PID 文件以前从不清理，强停又常发生在崩溃很久之后，
+	// 那时号码早已被系统复用——对它动手就是误杀（docs/PLAN_IMPLEMENTATION_AUDIT_2026-09-29.md §6.2）。
+	//
 	// 1. 先停止 AsaApiLoader（asaServerApi）进程（best effort）
-	if apiPid, pidErr := procpkg.GetAsaServerApiPID(instanceName); pidErr == nil && apiPid > 0 {
+	if apiPid, ok := procpkg.VerifiedPID(instanceName, procpkg.PIDAsaApi); ok {
 		killGameServer(apiPid)
 	}
 	// 2. 扫描进程命令行查找游戏进程（best effort，端口未监听时也能找到）
@@ -881,15 +942,22 @@ func ForceStopServer(instanceName string) error {
 		}
 	}
 	// 3. 尝试杀死已保存的游戏进程 PID（best effort）
-	if pid2, pidErr := procpkg.GetInstancePID(instanceName); pidErr == nil && pid2 > 0 {
+	if pid2, ok := procpkg.VerifiedPID(instanceName, procpkg.PIDGame); ok {
 		killGameServer(pid2)
 	}
 	// 4. 尝试杀死已保存的启动器 PID（best effort，兜底）——Linux 上这是整棵
 	//    umu-run/bwrap/wine/游戏进程树的 pgid leader，前三步因故都拿不到有效
 	//    PID 时仍能保证杀干净；Windows 上与游戏 PID 同值，杀两遍无害。
-	if launcherPid, pidErr := procpkg.GetLauncherPID(instanceName); pidErr == nil && launcherPid > 0 {
+	if launcherPid, ok := procpkg.VerifiedPID(instanceName, procpkg.PIDLauncher); ok {
 		killGameServer(launcherPid)
 	}
+	// 4b. 按实例标记扫尾：launcher 已退出时它的后代早被 reparent，上面按 PID 收不到。
+	if err == nil {
+		if left := killInstanceProcesses(cfg.SaveDir); len(left) > 0 {
+			logger.Infof("强制停止实例 %s：按实例标记清理了残留进程 %v", instanceName, left)
+		}
+	}
+	_ = procpkg.ClearInstancePIDs(instanceName)
 	// 5. 重置状态为 stopped
 	_ = statepkg.WriteInstanceState(instanceName, statepkg.StatusStopped, "")
 	// 6. 清理镜像目录
@@ -905,7 +973,7 @@ func KillServer(instanceName string) error {
 	if err != nil {
 		return err
 	}
-	pid, err := procx.PIDByPort(cfg.Port)
+	pid, err := resolveGamePID(instanceName, cfg.SaveDir)
 	if err != nil {
 		return err
 	}

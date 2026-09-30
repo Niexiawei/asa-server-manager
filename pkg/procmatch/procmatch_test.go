@@ -128,3 +128,14 @@ func TestPickPrefersCommOverOrder(t *testing.T) {
 		t.Errorf("pick = (%d, %v), want pid 2 (comm wins)", got.ProcessId, ok)
 	}
 }
+
+// Find's exact filter: nil accepts everything, otherwise it decides.
+func TestAccepts(t *testing.T) {
+	if !accepts(nil, cmdWineArk) {
+		t.Error("nil accept must accept every command line")
+	}
+	reject := func(string) bool { return false }
+	if accepts(reject, cmdWineArk) {
+		t.Error("a rejecting accept func was ignored")
+	}
+}

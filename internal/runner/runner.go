@@ -363,11 +363,23 @@ func EnsureRuntimeUser(ctx context.Context) error { return ensureRuntimeUser(ctx
 // VerifyRuntimeAccess re-checks (read-only, sampled) that the runtime user
 // still exists and still has access to the directories it needs. Non-empty
 // result at startup => asa-server refuses to start. No-op on Windows.
+//
+// It checks only what EnsureRuntimeUser repairs, so a problem reported here
+// is one that repair could not fix — never one it didn't try to.
 func VerifyRuntimeAccess() []Problem { return verifyRuntimeAccess(false) }
 
-// VerifyRuntimeAccessForLaunch is VerifyRuntimeAccess with the real-write
-// deep probe forced on — used as the per-instance start gate.
-func VerifyRuntimeAccessForLaunch() []Problem { return verifyRuntimeAccess(true) }
+// VerifyRuntimeAccessForLaunch is VerifyRuntimeAccess plus this instance's
+// mirror, with the real-write deep probe forced on — used as the
+// per-instance start gate, after ChownMirrorForRuntime(mirrorDir).
+func VerifyRuntimeAccessForLaunch(mirrorDir string) []Problem {
+	return verifyRuntimeAccess(true, mirrorDir)
+}
+
+// FixRuntimeOwnership re-applies runtime-user ownership to every directory
+// the dropped child owns, including all per-instance mirrors (which the
+// startup repair skips for speed). The repair behind `asa-server perms fix`;
+// runs without the startup gate. No-op on Windows / when not managing a user.
+func FixRuntimeOwnership(ctx context.Context) error { return fixRuntimeOwnership(ctx) }
 
 // ChownMirrorForRuntime hands a freshly (re)built per-instance mirror dir to
 // the runtime user. No-op unless managing a dropped user.

@@ -104,7 +104,8 @@ func reconcileRuntimeOwnership(cfg Config, su *sysuser.Manager) error {
 	// Mirror dirs (server-files-tmp-*) are deliberately excluded here: they're
 	// rebuilt per instance start and chowned then by ChownMirrorForRuntime, so
 	// walking their tens of thousands of symlinks on every asa-server startup
-	// would be pure overhead. verifyRuntimeAccess still samples them for drift.
+	// would be pure overhead. For the same reason the startup gate
+	// (verifyRuntimeAccess) must not check them either — see its comment.
 	if err := su.ChownTree(rwSubtrees(cfg, false)...); err != nil {
 		return err
 	}
@@ -155,8 +156,9 @@ func reconcileRuntimeOwnership(cfg Config, su *sysuser.Manager) error {
 
 // rwSubtrees are the directories the dropped child writes to and therefore
 // must own — see docs/UMU_RUNTIME_USER_PLAN.md §5.1. includeMirrors adds the
-// per-instance server-files-tmp-* dirs (wanted for the verify sampling, not
-// for the startup reconcile — see reconcileRuntimeOwnership).
+// per-instance server-files-tmp-* dirs: wanted by the explicit repair
+// (fixRuntimeOwnership) and the advisory drift report, never by the startup
+// reconcile or the startup gate — see reconcileRuntimeOwnership.
 func rwSubtrees(cfg Config, includeMirrors bool) []string {
 	wp := hostFor(cfg).Prefixes()
 	out := []string{
@@ -214,16 +216,71 @@ func chownPathForRuntime(path string) error {
 	return sysUserFor(getConfig()).ChownOne(path)
 }
 
+// fixRuntimeOwnership is the explicit, exhaustive repair behind
+// `asa-server perms fix`: everything the startup reconcile does, plus the
+// per-instance mirrors it skips for speed. It deliberately doesn't go through
+// the startup gate, so it still works when that gate is what keeps the
+// service down.
+func fixRuntimeOwnership(ctx context.Context) error {
+	if err := ensureRuntimeUser(ctx); err != nil {
+		return err
+	}
+	cfg := getConfig()
+	mirrors, _ := filepath.Glob(filepath.Join(cfg.BaseDir, "server-files-tmp-*"))
+	return sysUserFor(cfg).ChownTree(mirrors...)
+}
+
 // --- access self-check ------------------------------------------------------
 
-func verifyRuntimeAccess(forceDeep bool) []Problem {
+// runtimeDriftFix is how *this* program repairs an ownership drift. It lives
+// here rather than in pkg/sysuser, which doesn't know what program it is in.
+const runtimeDriftFix = "运行 asa-server perms fix；修不回来多半是 SELinux / 只读挂载 / NFS root_squash"
+
+// verifyRuntimeAccess is the drop-privileges self-check.
+//
+// Its ownership sample covers exactly what reconcileRuntimeOwnership repairs
+// (rwSubtrees(cfg, false)), plus extraOwnership — and that equality is the
+// point. The startup gate refuses to start on any problem found here, and the
+// only repair that runs before it is that reconcile; a directory the gate
+// checks but the reconcile skips is a deadlock. The per-instance mirrors were
+// exactly that: sampled here, never chowned at startup, so one root-owned
+// mirror (an upgrade from before drop-privileges, a manual chown -R) kept
+// asa-server down for good, with a Fix text telling the user to restart —
+// the very step that failed. See docs/PLAN_IMPLEMENTATION_AUDIT_2026-09-29.md
+// §2.2 P0.
+//
+// Mirrors are therefore checked only where they are repaired: the instance
+// start passes its own mirror as extraOwnership, right after
+// ChownMirrorForRuntime has chowned it. The remaining mirrors are an advisory
+// in Preflight (checkMirrorOwnership).
+func verifyRuntimeAccess(forceDeep bool, extraOwnership ...string) []Problem {
 	cfg := getConfig()
 	return sysUserFor(cfg).Problems(sysuser.AccessCheck{
-		OwnershipDirs:  rwSubtrees(cfg, true),
+		OwnershipDirs:  append(rwSubtrees(cfg, false), extraOwnership...),
 		TraversableDir: cfg.BaseDir,
 		ReadableEntry:  filepath.Join(hostFor(cfg).Umu().ProtonPath(), "proton"),
 		ProbeDir:       hostFor(cfg).Prefixes().Dir(""),
+		DriftFix:       runtimeDriftFix,
 	}, forceDeep)
+}
+
+// checkMirrorOwnership reports, as an advisory, per-instance mirrors the
+// runtime user no longer owns. Never a blocker: each mirror is chowned again
+// when its instance next starts, and `perms fix` repairs all of them now.
+func checkMirrorOwnership() *Problem {
+	cfg := getConfig()
+	mirrors, _ := filepath.Glob(filepath.Join(cfg.BaseDir, "server-files-tmp-*"))
+	dir, bad := sysUserFor(cfg).OwnerDrift(mirrors...)
+	if bad == "" {
+		return nil
+	}
+	return &Problem{
+		Name:    "umu-runtime-mirror-drift",
+		Warning: true,
+		Detail: fmt.Sprintf("实例镜像 %s 下存在不归运行时用户所有的条目（例：%s）。"+
+			"该实例下次启动时会自动修复，不影响其他实例", dir, bad),
+		Fix: "无需处理；要立即修复可运行 asa-server perms fix",
+	}
 }
 
 // runtimeUserInfo is the preflight-facing summary of the drop-privileges state.

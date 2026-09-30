@@ -20,15 +20,20 @@ import (
 // separates the Wine side from those wrappers is the path *form* (only the
 // Wine side sees "Z:\...\<exe>"), which is what isWineSideCmdline checks.
 // pick then resolves the loader/game ambiguity via comm.
-func (m *Matcher) Find(cmdlineMarker string) (procx.Win32Process, bool, error) {
-	procs, err := procx.QueryProcess("", cmdlineMarker)
+//
+// prefilter is a plain substring every candidate's command line must contain
+// (cheap, done while scanning /proc); accept, when non-nil, is the exact
+// judgement applied afterwards — see Matcher's doc for why a substring alone
+// is not enough to tell two instances apart.
+func (m *Matcher) Find(prefilter string, accept func(cmdline string) bool) (procx.Win32Process, bool, error) {
+	procs, err := procx.QueryProcess("", prefilter)
 	if err != nil {
 		return procx.Win32Process{}, false, err
 	}
 
 	candidates := make([]candidate, 0, len(procs))
 	for _, p := range procs {
-		if !m.isWineSideCmdline(p.CommandLine) {
+		if !accepts(accept, p.CommandLine) || !m.isWineSideCmdline(p.CommandLine) {
 			continue
 		}
 		candidates = append(candidates, candidate{Proc: p, Comm: processComm(p.ProcessId)})

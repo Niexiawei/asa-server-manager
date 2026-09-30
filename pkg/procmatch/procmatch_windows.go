@@ -8,13 +8,19 @@ import "asa-server/pkg/procx"
 // on Windows, so Win32_Process.Name reliably matches exeNames[0] and the WMI
 // query narrows the scan before the command-line filter runs. No loader
 // ambiguity to resolve here (contrast procmatch_linux.go).
-func (m *Matcher) Find(cmdlineMarker string) (procx.Win32Process, bool, error) {
-	procs, err := procx.QueryProcess(m.exeNames[0], cmdlineMarker)
+//
+// prefilter goes into the WQL LIKE clause; accept, when non-nil, is the exact
+// judgement applied to what comes back (LIKE is a substring match, and its
+// '_' is a wildcard on top of that).
+func (m *Matcher) Find(prefilter string, accept func(cmdline string) bool) (procx.Win32Process, bool, error) {
+	procs, err := procx.QueryProcess(m.exeNames[0], prefilter)
 	if err != nil {
 		return procx.Win32Process{}, false, err
 	}
-	if len(procs) == 0 {
-		return procx.Win32Process{}, false, nil
+	for _, p := range procs {
+		if accepts(accept, p.CommandLine) {
+			return p, true, nil
+		}
 	}
-	return procs[0], true, nil
+	return procx.Win32Process{}, false, nil
 }

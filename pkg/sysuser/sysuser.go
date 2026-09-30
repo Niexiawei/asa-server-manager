@@ -60,6 +60,11 @@ type AccessCheck struct {
 	// ProbeDir is where DeepProbe (if enabled) writes and removes a small
 	// file as the dropped user.
 	ProbeDir string
+	// DriftFix is the Fix text of an ownership-drift problem: how *the
+	// caller's program* repairs it (a command name, a restart). Empty falls
+	// back to a mechanism-only description — sysuser doesn't know what
+	// program it is embedded in.
+	DriftFix string
 }
 
 // Manager manages one dedicated system user. Its methods are platform-split

@@ -82,3 +82,31 @@ func TestChownTreeAs_MissingPathSkipped(t *testing.T) {
 		t.Errorf("ChownTreeAs on a missing path: want nil, got %v", err)
 	}
 }
+
+// ownerDrift is the shared judgement behind Problems' owner-drift check and
+// OwnerDrift's advisory report. Needs no root: the temp tree is owned by the
+// test's own uid, so "want that uid" is clean and "want any other uid" drifts.
+func TestOwnerDrift(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "f"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	missing := filepath.Join(dir, "does-not-exist")
+	me := os.Getuid()
+
+	if d, bad := ownerDrift(me, []string{missing, dir}); bad != "" {
+		t.Errorf("own tree reported as drifted: dir=%q sample=%q", d, bad)
+	}
+	d, bad := ownerDrift(me+1, []string{missing, dir})
+	if d != dir || bad == "" {
+		t.Errorf("foreign-owned tree not reported: dir=%q sample=%q, want dir=%q", d, bad, dir)
+	}
+}
+
+// OwnerDrift is advisory-only and must stay silent when there is no managed
+// user to compare against.
+func TestOwnerDrift_NoopWhenNotManaged(t *testing.T) {
+	if d, bad := New(Config{RunAsRoot: true}).OwnerDrift(t.TempDir()); d != "" || bad != "" {
+		t.Errorf("OwnerDrift with RunAsRoot=true = (%q, %q), want empty", d, bad)
+	}
+}

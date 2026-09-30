@@ -181,6 +181,9 @@ linux:
   #                overlayfs; if mounting fails it degrades to "copy the lower layer" with a warning and the instance still starts.
   # Old directories do not disappear after switching back to shared; inspect and clean with "asa-server prefix status" / "asa-server prefix gc".
   prefix_mode: shared
+  # shared mode only: once an instance has been initializing for this long, later instances stop
+  # queueing behind it (the instance itself is not stopped). Must be at least 1m.
+  launch_gate_timeout: 20m
   # Empty = {program dir}/umu-prefix
   # In per-instance mode this is a **prefix**, not the directory itself; the actual path is "<prefix_dir>-<instance name>"
   # In overlay mode it only decides where the lower layer lives; per-instance writable layers are always under {program dir}/umu-prefix-overlay/
