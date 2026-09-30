@@ -1597,6 +1597,41 @@ iox.Relay(relayCtx, src, dst, arkApiLogPollInterval, ...)
 
 **验证**：Windows `go build ./...`、`go vet`、`go test -race`（process / instance / appconfig / runner / procmatch / actions）通过；WSL `go build ./...`、`go vet`、`go test -race`（上述 + sysuser，`ASA_TEST_RUNTIME_USER=1`）通过。改动文件 `gofmt` 干净（`pkg/sysuser/sysuser.go` 的 `Info` 结构体注释对齐是基线遗留，未动）。
 
+### 11.6 第二批实施记录（2026-09-29，分支 `fix/audit-batch2`，基于 `fix/audit-batch1`）
+
+**状态：代码与单测已完成；与第一批一起做真机回归（§11.4），尚未进行。**
+
+| 项 | 落地位置 | 测试 |
+| --- | --- | --- |
+| 5. P1-14 转抄 5 分钟冻结 | `internal/instance/asaapilog_linux.go`：主体抽成 `relayArkApiLog`，「等出现」与「转抄」各用一个取消信号；`arkApiLogAppearTimeout` 改为变量；转抄结束写说明行（顺带完成 §6.2 的 P3「无说明行」） | `TestRelayArkApiLog_KeepsFollowingPastAppearTimeout`（旧实现下必然失败）、`TestRelayArkApiLog_AppearTimeout` |
+| 6. P1-20 迁移判活 | `plugindata.MigrateInstance(name, mirrorDir, running func() bool)` 在实例锁内调用护栏，返回 `ErrInstanceRunning`；`instance.instanceActiveForMigration` = 进程存活（第一批的 `VerifiedPID`）∪ 状态处于启动 / 运行 / 停止中 | `TestMigrateInstance_RefusesRunningInstance` |
+| 7. P1-3 root 绕过 | `pkg/sysuser`：`lookupOrCreate` 拒绝 uid 0，`Problems` 增阻断项 `umu-runtime-user-is-root`；`appconfig` 静态拒绝 `umu_runtime_user: root` | `TestRootAccountIsRefused`（WSL root，只读）、appconfig 校验用例 |
+| 7. §2 家目录判据 | `sysuser.effectiveHome` 统一 `HomeDir` / `ResolveCredential` / `EnsureUser` / `Problems`；`EnsureUser` 现在会建好并 chown 回退家目录 | `TestEffectiveHome` |
+| 7. §2 ACL 探测吞错 | `checkACLSupport`：非 `ErrUnsupported` 返回阻断项 `posix-acl-probe` | — |
+| 8. P1-1 + 前置 C + §1 看门狗 / 零日志 | `pkg/xvfb`：`Config.Infof/Warnf`（由 `internal/runner/umu_linux.go` 的 `displayFor` 注入 logger）；`Stop` 无 current 时也还原、`ensure` 起失败即还原；看门狗按 `restartBackoff` 逐档退避并记录退出原因与放弃；remount / 还原 / chmod / mkdir 各记一条；删除死注释 | `TestStopRestoresMountWithoutCurrent`、`TestEnsureRestoresMountWhenStartFails`（root）、`TestWatchBacksOffThroughEveryStep`、`TestWatchStopsWhenHostStops`；`ASA_TEST_XVFB=1` 真机用例前后 `/tmp/.X11-unix` 均为 `ro` |
+| 9. 前置 B + P1-7 | `wineprefix.Manager`：`lowerMu`（写窗口独占、挂载共享且 `TryRLock` 快速失败并点名操作）、`HoldLayer` 租约；`PrepareSharedWrite` 逐 key 在实例锁下判定（租约 ∪ wineserver）；`runner.HoldPrefix`，`startServerInternal` 在 `EnsurePrefix` 之前取得、返回时释放 | `TestPrepareSharedWriteBlocksLayerMounts`、`TestPrepareSharedWriteRespectsLayerLease`（真挂 overlayfs） |
+| 9. §3 upper 跨重启 | `ensureOverlayPrefix` 识别静息形态（未挂载、`upper` 非空），stamp 一致时原样重挂；任何重建都打日志 | `TestEnsureOverlayRemountsRestingLayer`（真挂 overlayfs） |
+| 9. §3 `EnsureRuntime` 无条件卸载 | `Host.Ensure`：overlay 模式下 `LowerNeedsWork()` 为假时不打开写窗口 | — |
+| 10. D4 | `pkg/umu` 的 `EnsureUmu` / `EnsureGEProton` 解压后 `fsutil.EnsureWorldReadable` | —（需联网，靠真机 setup 回归） |
+| 10. D2 | `DownloadAndUpdateArkServer` 改为只读 `runner.CheckRuntime()`；CLI `update` 与 API 更新各自先 `EnsureRuntime` | — |
+| 10. D3 | `pkg/umuruntime/lock_linux.go`：`Host.Lock`（`{BaseDir}/.umu-runtime.lock`，底层 `pkg/filelock`，可取消，等待超过 2 秒打一行）；`Host.Ensure` / `Host.Provision` 内部取锁，两处 verify 经 `runner.LockRuntime` 取锁。**经 ctx 可重入**：`Lock` 返回一个记着「本调用链已持锁」的 ctx，带着它再要锁立即放行；各自带自己 ctx 的并发调用方照常排队 | `TestLockIsReentrantThroughContext`、`TestLockQueuesIndependentCallers` |
+| 11.（复核后追加）server-files 更新的跨进程互斥 | 新包 `pkg/filelock`（Linux `flock` / Windows `LockFileEx`，共享与独占两种模式）；`internal/installer`：「更新中」在进程内布尔之外另持 `{BaseDir}/.server-files-update.lock` 独占锁，`IsUpdatingServerFiles` 以共享锁试探另一个进程；开始改写时遇占用重试约 100ms 再报忙（绕开试探的瞬时占用）；「先占锁再查存活实例」 | `pkg/filelock` 两平台用例；`TestServerFilesLockSeesOtherProcess`、`TestServerFilesLockHeldAcrossUpdate`（两平台） |
+
+**与复核方案的偏离**
+
+1. **§3「`EnsureRuntime` 先判 `LowerNeedsWork`」只在 overlay 模式生效。** 其余模式没有可写层可卸，而 `Ensure` 每次都走完预热与补装是有意义的（例如显示后来可用了，VC++ 插件会借这一趟补装原生运行时）；把短路推广到所有模式会改变这一行为。
+2. **P1-1 未实现「SIGKILL 后下一轮进程凭 `xvfb.state` 标记还原 mount」。** 下一轮进程无法区分「上一轮是我们 remount 的」与「之后有人（WSLg 重启、管理员）改过」，据一个陈旧标记去改宿主挂载表，风险大于收益。被 SIGKILL 的情形仍会留下可写挂载，记为已知限制。
+3. **前置 C 的注入点在 `internal/runner`（组合根），不在 `xdisplay`。** `xvfb.Config` 本来就在 `runner.displayFor` 里构造，`xdisplay` 只是原样转交；在那里注入 logger 与 `HomeDir`/`Credential` 等回调同处，`pkg/umuruntime/plugins/xdisplay` 不需要改动。
+4. **看门狗额外修了两处原审计未指出的缺陷。** ① 第一次补起失败后 `ensure` 已把 `current` 清成 nil，原来的「被替换」判断把 nil 也当作被替换而立即退出——无论退避数组写多长都只试一次；② 退避期间宿主调用 `Stop()` 时 `current` 为 nil、`x` 没被置 `intentional`，看门狗会在关停过程中继续补起。改为「被替换」只认非 nil 的另一个实例，并由 `Stop()` 递增的 `stopGen` 让看门狗退出。
+5. **D3 未在 `wineprefix` 的 per-instance 前缀新建与 overlay 首建路径上取锁。** 这两条只在运行实例的那个进程里、由实例启动触发，CLI 命令不会新建它们；而 `Ensure` 期间持锁可达数分钟，放进实例启动路径会让所有启动排在一次下载之后。跨进程冲突的实际来源（setup / update / verify 与服务并存）已由 `Ensure` / `Provision` / verify 三处覆盖。
+6. **D2 没有把 `setup` 之外的调用方改成「只检查」。** CLI `update` 与 API 更新原来依赖 `DownloadAndUpdateArkServer` 顺带准备运行时，现在各自显式调用一次 `EnsureRuntime`；`setup` 维持它自己那一次。GUI 首次设置只在 Windows 上存在，那里 `EnsureRuntime` 本就是空操作。
+7. **D3 的锁做成了经 ctx 可重入（方案里没有）。** 文件锁属于「打开的文件」而不是进程，第一版里持锁的调用链若再调用 `EnsureRuntime` / `Provision`，会在等锁循环里等它自己释放、永远卡住——当时靠「不许嵌套」的约定规避。改为 `Lock` 返回记录持锁的 ctx 后，嵌套调用只要沿用这个 ctx 就直接放行，这条约定随之取消；并发调用方（另一个进程、或本进程另一个任务）各有自己的 ctx，仍然排队。
+8. **新增 server-files 更新的跨进程互斥（复核时漏掉、实施第二批时发现）。** 「更新中」原是进程内的一个布尔：终端里的 `asa-server update` 与服务互相看不见，两个 SteamCMD 可以同时改写 server-files，CLI 更新期间服务也会照常启动实例、拿正在被增删的目录同步镜像。D3 的运行时锁只覆盖准备运行时与启动验证两段，覆盖不到 SteamCMD 下载本身，所以单独补了这把锁（见上表第 11 项）。它 Windows 上同样需要，因此机制做成了跨平台的 `pkg/filelock`，D3 也改用它。
+
+**验证**：Windows `go build ./...`、`go vet ./internal/...`、`go test -race`（`./pkg/...` 与改动涉及的 internal 包）通过——`pkg/tail` 的 `Test_tail` 挂满超时，它写死作者本机的 `E:\asa_server_data` 路径并无限循环，是基线遗留的环境耦合用例，与本次无关。WSL `go build ./...`、`go vet`、`go test -race`（umuruntime / umu / wineprefix / xvfb / sysuser / procmatch / runner / instance / installer / plugindata / mirror / process / appconfig / actions，`ASA_TEST_RUNTIME_USER=1`）通过，外加 `ASA_TEST_XVFB=1` 的真机 Xvfb 用例。
+
+**真机回归建议补充的场景**（在 §11.4 之上）：服务运行时在终端执行 `asa-server update`，确认被拒（「另一个 asa-server 进程正在改写 server-files」）或服务侧的面板更新被拒，且 CLI 更新期间面板启动实例被拒；overlay 模式下重启宿主机后启动实例，确认日志是「已挂载」而非「需要重建」；服务运行时在终端执行 `asa-server setup`，确认出现「另一个 asa-server 进程正在准备……等待」而不是两边同时 wineboot；全新机器跑一次 `setup`，确认降权 wineboot 一次成功（D4 不再依赖第二次调用兜底）。
+
 ---
 
 ## 附录 A：文档路径 vs 实际代码 对照表

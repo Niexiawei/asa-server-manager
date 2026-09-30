@@ -81,6 +81,16 @@ func VerifyArkApiInstallation(ctx context.Context, outputCallback ...io.Writer) 
 	// 不传 Options.PrefixKey）。而实例的可写层正把它当 lowerdir 引用着 ——
 	// 停实例并不会卸载可写层（那是刻意的，见 UMU_PREFIX_OVERLAY_PLAN §3.3），
 	// 所以上面那把 server-files 锁挡不住这一条。
+	// 另一个 asa-server 进程（服务 / 终端里的 setup）可能正在准备同一份运行时，
+	// 两边同时对共享前缀跑 wineboot / 起 wineserver 会互相踩坏（审计 §4.2 D3）。
+	// 之后一律用它返回的 ctx：里面记着「本调用链已持锁」，下游若再准备运行时
+	// 会直接放行，而不是等自己释放。
+	ctx, unlockRuntime, err := runner.LockRuntime(ctx, outputWriter)
+	if err != nil {
+		return err
+	}
+	defer unlockRuntime()
+
 	doneWrite, err := runner.PrepareSharedPrefixWrite("asa-server verify-arkapi 启动验证")
 	if err != nil {
 		return err

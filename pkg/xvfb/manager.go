@@ -37,6 +37,26 @@ type Config struct {
 	// Credential resolves (creating the account if needed) the credential
 	// to spawn Xvfb under. Called fresh on every spawn.
 	Credential func() (*syscall.Credential, error)
+
+	// Infof / Warnf receive this package's log lines. Either may be nil
+	// (silent). This package does no logging of its own — it doesn't know
+	// the host program's log format — but it does change host state (a
+	// remount of SocketDir, a chmod to 1777) and loses X servers, and none
+	// of that may happen silently.
+	Infof func(format string, args ...any)
+	Warnf func(format string, args ...any)
+}
+
+func (c Config) infof(format string, args ...any) {
+	if c.Infof != nil {
+		c.Infof(format, args...)
+	}
+}
+
+func (c Config) warnf(format string, args ...any) {
+	if c.Warnf != nil {
+		c.Warnf(format, args...)
+	}
 }
 
 func (c Config) childIDs() (uid, gid uint32, managed bool) {
@@ -106,6 +126,12 @@ type Manager struct {
 	// remounted remembers whether Reconfigure...no, Acquire remounted
 	// SocketDir read-write, so Stop can restore it. See remountSocketDirRW.
 	remounted atomic.Bool
+
+	// stopGen counts Stop calls. A watchdog remembers the value it started
+	// with and gives up once it changes: after a failed restart there is no
+	// current Xvfb for Stop to mark as intentional, so that flag alone can't
+	// tell the watchdog the host is shutting down.
+	stopGen atomic.Uint64
 
 	// spawnOnce/spawnReqs dispatch every process spawn to one dedicated,
 	// never-exiting OS thread — see spawnLoop's doc comment for why this

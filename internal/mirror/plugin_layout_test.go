@@ -56,7 +56,7 @@ func mirrorPluginsPath() string {
 // migrateAndSync 走一遍启动路径上的顺序：先迁移，再同步。
 func migrateAndSync(t *testing.T, cfg *cfgpkg.InstanceConfig) {
 	t.Helper()
-	if err := plugindata.MigrateInstance(layoutInst, InstanceMirrorDir(layoutInst)); err != nil {
+	if err := plugindata.MigrateInstance(layoutInst, InstanceMirrorDir(layoutInst), func() bool { return false }); err != nil {
 		t.Fatalf("MigrateInstance: %v", err)
 	}
 	if _, err := SyncInstanceMirror(layoutInst, cfg); err != nil {

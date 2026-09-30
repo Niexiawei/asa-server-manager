@@ -3,6 +3,7 @@ package actions
 import (
 	"asa-server/internal/installer"
 	"asa-server/internal/instance"
+	"asa-server/internal/runner"
 	statepkg "asa-server/internal/state"
 	"context"
 	"fmt"
@@ -15,6 +16,12 @@ func ActionUpdate(ctx context.Context, cmd *cli.Command) error {
 	fmt.Println("Installing/updating base server...")
 
 	stdoutFmt := os.Stdout
+	// Linux：先把 umu/GE-Proton 运行时备好——下面的服务端验证要经它启动（Windows 上
+	// 空操作）。DownloadAndUpdateArkServer 自己只做只读检查，准备运行时是调用方的事。
+	if err := runner.EnsureRuntime(ctx, stdoutFmt); err != nil {
+		return fmt.Errorf("准备 Wine/Proton 运行时失败: %w", err)
+	}
+
 	// Download and extract SteamCMD
 	if err := installer.DownloadAndExtractSteamCmd(ctx, stdoutFmt); err != nil {
 		return err

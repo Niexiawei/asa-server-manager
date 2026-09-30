@@ -163,11 +163,13 @@ func findAdminTool(name string) string {
 	return ""
 }
 
-// checkACLSupport is the Preflight-facing form of shareacl.Supported. It is
-// advisory: a missing ACL layer degrades to chown rather than blocking
+// checkACLSupport is the Preflight-facing form of shareacl.Supported. A
+// missing ACL layer is advisory: it degrades to chown rather than blocking
 // anything, so it belongs in Preflight (surfaced through
 // GET /api/system/preflight) and NOT in verifyRuntimeAccess, whose non-empty
-// result makes asa-server refuse to start.
+// result makes asa-server refuse to start. A probe that fails for any other
+// reason is a blocker, because applySharedAccess fails the same way and does
+// not degrade.
 func checkACLSupport() *Problem {
 	cfg := getConfig()
 	su := sysUserFor(cfg)
@@ -188,24 +190,33 @@ func checkACLSupport() *Problem {
 	}
 
 	if err := shareacl.Supported(cfg.BaseDir, group); err != nil {
-		if errors.Is(err, shareacl.ErrUnsupported) {
+		if !errors.Is(err, shareacl.ErrUnsupported) {
+			// 不是「这里没有 ACL」，而是探测本身失败了（建不了临时目录、setfacl 因权限或
+			// 只读挂载而失败……）。这类错误在 applySharedAccess 里**不会**降级到 chown，
+			// 而是直接让 asa-server 启动失败——所以这里必须是阻断项：以前它被吞掉，
+			// 用户看到的是「自检通过、服务却起不来」
+			// （docs/PLAN_IMPLEMENTATION_AUDIT_2026-09-29.md §2.2）。
 			return &Problem{
-				// Advisory, not a blocker: applySharedAccess degrades to a
-				// plain chown and everything keeps working. Marking it as a
-				// blocker would make `asa-server setup` refuse to run on any
-				// machine without the acl package.
-				Warning: true,
-				Name:    "posix-acl",
-				Detail: fmt.Sprintf("%s 不支持 POSIX ACL（%v）。asa-server 会退回到"+
-					"「把 server-files/instances 整体 chown 给运行时用户」的兜底方案："+
-					"当前能用，但之后以 root 上传的 ArkApi 插件、mod 文件，以及 SteamCMD "+
-					"更新产生的新文件，游戏进程都会写不了，直到下次重启 asa-server 或重跑更新",
-					cfg.BaseDir, err),
-				Fix: "安装 acl 包（Debian/Ubuntu: apt install acl；Fedora: dnf install acl；" +
-					"Arch: pacman -S acl），并确认所在文件系统挂载时启用了 acl",
+				Name:   "posix-acl-probe",
+				Detail: fmt.Sprintf("探测 %s 的 POSIX ACL 支持失败：%v。共享目录的权限准备会以同样的原因失败，asa-server 将无法启动", cfg.BaseDir, err),
+				Fix:    "检查数据目录所在文件系统是否可写、setfacl/getfacl 是否可执行（SELinux 可能拦截）",
 			}
 		}
-		return nil // a transient/local error, not a capability statement
+		return &Problem{
+			// Advisory, not a blocker: applySharedAccess degrades to a
+			// plain chown and everything keeps working. Marking it as a
+			// blocker would make `asa-server setup` refuse to run on any
+			// machine without the acl package.
+			Warning: true,
+			Name:    "posix-acl",
+			Detail: fmt.Sprintf("%s 不支持 POSIX ACL（%v）。asa-server 会退回到"+
+				"「把 server-files/instances 整体 chown 给运行时用户」的兜底方案："+
+				"当前能用，但之后以 root 上传的 ArkApi 插件、mod 文件，以及 SteamCMD "+
+				"更新产生的新文件，游戏进程都会写不了，直到下次重启 asa-server 或重跑更新",
+				cfg.BaseDir, err),
+			Fix: "安装 acl 包（Debian/Ubuntu: apt install acl；Fedora: dnf install acl；" +
+				"Arch: pacman -S acl），并确认所在文件系统挂载时启用了 acl",
+		}
 	}
 	return nil
 }

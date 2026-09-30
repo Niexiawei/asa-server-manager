@@ -233,6 +233,7 @@ func TestValidateRejectsBadValues(t *testing.T) {
 		{"download retries 为零", func(c *Config) { c.Download.Retries = 0 }, "retries"},
 		{"启动闸门超时为零", func(c *Config) { c.Linux.LaunchGateTimeout = 0 }, "launch_gate_timeout"},
 		{"启动闸门超时过短", func(c *Config) { c.Linux.LaunchGateTimeout = 30 * time.Second }, "launch_gate_timeout"},
+		{"运行时用户是 root", func(c *Config) { c.Linux.UmuRuntimeUser = " root " }, "umu_runtime_user"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

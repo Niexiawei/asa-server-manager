@@ -6,6 +6,7 @@ import (
 	"asa-server/internal/runner"
 	"asa-server/pkg/console"
 	"asa-server/pkg/download"
+	"asa-server/pkg/filelock"
 	"asa-server/pkg/logger"
 	"asa-server/pkg/netutil"
 	"asa-server/pkg/procx"
@@ -27,10 +28,72 @@ import (
 //
 // 实例镜像目录里除 ShooterGame/Binaries/Win64 外全是指回 server-files 的
 // junction / 文件符号链接，更新会就地替换运行中进程正在映射的文件，直接崩服。
+//
+// # 两层：进程内的布尔 + 跨进程的文件锁
+//
+// 「更新中」曾经只是这个进程里的一个布尔。于是终端里的 `asa-server update` 与
+// 服务互相看不见：两个 SteamCMD 可以同时改写 server-files，CLI 更新期间服务也照样
+// 启动实例、拿一个正在被增删的目录去同步镜像。现在改写者另持
+// {BaseDir}/.server-files-update.lock 的独占锁（pkg/filelock，进程崩溃由内核释放），
+// 查询方用共享锁试探一下就放。数据目录尚未确定时（单测、极早期）只剩进程内那层。
 var (
 	updateMu       sync.Mutex
 	updateInFlight bool
+	updateRelease  func() // 本进程持有的文件锁；nil = 没持有（或没有数据目录可放锁文件）
 )
+
+const serverFilesLockName = ".server-files-update.lock"
+
+// serverFilesLockAttempts / serverFilesLockGap：查询方的试探会短暂持有共享锁，恰好
+// 撞上的一次开始更新会误判为「忙」。重试这么一小会儿就绕过去了——真正的更新会持锁
+// 几分钟，这 100ms 没有代价。
+const (
+	serverFilesLockAttempts = 5
+	serverFilesLockGap      = 20 * time.Millisecond
+)
+
+func serverFilesLockPath() string {
+	if cfgpkg.BaseDir == "" {
+		return ""
+	}
+	return filepath.Join(cfgpkg.BaseDir, serverFilesLockName)
+}
+
+// claimServerFiles 在 updateMu 下标记「更新中」并拿到跨进程锁。
+func claimServerFiles() error {
+	// 标记只有一个布尔，两个写者重叠时先结束的那个会把它清掉，后一个就在「没有标记」的状态下改写
+	if updateInFlight {
+		return errServerFilesBusy
+	}
+	if path := serverFilesLockPath(); path != "" {
+		var release func()
+		var err error
+		for i := 0; i < serverFilesLockAttempts; i++ {
+			if release, err = filelock.TryLock(path, filelock.Exclusive); !errors.Is(err, filelock.ErrLocked) {
+				break
+			}
+			time.Sleep(serverFilesLockGap)
+		}
+		switch {
+		case errors.Is(err, filelock.ErrLocked):
+			return errServerFilesBusyElsewhere
+		case err != nil:
+			return fmt.Errorf("获取 server-files 更新锁 %s 失败: %w", path, err)
+		}
+		updateRelease = release
+	}
+	updateInFlight = true
+	return nil
+}
+
+// releaseServerFiles 在 updateMu 下清除标记并释放跨进程锁。
+func releaseServerFiles() {
+	updateInFlight = false
+	if updateRelease != nil {
+		updateRelease()
+		updateRelease = nil
+	}
+}
 
 // beginServerFilesUpdate 在同一把锁下确认没有实例在跑，并标记「更新中」。
 // 检查与置位必须原子，否则两个并发的更新请求可能同时通过检查。
@@ -39,22 +102,24 @@ func beginServerFilesUpdate() error {
 	updateMu.Lock()
 	defer updateMu.Unlock()
 
-	// 标记只有一个布尔，两个写者重叠时先结束的那个会把它清掉，后一个就在「没有标记」的状态下改写
-	if updateInFlight {
-		return errServerFilesBusy
+	if err := claimServerFiles(); err != nil {
+		return err
 	}
+	// 先占住再查存活：反过来的话，查完到占住之间另一个进程可能正好启动了实例。
 	if alive := procpkg.ListAliveInstances(); len(alive) > 0 {
+		releaseServerFiles()
 		return fmt.Errorf(
 			"cannot update server files: instance(s) still running: %s; stop them first",
 			strings.Join(alive, ", "),
 		)
 	}
-
-	updateInFlight = true
 	return nil
 }
 
-var errServerFilesBusy = errors.New("server-files 正在被改写（Steam 更新、安装校验或 ArkApi 主程序操作），请稍后再试")
+var (
+	errServerFilesBusy          = errors.New("server-files 正在被改写（Steam 更新、安装校验或 ArkApi 主程序操作），请稍后再试")
+	errServerFilesBusyElsewhere = errors.New("另一个 asa-server 进程正在改写 server-files（终端里的 update / setup / verify，或服务的更新），请等它完成后再试")
+)
 
 // BeginArkApiWrite 为 ArkApi 主程序的安装/更新/卸载占用 server-files（docs/ARKAPI_PLUGIN_INSTALL_PLAN.md §4.6）。
 //
@@ -65,26 +130,46 @@ var errServerFilesBusy = errors.New("server-files 正在被改写（Steam 更新
 func BeginArkApiWrite() (end func(), err error) {
 	updateMu.Lock()
 	defer updateMu.Unlock()
-	if updateInFlight {
-		return nil, errServerFilesBusy
+	if err := claimServerFiles(); err != nil {
+		return nil, err
 	}
-	updateInFlight = true
 	return endServerFilesUpdate, nil
 }
 
-// endServerFilesUpdate 清除「更新中」标记。
+// endServerFilesUpdate 清除「更新中」标记并释放跨进程锁。
 func endServerFilesUpdate() {
 	updateMu.Lock()
 	defer updateMu.Unlock()
-	updateInFlight = false
+	releaseServerFiles()
 }
 
-// IsUpdatingServerFiles 报告 server-files 是否正在被改写。
-// 实例启动前据此拒绝：更新期间源目录正在增删，此时做镜像同步只会同步出残缺镜像。
+// IsUpdatingServerFiles 报告 server-files 是否正在被改写——被本进程，或被另一个
+// asa-server 进程。实例启动前据此拒绝：更新期间源目录正在增删，此时做镜像同步只会
+// 同步出残缺镜像。
+//
+// 查另一个进程用共享锁试探：拿得到就立刻放掉（没人在改写），拿不到就是有人持着独占锁。
+// 试探本身失败（锁文件建不了之类）时按「没在更新」处理——这个判断拦的是一次启动，
+// 不该因为它自己出错就让所有实例都起不来。
 func IsUpdatingServerFiles() bool {
 	updateMu.Lock()
 	defer updateMu.Unlock()
-	return updateInFlight
+	if updateInFlight {
+		return true
+	}
+	path := serverFilesLockPath()
+	if path == "" {
+		return false
+	}
+	release, err := filelock.TryLock(path, filelock.Shared)
+	if err != nil {
+		if errors.Is(err, filelock.ErrLocked) {
+			return true
+		}
+		logger.Warnf("检查 server-files 更新锁 %s 失败（按未在更新处理）：%v", path, err)
+		return false
+	}
+	release()
+	return false
 }
 
 // findLatestLogFile finds the latest log file (ShooterGame.log or ShooterGame_N.log).
@@ -271,12 +356,15 @@ func DownloadAndUpdateArkServer(ctx context.Context, outputCallback ...io.Writer
 	}
 	defer endServerFilesUpdate()
 
-	// No-op on Windows. On Linux this guarantees umu/GE-Proton are in place
-	// before VerifyServerInstallation tries to launch the server through
-	// runner.Run further down — normally already done by the background
-	// warm-up at API server startup, but not guaranteed (fresh install,
-	// startup warm-up still in flight, auto_download disabled, ...).
-	if err := runner.EnsureRuntime(ctx, outputWriter); err != nil {
+	// Read-only check, not EnsureRuntime: preparing the runtime is the
+	// caller's job, done once before this is called (setup, the `update`
+	// command, the API update — see their call sites). Doing it here too ran
+	// the whole preparation twice per setup — a second full-tree ownership
+	// reconcile, and, under overlay, a second pass through the shared-prefix
+	// write guard — and the duplicate was quietly papering over an ordering
+	// bug in the first (docs/PLAN_IMPLEMENTATION_AUDIT_2026-09-29.md §4.2 D2/D4).
+	// No-op on Windows.
+	if err := runner.CheckRuntime(); err != nil {
 		return fmt.Errorf("Linux runtime (umu/GE-Proton) not ready: %w", err)
 	}
 
@@ -403,6 +491,16 @@ func VerifyServerInstallation(ctx context.Context, force bool, outputCallback ..
 	// 不传 Options.PrefixKey）。而实例的可写层正把它当 lowerdir 引用着 ——
 	// 停实例并不会卸载可写层（那是刻意的，见 UMU_PREFIX_OVERLAY_PLAN §3.3），
 	// 所以上面那把 server-files 锁挡不住这一条。
+	// 另一个 asa-server 进程（服务 / 终端里的 setup）可能正在准备同一份运行时，
+	// 两边同时对共享前缀跑 wineboot / 起 wineserver 会互相踩坏（审计 §4.2 D3）。
+	// 之后一律用它返回的 ctx：里面记着「本调用链已持锁」，下游若再准备运行时
+	// 会直接放行，而不是等自己释放。
+	ctx, unlockRuntime, err := runner.LockRuntime(ctx, outputWriter)
+	if err != nil {
+		return err
+	}
+	defer unlockRuntime()
+
 	doneWrite, err := runner.PrepareSharedPrefixWrite("asa-server verify 服务端启动验证")
 	if err != nil {
 		return err

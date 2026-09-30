@@ -554,3 +554,141 @@ func TestAcquireEndToEnd(t *testing.T) {
 	}
 	m.Stop() // 幂等：不许 panic 或第二次去杀一个已经不存在的进程
 }
+
+// stubMount 把 mount(2) 换成记录器，返回记录下的 flags。
+func stubMount(t *testing.T) *[]uintptr {
+	t.Helper()
+	var calls []uintptr
+	orig := mountFn
+	mountFn = func(_, _, _ string, flags uintptr, _ string) error {
+		calls = append(calls, flags)
+		return nil
+	}
+	t.Cleanup(func() { mountFn = orig })
+	return &calls
+}
+
+func onlyRestoreRO(calls []uintptr) bool {
+	return len(calls) == 1 && calls[0]&syscall.MS_RDONLY != 0 && calls[0]&syscall.MS_REMOUNT != 0
+}
+
+// 回归 docs/PLAN_IMPLEMENTATION_AUDIT_2026-09-29.md §1.2 P1-1：Xvfb 起失败或中途死了
+// 之后 current 是 nil，而 remount 早已发生。Stop 以前在这时直接返回，宿主的
+// /tmp/.X11-unix 就一直是可写的。
+func TestStopRestoresMountWithoutCurrent(t *testing.T) {
+	calls := stubMount(t)
+	var logs []string
+	m := New(Config{Infof: func(f string, a ...any) { logs = append(logs, f) }})
+	m.remounted.Store(true)
+
+	m.Stop()
+
+	if !onlyRestoreRO(*calls) {
+		t.Fatalf("Stop with no current Xvfb must restore the read-only mount once, mount calls = %#x", *calls)
+	}
+	if m.remounted.Load() {
+		t.Error("remounted still set after restore")
+	}
+	if len(logs) == 0 {
+		t.Error("restoring a host mount must leave a log line")
+	}
+	m.Stop() // 幂等：没改过就不再动
+	if len(*calls) != 1 {
+		t.Errorf("second Stop touched the mount again: %#x", *calls)
+	}
+}
+
+// Xvfb 起失败时，为它做的 remount 当场还原，而不是挂到进程退出。
+// 需要 root：ensureSocketDir 只在 root 下动手。/bin/false 冒充一个立刻退出的 Xvfb。
+func TestEnsureRestoresMountWhenStartFails(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("needs root (ensureSocketDir is a no-op otherwise)")
+	}
+	if _, err := os.Stat(SocketDir); err != nil {
+		t.Skipf("%s must already exist for this test: %v", SocketDir, err)
+	}
+	calls := stubMount(t)
+	origAccess := accessFn
+	accessFn = func(path string, mode uint32) error {
+		if path == SocketDir {
+			return syscall.EROFS // 假装是 WSLg 那种只读挂载
+		}
+		return origAccess(path, mode)
+	}
+	t.Cleanup(func() { accessFn = origAccess })
+
+	home := t.TempDir()
+	m := New(Config{
+		Bin:             "/bin/false",
+		AllowX11Remount: true,
+		HomeDir:         func() string { return home },
+	})
+	if _, err := m.Acquire(); err == nil {
+		t.Fatal("Acquire with /bin/false as Xvfb must fail")
+	}
+	if len(*calls) != 2 || (*calls)[0]&syscall.MS_RDONLY != 0 || (*calls)[1]&syscall.MS_RDONLY == 0 {
+		t.Fatalf("want one remount rw then one restore ro, mount calls = %#x", *calls)
+	}
+	if m.remounted.Load() {
+		t.Error("remounted still set after a failed start")
+	}
+}
+
+// 看门狗按 restartBackoff 的每一档重试，而不是三次都睡第一档；
+// 且第一次补起失败（current 被清成 nil）不能被误当成「已经被别人换掉」。
+func TestWatchBacksOffThroughEveryStep(t *testing.T) {
+	var slept []time.Duration
+	origSleep := sleepFn
+	sleepFn = func(d time.Duration) { slept = append(slept, d) }
+	t.Cleanup(func() { sleepFn = origSleep })
+
+	var warns []string
+	m := New(Config{
+		Bin:   "/nonexistent/Xvfb", // 每次补起都会失败
+		Warnf: func(f string, a ...any) { warns = append(warns, f) },
+	})
+	exited := make(chan struct{})
+	close(exited)
+	x := &managedXvfb{display: ":65000", pid: 1 << 30, exited: exited}
+	m.current.Store(x)
+
+	m.watch(x)
+
+	if len(slept) != len(restartBackoff) {
+		t.Fatalf("slept %v, want one sleep per backoff step %v", slept, restartBackoff)
+	}
+	for i := range restartBackoff {
+		if slept[i] != restartBackoff[i] {
+			t.Errorf("step %d slept %s, want %s", i, slept[i], restartBackoff[i])
+		}
+	}
+	if len(warns) < 2 {
+		t.Errorf("want a warning for the unexpected exit and one for giving up, got %d: %q", len(warns), warns)
+	}
+}
+
+// 退避期间宿主调了 Stop：看门狗必须收手，不能在关停过程中再拉起一个 Xvfb。
+func TestWatchStopsWhenHostStops(t *testing.T) {
+	stubMount(t)
+	m := New(Config{Bin: "/nonexistent/Xvfb"})
+	var slept int
+	origSleep := sleepFn
+	sleepFn = func(time.Duration) {
+		slept++
+		if slept == 1 {
+			m.current.Store(nil) // 第一次补起失败后的状态
+			m.Stop()
+		}
+	}
+	t.Cleanup(func() { sleepFn = origSleep })
+
+	exited := make(chan struct{})
+	close(exited)
+	x := &managedXvfb{display: ":65000", pid: 1 << 30, exited: exited}
+	m.current.Store(x)
+
+	m.watch(x)
+	if slept != 1 {
+		t.Fatalf("watchdog kept going after Stop: slept %d times", slept)
+	}
+}

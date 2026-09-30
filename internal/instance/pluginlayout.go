@@ -1,13 +1,16 @@
 package instance
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 
 	cfgpkg "asa-server/internal/config"
 	"asa-server/internal/mirror"
 	"asa-server/internal/plugindata"
 	procpkg "asa-server/internal/process"
+	statepkg "asa-server/internal/state"
 	"asa-server/pkg/logger"
 )
 
@@ -30,14 +33,16 @@ func MigratePluginLayouts() {
 		if _, err := os.Stat(filepath.Join(cfgpkg.InstancesDir, name, "instance_config.ini")); err != nil {
 			continue
 		}
-		if running, _ := procpkg.IsServerRunning(name); running {
+		err := plugindata.MigrateInstance(name, mirror.InstanceMirrorDir(name), func() bool {
+			return instanceActiveForMigration(name)
+		})
+		switch {
+		case errors.Is(err, plugindata.ErrInstanceRunning):
 			if !plugindata.IsMigrated(name) {
 				pending++
-				logger.Infof("实例 %s 正在运行，ArkApi 插件目录迁移推迟到它下一次启动", name)
+				logger.Infof("实例 %s 正在运行或启动，ArkApi 插件目录迁移推迟到它下一次启动", name)
 			}
-			continue
-		}
-		if err := plugindata.MigrateInstance(name, mirror.InstanceMirrorDir(name)); err != nil {
+		case err != nil:
 			pending++
 			logger.Errorf("迁移实例 %s 的 ArkApi 插件目录失败（原有数据未改动，启动时会重试）: %v", name, err)
 		}
@@ -46,4 +51,32 @@ func MigratePluginLayouts() {
 	if pending == 0 {
 		plugindata.RetireLegacyServerPlugins()
 	}
+}
+
+// activeStatuses 是「实例可能有进程、或马上要有进程」的状态。
+var activeStatuses = []statepkg.InstanceStatus{
+	statepkg.StatusStartStartInitialization,
+	statepkg.StatusStartStartInitializationSuccessful,
+	statepkg.StatusStarting,
+	statepkg.StatusStarted,
+	statepkg.StatusStopping,
+	statepkg.StatusRestarting,
+	statepkg.StatusRestarted,
+}
+
+// instanceActiveForMigration 判断能不能动这个实例的插件数据：进程存活（端口在监听，
+// 或保存的游戏 PID 仍属于它），**或**状态说它正在启动 / 运行 / 停止中。
+//
+// 曾经只看端口——而端口要到游戏完全起来才绑定，正在启动的实例、以及 asa-server
+// 重启时仍在运行但还没绑端口的实例都会被当成已停止，活库被拿去收割
+// （docs/PLAN_IMPLEMENTATION_AUDIT_2026-09-29.md §7.2 P1-20）。
+//
+// 程序启动时读到的状态可能是崩溃前遗留的（例如停在 started），把它也算作活跃只会让
+// 迁移推迟到该实例下一次启动——那条路径在实例锁下、实例必然已停止时迁移，是安全的方向。
+func instanceActiveForMigration(name string) bool {
+	if procpkg.IsInstanceProcessAlive(name) {
+		return true
+	}
+	st, err := statepkg.GetLatestInstanceState(name)
+	return err == nil && slices.Contains(activeStatuses, st.Status)
 }

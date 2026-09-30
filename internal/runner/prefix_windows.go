@@ -21,4 +21,6 @@ func prefixStatus() []PrefixInfo { return nil }
 
 func prepareSharedPrefixWrite(string) (func(), error) { return func() {}, nil }
 
+func holdPrefix(string) func() { return func() {} }
+
 func reconcilePrefixes() {}

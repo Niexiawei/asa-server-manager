@@ -40,8 +40,25 @@ func (m *Manager) HomeDir() string {
 		h, _ := os.UserHomeDir()
 		return h
 	}
-	if u, err := user.Lookup(m.UserName()); err == nil && u.HomeDir != "" && u.HomeDir != "/" {
-		return u.HomeDir
+	if u, err := user.Lookup(m.UserName()); err == nil {
+		return m.effectiveHome(u)
+	}
+	return m.cfg.HomeFallback
+}
+
+// effectiveHome is the one judgement of "which HOME does the managed account
+// actually get": its passwd home, unless that is empty or "/" (system accounts
+// like nobody), in which case HomeFallback.
+//
+// Every place that needs the home goes through here. They used to each apply
+// their own rule — HomeDir fell back, EnsureUser silently skipped creating
+// anything, ResolveCredential returned the raw value, Problems stat'ed the raw
+// value — so an account with home "/" got HOME=HomeFallback that nobody had
+// created, and a startup gate that stat'ed "/", found it root-owned, and
+// refused to start (docs/PLAN_IMPLEMENTATION_AUDIT_2026-09-29.md §2.2).
+func (m *Manager) effectiveHome(u *user.User) string {
+	if h := filepath.Clean(u.HomeDir); u.HomeDir != "" && h != "/" {
+		return h
 	}
 	return m.cfg.HomeFallback
 }
@@ -95,7 +112,7 @@ func (m *Manager) ResolveCredential() (*syscall.Credential, string, error) {
 		Gid:    uint32(gid),
 		Groups: []uint32{uint32(gid)}, // explicit, avoids setgroups([]) ambiguity
 	}
-	return cred, u.HomeDir, nil
+	return cred, m.effectiveHome(u), nil
 }
 
 // EnsureUser makes sure the managed account exists (creating it if needed)
@@ -109,16 +126,17 @@ func (m *Manager) EnsureUser(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if u.HomeDir == "" || u.HomeDir == "/" {
-		return nil
+	home := m.effectiveHome(u)
+	if home == "" {
+		return nil // no passwd home and no fallback configured: nothing to prepare
 	}
-	if err := os.MkdirAll(u.HomeDir, 0o700); err != nil {
+	if err := os.MkdirAll(home, 0o700); err != nil {
 		return err
 	}
 	uid, _ := strconv.Atoi(u.Uid)
 	gid, _ := strconv.Atoi(u.Gid)
-	if err := ChownTreeAs(uid, gid, u.HomeDir); err != nil {
-		return fmt.Errorf("chown runtime home %s: %w", u.HomeDir, err)
+	if err := ChownTreeAs(uid, gid, home); err != nil {
+		return fmt.Errorf("chown runtime home %s: %w", home, err)
 	}
 	return nil
 }
@@ -126,6 +144,9 @@ func (m *Manager) EnsureUser(ctx context.Context) error {
 func (m *Manager) lookupOrCreate() (*user.User, error) {
 	name := m.UserName()
 	if u, err := user.Lookup(name); err == nil {
+		if u.Uid == "0" {
+			return nil, rootAccountError(name)
+		}
 		if m.cfg.UID != 0 {
 			if uid, _ := strconv.Atoi(u.Uid); uid != m.cfg.UID {
 				return nil, fmt.Errorf(
@@ -145,6 +166,16 @@ func (m *Manager) lookupOrCreate() (*user.User, error) {
 		return nil, fmt.Errorf("创建用户 %s 后仍无法解析: %w", name, err)
 	}
 	return u, nil
+}
+
+// rootAccountError is the refusal for a managed account that resolves to
+// uid 0. Silently accepting it would run the game as root while every
+// status report says it has been dropped — the one outcome drop-privileges
+// exists to prevent (docs/UMU_RUNTIME_USER_PLAN.md §2: better not to start
+// than to quietly run a public game process as root).
+func rootAccountError(name string) error {
+	return fmt.Errorf("运行时用户 %s 解析为 uid=0（root），这等于没有降权。"+
+		"请改用一个非 root 账号；确实要以 root 运行游戏，请显式设置 run-as-root 选项", name)
 }
 
 func fileExists(path string) bool {
@@ -324,6 +355,16 @@ func (m *Manager) Problems(check AccessCheck, forceDeep bool) []problem.Problem 
 	uid, _ := strconv.Atoi(u.Uid)
 	gid, _ := strconv.Atoi(u.Gid)
 
+	// A "dropped" child that is still uid 0 is no drop at all — and every
+	// check below would pass (root owns everything it looks at), reporting a
+	// root game process as a correctly de-privileged one.
+	if uid == 0 {
+		return []problem.Problem{{
+			Name:   "umu-runtime-user-is-root",
+			Detail: rootAccountError(name).Error(),
+		}}
+	}
+
 	var problems []problem.Problem
 
 	if m.cfg.UID != 0 && uid != m.cfg.UID {
@@ -334,7 +375,7 @@ func (m *Manager) Problems(check AccessCheck, forceDeep bool) []problem.Problem 
 		})
 	}
 
-	if p := checkOwnedDir(u.HomeDir, uid, "umu-runtime-home-bad", "runtime 用户家目录"); p != nil {
+	if p := checkOwnedDir(m.effectiveHome(u), uid, "umu-runtime-home-bad", "runtime 用户家目录"); p != nil {
 		problems = append(problems, *p)
 	}
 

@@ -214,6 +214,12 @@ func (l *LinuxConfig) validate() error {
 	if l.UmuRuntimeUser == "" {
 		l.UmuRuntimeUser = "asa-umu-runtime"
 	}
+	// 降权到 root 等于没降权，却会让所有状态报告都说「已降权」。别名成 uid 0 的其他
+	// 账号只能在 Linux 上解析时才知道，由 pkg/sysuser 兜住；这里先拦下写得最直白的那种。
+	if l.UmuRuntimeUser == "root" {
+		return fmt.Errorf("linux.umu_runtime_user: 不能是 root——那等于没有降权；" +
+			"确实要以 root 运行游戏进程，请设 linux.umu_run_as_root: true")
+	}
 	if l.UmuRuntimeUID < 0 || l.UmuRuntimeGID < 0 {
 		return fmt.Errorf("linux.umu_runtime_uid/gid: 不得为负数")
 	}

@@ -444,6 +444,12 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 	// 必须用同一个值，否则会出现「检查的是共享前缀、跑的是独立前缀」这种错位。
 	prefixKey := runner.PrefixKeyFor(instanceName)
 
+	// 从挂载可写层到游戏自己的 wineserver 起来之间，盘上与 /proc 里都没有任何东西
+	// 能说明这个可写层正在被用。租约补上这段：持有期间，修改共享底层的操作
+	// （PrepareSharedPrefixWrite）把它当作在用，而不是当作空闲卸掉。本函数返回时
+	// 释放——成功时游戏的 wineserver 已经接手，失败时本来就不再需要。
+	defer runner.HoldPrefix(prefixKey)()
+
 	// per-instance 模式下这可能是该实例的第一次启动，前缀还不存在——在这里现建。
 	// 共享模式与 Windows 上只是几次 stat。progress 传 nil：本函数没有 SSE 写入端，
 	// 进度经 logger 走系统日志流。

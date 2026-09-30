@@ -3,7 +3,9 @@
 package sysuser
 
 import (
+	"context"
 	"os"
+	"os/user"
 	"path/filepath"
 	"testing"
 )
@@ -108,5 +110,42 @@ func TestOwnerDrift(t *testing.T) {
 func TestOwnerDrift_NoopWhenNotManaged(t *testing.T) {
 	if d, bad := New(Config{RunAsRoot: true}).OwnerDrift(t.TempDir()); d != "" || bad != "" {
 		t.Errorf("OwnerDrift with RunAsRoot=true = (%q, %q), want empty", d, bad)
+	}
+}
+
+// effectiveHome 是「受管账号实际的 HOME」唯一的判定：passwd 家目录为空或为 "/"
+// （nobody 之类的系统账号）时用 HomeFallback。
+func TestEffectiveHome(t *testing.T) {
+	m := New(Config{HomeFallback: "/srv/asa/runtime-home"})
+	cases := map[string]string{
+		"":             "/srv/asa/runtime-home",
+		"/":            "/srv/asa/runtime-home",
+		"/home/asa/":   "/home/asa",
+		"/var/lib/asa": "/var/lib/asa",
+	}
+	for in, want := range cases {
+		if got := m.effectiveHome(&user.User{HomeDir: in}); got != want {
+			t.Errorf("effectiveHome(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// 回归 docs/PLAN_IMPLEMENTATION_AUDIT_2026-09-29.md §2.2 P1-3：受管账号解析为 uid 0
+// 时，凭证解析与自检都必须拒绝——否则游戏以 root 运行，而所有状态都报告「已降权」。
+// 只读：root 账号本来就存在，不会创建任何东西。
+func TestRootAccountIsRefused(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("needs root (Managed() is false otherwise)")
+	}
+	m := New(Config{Name: "root"})
+	if cred, _, err := m.ResolveCredential(); err == nil {
+		t.Fatalf("ResolveCredential for root succeeded with %+v", cred)
+	}
+	if err := m.EnsureUser(context.Background()); err == nil {
+		t.Fatal("EnsureUser for root succeeded")
+	}
+	probs := m.Problems(AccessCheck{}, false)
+	if len(probs) != 1 || probs[0].Name != "umu-runtime-user-is-root" {
+		t.Fatalf("Problems for root = %+v, want exactly umu-runtime-user-is-root", probs)
 	}
 }

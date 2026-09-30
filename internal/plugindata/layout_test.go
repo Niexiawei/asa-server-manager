@@ -2,6 +2,7 @@ package plugindata
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,7 +32,7 @@ func srcPluginDir(plugin string) string {
 
 func mustMigrate(t *testing.T, inst, mirrorDir string) {
 	t.Helper()
-	if err := MigrateInstance(inst, mirrorDir); err != nil {
+	if err := MigrateInstance(inst, mirrorDir, notRunning); err != nil {
 		t.Fatalf("MigrateInstance: %v", err)
 	}
 }
@@ -409,5 +410,24 @@ func TestSourcePluginsRelPathUsesOnDiskCase(t *testing.T) {
 
 	if got, want := SourcePluginsRelPath(), win64RelPath+"/arkapi/plugins"; got != want {
 		t.Errorf("SourcePluginsRelPath = %q，期望 %q", got, want)
+	}
+}
+
+func notRunning() bool { return false }
+
+// 回归 docs/PLAN_IMPLEMENTATION_AUDIT_2026-09-29.md §7.2 P1-20：在运行（含正在启动）的
+// 实例必须原封不动——它的活数据还在镜像里，运行中收割会拷出撕裂的 SQLite 文件组。
+func TestMigrateInstance_RefusesRunningInstance(t *testing.T) {
+	setupLayoutEnv(t)
+	inst := "running-inst"
+	if err := os.MkdirAll(filepath.Join(cfgpkg.InstancesDir, inst), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	err := MigrateInstance(inst, "", func() bool { return true })
+	if !errors.Is(err, ErrInstanceRunning) {
+		t.Fatalf("MigrateInstance on a running instance: got %v, want ErrInstanceRunning", err)
+	}
+	if IsMigrated(inst) {
+		t.Fatal("a running instance was marked as migrated")
 	}
 }
