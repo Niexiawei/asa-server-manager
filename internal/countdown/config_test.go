@@ -196,16 +196,6 @@ func TestNormalizePoints(t *testing.T) {
 			want:  []int{},
 		},
 		{
-			name:  "默认点位由 Total 推导",
-			total: 600 * time.Second,
-			want:  []int{600, 300, 240, 180, 120, 60, 30, 10, 5, 4, 3, 2, 1},
-		},
-		{
-			name:  "Total=30 的默认点位",
-			total: 30 * time.Second,
-			want:  []int{30, 10},
-		},
-		{
 			name:  "乱序输入按降序整理",
 			total: 600 * time.Second,
 			in:    []time.Duration{60 * time.Second, 600 * time.Second, 300 * time.Second},
@@ -228,6 +218,41 @@ func TestNormalizePoints(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := seconds(normalizePoints(tt.total, tt.in))
+			if !equalInts(got, tt.want) {
+				t.Errorf("normalizePoints()\ngot  = %v\nwant = %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// 没给点位时回落到预设，并照常过滤越界、去重、降序。
+//
+// 预设在测试期间换成这里自己的一组：要验证的是「回落 + 整理」这个行为，
+// 而不是预设具体是哪几个数 —— 预设是产品配置，调整它不该让测试失败。
+func TestNormalizePointsFallsBackToDefaults(t *testing.T) {
+	orig := defaultPoints
+	defaultPoints = []time.Duration{
+		10 * time.Second, // 乱序、带重复、带越界，验证预设同样经过整理
+		time.Hour,
+		60 * time.Second,
+		10 * time.Second,
+		5 * time.Second,
+	}
+	t.Cleanup(func() { defaultPoints = orig })
+
+	tests := []struct {
+		name  string
+		total time.Duration
+		want  []int
+	}{
+		{"取所有不超过 Total 的预设点位", 600 * time.Second, []int{60, 10, 5}},
+		{"Total 恰好等于某个预设点位时包含它", 60 * time.Second, []int{60, 10, 5}},
+		{"Total 更短时只剩更小的点位", 30 * time.Second, []int{10, 5}},
+		{"Total=0 即使有预设也不产生点位", 0, []int{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := seconds(normalizePoints(tt.total, nil))
 			if !equalInts(got, tt.want) {
 				t.Errorf("normalizePoints()\ngot  = %v\nwant = %v", got, tt.want)
 			}
