@@ -1671,9 +1671,64 @@ iox.Relay(relayCtx, src, dst, arkApiLogPollInterval, ...)
 10. **P1-2 只做了第一步（告警 + 建议项），cookie 认证未做。** 第二步要把 `XAUTHORITY` 带进 pressure-vessel 容器——正是曾经让容器起不来的那个变量——只有真机上跑一次 ArkApi 实例才能验证，不适合在没有真机回归的批次里合入。建议单独一个分支、带真机验收做。
 11. **P1-23（禁用 / 启用的提示文案）仍留在第四批。** 本批只给 `SetPluginEnabled` 补了实例名校验与 `instanceExists`（§7.2「内部 API 不校验实例名」一条）。
 
-**验证**：Windows `go build ./...`、`go vet`、`go test -race`（download / arkcache / procx / fsutil / filelock / installer / mirror / instance / plugindata / arkapimanage / webapi / runner / actions）通过。WSL `go build ./...`、`go vet ./pkg/...` 与改动涉及的 internal 包、`go test -race`（上述 + pyfinder / wineprefix / xvfb / umuruntime / sysuser / umu / process，`ASA_TEST_RUNTIME_USER=1`）通过；`internal/config` 的 `Test_SetMessageOfTheDay` 写死作者本机的实例 `ces99`，是基线遗留的环境耦合用例。改动文件按仓库内容（LF）`gofmt` 干净。
+**验证**：Windows `go build ./...`、`go vet`、`go test -race`（download / arkcache / procx / fsutil / filelock / installer / mirror / instance / plugindata / arkapimanage / webapi / runner / actions）通过。WSL `go build ./...`、`go vet ./pkg/...` 与改动涉及的 internal 包、`go test -race`（上述 + pyfinder / wineprefix / xvfb / umuruntime / sysuser / umu / process，`ASA_TEST_RUNTIME_USER=1`）通过；`internal/config` 的 `Test_SetMessageOfTheDay` 写死作者本机的实例 `ces99`，是基线遗留的环境耦合用例（已在收尾时处理，见 §11.8）。改动文件按仓库内容（LF）`gofmt` 干净。
 
 **真机回归建议补充的场景**（在 §11.4、§11.6 之上）：ArkApi 实例启动、预取进行中时在面板点更新，确认被拒（「实例 X 正在启动」）；`prefix gc --apply` 在「overlay 模式 + 旧 per-instance 前缀残留」的机器上只删残留、可写层仍在；强停一台 ArkApi 实例，确认 15 秒内整棵树退出；故意让加载器秒退（例如临时挪走一个依赖 DLL），确认 `launcher.log` 里有最后几行。
+
+### 11.8 第三批收尾：提交整理、正确性核查与全量测试修复（2026-10-01，分支 `fix/audit-batch3`）
+
+**状态：已完成并推送。全量测试在 Windows 与 WSL 上首次做到零失败、无需排除任何包。**
+
+#### 11.8.1 合并两个提交
+
+§11.7 原偏离第 12 条记录：`150fcf7`（prefix gc 按形态删除）已包含 `VerifyRuntimeAccessForLaunch` 的新签名，调用方的改动却在下一个提交 `b4e1194`（深探目标）里，单独检出 `150fcf7` 编译不过。推送前把两者合并为 `88b7d1e`，并删除了那条偏离。
+
+- **做法**：环境不支持交互式 rebase，改为先建本地备份分支 `backup/audit-batch3-presquash`（未推送），`reset --hard` 到前一个提交，依次 `cherry-pick` 两个提交并 `--amend` 成一个，再把其后的提交 cherry-pick 回来。
+- **核查**：合并后的代码树与备份逐字一致（唯一差别是有意删除的那条文档偏离）；单独检出 `88b7d1e` 在 Windows 与 WSL 上编译 `internal/...`、`pkg/...` 通过。临时 worktree 里没有前端产物 `app/dist`（被 gitignore，`internal/webapi` 经 `//go:embed` 依赖它），放了一个不提交的占位文件；这与提交本身无关。
+- 当时 `origin/master` 为 `7323d84`，第一、二批（PR #9、#10）均已合入，本分支即基于它，无需变基。
+
+#### 11.8.2 正确性核查：编译失败是否导致了错误回滚
+
+实施过程中出现过几次编译/执行失败，逐一核实**都没有造成代码回滚**：
+
+| 失败 | 原因 | 对代码的影响 |
+| --- | --- | --- |
+| Git Bash 下 `go build ./...` 报 go-gl 的 cgo 错误 | Git Bash 环境问题（cgo 工具链），非代码问题 | 无；改在 PowerShell 下整仓编译通过 |
+| 两次 Python 改文件脚本报语法错误（反斜杠转义 / 中文编码） | 脚本在解析阶段就失败，一行都没有执行 | 无；随后改用 Edit / Write 工具重做，并确认改动已生效 |
+| 临时 worktree 里编译报找不到 `app/dist` | worktree 没有前端构建产物 | 无；worktree 用完即删，不触及工作区 |
+
+唯一一处有意撤回的改动是「镜像独有文件抢救」，理由见 §11.7 偏离 6，与编译失败无关。
+
+额外核查了三件事：① 本地与 `origin/fix/audit-batch3` 指向同一提交、工作区干净；② `origin/fix/audit-batch1`、`origin/fix/audit-batch2` 都是 `origin/master` 的祖先；③ 第三批相对 master 删除的每一行非注释 Go 代码都对应本批有意的改写（下载器、缓存锁、大小写诊断、`verifyRuntimeAccess` 签名等），第一、二批的关键符号（`VerifiedPID`、`CmdlineHasSaveDir`、`ClearInstancePIDs`、`claimArkApiSlot`、`awaitInitialization`、`relayArkApiLog`、`instanceActiveForMigration`、`HoldPrefix`、`HoldLayer`、`lowerMu`、`Host.Lock`、`effectiveHome` 等）全部存在，引用次数与 master 完全相同。
+
+#### 11.8.3 全量测试暴露的三个基线遗留失败
+
+此前各批只跑「改动涉及的包」，全量跑一遍后有三处失败，经与 `origin/master` 对照**都是本审计之前就存在的**，不是三批修复引入的。三处都已处理：
+
+**① `internal/countdown` 的 `TestNormalizePoints`（`1851902`）**
+
+- **原因**：作者调整过 `defaultPoints`（默认倒计时播报点位），表里有两条用例把当时的默认点位抄成了期望值（`600, 300, 240…`、`30, 10`）。master 上同样失败；三批都没有改过这个包。
+- **决策**：测试不应依赖产品配置常量——改一次默认点位就让测试失败，测到的是「常量有没有变」而不是「功能对不对」。没有选「把期望值对齐到新常量」，那样下次调整还会再坏。
+- **修改**：删掉两条依赖常量的用例；新增 `TestNormalizePointsFallsBackToDefaults`，测试期间把 `defaultPoints` 临时换成用例自己定义的一组（故意乱序、带重复、带越界），`t.Cleanup` 还原。验证的是行为：没给点位时回落到预设、只取不超过总时长的点位（含恰好相等）、预设同样去重与降序、总时长为 0 时不产生点位。确认包内没有 `t.Parallel()`，改包级变量不会与其他测试竞争；两平台 `-race` 通过。
+
+**② `internal/config` 的 `Test_SetMessageOfTheDay`（`b56fe62`）**
+
+- **原因**：写死作者本机的实例 `ces99`，其他机器上报 `GameUserSettings.ini not found`。
+- **决策**：用户要求「判断实例是否在运行，未运行就跳过」。实施时改为判断**实例的 `GameUserSettings.ini` 是否存在**：`SetMessageOfTheDay` 只改这个文件、不要求实例在运行；按运行状态判断的话，在作者本机上实例一停这个测试就被跳过，反而测不到。另外 `config` 包在 `process` 之下，要判断运行状态只能另走端口探测。已向用户说明，需要时可再加运行判断。
+- **修改**：文件不存在时 `t.Skipf` 并写明原因。Windows（有 `ces99`）照常运行通过，WSL 跳过。该测试仍会改写作者本机 `ces99` 的真实配置文件，这是原有行为，未改动。
+
+**③ `pkg/tail` 的 `Test_tail`（`6426fb1`）——顺带修复了一个真实的竞态**
+
+- **原因**：`Test_tail` 不是测试而是手动调试程序：写死 `E:\asa_server_data\logs\asaServer.log`，`for { select {...} }` 没有退出条件，只能被 `go test` 超时杀掉；没有任何断言；`NewTailer` 出错时 `t.Error` 后照样调用 `tailer.Start()`，`tailer` 为 nil 会 panic。Windows 上它不停打印作者的真实日志，WSL 上空等到超时。§11.6 的验证记录里因此每次都要手动排除这个包。
+- **修改一（测试）**：换成临时目录里的自包含用例——回放最后 N 行后跟随新行、`Stop` 后 channel 关闭且无多余行；`Start` 后紧接着写入的行只交一次；`lastNLines=0` 只给新行；文件在开始跟随之后才出现；日志轮转后从新文件继续；目录不存在时 `NewTailer` 报错；`readLastNLines` 的空文件、行数不足、无结尾换行、CRLF、跨 4 KiB 读块、只读到 `end` 为止。
+- **新用例暴露的 bug**：`Start()` 只起协程，「从文件哪里开始跟」（偏移量与文件标识）要等协程跑起来才在 `initState` 里记录。`Start()` 返回后、协程被调度前写入的行会被当成已读直接跳过；回放历史时「读最后 N 行」与「记偏移量」是两次独立的读，中间写入的行可能丢失或被交出两次。WSL 上协程调度更晚，3 轮里起点相关的 3 条用例都失败过。
+- **影响面**：不只是日志面板刚打开时少几行。`internal/instance/common.go` 里等待游戏启动日志的调用（`waitServerStartup` 等）用的是 `tail.WithCallback(..., 0, ...)`，关键的那一行恰好落在窗口里就会被跳过，启动检测只能干等。
+- **修改二（代码，`pkg/tail/tail.go`）**：`Start()` 先同步调用 `markStart` 记下起点（大小 + `fileKey`，同时作为 `historyEnd`），再启动协程；协程里的 `replayHistory` 只回放 `historyEnd` 之前的最后 N 行（`readLastNLines` 增加 `end` 参数，扫描与读取都限制在前 `end` 字节内），之后的内容一律由跟随阶段交出。文件不存在时起点为 0、无标识，与原行为一致。修复后两平台各连跑 10 遍（`-race`）全部通过；调用方 `internal/instance`、`internal/webapi` 测试通过。
+- **已知限制（未修改）**：Windows 上 `fileKey` 用文件创建时间，而 NTFS 的「文件名隧道」会让 15 秒内删除/改名后同名新建的文件继承旧创建时间，快速轮转认不出来；此时靠「文件比已读偏移量短 → 从头读」兜底，轮转用例覆盖的正是这条路径。若新文件在第一次被读到之前就长到超过旧偏移量，开头部分会漏读。游戏日志只在重启时轮转、新文件起始很小，实际难以触发，故未改动；要彻底解决需改用文件 ID（`GetFileInformationByHandle` 的卷序列号 + 文件索引）作 Windows 的 `fileKey`。
+
+#### 11.8.4 收尾后的验证
+
+Windows：`go build ./...`、`go vet ./internal/... ./pkg/...`、`go test -race ./internal/... ./pkg/...` **全部通过，未排除任何包**（含 `pkg/tail`）。WSL：`go build ./...`、`go vet ./...`、`ASA_TEST_RUNTIME_USER=1 go test -race ./...` **全部通过**（`Test_SetMessageOfTheDay` 按预期跳过）。此后的批次可以直接跑全量测试作为回归基线，不必再记哪些包要排除。
 
 ---
 
