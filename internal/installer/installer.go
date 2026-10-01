@@ -4,6 +4,7 @@ import (
 	cfgpkg "asa-server/internal/config"
 	procpkg "asa-server/internal/process"
 	"asa-server/internal/runner"
+	statepkg "asa-server/internal/state"
 	"asa-server/pkg/console"
 	"asa-server/pkg/download"
 	"asa-server/pkg/filelock"
@@ -16,6 +17,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -113,7 +115,48 @@ func beginServerFilesUpdate() error {
 			strings.Join(alive, ", "),
 		)
 	}
+	if starting := launchingInstances(); len(starting) > 0 {
+		releaseServerFiles()
+		return fmt.Errorf("实例 %s 正在启动，请等它完成后再更新", strings.Join(starting, ", "))
+	}
 	return nil
+}
+
+// processStarted 是本进程的启动时刻，用来区分「本进程里正在进行的启动」与
+// 崩溃前遗留的状态记录。
+var processStarted = time.Now()
+
+// launchStatuses 是「启动流程正在进行」的状态。
+var launchStatuses = []statepkg.InstanceStatus{
+	statepkg.StatusStartStartInitialization,
+	statepkg.StatusStartStartInitializationSuccessful,
+	statepkg.StatusStarting,
+	statepkg.StatusRestarting,
+}
+
+// launchingInstances 列出本进程里正处于启动流程的实例。
+//
+// ListAliveInstances 看不见它们：启动流程的前几分钟（ArkApi 缓存预取、镜像同步、
+// 排队等闸门）还没有游戏进程。这段时间放行更新，预取会对着正被换掉的 exe 下载，
+// 与更新后的那次预取交错时可能删掉对方刚提交的 generation
+// （docs/PLAN_IMPLEMENTATION_AUDIT_2026-09-29.md §5.2 P0-3）。
+//
+// 只认本进程启动之后写下的状态：asa-server 崩溃时停在 starting 的旧记录不代表
+// 有启动在进行，不能让它永久挡住更新。另一个进程（终端里的 update）打不开状态库，
+// 这里读不到任何记录，退化为只看进程存活 —— 与以前相同。
+func launchingInstances() []string {
+	names, err := statepkg.GetAllInstanceNames()
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, name := range names {
+		st, err := statepkg.GetLatestInstanceState(name)
+		if err == nil && slices.Contains(launchStatuses, st.Status) && st.OperationTime.After(processStarted) {
+			out = append(out, name)
+		}
+	}
+	return out
 }
 
 var (
