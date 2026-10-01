@@ -27,6 +27,10 @@ type Tailer struct {
 	mu      sync.Mutex
 	offset  int64
 	fileKey string
+
+	// historyEnd 是 Start 那一刻文件的大小：历史回放只读到这里为止，
+	// 之后写入的内容一律交给跟随阶段。
+	historyEnd int64
 }
 
 // NewTailer creates a Tailer that watches logPath and returns a read-only channel
@@ -63,7 +67,14 @@ func NewTailer(logPath string, lastNLines int) (*Tailer, <-chan string, error) {
 
 // Start launches the background goroutine. Call this after the channel consumer
 // is ready to receive, to avoid any buffering race.
+//
+// The tail position is fixed here, synchronously: every line written after
+// Start returns is delivered. It used to be fixed inside the goroutine, so
+// lines written between Start returning and the goroutine getting scheduled
+// were skipped — and waitServerStartup, which waits for one specific line
+// with lastNLines=0, could miss exactly that line.
 func (t *Tailer) Start() {
+	t.markStart()
 	go t.loop()
 }
 
@@ -102,7 +113,7 @@ func (t *Tailer) Stop() {
 
 func (t *Tailer) loop() {
 	defer close(t.ch)
-	t.initState()
+	t.replayHistory()
 
 	for {
 		select {
@@ -206,18 +217,10 @@ func (t *Tailer) readFromOffset() (string, int64, bool) {
 	return string(buf[:n]), offset + int64(n), false
 }
 
-// initState emits the last N historical lines then sets the tail offset to
-// end-of-file. Called once at the start of the goroutine (inside Start).
-func (t *Tailer) initState() {
-	if t.lastNLines > 0 {
-		lines, _ := readLastNLines(t.logPath, t.lastNLines)
-		for _, line := range lines {
-			if line != "" {
-				t.send(line)
-			}
-		}
-	}
-
+// markStart records where tailing begins: the current end of file, which is
+// also where the history replay stops. A missing file starts at offset 0 with
+// no identity, so it is read from the beginning once it appears.
+func (t *Tailer) markStart() {
 	f, err := os.Open(t.logPath)
 	if err != nil {
 		return
@@ -232,7 +235,30 @@ func (t *Tailer) initState() {
 	t.mu.Lock()
 	t.offset = fi.Size()
 	t.fileKey = fileKey(fi)
+	t.historyEnd = fi.Size()
 	t.mu.Unlock()
+}
+
+// replayHistory emits the last N lines that existed when Start was called.
+// It reads only up to that point: reading to the current end of file would
+// emit lines written since as history *and* again when the follow phase
+// reaches them.
+func (t *Tailer) replayHistory() {
+	if t.lastNLines <= 0 {
+		return
+	}
+	t.mu.Lock()
+	end := t.historyEnd
+	t.mu.Unlock()
+	if end <= 0 {
+		return
+	}
+	lines, _ := readLastNLines(t.logPath, t.lastNLines, end)
+	for _, line := range lines {
+		if line != "" {
+			t.send(line)
+		}
+	}
 }
 
 // resetState is called on rotation. Resets offset to 0 so the new file is
@@ -268,10 +294,11 @@ func (t *Tailer) cleanup() {
 	}
 }
 
-// readLastNLines returns the last n lines of filePath.
+// readLastNLines returns the last n lines among filePath's first end bytes
+// (the whole file when end exceeds it).
 // Pass 1: scan backward counting \n to find the start offset.
-// Pass 2: read forward from that offset and split.
-func readLastNLines(filePath string, n int) ([]string, error) {
+// Pass 2: read forward from that offset up to end and split.
+func readLastNLines(filePath string, n int, end int64) ([]string, error) {
 	f, err := os.Open(filePath)
 	if err != nil {
 		return nil, err
@@ -282,8 +309,8 @@ func readLastNLines(filePath string, n int) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	size := fi.Size()
-	if size == 0 {
+	size := min(fi.Size(), end)
+	if size <= 0 {
 		return []string{}, nil
 	}
 
@@ -328,7 +355,7 @@ outer:
 	if _, err := f.Seek(startPos, io.SeekStart); err != nil {
 		return nil, err
 	}
-	data, err := io.ReadAll(f)
+	data, err := io.ReadAll(io.LimitReader(f, size-startPos))
 	if err != nil {
 		return nil, err
 	}
