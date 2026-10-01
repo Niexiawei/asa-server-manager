@@ -2,8 +2,7 @@
 package apiresp
 
 import (
-	"fmt"
-	"strings"
+	cfgpkg "asa-server/internal/config"
 )
 
 // StatusResponse is the standard API response envelope used by all handlers.
@@ -15,12 +14,8 @@ type StatusResponse struct {
 }
 
 // ValidateInstanceName checks for path traversal attacks in an instance name.
+// The rule lives in internal/config so non-HTTP callers (arkapimanage) can
+// share it; see cfgpkg.ValidateInstanceName.
 func ValidateInstanceName(name string) error {
-	if name == "" {
-		return fmt.Errorf("instance name is required")
-	}
-	if strings.Contains(name, "..") || strings.ContainsAny(name, `/\`) || strings.ContainsAny(name, "\x00") {
-		return fmt.Errorf("invalid instance name")
-	}
-	return nil
+	return cfgpkg.ValidateInstanceName(name)
 }
