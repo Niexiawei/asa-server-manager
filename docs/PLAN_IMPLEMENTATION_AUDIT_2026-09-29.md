@@ -1340,8 +1340,10 @@ iox.Relay(relayCtx, src, dst, arkApiLogPollInterval, ...)
 - **后果**：顶层以外的形态不被改写；旧目录改名后路径悬空，Permissions 在原路径新建空库，权限静默清零。
 - **修复建议**：对每个已知键做递归查找；或对指向 `plugins.legacy-*` 的路径统一报错提示。
 
-#### [P2] `harvest`/`replaceGroup` 的整组判定依赖 `scanPluginDir` 分类，未识别的运行期数据会被弃
+#### ~~[P2] `harvest`/`replaceGroup` 的整组判定依赖 `scanPluginDir` 分类，未识别的运行期数据会被弃~~
 
+> 🔎 **二次复核（第三批实施时，2026-10-01）：不成立。** 旧布局下这类文件每次启动都会被增量同步当作多余条目删掉，从未跨过重启；迁移丢弃它们与迁移前语义一致。见 §11.7 偏离 6。以下为第一次复核原文。
+>
 > 🔎 **复核：成立，维持 P2。** `scanPluginDir`（`internal/plugindata/classify.go:160-173`）只收 `config.json`、带 SQLite 魔数的文件与「名字像数据库」的文件，其余一律 `continue`；插件在运行期写到自己目录里的 `players.json`、`*.txt` 之类状态文件不会被抢救，随后镜像里的真实 `Plugins` 目录被 `migrateExceptionJunctions` 整个 `RemoveAll`（`internal/mirror/mirror.go:380`），这些文件就丢了。`extraDataFiles` 为空，等于没有兜底。
 >
 > **修复方案**：迁移第 1 步在现有分组之外，再对每个插件计算「**镜像独有文件**」：镜像插件目录中存在、而 server-files 同一插件目录中**不存在**的相对路径，排除 `.dll/.pdb/.exe` 与 `snapshots/`。这些文件按原相对路径复制进实例插件目录（目标已存在则不覆盖），每个都记一条 INFO；迁移报告里列出清单。判据是「源里没有」而不是「猜它是不是数据」，与分类规则互补。单测：镜像插件目录里放一个 `state.json`，迁移后它出现在实例目录。
@@ -1631,6 +1633,47 @@ iox.Relay(relayCtx, src, dst, arkApiLogPollInterval, ...)
 **验证**：Windows `go build ./...`、`go vet ./internal/...`、`go test -race`（`./pkg/...` 与改动涉及的 internal 包）通过——`pkg/tail` 的 `Test_tail` 挂满超时，它写死作者本机的 `E:\asa_server_data` 路径并无限循环，是基线遗留的环境耦合用例，与本次无关。WSL `go build ./...`、`go vet`、`go test -race`（umuruntime / umu / wineprefix / xvfb / sysuser / procmatch / runner / instance / installer / plugindata / mirror / process / appconfig / actions，`ASA_TEST_RUNTIME_USER=1`）通过，外加 `ASA_TEST_XVFB=1` 的真机 Xvfb 用例。
 
 **真机回归建议补充的场景**（在 §11.4 之上）：服务运行时在终端执行 `asa-server update`，确认被拒（「另一个 asa-server 进程正在改写 server-files」）或服务侧的面板更新被拒，且 CLI 更新期间面板启动实例被拒；overlay 模式下重启宿主机后启动实例，确认日志是「已挂载」而非「需要重建」；服务运行时在终端执行 `asa-server setup`，确认出现「另一个 asa-server 进程正在准备……等待」而不是两边同时 wineboot；全新机器跑一次 `setup`，确认降权 wineboot 一次成功（D4 不再依赖第二次调用兜底）。
+
+### 11.7 第三批实施记录（2026-10-01，分支 `fix/audit-batch3`，基于 `master` `7323d84`）
+
+**状态：代码与单测已完成；P1-2 只完成第一步（告警），cookie 认证留待真机；「镜像独有文件抢救」复核为不成立，未实施。**
+
+| 项 | 落地位置 | 测试 |
+| --- | --- | --- |
+| 11. P0-3 上游守卫 | `internal/installer`：`beginServerFilesUpdate` 在存活检查之外拒绝**本进程启动后**写下的启动中状态（`launchingInstances`） | `TestUpdateRefusedWhileInstanceIsLaunching`、`TestUpdateIgnoresLaunchStateFromBeforeThisProcess` |
+| 11. P0-3 提交与清理 | `pkg/arkcache`：包级 `commitMu` 串行化「写 metadata + 清理」；`pruneGenerations` 现读 `cached_key.cache` 保护被指向的一代 | `TestPruneGenerationsKeepsReferencedGeneration` |
+| 11. P1-12 staging | 解压到 `generations/.staging-<名>`，校验通过后 rename；`listGenerations` 不认 staging，清理回收 1 小时前的残留；`internal/mirror` 的 `collectSourceEntries` 跳过 staging（`arkcache.StagingDirPrefix`） | `TestStagingIsNotAGeneration`、`TestSyncSkipsArkApiStagingGeneration` |
+| 11. P1-10 / P1-11 陈旧锁 | 跨进程锁改用 `pkg/filelock`（见偏离 1） | 既有端到端用例改为断言锁已释放 |
+| 11. `hashMutex` | 容量 1 的 channel 槽位 + 引用计数，等待可取消，空闲即回收 | `TestLockHashIsCancelableAndReclaimed` |
+| 11. 同尺寸旧 zip | `fetchZip`：旁车不同源（含缺失）时连同 `<hash>.zip` 一起删 | `TestFetchZipDoesNotReuseSameSizeZipFromOtherSource`、`…WithoutSidecar` |
+| 11. `MaxBytes` / `Content-Range` | `pkg/download`：`Options.MaxBytes` + `ErrTooLarge`（不重试）；206 只在 `Content-Range` 起点等于 `.part` 长度时续传，否则删 `.part` 在同一次尝试内整包重下；arkcache 传 HEAD 声明长度 | `TestFetchMaxBytes*`、`TestFetchResumeRejects*`、`TestParseContentRange`、`TestFetchZipCapsBodyAtDeclaredLength` |
+| 12. 升级失效 | `procx.TerminateTreeGracefully(pid, grace)`；`killGameServer` 改调它（15 秒） | `TestTerminateTreeGracefullyEscalates`、`…ReturnsEarly`、`TestParseStat`（WSL） |
+| 12. PTY 关闭权 / 打开失败排空 | `startAsaApiLogging` 接管 PTY（`io.ReadCloser`），`server.go` 的 Wait 协程不再关；Linux `drainLauncherOutput`；两平台打开失败时排空 | `TestDrainLauncherOutputKeepsTailAfterLauncherExit`、`…BoundedAfterLauncherExit`（WSL） |
+| 13. P1-22 更新 journal | `internal/plugindata/txn.go`：`ArkApi/.plugin-txn.json`（路径相对实例 ArkApi 目录）、`BeginPluginTxn`/`EndPluginTxn`/`PluginTxnPending`；`TryLockInstance` 与新的 `lockInstance`（`PrepareForStart`、`WritePluginConfig`、`MigrateInstance`）拿锁后 `recoverPluginTxn` | `TestInterruptedUpdateIsCompletedOnNextLock`、`…RollsBackWhenStagedIsGone`（测试钩子 `afterBackupRename` 注入 panic） |
+| 13. P1-21 大小写 | `MirrorPluginsDir` 按镜像里的实际大小写解析；`IsProtectedRelPath` 前缀不区分大小写；删除已过时的 `warnIfPluginsPathCaseMismatch` | `TestMirrorPluginsDirFollowsActualCase`、`TestMigrateRescuesMirrorDataWithLowercasePluginsDir`（WSL 为真实大小写敏感） |
+| 13. 名字可移植性 | `pkg/fsutil.ValidPortableName`；`cfgpkg.ValidateInstanceName`（安全，`apiresp` 转调）/ `ValidateNewInstanceName`（创建、重命名）；`ValidatePluginName` 追加可移植性；`lockForPluginWrite`、`SetPluginEnabled` 校验实例名，后者补 `instanceExists`；`GET /api/instances` 的 `name_warning` | `TestValidPortableName`、`TestValidateInstanceName`、`TestValidateNewInstanceName`、`TestValidatePluginName` 扩充 |
+| 14. P1-2 第一步 | `xvfb.Manager.RunsAsRoot`；`spawn` 以 root 无认证起 Xvfb 时 WARN；`xdisplay.Preflight` 在自管 Xvfb 进链时给建议项 `x11-xvfb-root-noauth`，`runner` 补上 `linux.umu_run_as_root` 的文案 | `TestPreflightFlagsRootUnauthenticatedXvfb`（WSL root） |
+| 14. P1-4 | `pyfinder.versionOf`：`CommandContext` 5 秒 + `WaitDelay` | `TestResolveAuto_SkipsHangingCandidate`（候选本身挂住且留下持有 stdout 的孙进程） |
+| 14. §3 gc 按形态 | `wineprefix.Info.Backup`（按命中的 glob 设置）、`RemoveLayer`/`RemovePrefix`/`RemoveBackup`；`Remove` 两半都试、`errors.Join` 并注明哪一半；`runner.RemovePrefixLayer`/`RemovePrefixDir`/`RemovePrefixBackup`；`prefix gc` / `status` 改用 `p.Backup` | `TestStatus_InstanceNamedBakIsNotABackup`、`TestRemoveLayerAndPrefixAreIndependent`、`TestGCCandidates` |
+| 14. §2 深探目标 | `wineprefix.Manager.ProbeDir(key)`；`VerifyRuntimeAccessForLaunch(mirrorDir, prefixKey)` | `TestProbeDir_FollowsLaunchPrefix` |
+
+**与复核方案的偏离**
+
+1. **P1-10 / P1-11 没有做「心跳 + token + 改名夺锁」，而是换成了 `pkg/filelock`。** 复核方案写于 `pkg/filelock` 出现（第二批）之前。flock / `LockFileEx` 由内核在持有进程退出时释放，根本不存在「陈旧」判断，两条缺陷连同它们的修复复杂度一起消失。代价是锁文件不能删路径（删了下一个来者会锁到另一个 inode）：当前哈希的 `.lock` 永久留在中转目录（0 字节），旧哈希的由 `GC` 在持锁时删除。
+2. **第四批的四个缓存小项随第 11 项一并完成**：`GC` 不碰正在下载的中转物（`TryLock` 拿不到就整组跳过）、快路径顺手清理旧代、`sourceCacheManaged` 要求 `Generation != ""`（`TestBareHashSourceCacheIsNotManaged`）、`writeMetadata` 临时名唯一（P1-8）。它们与提交 / 锁的改写在同一段代码里，分开做要改两遍。
+3. **上游守卫只认本进程启动之后写下的启动中状态。** 方案只说「状态处于启动中即拒绝」；但 asa-server 崩溃时停在 `starting` 的旧记录会让更新被永久拒绝。终端里的 `update` 打不开状态库（BadgerDB 独占），那条路径上退化为只看进程存活，与修复前相同。
+4. **`TerminateTreeGracefully` 的快照记下了每个成员的启动时刻**（`/proc/<pid>/stat` 第 22 字段），宽限期内 PID 被复用给无关进程时，第二轮不会强杀它；僵尸进程视为已退出。Windows 只等根进程。
+5. **PTY 关闭权只在 Linux 交给读取方，Windows 维持「启动链退出就关」。** ConPTY 的输出管道在 `ClosePseudoConsole` 之前不会 EOF，Windows 上照方案改，读取方会永远等不到结尾。Linux 上读取方在启动链退出后至多再等 5 秒（`launcherDrainGrace`）：umu/Wine 链里可能有继承了从端、比 launcher 活得更久的进程（共享 prefix 下的 wineserver），只等 EIO 会让 PTY 与协程一直挂着。
+6. **「镜像独有文件抢救」（§7.2 `harvest`/`replaceGroup` 一条）复核为不成立，未实施。** 实现后 WSL 上既有用例 `TestLegacyMirrorPluginsMigratedIntoInstanceDir` 失败——它钉死的正是相反的行为，理由成立：旧布局下镜像里的插件目录是普通复制目录，`IsProtectedRelPath` 只保护配置与数据库，插件运行期写下的其他文件**每次启动的增量同步都会被当作多余条目删掉**，它们从来没有跨过一次重启。迁移照旧丢弃它们，与迁移前的语义完全一致，不是数据丢失。迁移之后镜像里的 `Plugins` 是指向实例目录的链接，这类文件从此会保留下来。
+7. **P1-21 按镜像自身解析大小写，而不是按 `SourcePluginsRelPath()`。** 读的就是镜像，按镜像的盘上实际解析最直接，也不依赖「镜像大小写随源」这一条推论。同时 `IsProtectedRelPath` 的前缀改为不区分大小写（同一个问题的另一处），只读诊断 `warnIfPluginsPathCaseMismatch` 随之过时并删除。
+8. **事务日志：失败路径「保不保留临时目录」以日志是否还在为准，而不是一个局部标记。** 这样中途 panic（以及测试里模拟崩溃的方式）也保留新版本。除方案点名的 `TryLockInstance` 外，所有拿实例锁的入口都先恢复（统一走 `lockInstance`）。全新安装只有一次 rename，不写日志。
+9. **实例名分两级校验。** `ValidateInstanceName` 只管安全（原有规则 + 拒绝 `.`），所有拿实例名拼路径的地方用它；可移植性（`ValidateNewInstanceName`）只在创建与重命名时检查。若按方案把可移植性也并进前者，Linux 上已有的 `a:b` 这类实例会被全部 12 个 HTTP 处理器拒绝，用户连改名都做不了——与方案「已存在的不迁移」相矛盾。前端尚未展示 `name_warning`。
+10. **P1-2 只做了第一步（告警 + 建议项），cookie 认证未做。** 第二步要把 `XAUTHORITY` 带进 pressure-vessel 容器——正是曾经让容器起不来的那个变量——只有真机上跑一次 ArkApi 实例才能验证，不适合在没有真机回归的批次里合入。建议单独一个分支、带真机验收做。
+11. **P1-23（禁用 / 启用的提示文案）仍留在第四批。** 本批只给 `SetPluginEnabled` 补了实例名校验与 `instanceExists`（§7.2「内部 API 不校验实例名」一条）。
+
+**验证**：Windows `go build ./...`、`go vet`、`go test -race`（download / arkcache / procx / fsutil / filelock / installer / mirror / instance / plugindata / arkapimanage / webapi / runner / actions）通过。WSL `go build ./...`、`go vet ./pkg/...` 与改动涉及的 internal 包、`go test -race`（上述 + pyfinder / wineprefix / xvfb / umuruntime / sysuser / umu / process，`ASA_TEST_RUNTIME_USER=1`）通过；`internal/config` 的 `Test_SetMessageOfTheDay` 写死作者本机的实例 `ces99`，是基线遗留的环境耦合用例。改动文件按仓库内容（LF）`gofmt` 干净。
+
+**真机回归建议补充的场景**（在 §11.4、§11.6 之上）：ArkApi 实例启动、预取进行中时在面板点更新，确认被拒（「实例 X 正在启动」）；`prefix gc --apply` 在「overlay 模式 + 旧 per-instance 前缀残留」的机器上只删残留、可写层仍在；强停一台 ArkApi 实例，确认 15 秒内整棵树退出；故意让加载器秒退（例如临时挪走一个依赖 DLL），确认 `launcher.log` 里有最后几行。
 
 ---
 
