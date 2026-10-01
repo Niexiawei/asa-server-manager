@@ -495,3 +495,74 @@ func TestPluginInstancesListsInstalledOnly(t *testing.T) {
 		t.Errorf("list = %+v", list)
 	}
 }
+
+// 更新在「旧版本已进备份、新版本未落位」时中断（这里用 panic 模拟崩溃）：插件目录
+// 不在了。下一次拿实例锁时必须按事务日志补完，而不是让插件显示为「未安装」。
+func TestInterruptedUpdateIsCompletedOnNextLock(t *testing.T) {
+	setupEnv(t, "a")
+	mustApply(t, mustStage(t, pluginZip(t, "Perm", "1.1", nil), ""), []string{"a"}, false)
+	dir := pluginDir("a", "Perm")
+	write(t, filepath.Join(dir, "config.json"), `{"A":"user"}`)
+
+	st := mustStage(t, pluginZip(t, "Perm", "1.2", nil), "Perm")
+	afterBackupRename = func() { panic("crash between renames") }
+	t.Cleanup(func() { afterBackupRename = nil })
+	func() {
+		defer func() { _ = recover() }()
+		_, _ = ApplyPlugin(st.Token, []string{"a"}, false)
+	}()
+	afterBackupRename = nil
+
+	if exists(dir) {
+		t.Fatal("测试前提不成立：中断后插件目录应当不在")
+	}
+	unlock, ok := plugindata.TryLockInstance("a")
+	if !ok {
+		t.Fatal("拿不到实例锁")
+	}
+	unlock()
+
+	if meta, _ := plugindata.ReadPluginMeta(dir); meta.Version != "1.2" {
+		t.Fatalf("中断的更新没有被补完，版本 %q", meta.Version)
+	}
+	if got := read(t, filepath.Join(dir, "config.json")); !strings.Contains(got, "user") {
+		t.Errorf("补完后的配置丢了用户值: %q", got)
+	}
+	if plugindata.PluginTxnPending("a") {
+		t.Error("补完后事务日志应当被删除")
+	}
+	if left, _ := filepath.Glob(filepath.Join(plugindata.InstanceArkApiDir("a"), ".install-*")); len(left) != 0 {
+		t.Errorf("临时目录没被清理: %v", left)
+	}
+}
+
+// 新版本也丢了（只剩备份）时回滚到更新前的版本。
+func TestInterruptedUpdateRollsBackWhenStagedIsGone(t *testing.T) {
+	setupEnv(t, "a")
+	mustApply(t, mustStage(t, pluginZip(t, "Perm", "1.1", nil), ""), []string{"a"}, false)
+	dir := pluginDir("a", "Perm")
+
+	st := mustStage(t, pluginZip(t, "Perm", "1.2", nil), "Perm")
+	afterBackupRename = func() {
+		left, _ := filepath.Glob(filepath.Join(plugindata.InstanceArkApiDir("a"), ".install-*"))
+		for _, d := range left {
+			os.RemoveAll(d)
+		}
+		panic("crash")
+	}
+	t.Cleanup(func() { afterBackupRename = nil })
+	func() {
+		defer func() { _ = recover() }()
+		_, _ = ApplyPlugin(st.Token, []string{"a"}, false)
+	}()
+	afterBackupRename = nil
+
+	unlock, ok := plugindata.TryLockInstance("a")
+	if !ok {
+		t.Fatal("拿不到实例锁")
+	}
+	unlock()
+	if meta, _ := plugindata.ReadPluginMeta(dir); meta.Version != "1.1" {
+		t.Fatalf("应当回滚到 1.1，实际 %q", meta.Version)
+	}
+}

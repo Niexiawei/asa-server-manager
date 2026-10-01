@@ -155,7 +155,13 @@ func applyPluginTo(instanceName string, rep *PluginReport, restoreFromBackup boo
 	if err != nil {
 		return fail(err)
 	}
-	defer os.RemoveAll(tmp) // rename 成功后它已不存在，这里是失败路径的清理
+	// 失败路径的清理。事务日志还在（第二次 rename 与回滚都失败，或中途 panic）时
+	// 不能删：新版本就在 tmp 里，下次拿实例锁时的恢复要用它。
+	defer func() {
+		if !plugindata.PluginTxnPending(instanceName) {
+			os.RemoveAll(tmp)
+		}
+	}()
 	staged := filepath.Join(tmp, plugin)
 	if err := fsutil.CopyDir(rep.root, staged); err != nil {
 		return fail(fmt.Errorf("复制插件文件失败: %w", err))
@@ -187,15 +193,25 @@ func applyPluginTo(instanceName string, rep *PluginReport, restoreFromBackup boo
 		if err != nil {
 			return fail(err)
 		}
+		// 两次 rename 之间崩溃会让插件目录消失；先落事务日志，下次拿实例锁时补完。
+		if err := plugindata.BeginPluginTxn(instanceName, plugin, finalDir, bak, staged, tmp); err != nil {
+			return fail(fmt.Errorf("写插件更新事务日志失败: %w", err))
+		}
 		if err := os.Rename(oldDir, bak); err != nil {
+			_ = plugindata.EndPluginTxn(instanceName)
 			return fail(fmt.Errorf("挪走旧版本失败（文件可能被占用）: %w", err))
+		}
+		if afterBackupRename != nil {
+			afterBackupRename()
 		}
 		if err := os.Rename(staged, finalDir); err != nil {
 			if rbErr := os.Rename(bak, oldDir); rbErr != nil {
-				return fail(fmt.Errorf("新版本落位失败: %w；旧版本也未能还原，它在 %s", err, bak))
+				return fail(fmt.Errorf("新版本落位失败: %w；旧版本也未能还原，它在 %s（下次操作该实例时会自动重试）", err, bak))
 			}
+			_ = plugindata.EndPluginTxn(instanceName)
 			return fail(fmt.Errorf("新版本落位失败，已还原旧版本: %w", err))
 		}
+		_ = plugindata.EndPluginTxn(instanceName)
 		pruneBackups(instanceName, plugin)
 	} else if err := os.Rename(staged, finalDir); err != nil {
 		return fail(fmt.Errorf("插件落位失败: %w", err))
@@ -204,6 +220,9 @@ func applyPluginTo(instanceName string, rep *PluginReport, restoreFromBackup boo
 	res.OK = true
 	return res
 }
+
+// afterBackupRename 是测试钩子：在「旧版本已挪进备份、新版本还没落位」的窗口里被调用。
+var afterBackupRename func()
 
 // PluginInstances 列出装有插件 plugin 的全部实例（包括处于禁用状态的），供卸载对话框使用。
 func PluginInstances(plugin string) ([]PluginTarget, error) {
@@ -282,6 +301,10 @@ func uninstallFrom(instanceName, plugin string) Result {
 // 检查必须在拿到锁**之后**：先检查再拿锁，中间可能插进一次完整的启动，插件文件就在游戏
 // 运行时被换掉了。反过来，锁在我们手里时启动会等在 PrepareForStart 上，直到我们做完。
 func lockForPluginWrite(instanceName string) (func(), error) {
+	// 实例名要拼进路径：HTTP 层已经校验过，这里再校验一次，不把安全押在调用方身上。
+	if err := cfgpkg.ValidateInstanceName(instanceName); err != nil {
+		return nil, err
+	}
 	if !instanceExists(instanceName) {
 		return nil, fmt.Errorf("实例 %s 不存在", instanceName)
 	}
