@@ -19,6 +19,12 @@ func removeInstancePrefix(string) error { return nil }
 
 func prefixStatus() []PrefixInfo { return nil }
 
+func removePrefixLayer(string) error { return nil }
+
+func removePrefixDir(string) error { return nil }
+
+func removePrefixBackup(string) error { return nil }
+
 func prepareSharedPrefixWrite(string) (func(), error) { return func() {}, nil }
 
 func holdPrefix(string) func() { return func() {} }

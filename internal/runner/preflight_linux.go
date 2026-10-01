@@ -79,7 +79,7 @@ func checkOverlayfs() *Problem {
 // `asa-server setup` *before* EnsureRuntime creates the user, where a
 // "user missing" result would be a false alarm. The real enforcement is
 // package main's startup gate (EnsureRuntimeUser then VerifyRuntimeAccess).
-func runtimeUserProblems() []Problem { return verifyRuntimeAccess(false) }
+func runtimeUserProblems() []Problem { return verifyRuntimeAccess(false, "") }
 
 // checkDisplay reports whether this host can hand a Wine process an X display.
 //

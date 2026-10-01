@@ -253,13 +253,19 @@ const runtimeDriftFix = "运行 asa-server perms fix；修不回来多半是 SEL
 // start passes its own mirror as extraOwnership, right after
 // ChownMirrorForRuntime has chowned it. The remaining mirrors are an advisory
 // in Preflight (checkMirrorOwnership).
-func verifyRuntimeAccess(forceDeep bool, extraOwnership ...string) []Problem {
+//
+// The deep write probe (forced for a launch) goes to
+// Prefixes().ProbeDir(prefixKey) — the prefix this launch uses. It used to be
+// the shared prefix always: under overlay that is a touch-and-remove in every
+// running instance's mounted lowerdir, and under per-instance it probed a
+// prefix the launch never opens.
+func verifyRuntimeAccess(forceDeep bool, prefixKey string, extraOwnership ...string) []Problem {
 	cfg := getConfig()
 	return sysUserFor(cfg).Problems(sysuser.AccessCheck{
 		OwnershipDirs:  append(rwSubtrees(cfg, false), extraOwnership...),
 		TraversableDir: cfg.BaseDir,
 		ReadableEntry:  filepath.Join(hostFor(cfg).Umu().ProtonPath(), "proton"),
-		ProbeDir:       hostFor(cfg).Prefixes().Dir(""),
+		ProbeDir:       hostFor(cfg).Prefixes().ProbeDir(prefixKey),
 		DriftFix:       runtimeDriftFix,
 	}, forceDeep)
 }
@@ -296,7 +302,7 @@ func runtimeUserInfo() RuntimeUserInfo {
 		info.Ready = true
 		return info
 	}
-	info.Ready = len(verifyRuntimeAccess(false)) == 0
+	info.Ready = len(verifyRuntimeAccess(false, "")) == 0
 	return info
 }
 

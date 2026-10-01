@@ -4,6 +4,7 @@ package wineprefix
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -130,6 +131,27 @@ func (m *Manager) Dir(key string) string {
 		return overlayMergedDir(cfg, key)
 	}
 	return base
+}
+
+// ProbeDir is where a write probe for key's launch may touch-and-remove a
+// file: the prefix that launch will actually use, never a directory another
+// instance has mounted as its lower.
+//
+//	shared       → the shared prefix (it is what the launch uses)
+//	per-instance → that instance's own prefix
+//	overlay      → umu-prefix-overlay/<key>/, the plain directory holding the
+//	               layer (chowned to the runtime user when the layer is built).
+//	               Not the shared prefix: in this mode it is every running
+//	               instance's lowerdir, and writing to a mounted lowerdir is
+//	               undefined behaviour. Not upper either, for the same reason
+//	               once it is mounted; and not merged, where a write is a
+//	               copy-up into this instance's private layer.
+func (m *Manager) ProbeDir(key string) string {
+	cfg := m.config()
+	if key != "" && cfg.PrefixMode == "overlay" {
+		return overlayInstanceDir(cfg, key)
+	}
+	return m.Dir(key)
 }
 
 // instanceDir is Dir's per-instance branch with the mode check removed:
@@ -270,18 +292,41 @@ func (m *Manager) EnsurePrefix(ctx context.Context, key string, progress io.Writ
 
 // Remove deletes everything key owns, in both shapes (a past per-instance
 // prefix and a past overlay writable layer — mode-independent on purpose,
-// since an instance that ran under both modes has left one of each).
+// since an instance that ran under both modes has left one of each). This is
+// for deleting or renaming an instance; `prefix gc`, which lists the two
+// shapes as separate rows, removes exactly the row it means with RemoveLayer
+// or RemovePrefix.
+//
+// Both halves are attempted even if one fails, and the error says which half
+// it was: "failed" used to be reported for a key whose layer had already been
+// deleted.
 func (m *Manager) Remove(key string) error {
+	var errs []error
+	if err := m.RemoveLayer(key); err != nil {
+		errs = append(errs, fmt.Errorf("可写层: %w", err))
+	}
+	if err := m.RemovePrefix(key); err != nil {
+		errs = append(errs, fmt.Errorf("独立前缀: %w", err))
+	}
+	return errors.Join(errs...)
+}
+
+// RemoveLayer unmounts and deletes key's overlay writable layer, if any.
+// Refuses while a wineserver holds it.
+func (m *Manager) RemoveLayer(key string) error {
 	if key == "" {
 		return nil
 	}
-	cfg := m.config()
+	return m.removeOverlayPrefix(m.config(), key)
+}
 
-	if err := m.removeOverlayPrefix(cfg, key); err != nil {
-		return err
+// RemovePrefix deletes key's per-instance prefix (umu-prefix-<key>), if any.
+// Refuses while a wineserver holds it. Never touches the shared prefix.
+func (m *Manager) RemovePrefix(key string) error {
+	if key == "" {
+		return nil
 	}
-
-	prefix := m.instanceDir(cfg, key)
+	prefix := m.instanceDir(m.config(), key)
 	if prefix == m.Dir("") {
 		// Belt and braces: never let a bad key delete the shared prefix.
 		return nil
@@ -299,6 +344,28 @@ func (m *Manager) Remove(key string) error {
 	return os.RemoveAll(prefix)
 }
 
+// RemoveBackup deletes one Proton-version backup of the shared prefix
+// (<shared>.bak-<版本>, what a Proton bump moves aside). path must be such a
+// backup — matched against the pattern, not inferred from a name — and no
+// wineserver may hold it. It used to be removed with a bare os.RemoveAll keyed
+// on the name starting with "bak-", which an instance named "bak-x" also
+// satisfies: its per-instance prefix lost the wineserver check every other
+// removal has.
+func (m *Manager) RemoveBackup(path string) error {
+	if ok, _ := filepath.Match(m.Dir("")+".bak-*", path); !ok {
+		return fmt.Errorf("%s 不是共享 Wine 前缀的版本备份", path)
+	}
+	if !dirExists(path) {
+		return nil
+	}
+	unlock := m.lockPrefix(path)
+	defer unlock()
+	if umu.WineserverHoldsPrefix(path) {
+		return fmt.Errorf("Wine 前缀备份 %s 仍被 wineserver 占用", path)
+	}
+	return os.RemoveAll(path)
+}
+
 // Status lists every Wine prefix directory under BaseDir — the shared one
 // plus any per-instance ones and overlay writable layers. Read-only and
 // offline.
@@ -306,26 +373,36 @@ func (m *Manager) Status() []Info {
 	cfg := m.config()
 	shared := m.Dir("")
 
-	paths := []string{shared}
+	type found struct {
+		path   string
+		backup bool
+	}
+	paths := []found{{path: shared}}
 	// Two shapes to find, and they need two patterns:
 	//   "<shared>-<key>"        per-instance prefixes
 	//   "<shared>.bak-<版本>"   what a Proton bump moves aside — a full
 	//                           prefix that nothing will ever open again
+	// Which pattern matched is what makes a row a backup — never its name: an
+	// instance may well be called "bak-something".
 	// "<shared>-*" also catches "umu-prefix-overlay", which is NOT a prefix
 	// but the directory holding every instance's writable layer.
 	overlays := overlayRoot(cfg)
-	for _, pattern := range []string{shared + "-*", shared + ".bak-*"} {
-		matches, _ := filepath.Glob(pattern)
+	for _, pat := range []struct {
+		glob   string
+		backup bool
+	}{{shared + "-*", false}, {shared + ".bak-*", true}} {
+		matches, _ := filepath.Glob(pat.glob)
 		for _, p := range matches {
 			if p == overlays {
 				continue
 			}
-			paths = append(paths, p)
+			paths = append(paths, found{p, pat.backup})
 		}
 	}
 
 	out := make([]Info, 0, len(paths))
-	for _, p := range paths {
+	for _, f := range paths {
+		p := f.path
 		if !dirExists(p) {
 			continue
 		}
@@ -342,7 +419,8 @@ func (m *Manager) Status() []Info {
 			ProtonVersion: umu.PrefixMarker(p),
 			InUse:         umu.WineserverHoldsPrefix(p),
 			SizeBytes:     dirSize(p),
-			Current:       m.Dir(key) == p,
+			Backup:        f.backup,
+			Current:       !f.backup && m.Dir(key) == p,
 		})
 	}
 	return append(out, m.overlayStatus(cfg)...)

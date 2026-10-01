@@ -530,7 +530,7 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 	// the runtime user still exists and can actually write the dirs it needs
 	// (with the real-write deep probe forced on). No-op on Windows / when not
 	// managing a dropped user. See docs/UMU_RUNTIME_USER_PLAN.md §4.4.
-	if probs := runner.VerifyRuntimeAccessForLaunch(mirrorDir); len(probs) > 0 {
+	if probs := runner.VerifyRuntimeAccessForLaunch(mirrorDir, prefixKey); len(probs) > 0 {
 		startErr = fmt.Errorf("无法启动实例：降权运行时环境自检未通过：\n%s", formatRunnerProblems(probs))
 		return startErr
 	}

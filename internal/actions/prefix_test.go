@@ -21,7 +21,7 @@ func TestGCCandidates(t *testing.T) {
 		{Key: "alive", Path: "/b/umu-prefix-alive"},                  // 旧模式残留 → 回收
 		{Key: "gone", Path: "/b/umu-prefix-gone"},                    // 孤儿 → 回收
 		{Key: "running", Path: "/b/umu-prefix-running", InUse: true}, // 正在用
-		{Key: "bak-GE-Proton10-1", Path: "/b/umu-prefix.bak-GE-Proton10-1"},
+		{Key: "bak-GE-Proton10-1", Path: "/b/umu-prefix.bak-GE-Proton10-1", Backup: true},
 	}
 
 	// 同一个 Key 会出现两行（当前模式的可写层 + 旧模式的残留前缀），所以按
@@ -37,8 +37,8 @@ func TestGCCandidates(t *testing.T) {
 	if !got["/b/umu-prefix-alive"] {
 		t.Error("换模式后残留的前缀应当被回收，哪怕它的实例还在")
 	}
-	// 备份目录不属于任何实例，即使碰巧有个同名实例也一样回收——名字里的
-	// "bak-" 前缀来自 reconcilePrefixVersion，不是用户能取到的实例名。
+	// 备份目录不属于任何实例，即使碰巧有个同名实例也一样回收。它是不是备份由
+	// Backup 标出（Status 按匹配到的 pattern 设置），不从名字推断。
 	if !got["/b/umu-prefix.bak-GE-Proton10-1"] {
 		t.Error("旧版本备份目录应当被回收")
 	}
