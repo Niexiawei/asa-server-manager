@@ -82,3 +82,38 @@ func TestSyncStillProtectsUnmanagedArkApiCache(t *testing.T) {
 		t.Errorf("ArkApi 自己的 cached_key.cache 被源版本回写覆盖了: %q", got)
 	}
 }
+
+// 源目录里解压中的 generation（generations/.staging-*）是半成品：managed 模式下
+// generations/ 不做内容对账，一旦被复制进镜像就永远不会被修复。
+func TestSyncSkipsArkApiStagingGeneration(t *testing.T) {
+	mirrorDir, exceptionTargets := setupPluginMirror(t)
+	seedSourceArkApiCache(t)
+
+	srcCache := filepath.Join(cfgpkg.ServerFilesDir, filepath.FromSlash(arkApiCacheDirRel))
+	staging := "generations/" + arkcache.StagingDirPrefix + strings.Repeat("c", 64) + "-1-1-0"
+	writeAt(t, filepath.Join(srcCache, filepath.FromSlash(staging), "cached_offsets.cache"), "half")
+
+	if err := syncMirrorEntries(mirrorDir, exceptionTargets); err != nil {
+		t.Fatalf("同步失败: %v", err)
+	}
+	mirrorCache := filepath.Join(mirrorDir, filepath.FromSlash(arkApiCacheDirRel))
+	if _, err := os.Stat(filepath.Join(mirrorCache, filepath.FromSlash(staging))); err == nil {
+		t.Fatal("解压中的 staging 目录被同步进了镜像")
+	}
+}
+
+// ArkApi 自己留下的历史格式（cached_key.cache 是裸哈希、缓存在 Cache 根）对当前 exe
+// 也是 Ready 的，但它不是我们备的 —— 守卫不能因此翻转。
+func TestBareHashSourceCacheIsNotManaged(t *testing.T) {
+	setupPluginMirror(t)
+	hash, _ := seedSourceArkApiCache(t)
+
+	srcCache := filepath.Join(cfgpkg.ServerFilesDir, filepath.FromSlash(arkApiCacheDirRel))
+	writeAt(t, filepath.Join(srcCache, keyFileName), hash)
+	writeAt(t, filepath.Join(srcCache, "cached_offsets.cache"), "x")
+	writeAt(t, filepath.Join(srcCache, "cached_bitfields.cache"), "x")
+
+	if sourceCacheManaged() {
+		t.Fatal("裸哈希格式的缓存被认成了我们备的")
+	}
+}

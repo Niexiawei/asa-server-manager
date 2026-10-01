@@ -18,6 +18,13 @@ const (
 	// generationsRel 是 generation 目录的父目录名。IsSafeGenerationDirectory
 	// （ArkBaseApi.cpp:81-113）要求父目录**恰好**是这个名字。
 	generationsRel = "generations"
+	// stagingPrefix 是解压中的 generation 的目录名前缀：generations/.staging-<name>。
+	// 校验通过后整目录 rename 成 <name>。不是合法 generation 名，ArkApi 不会认它；
+	// 镜像同步跳过它（StagingDirPrefix）。
+	stagingPrefix = ".staging-"
+	// staleStagingAge 之后的 staging 目录视为崩溃遗留，由清理回收。一次解压是
+	// 秒级的，留这么宽是为了不碰别的进程正在解压的那一个。
+	staleStagingAge = time.Hour
 
 	offsetsFileName   = "cached_offsets.cache"
 	bitfieldsFileName = "cached_bitfields.cache"
@@ -183,7 +190,11 @@ func short(hash string) string {
 	return hash
 }
 
-// writeMetadata 原子写 cached_key.cache：.tmp + Rename。
+// StagingDirPrefix 供镜像同步识别 generations/ 下解压中的目录：它们永远不该被
+// 复制进实例。
+const StagingDirPrefix = stagingPrefix
+
+// writeMetadata 原子写 cached_key.cache：唯一名的 .tmp + Rename。
 //
 // C++ 侧的 saveToFile（Cache.cpp:69）是 .tmp + FlushFileBuffers +
 // MoveFileEx(REPLACE_EXISTING|WRITE_THROUGH)；Go 的 os.Rename 在 Windows 上映射为
@@ -201,10 +212,17 @@ func writeMetadata(cacheRoot string, m metadata) error {
 		return err
 	}
 	final := filepath.Join(cacheRoot, metadataFileName)
-	tmp := final + ".tmp"
 
-	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	// 临时名每次唯一：两个写者（commitMu 管不到的另一个进程）共用一个 .tmp 会
+	// 互相截断，rename 过去的可能是半份 JSON。
+	f, err := os.CreateTemp(cacheRoot, metadataFileName+".*.tmp")
 	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	if err := f.Chmod(0o644); err != nil { // CreateTemp 建的是 0600
+		f.Close()
+		os.Remove(tmp)
 		return err
 	}
 	if _, err := f.Write(data); err != nil {
@@ -229,7 +247,8 @@ func writeMetadata(cacheRoot string, m metadata) error {
 }
 
 // listGenerations 返回 cacheRoot/generations 下的目录名，按名字升序
-// （名字里第三段是 UnixMilli，所以同一哈希下升序即时间序）。
+// （名字里第三段是 UnixMilli，所以同一哈希下升序即时间序）。解压中的 staging
+// 目录不算 generation。
 func listGenerations(cacheRoot string) []string {
 	entries, err := os.ReadDir(filepath.Join(cacheRoot, generationsRel))
 	if err != nil {
@@ -237,7 +256,7 @@ func listGenerations(cacheRoot string) []string {
 	}
 	var names []string
 	for _, e := range entries {
-		if e.IsDir() {
+		if e.IsDir() && !strings.HasPrefix(e.Name(), stagingPrefix) {
 			names = append(names, e.Name())
 		}
 	}
@@ -245,23 +264,40 @@ func listGenerations(cacheRoot string) []string {
 	return names
 }
 
+// referencedGeneration 现读 cached_key.cache，返回它此刻指向的 generation 目录名；
+// 读不出来时返回空串。
+func referencedGeneration(cacheRoot string) string {
+	data, err := os.ReadFile(filepath.Join(cacheRoot, metadataFileName))
+	if err != nil {
+		return ""
+	}
+	m, err := parseMetadata(data)
+	if err != nil || m.CacheDirectory == "" {
+		return ""
+	}
+	return path.Base(m.CacheDirectory)
+}
+
 // pruneGenerations 删除 generations/ 下不该留的目录，返回被删（dryRun 时是将被删）
-// 的相对路径。
+// 的相对路径。调用方持 commitMu。
 //
-// 规则：keepRel 指向的那一代永远保留；其余同哈希的按名字升序额外保留最新的 keep 代；
-// 非当前哈希的一律删。
+// 规则：keepRel 指向的那一代与 cached_key.cache **此刻**指向的那一代永远保留；
+// 其余同哈希的按名字升序额外保留最新的 keep 代；非当前哈希的一律删。后一条保护
+// 是给跨进程用的：另一个进程刚为另一个哈希提交了 metadata，那一代就不能因为
+// 「不是我的哈希」被删掉。超过 staleStagingAge 的 staging 目录一并回收。
 //
 // 注意这只对**源目录**有意义：镜像里的旧代由 CleanupOldCacheGenerations
 // （ArkBaseApi.cpp:210-232）在 ArkApi 每次启动时整棵删掉，留几代由不得我们。
 func pruneGenerations(cacheRoot, hash, keepRel string, keep int, dryRun bool) []string {
 	keepName := path.Base(keepRel)
+	referenced := referencedGeneration(cacheRoot)
 	hash = strings.ToLower(hash)
 	var (
 		sameHash []string
 		removed  []string
 	)
 	for _, name := range listGenerations(cacheRoot) {
-		if name == keepName {
+		if name == keepName || name == referenced {
 			continue
 		}
 		if hash != "" && strings.HasPrefix(strings.ToLower(name), hash+"-") {
@@ -272,6 +308,26 @@ func pruneGenerations(cacheRoot, hash, keepRel string, keep int, dryRun bool) []
 	}
 	for i := 0; i < len(sameHash)-keep; i++ {
 		removed = append(removed, removeGeneration(cacheRoot, sameHash[i], dryRun)...)
+	}
+	return append(removed, pruneStaleStaging(cacheRoot, dryRun)...)
+}
+
+// pruneStaleStaging 回收崩溃遗留的 staging 目录。
+func pruneStaleStaging(cacheRoot string, dryRun bool) []string {
+	entries, err := os.ReadDir(filepath.Join(cacheRoot, generationsRel))
+	if err != nil {
+		return nil
+	}
+	var removed []string
+	for _, e := range entries {
+		if !e.IsDir() || !strings.HasPrefix(e.Name(), stagingPrefix) {
+			continue
+		}
+		fi, err := e.Info()
+		if err != nil || time.Since(fi.ModTime()) < staleStagingAge {
+			continue
+		}
+		removed = append(removed, removeGeneration(cacheRoot, e.Name(), dryRun)...)
 	}
 	return removed
 }

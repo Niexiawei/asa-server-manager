@@ -11,7 +11,7 @@
 // 失败都无声降级回今天的行为（ArkApi 自己去下），绝不能让一台原本能启动的机器
 // 启动不了。
 //
-// 依赖上是叶子包：只用标准库与 pkg/download。它不认识实例、镜像、
+// 依赖上是叶子包：只用标准库与 pkg/download、pkg/filelock。它不认识实例、镜像、
 // BaseDir 里的任何一个 —— 路径由调用方注入，包本身不去猜。
 package arkcache
 
@@ -21,10 +21,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"asa-server/pkg/filelock"
 )
 
 // Result.From 的取值。
@@ -91,14 +92,60 @@ func (r Request) withDefaults() Request {
 	return r
 }
 
-// hashMutexes 让同机多实例并发启动时，同一个哈希只有一个 goroutine 真的去下，
+// hashSlots 让同机多实例并发启动时，同一个哈希只有一个 goroutine 真的去下，
 // 其余等它完成后走 Inspect 的快路径。
-var hashMutexes sync.Map
+//
+// 不用 sync.Mutex：后来者要等前一个的整段下载（可达数十分钟），而 Lock 不响应
+// ctx —— 用户取消启动打断不了它。槽位按引用计数回收，不随哈希只增不减。
+var (
+	slotsMu sync.Mutex
+	slots   = map[string]*hashSlot{}
+)
 
-func hashMutex(hash string) *sync.Mutex {
-	v, _ := hashMutexes.LoadOrStore(hash, &sync.Mutex{})
-	return v.(*sync.Mutex)
+type hashSlot struct {
+	ch   chan struct{} // 容量 1：放得进去就是持有
+	refs int           // 持有者 + 等待者；归零时从 slots 删掉
 }
+
+// lockHash 拿到 hash 的进程内槽位，ctx 结束则放弃等待。
+func lockHash(ctx context.Context, hash string) (func(), error) {
+	slotsMu.Lock()
+	s := slots[hash]
+	if s == nil {
+		s = &hashSlot{ch: make(chan struct{}, 1)}
+		slots[hash] = s
+	}
+	s.refs++
+	slotsMu.Unlock()
+
+	drop := func() {
+		slotsMu.Lock()
+		if s.refs--; s.refs == 0 {
+			delete(slots, hash)
+		}
+		slotsMu.Unlock()
+	}
+
+	select {
+	case s.ch <- struct{}{}:
+		return func() {
+			<-s.ch
+			drop()
+		}, nil
+	case <-ctx.Done():
+		drop()
+		return nil, ctx.Err()
+	}
+}
+
+// commitMu 串行化**所有哈希**的「写 metadata + 清理旧代」。
+//
+// 下载与解压按哈希并行（lockHash），提交不能：cached_key.cache 只有一个，清理的
+// 规则又是「非本哈希的一律删」。两个不同哈希交错时（实例启动的预取还在下旧 exe，
+// 更新后的预取已经提交了新 exe），先提交的那个随后的清理会删掉后提交者刚指过去的
+// generation —— metadata 指向不存在的目录。pruneGenerations 另外现读一次
+// metadata 保护被指向的那一代，兜住这把锁管不到的跨进程情形。
+var commitMu sync.Mutex
 
 // Prepare 幂等：已经有效就直接返回，不联网、不写盘。
 //
@@ -118,9 +165,11 @@ func Prepare(ctx context.Context, req Request) Result {
 		return Result{Reason: fmt.Sprintf("读不到 %s: %v", req.ExePath, err)}
 	}
 
-	mu := hashMutex(hash)
-	mu.Lock()
-	defer mu.Unlock()
+	unlock, err := lockHash(ctx, hash)
+	if err != nil {
+		return Result{Hash: hash, Reason: "等待同一 exe 的另一次预取时被取消"}
+	}
+	defer unlock()
 
 	existing, _ := Inspect(req.CacheRoot, hash)
 
@@ -141,6 +190,11 @@ func Prepare(ctx context.Context, req Request) Result {
 		wantLM = PrimaryLastModified(ctx, req, hash)
 	}
 	if acceptable(existing, wantLM) {
+		// 快路径也顺手清一次：命中快路径时从不走到下面的提交，ARK 更新前的旧代会
+		// 在源目录里一直留着（一次 ReadDir，没有可删的就是空操作）。
+		commitMu.Lock()
+		pruneGenerations(req.CacheRoot, hash, existing.Generation, req.Keep, false)
+		commitMu.Unlock()
 		return existing
 	}
 	if ctx.Err() != nil {
@@ -167,9 +221,13 @@ func Prepare(ctx context.Context, req Request) Result {
 	genName := newGenerationName(hash, 0)
 	genRel := generationRelPath(genName)
 	genDir := filepath.Join(req.CacheRoot, generationsRel, genName)
+	// 先解压进同目录的 staging，校验通过后一次 rename 出现在 generations/ 下：
+	// 镜像同步对 generations/ 不做内容对账，它在任何时刻看到的 generation 都必须
+	// 是完整的（staging 目录本身被镜像同步跳过）。
+	stageDir := filepath.Join(req.CacheRoot, generationsRel, stagingPrefix+genName)
 
-	if err := extractCacheZip(out.zipPath, genDir, req.MaxSize); err != nil {
-		os.RemoveAll(genDir)
+	if err := extractCacheZip(out.zipPath, stageDir, req.MaxSize); err != nil {
+		os.RemoveAll(stageDir)
 		if errors.Is(err, errZipRejected) {
 			// 这个 ZIP 本身有问题，续传它没有意义。
 			os.Remove(out.zipPath)
@@ -182,27 +240,36 @@ func Prepare(ctx context.Context, req Request) Result {
 		offsetsFileName:   offsetValueSize,
 		bitfieldsFileName: bitfieldValueSize,
 	} {
-		if err := validateSerializedMap(filepath.Join(genDir, name), valueSize); err != nil {
-			os.RemoveAll(genDir)
+		if err := validateSerializedMap(filepath.Join(stageDir, name), valueSize); err != nil {
+			os.RemoveAll(stageDir)
 			os.Remove(out.zipPath)
 			os.Remove(out.zipPath + ".part")
 			return Result{Hash: hash, Reason: fmt.Sprintf("结构校验不通过: %v", err)}
 		}
 	}
 
-	if err := writeMetadata(req.CacheRoot, metadata{
+	if err := os.Rename(stageDir, genDir); err != nil {
+		os.RemoveAll(stageDir)
+		return Result{Hash: hash, Reason: fmt.Sprintf("提交 generation 失败: %v", err)}
+	}
+
+	commitMu.Lock()
+	err = writeMetadata(req.CacheRoot, metadata{
 		Version:        cacheMetadataVersion,
 		ExecutableHash: hash,
 		LastModified:   out.lastModified,
 		CacheDirectory: genRel,
-	}); err != nil {
+	})
+	if err != nil {
+		commitMu.Unlock()
 		os.RemoveAll(genDir)
 		return Result{Hash: hash, Reason: fmt.Sprintf("写 cached_key.cache 失败: %v", err)}
 	}
+	pruneGenerations(req.CacheRoot, hash, genRel, req.Keep, false)
+	commitMu.Unlock()
 
 	// 成品已提交，几百 MB 的中转 ZIP 没有留着的理由。
 	os.Remove(out.zipPath)
-	pruneGenerations(req.CacheRoot, hash, genRel, req.Keep, false)
 
 	from := FromDownload
 	if existing.Ready {
@@ -228,6 +295,11 @@ func acceptable(res Result, wantLM string) bool {
 }
 
 // GC 删除非当前哈希的 generation 与陈旧的中转物。dryRun=true 只报不删。
+//
+// 中转物按哈希分组，**先非阻塞地拿那个哈希的预取锁**：拿不到说明有人正在下载
+// （包括当前缓存有效、但 Last-Modified 变了正在重下的那种），整组跳过。
+// 当前哈希的锁文件永不删除 —— flock 的锁属于打开的那个 inode，删掉路径会让下一个
+// 来者在新文件上拿到「另一把」锁。
 func GC(req Request, dryRun bool) ([]string, error) {
 	req = req.withDefaults()
 
@@ -237,85 +309,93 @@ func GC(req Request, dryRun bool) ([]string, error) {
 	}
 
 	current, _ := Inspect(req.CacheRoot, hash)
+	commitMu.Lock()
 	removed := pruneGenerations(req.CacheRoot, hash, current.Generation, req.Keep, dryRun)
+	commitMu.Unlock()
 
 	entries, err := os.ReadDir(req.WorkDir)
 	if err != nil {
 		return removed, nil // 中转目录还没建过，不是错误
 	}
+	groups := map[string][]string{}
 	for _, e := range entries {
 		if e.IsDir() {
 			continue
 		}
 		name := e.Name()
+		h, _, _ := strings.Cut(name, ".")
+		groups[h] = append(groups[h], name)
+	}
+	remove := func(name string) {
+		p := filepath.Join(req.WorkDir, name)
+		if dryRun || os.Remove(p) == nil {
+			removed = append(removed, p)
+		}
+	}
+	for h, names := range groups {
+		if !isHex64(h) {
+			// 不是我们的中转物（没有对应的锁可拿），照旧当垃圾清掉。
+			for _, name := range names {
+				remove(name)
+			}
+			continue
+		}
+		isCurrent := strings.EqualFold(h, hash)
 		// 属于当前 exe 的中转物只在缓存已就绪时才算陈旧（否则 .part 还要续传）。
-		if strings.HasPrefix(name, hash) && !current.Ready {
+		if isCurrent && !current.Ready {
 			continue
 		}
-		if dryRun {
-			removed = append(removed, filepath.Join(req.WorkDir, name))
-			continue
+		release, err := filelock.TryLock(lockPath(req.WorkDir, h), filelock.Exclusive)
+		if err != nil {
+			continue // 有人正在下载这个哈希；或锁文件打不开，也别动
 		}
-		if os.Remove(filepath.Join(req.WorkDir, name)) == nil {
-			removed = append(removed, filepath.Join(req.WorkDir, name))
+		hadLock := false
+		for _, name := range names {
+			if name == h+lockSuffix {
+				hadLock = true // 锁文件见下
+				continue
+			}
+			remove(name)
 		}
+		if !isCurrent {
+			// 旧 exe 的锁在持有期间删除：之后不会再有人为这个哈希预取。
+			// 原本没有锁文件（是 TryLock 刚建的）就悄悄删掉，不算进报告。
+			if hadLock {
+				remove(h + lockSuffix)
+			} else {
+				os.Remove(lockPath(req.WorkDir, h))
+			}
+		}
+		release()
 	}
 	return removed, nil
 }
 
 // 进程间锁：用户手动跑 `asa-server arkapi-cache fetch` 时后台服务可能也在跑。
-// O_CREATE|O_EXCL 建一个 <hash>.lock，内写 PID 与时间戳，超过 staleLockAge 视为
-// 陈旧（持锁进程崩了）并强夺。不引入新依赖。
+//
+// 曾经是 O_EXCL 建锁文件 + 「超过 30 分钟算陈旧就夺锁」：慢链路上一次下载就能
+// 超过 30 分钟，判定与删除之间还有 TOCTOU，两种都会让两个进程同时往同一个 .part
+// 里写。现在用 pkg/filelock（flock / LockFileEx）：持有进程死了内核就释放，没有
+// 「陈旧」需要判断，也就没有夺锁。
 const (
-	staleLockAge  = 30 * time.Minute
+	lockSuffix    = ".lock"
 	lockWaitLimit = 60 * time.Second
 	lockPollEvery = 2 * time.Second
 )
 
-func acquireFileLock(ctx context.Context, dir, hash string) (func(), error) {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, err
-	}
-	path := filepath.Join(dir, hash+".lock")
-	deadline := time.Now().Add(lockWaitLimit)
+func lockPath(dir, hash string) string { return filepath.Join(dir, hash+lockSuffix) }
 
-	for {
-		f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
-		if err == nil {
-			fmt.Fprintf(f, "%d %d\n", os.Getpid(), time.Now().Unix())
-			f.Close()
-			return func() { os.Remove(path) }, nil
-		}
-		if !os.IsExist(err) {
-			return nil, err
-		}
-		if lockIsStale(path) {
-			os.Remove(path)
-			continue
-		}
-		if time.Now().After(deadline) {
+func acquireFileLock(ctx context.Context, dir, hash string) (func(), error) {
+	waitCtx, cancel := context.WithTimeout(ctx, lockWaitLimit)
+	defer cancel()
+
+	path := lockPath(dir, hash)
+	release, err := filelock.Lock(waitCtx, path, filelock.Exclusive, lockPollEvery, nil)
+	if err != nil {
+		if ctx.Err() == nil && errors.Is(err, context.DeadlineExceeded) {
 			return nil, fmt.Errorf("等待 %s 超时（另一个进程正在预取）", path)
 		}
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(lockPollEvery):
-		}
+		return nil, err
 	}
-}
-
-func lockIsStale(path string) bool {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return false
-	}
-	fields := strings.Fields(string(data))
-	if len(fields) < 2 {
-		return true // 内容不成形，当陈旧处理
-	}
-	sec, err := strconv.ParseInt(fields[1], 10, 64)
-	if err != nil {
-		return true
-	}
-	return time.Since(time.Unix(sec, 0)) > staleLockAge
+	return release, nil
 }

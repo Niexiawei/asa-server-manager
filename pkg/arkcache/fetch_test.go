@@ -265,3 +265,61 @@ func TestFetchZipRejectsOversize(t *testing.T) {
 		t.Fatal("超限时不该发起 GET")
 	}
 }
+
+// 已下完的 ZIP 字节数恰好等于本次 HEAD 的长度，但旁车说它来自另一个版本：
+// 不能只凭大小复用，必须重下。
+func TestFetchZipDoesNotReuseSameSizeZipFromOtherSource(t *testing.T) {
+	body := bytes.Repeat([]byte("N"), 4096)
+	cdn := newCDN(t, body, "LM", cdnOpts{etag: `"new"`})
+	req := fetchRequest(t, cdn.prefix())
+
+	zipPath := filepath.Join(req.WorkDir, testHash+".zip")
+	if err := os.WriteFile(zipPath, bytes.Repeat([]byte("O"), len(body)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeSidecar(zipPath+".meta.json", sidecar{SourceURL: zipURL(cdn.prefix(), testHash), ETag: `"old"`, ContentLength: int64(len(body))})
+
+	if _, err := fetchZip(context.Background(), req, testHash); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(zipPath); !bytes.Equal(got, body) {
+		t.Fatal("复用了来源不同的旧 ZIP")
+	}
+	if cdn.gets != 1 {
+		t.Fatalf("GET 次数 = %d，want 1", cdn.gets)
+	}
+}
+
+func TestFetchZipDoesNotReuseZipWithoutSidecar(t *testing.T) {
+	body := bytes.Repeat([]byte("N"), 4096)
+	cdn := newCDN(t, body, "LM", cdnOpts{})
+	req := fetchRequest(t, cdn.prefix())
+
+	zipPath := filepath.Join(req.WorkDir, testHash+".zip")
+	if err := os.WriteFile(zipPath, bytes.Repeat([]byte("O"), len(body)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fetchZip(context.Background(), req, testHash); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(zipPath); !bytes.Equal(got, body) {
+		t.Fatal("复用了没有旁车的旧 ZIP")
+	}
+}
+
+// GET 回来的 body 比 HEAD 声明的长：截断在声明长度上，不往盘上无限写。
+func TestFetchZipCapsBodyAtDeclaredLength(t *testing.T) {
+	body := bytes.Repeat([]byte("L"), 64<<10)
+	cdn := newCDN(t, body, "LM", cdnOpts{headSize: 4096})
+	req := fetchRequest(t, cdn.prefix())
+
+	if _, err := fetchZip(context.Background(), req, testHash); err == nil {
+		t.Fatal("body 超过 HEAD 声明长度时应当失败")
+	}
+	zipPath := filepath.Join(req.WorkDir, testHash+".zip")
+	for _, p := range []string{zipPath, zipPath + ".part"} {
+		if _, err := os.Stat(p); err == nil {
+			t.Fatalf("%s 不该留在盘上", p)
+		}
+	}
+}
