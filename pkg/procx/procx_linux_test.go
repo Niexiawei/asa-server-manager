@@ -114,3 +114,85 @@ func TestSignalTreeRefusesInit(t *testing.T) {
 		t.Error("signalTree(1) returned nil; it must refuse to signal init")
 	}
 }
+
+func TestParseStat(t *testing.T) {
+	// A comm with spaces and a ')' of its own, like Wine's renamed threads.
+	line := "4242 (Game) Thread) S 1 4242 4242 0 -1 4194560 100 0 0 0 5 3 0 0 20 0 8 0 987654 1000 10 18446744073709551615"
+	st, ok := parseStat([]byte(line))
+	if !ok {
+		t.Fatal("parseStat failed")
+	}
+	if st.state != 'S' || st.start != 987654 {
+		t.Errorf("parseStat = %+v, want state S start 987654", st)
+	}
+	if _, ok := parseStat([]byte("4242 (x) S 1")); ok {
+		t.Error("parseStat accepted a truncated line")
+	}
+}
+
+// The regression: a tree that ignores SIGTERM must still be gone after the
+// grace period. TerminateTree alone returns nil (delivery succeeded) and the
+// old "escalate on error" never fired.
+func TestTerminateTreeGracefullyEscalates(t *testing.T) {
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("no sh available")
+	}
+	// Both the shell and its child ignore SIGTERM.
+	cmd := exec.Command(sh, "-c", `trap "" TERM; sh -c 'trap "" TERM; sleep 60' & wait`)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	reaped := make(chan struct{})
+	go func() { _, _ = cmd.Process.Wait(); close(reaped) }()
+	t.Cleanup(func() { _ = KillTree(cmd.Process.Pid) })
+
+	var tree []int
+	for range 100 {
+		if tree = processTree(cmd.Process.Pid); len(tree) >= 3 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if len(tree) < 3 {
+		t.Fatalf("tree did not grow: %v", tree)
+	}
+	time.Sleep(100 * time.Millisecond) // let the traps install
+
+	start := time.Now()
+	if err := TerminateTreeGracefully(cmd.Process.Pid, 500*time.Millisecond); err != nil {
+		t.Fatalf("TerminateTreeGracefully: %v", err)
+	}
+	if d := time.Since(start); d < 400*time.Millisecond {
+		t.Errorf("returned after %v; SIGTERM-ignoring tree should have used the grace period", d)
+	}
+	select {
+	case <-reaped:
+	case <-time.After(5 * time.Second):
+		t.Fatal("root still running after escalation")
+	}
+	for _, p := range tree[1:] {
+		if st, ok := readStat(p); ok && st.state != 'Z' {
+			t.Errorf("descendant %d survived (state %c)", p, st.state)
+		}
+	}
+}
+
+// A tree that honours SIGTERM must not be held for the whole grace period.
+func TestTerminateTreeGracefullyReturnsEarly(t *testing.T) {
+	cmd := exec.Command("sleep", "60")
+	if err := cmd.Start(); err != nil {
+		t.Skip("no sleep available")
+	}
+	go func() { _, _ = cmd.Process.Wait() }()
+	t.Cleanup(func() { _ = KillTree(cmd.Process.Pid) })
+
+	start := time.Now()
+	if err := TerminateTreeGracefully(cmd.Process.Pid, 10*time.Second); err != nil {
+		t.Fatalf("TerminateTreeGracefully: %v", err)
+	}
+	if d := time.Since(start); d > 3*time.Second {
+		t.Errorf("took %v for a process that exits on SIGTERM", d)
+	}
+}

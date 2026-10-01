@@ -627,12 +627,12 @@ func startServerInternal(instanceName string, options ...StartServerOptionsFunc)
 	// launcherExitErr 在 close 之前写、只在收到 close 之后读，happens-before 成立。
 	launcherExited := make(chan struct{})
 	var launcherExitErr error
+	//
+	// PTY 不在这里关：关闭权交给读取方 startAsaApiLogging（PTY 只在 ArkApi 启动时
+	// 才有，那时它必然被调用）。这里一关，主端缓冲里还没读走的最后几行就丢了。
 	go func() {
 		launcherExitErr = handle.Wait()
 		close(launcherExited)
-		if handle.PTY != nil {
-			_ = handle.PTY.Close()
-		}
 	}()
 
 	if arkAsaApiRunning {

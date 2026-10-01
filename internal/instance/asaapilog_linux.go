@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -81,20 +82,70 @@ func isArkApiLogName(name string) bool {
 //
 // 这样 API 层不需要知道平台差异：arkAsaApi.log 在两个平台上装的都是「ArkApi 的输出」。
 // 见 docs/ARKAPI_LINUX_LOGGING_AND_PID_PLAN.md §1.4（方案 C）。
-func startAsaApiLogging(instanceName, mirrorDir string, ptyStream io.Reader, launchedAt time.Time, done <-chan struct{}) {
+//
+// ptyStream 的关闭权归这里（server.go 的 Wait 协程不再关它），见 drainLauncherOutput。
+func startAsaApiLogging(instanceName, mirrorDir string, ptyStream io.ReadCloser, launchedAt time.Time, done <-chan struct{}) {
+	var dst io.Writer // nil = 没有地方落盘，只排空
 	if launcherPath, err := GetLauncherLogFilePath(instanceName); err != nil {
-		logger.Warnf("Failed to resolve launcher log path for instance %s: %v", instanceName, err)
+		logger.Warnf("Failed to resolve launcher log path for instance %s: %v; 启动链输出已丢弃", instanceName, err)
 	} else if f, err := os.OpenFile(launcherPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644); err != nil {
-		logger.Warnf("Failed to open launcher log file %s: %v", launcherPath, err)
+		logger.Warnf("Failed to open launcher log file %s: %v; 启动链输出已丢弃", launcherPath, err)
 	} else {
-		// cleaner 独占该句柄，pty 关闭后 CleanScreenOutput 返回并释放。
-		go func() {
-			defer f.Close()
-			_ = console.CleanScreenOutput(ptyStream, f)
-		}()
+		dst = f
 	}
 
+	go func() {
+		if f, ok := dst.(*os.File); ok {
+			defer f.Close()
+		}
+		drainLauncherOutput(ptyStream, dst, done, launcherDrainGrace)
+	}()
+
 	go copyArkApiLog(instanceName, mirrorDir, launchedAt, done)
+}
+
+// launcherDrainGrace 是启动链退出之后，等 PTY 里剩下的输出被读完的上限。
+const launcherDrainGrace = 5 * time.Second
+
+// drainLauncherOutput 把 PTY 的输出写进 dst（nil 时直接丢弃），读完后关闭 PTY。
+//
+// 关闭权在读取方，是因为启动链退出的那一刻 PTY 主端的内核缓冲里可能还有没读走的
+// 输出：以前 Wait 协程一看到 launcher 退出就关 PTY，秒退的加载器最后几行 —— 恰恰是
+// 「退出码 3、零输出」排障时最需要的 —— 就这么丢了。由读取方关，它会先读到
+// 从端全部关闭后的 EIO，缓冲读尽才收手。
+//
+// 但不能只靠 EIO：umu/Wine 链里可能有比 launcher 活得更久、继承了从端的进程
+// （例如共享 prefix 下的 wineserver），等它们全部退出可能要很久。所以启动链退出后
+// 至多再等 grace，到点照旧关 —— 与以前一样有界，只是多给了缓冲一个读完的机会。
+//
+// dst 为 nil 时也必须有人读：没人读的 PTY 写满缓冲后，启动链往终端写会阻塞。
+func drainLauncherOutput(ptyStream io.ReadCloser, dst io.Writer, done <-chan struct{}, grace time.Duration) {
+	var once sync.Once
+	closePTY := func() { once.Do(func() { _ = ptyStream.Close() }) }
+
+	drained := make(chan struct{})
+	go func() {
+		select {
+		case <-done:
+		case <-drained:
+			return
+		}
+		select {
+		case <-drained:
+		case <-time.After(grace):
+		}
+		closePTY()
+	}()
+	defer func() {
+		close(drained)
+		closePTY()
+	}()
+
+	if dst == nil {
+		_, _ = io.Copy(io.Discard, ptyStream)
+		return
+	}
+	_ = console.CleanScreenOutput(ptyStream, dst)
 }
 
 // copyArkApiLog 把本次启动产生的 ArkApi 日志持续转抄进实例的 arkAsaApi.log，

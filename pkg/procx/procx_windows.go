@@ -3,11 +3,13 @@
 package procx
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"strconv"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -262,6 +264,22 @@ func Kill(pid int) error {
 // TerminateTree ends a process and its descendants gracefully (taskkill /T).
 func TerminateTree(pid int) error {
 	return exec.Command("taskkill", "/PID", strconv.Itoa(pid), "/T").Run()
+}
+
+// TerminateTreeGracefully asks the tree to end (taskkill /T), waits up to
+// grace for pid to exit, then force-ends it (taskkill /F /T). A console
+// process without a window refuses the polite request outright — taskkill
+// returns an error — and is force-ended at once, with no wait.
+func TerminateTreeGracefully(pid int, grace time.Duration) error {
+	if err := TerminateTree(pid); err != nil {
+		return KillTree(pid)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), grace)
+	defer cancel()
+	if WaitProcessExit(ctx, pid, 200*time.Millisecond) {
+		return nil
+	}
+	return KillTree(pid)
 }
 
 // KillTree force-ends a process and its descendants (taskkill /F /T).

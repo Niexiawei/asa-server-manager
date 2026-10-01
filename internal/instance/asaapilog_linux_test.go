@@ -3,6 +3,7 @@
 package instance
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -97,5 +98,52 @@ func TestRelayArkApiLog_AppearTimeout(t *testing.T) {
 	relayArkApiLog(&dst, t.TempDir(), time.Now(), make(chan struct{}), 100*time.Millisecond, func(string) {})
 	if !strings.Contains(dst.String(), "等待超过") {
 		t.Errorf("missing the timeout note, got:\n%s", dst.String())
+	}
+}
+
+// 启动链退出之后才读到的那几行（秒退加载器的最后输出）不能丢：PTY 由读取方在
+// 读尽之后关闭，而不是 launcher 一退出就被关掉。
+func TestDrainLauncherOutputKeepsTailAfterLauncherExit(t *testing.T) {
+	r, w := io.Pipe()
+	done := make(chan struct{})
+	var out syncBuffer
+	finished := make(chan struct{})
+	go func() {
+		drainLauncherOutput(r, &out, done, 5*time.Second)
+		close(finished)
+	}()
+
+	_, _ = w.Write([]byte("starting\n"))
+	close(done) // launcher 退出了，缓冲里还有输出
+	_, _ = w.Write([]byte("exit code 3: missing dll\n"))
+	_ = w.Close()
+
+	select {
+	case <-finished:
+	case <-time.After(3 * time.Second):
+		t.Fatal("读到结尾后没有返回")
+	}
+	if !strings.Contains(out.String(), "missing dll") {
+		t.Fatalf("launcher 退出后的输出丢了: %q", out.String())
+	}
+}
+
+// 继承了从端、比 launcher 活得久的进程会让 PTY 迟迟不到结尾：退出后至多再等 grace。
+func TestDrainLauncherOutputBoundedAfterLauncherExit(t *testing.T) {
+	r, w := io.Pipe()
+	defer w.Close()
+	done := make(chan struct{})
+	finished := make(chan struct{})
+	go func() {
+		drainLauncherOutput(r, nil, done, 100*time.Millisecond)
+		close(finished)
+	}()
+
+	_, _ = w.Write([]byte("noise\n")) // nil dst 也要有人读，否则写方阻塞
+	close(done)
+	select {
+	case <-finished:
+	case <-time.After(3 * time.Second):
+		t.Fatal("launcher 退出后 PTY 没有在 grace 内关闭")
 	}
 }
