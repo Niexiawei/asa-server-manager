@@ -36,6 +36,7 @@ func TryLockInstance(instanceName string) (unlock func(), ok bool) {
 	if !mu.TryLock() {
 		return nil, false
 	}
+	recoverPluginTxn(instanceName)
 	return mu.Unlock, true
 }
 
@@ -49,9 +50,7 @@ func TryLockInstance(instanceName string) (unlock func(), ok bool) {
 // 迁移或落位失败都中止启动：带着没迁完的目录去同步，镜像里的旧内容会被粗暴合并进去；
 // 该禁用的插件挪不出去就启动，等于加载了用户明确禁用的插件。syncMirror 的错误原样返回。
 func PrepareForStart(instanceName, mirrorDir string, disabled []string, syncMirror func() error) error {
-	mu := instanceLock(instanceName)
-	mu.Lock()
-	defer mu.Unlock()
+	defer lockInstance(instanceName)()
 
 	if err := migrateInstance(instanceName, mirrorDir); err != nil {
 		return fmt.Errorf("迁移实例 %s 的 ArkApi 插件目录失败，已中止启动（原有数据未改动）: %w", instanceName, err)

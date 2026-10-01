@@ -72,9 +72,17 @@ func shuttleRetired(instanceName, mirrorDir string) bool {
 	return fsutil.IsLink(MirrorPluginsDir(mirrorDir)) || IsMigrated(instanceName)
 }
 
-// MirrorPluginsDir 返回镜像里的 ArkApi 插件目录。
+// MirrorPluginsDir 返回镜像里的 ArkApi 插件目录，ArkApi 与 Plugins 两级按镜像里的
+// **实际大小写**给出；镜像里还没有这两级时退回常量的写法。
+//
+// 曾经直接拼常量：Linux 上 server-files 是手工解压出来的 arkapi/ 时，镜像（同步自
+// server-files，大小写随源）里的插件目录在这里永远找不到，迁移的抢救与旧布局的
+// 收回全部静默落空 —— 紧接着镜像同步按实际大小写把那个真实目录换成 junction，
+// 没抢回的数据就没了（docs/PLAN_IMPLEMENTATION_AUDIT_2026-09-29.md §7.2 P1-21）。
 func MirrorPluginsDir(mirrorDir string) string {
-	return filepath.Join(mirrorDir, filepath.FromSlash(pluginsRelPath))
+	win64 := win64DirFromMirror(mirrorDir)
+	ark := actualChildName(win64, "ArkApi")
+	return filepath.Join(win64, ark, actualChildName(filepath.Join(win64, ark), "Plugins"))
 }
 
 // listMirrorPlugins 列出镜像里实际存在的插件目录名。
@@ -82,8 +90,7 @@ func MirrorPluginsDir(mirrorDir string) string {
 func listMirrorPlugins(mirrorDir string) []string {
 	entries, err := os.ReadDir(MirrorPluginsDir(mirrorDir))
 	if err != nil {
-		warnIfPluginsPathCaseMismatch(mirrorDir) // 见 docs/LINUX_COMPATIBILITY_PLAN.md §5.12 表格第 1 条
-		return nil                               // ArkApi 未安装，或镜像还没建起来
+		return nil // ArkApi 未安装，或镜像还没建起来
 	}
 	var out []string
 	for _, e := range entries {
@@ -324,11 +331,15 @@ func writeFileAtomic(path string, data []byte) error {
 //   - 不排除回写：源版本的主库会被拷进镜像，与镜像里保留的旧 -wal 拼成互不匹配的组合。
 //
 // SQLite 走文件头识别，所以需要 mirrorDir 才能定位到实际文件。
+//
+// 前缀按不区分大小写比较，理由同 MirrorPluginsDir：relPath 是 Walk 出来的、反映盘上
+// 实际大小写的路径。
 func IsProtectedRelPath(mirrorDir, relPath string) bool {
-	if !strings.HasPrefix(relPath, pluginsRelPath+"/") {
+	prefix := pluginsRelPath + "/"
+	if len(relPath) <= len(prefix) || !strings.EqualFold(relPath[:len(prefix)], prefix) {
 		return false
 	}
-	rest := strings.TrimPrefix(relPath, pluginsRelPath+"/")
+	rest := relPath[len(prefix):]
 	// 至少要有「插件名/文件名」两段，插件目录本身不算
 	if !strings.Contains(rest, "/") {
 		return false

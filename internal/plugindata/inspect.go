@@ -11,6 +11,7 @@ import (
 	"time"
 
 	cfgpkg "asa-server/internal/config"
+	"asa-server/pkg/fsutil"
 )
 
 // FileInfo 是暴露给 API 的文件描述。
@@ -250,9 +251,7 @@ func WritePluginConfig(instanceName, plugin, content string) error {
 		return fmt.Errorf("配置必须是一个 JSON 对象: %w", err)
 	}
 
-	mu := instanceLock(instanceName)
-	mu.Lock()
-	defer mu.Unlock()
+	defer lockInstance(instanceName)()
 
 	if IsMigrated(instanceName) {
 		// 不替不存在的插件建目录：那会凭空多出一个没有 dll 的「插件」。
@@ -273,13 +272,17 @@ func WritePluginConfig(instanceName, plugin, content string) error {
 
 // ValidatePluginName 校验插件目录名。插件名直接来自 URL 或上传的包，所以首先要挡住路径穿越；
 // 另外不许含逗号（禁用列表在 instance_config.ini 里是逗号分隔的一行）、不许以 . 开头
-// （实例插件目录下 .xxx 是本程序的临时目录）。
+// （实例插件目录下 .xxx 是本程序的临时目录），并且必须在两个平台上都是合法的目录名
+// （Windows 保留名、尾随点或空格在 Windows 上建不出来或被悄悄改名，之后就再也找不到）。
 func ValidatePluginName(plugin string) error {
 	if plugin == "" {
 		return fmt.Errorf("插件名不能为空")
 	}
 	if strings.ContainsAny(plugin, `/\:,`) || strings.Contains(plugin, "..") || strings.HasPrefix(plugin, ".") {
 		return fmt.Errorf("非法的插件名: %q", plugin)
+	}
+	if err := fsutil.ValidPortableName(plugin); err != nil {
+		return fmt.Errorf("非法的插件名: %w", err)
 	}
 	return nil
 }
