@@ -12,6 +12,7 @@
 package pyfinder
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -21,6 +22,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 const (
@@ -242,9 +244,25 @@ func CandidateNames() []string {
 	return append(names, "python3", "python")
 }
 
+// probeTimeout caps one interpreter's version probe. Resolve holds its lock
+// while probing (so preflight and launch agree on one answer), so a candidate
+// that hangs — a broken wrapper script, a stuck network mount — used to hang
+// every caller with it. Now the worst case is candidates x probeTimeout, and a
+// candidate that times out is just one that failed.
+var probeTimeout = 5 * time.Second
+
 // versionOf runs the interpreter and parses "<major> <minor>".
 func versionOf(path string) (major, minor int, err error) {
-	out, err := exec.Command(path, "-c", probeScript).Output()
+	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, path, "-c", probeScript)
+	// A grandchild that inherited stdout would keep Output() waiting for EOF
+	// even after the interpreter itself was killed.
+	cmd.WaitDelay = time.Second
+	out, err := cmd.Output()
+	if ctx.Err() != nil {
+		return 0, 0, fmt.Errorf("version probe timed out after %s", probeTimeout)
+	}
 	if err != nil {
 		return 0, 0, err
 	}
