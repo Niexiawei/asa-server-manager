@@ -9,15 +9,19 @@ import (
 	"time"
 )
 
-func TestLoadCreatesTemplateWhenMissing(t *testing.T) {
+// 缺配置时 Load 只用内存默认值、从不写文件：生成配置的唯一入口是 InitConfig。
+// 默认值本身也在这里钉住。
+func TestLoadMissingConfigUsesDefaultsAndWritesNothing(t *testing.T) {
 	dir := t.TempDir()
 
 	if _, err := loadFrom(t, dir); err != nil {
-		t.Fatalf("首次 Load 不应报错: %v", err)
+		t.Fatalf("缺配置时 Load 不应报错: %v", err)
 	}
-	path := filepath.Join(dir, ConfigFileName)
-	if _, err := os.Stat(path); err != nil {
-		t.Fatalf("首次 Load 应写出 %s: %v", ConfigFileName, err)
+	if !ConfigMissing() {
+		t.Error("缺配置时 ConfigMissing 应为 true")
+	}
+	if _, err := os.Stat(filepath.Join(dir, ConfigFileName)); !os.IsNotExist(err) {
+		t.Fatalf("Load 不应生成 %s: %v", ConfigFileName, err)
 	}
 
 	cfg := Get()
@@ -38,16 +42,16 @@ func TestLoadCreatesTemplateWhenMissing(t *testing.T) {
 	}
 }
 
-// 模板文件本身必须能被解析和校验通过。否则用户第一次运行生成了配置，
-// 第二次启动就会因为模板里的笔误而报错。
+// InitConfig 生成的模板必须能被 Load 解析和校验通过。否则用户刚 config init 完，
+// 第一次启动就会因为模板里的笔误而被拒绝。
 func TestGeneratedTemplateIsLoadable(t *testing.T) {
 	dir := t.TempDir()
 
-	if _, err := loadFrom(t, dir); err != nil { // 生成模板
-		t.Fatalf("首次 Load: %v", err)
+	if _, err := InitConfig(InitOptions{Dir: dir}); err != nil {
+		t.Fatalf("InitConfig: %v", err)
 	}
-	if _, err := loadFrom(t, dir); err != nil { // 这次真的读它
-		t.Fatalf("读取自己生成的模板失败，模板有问题: %v", err)
+	if _, err := loadFrom(t, dir); err != nil {
+		t.Fatalf("读取 InitConfig 生成的模板失败，模板有问题: %v", err)
 	}
 
 	cfg := Get()
@@ -114,12 +118,15 @@ func TestLoadRejectsBadYAML(t *testing.T) {
 	def := defaultConfig()
 	current.Store(&def)
 
-	if _, err := loadFrom(t, dir); err == nil {
+	_, err := loadFrom(t, dir)
+	if err == nil {
 		t.Fatal("语法错误的 YAML 应返回错误")
 	}
-	// 关键：Load 失败不得清空 current。主程序据此"记 ERROR 并用默认配置继续启动"，
-	// 而默认配置里 auth.enabled 为 false，所以配置写坏的最坏结果是不鉴权，
-	// 不是把所有人锁在门外。
+	if !errors.Is(err, ErrConfigInvalid) {
+		t.Errorf("语法错误应可用 errors.Is 匹配 ErrConfigInvalid（主程序据此拒绝启动），实际 %v", err)
+	}
+	// Load 失败不得清空 current：主程序虽然会拒绝启动，但 readOnly 的命令
+	// （config path 等）照常运行，Get() 不能是 nil。
 	cfg := Get()
 	if cfg == nil {
 		t.Fatal("Load 失败后 Get() 不得返回 nil")
@@ -129,9 +136,10 @@ func TestLoadRejectsBadYAML(t *testing.T) {
 	}
 }
 
-// 配置有错**且明确要求开启鉴权**时，错误必须能被识别出来，
-// 好让主程序拒绝启动。否则一个 domains 的拼写错误就会让服务
-// 静默地以"鉴权关闭"的默认值跑起来——而这台机器可能正暴露在公网上。
+// 配置有错时，错误必须能被识别出来，好让主程序拒绝启动。鉴权开着时尤其如此：
+// 否则一个 domains 的拼写错误就会让服务静默地以"鉴权关闭"的默认值跑起来——
+// 而这台机器可能正暴露在公网上。鉴权关着时也一样拒绝：用默认配置继续会把
+// 下载代理、端口等其余配置一起丢掉（docs/APPCONFIG_BASEDIR_PLAN.md Part 2 P2-3 第 6 条）。
 func TestInvalidAuthConfigIsFatal(t *testing.T) {
 	t.Run("鉴权开启时可识别", func(t *testing.T) {
 		dir := t.TempDir()
@@ -146,8 +154,8 @@ auth:
 		if err == nil {
 			t.Fatal("非法 networks 应返回错误")
 		}
-		if !errors.Is(err, ErrAuthConfigInvalid) {
-			t.Errorf("鉴权开启时的配置错误应可用 errors.Is 匹配 ErrAuthConfigInvalid，实际 %v", err)
+		if !errors.Is(err, ErrConfigInvalid) {
+			t.Errorf("鉴权开启时的配置错误应可用 errors.Is 匹配 ErrConfigInvalid，实际 %v", err)
 		}
 		// 错误信息仍要指出具体哪里错了
 		if !strings.Contains(err.Error(), "networks[0]") {
@@ -155,7 +163,7 @@ auth:
 		}
 	})
 
-	t.Run("鉴权关闭时只是普通错误", func(t *testing.T) {
+	t.Run("鉴权关闭时同样拒绝", func(t *testing.T) {
 		dir := t.TempDir()
 		writeConfig(t, dir, `
 auth:
@@ -168,9 +176,8 @@ auth:
 		if err == nil {
 			t.Fatal("非法 networks 应返回错误")
 		}
-		// 没开鉴权，回落默认值继续跑是安全的，不该让服务起不来
-		if errors.Is(err, ErrAuthConfigInvalid) {
-			t.Error("鉴权关闭时不该标记为致命错误")
+		if !errors.Is(err, ErrConfigInvalid) {
+			t.Errorf("鉴权关闭时的配置错误同样应匹配 ErrConfigInvalid，实际 %v", err)
 		}
 	})
 }

@@ -14,7 +14,7 @@ import (
 )
 
 // configEnv 隔离三级查找与环境变量，并按「main.go 以 config 子命令启动」的方式
-// 加载一次（WithoutAutoGenerate），让 ConfigMissing/ConfigPath 反映 exe/sys 目录的真实状态。
+// 加载一次（Load 只读，不生成配置），让 ConfigMissing/ConfigPath 反映 exe/sys 目录的真实状态。
 type configEnv struct {
 	exeDir, sysDir string
 }
@@ -36,7 +36,7 @@ func newConfigEnv(t *testing.T) *configEnv {
 
 func (e *configEnv) reload(t *testing.T) {
 	t.Helper()
-	if _, err := appconfig.Load(appconfig.WithoutAutoGenerate()); err != nil {
+	if _, err := appconfig.Load(); err != nil {
 		t.Fatalf("Load: %v", err)
 	}
 }

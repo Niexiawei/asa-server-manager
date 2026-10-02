@@ -426,9 +426,10 @@ func runConfigPath(out io.Writer) error {
 	level(2, "程序目录", dirs.ExeDir)
 	level(3, "系统目录", dirs.SystemDir)
 
-	cfg := appconfig.Get()
+	// 不看 appconfig.Get().BaseDir：配置无效时 Get() 是默认配置，而 cfgpkg.BaseDir
+	// 仍是文件里的 basedir（appconfig.Load 的约定）。
 	source := "配置文件所在目录"
-	if !missing && cfg.BaseDir != "" {
+	if !missing && !fsutil.SamePath(cfgpkg.BaseDir, filepath.Dir(path)) {
 		source = "config.yaml 的 basedir 字段"
 	}
 	fmt.Fprintf(out, "数据目录：%s（来源：%s）\n", cfgpkg.BaseDir, source)
@@ -438,7 +439,7 @@ func runConfigPath(out io.Writer) error {
 
 	if !missing {
 		if _, err := appconfig.CheckFile(path); err != nil {
-			fmt.Fprintf(out, "\n⚠ 这份配置无法通过校验，程序会回落到默认配置运行：\n  %v\n运行 asa-server config validate 查看详情。\n", err)
+			fmt.Fprintf(out, "\n⚠ 这份配置无法通过校验，除 config 子命令与维护命令外，程序不会启动：\n  %v\n运行 asa-server config validate 查看详情。\n", err)
 		}
 	}
 	return nil

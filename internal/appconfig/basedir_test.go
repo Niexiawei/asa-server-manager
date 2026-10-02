@@ -99,13 +99,14 @@ func TestLoad_OldConfigWithoutBasedirField_CompatPath(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 	if got != exeDir {
-		t.Errorf("无 basedir 字段且无环境变量时应回落到 config.yaml 自己所在目录，期望 %q，实际 %q", exeDir, got)
+		t.Errorf("无 basedir 字段时应回落到 config.yaml 自己所在目录，期望 %q，实际 %q", exeDir, got)
 	}
 }
 
-// G1 判据：两级都没有 config.yaml 时，启动（这一步）不产生任何目录，只在 exe 同级
-// 生成默认 config.yaml；系统固定目录完全不受影响。
-func TestLoad_NeitherLevelHasConfig_GeneratesDefaultAtExeDir(t *testing.T) {
+// 两级都没有 config.yaml 时，Load 落回 exe 同级并报告缺失，但**不生成任何文件或目录**
+// ——以前这里会在 exe 同级生成默认模板，2026-10-02 起生成配置只走 InitConfig
+// （docs/APPCONFIG_BASEDIR_PLAN.md Part 2 P2-3 第 6 条）。系统固定目录完全不受影响。
+func TestLoad_NeitherLevelHasConfig_WritesNothing(t *testing.T) {
 	exeDir := t.TempDir()
 	sysDir := filepath.Join(t.TempDir(), "nested", "does-not-exist")
 	OverrideSearchDirsForTest(t, exeDir, sysDir)
@@ -117,8 +118,11 @@ func TestLoad_NeitherLevelHasConfig_GeneratesDefaultAtExeDir(t *testing.T) {
 	if got != exeDir {
 		t.Errorf("两级都没有时应落回 exe 同级，期望 %q，实际 %q", exeDir, got)
 	}
-	if _, err := os.Stat(filepath.Join(exeDir, ConfigFileName)); err != nil {
-		t.Errorf("应在 exe 同级生成默认 config.yaml: %v", err)
+	if !ConfigMissing() {
+		t.Error("两级都没有时 ConfigMissing 应为 true")
+	}
+	if _, err := os.Stat(filepath.Join(exeDir, ConfigFileName)); !os.IsNotExist(err) {
+		t.Errorf("不应在 exe 同级生成 config.yaml: %v", err)
 	}
 	if _, err := os.Stat(sysDir); err == nil {
 		t.Error("系统固定目录不存在时不应该被意外创建出来")

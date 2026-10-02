@@ -119,12 +119,12 @@ func TestDefaultInitDir(t *testing.T) {
 	}
 }
 
-// WithoutAutoGenerate：配置缺失时只用默认值，不落盘。
-func TestLoadWithoutAutoGenerate(t *testing.T) {
+// Load 只读：配置缺失时只用默认值，不落盘，连配置目录都不建。
+func TestLoadMissingConfigWritesNothing(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "not-created")
 	t.Setenv("ASA_CFG", dir)
 
-	got, err := Load(WithoutAutoGenerate())
+	got, err := Load()
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -132,7 +132,7 @@ func TestLoadWithoutAutoGenerate(t *testing.T) {
 		t.Errorf("BaseDir 应回落到配置目录 %q，实际 %q", dir, got)
 	}
 	if _, err := os.Stat(dir); err == nil {
-		t.Error("WithoutAutoGenerate 时不应创建配置目录")
+		t.Error("Load 不应创建配置目录")
 	}
 	if !ConfigMissing() {
 		t.Error("ConfigMissing() 应为 true")
@@ -145,20 +145,22 @@ func TestLoadWithoutAutoGenerate(t *testing.T) {
 	}
 }
 
-// 自动生成模式下，ConfigMissing 反映的是「加载前有没有」，而不是「现在有没有」：
-// 首次生成那次仍报告缺失（调用方据此知道这是全新安装），之后报告存在。
-func TestConfigMissingWhenAutoGenerating(t *testing.T) {
+// ConfigMissing 跟着文件走：InitConfig 生成之后再 Load，报告存在。
+func TestConfigMissingTracksFile(t *testing.T) {
 	dir := t.TempDir()
 	if _, err := loadFrom(t, dir); err != nil {
 		t.Fatalf("Load: %v", err)
 	}
 	if !ConfigMissing() {
-		t.Error("首次生成那次 ConfigMissing() 应为 true")
+		t.Error("没有配置时 ConfigMissing() 应为 true")
 	}
-	if _, err := os.Stat(filepath.Join(dir, ConfigFileName)); err != nil {
-		t.Errorf("默认模式应已生成模板: %v", err)
+	if _, err := os.Stat(filepath.Join(dir, ConfigFileName)); !os.IsNotExist(err) {
+		t.Errorf("Load 不应生成模板: %v", err)
 	}
 
+	if _, err := InitConfig(InitOptions{Dir: dir}); err != nil {
+		t.Fatalf("InitConfig: %v", err)
+	}
 	if _, err := loadFrom(t, dir); err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -174,7 +176,7 @@ func TestConfigPathFollowsLookupLevel(t *testing.T) {
 	exeDir, sysDir := t.TempDir(), t.TempDir()
 	OverrideSearchDirsForTest(t, exeDir, sysDir)
 	writeConfig(t, sysDir, "server:\n  port: 19193\n")
-	if _, err := Load(WithoutAutoGenerate()); err != nil {
+	if _, err := Load(); err != nil {
 		t.Fatalf("Load: %v", err)
 	}
 	if want := filepath.Join(sysDir, ConfigFileName); ConfigPath() != want {
@@ -182,7 +184,7 @@ func TestConfigPathFollowsLookupLevel(t *testing.T) {
 	}
 
 	writeConfig(t, exeDir, "server:\n  port: 19193\n")
-	if _, err := Load(WithoutAutoGenerate()); err != nil {
+	if _, err := Load(); err != nil {
 		t.Fatalf("Load: %v", err)
 	}
 	if want := filepath.Join(exeDir, ConfigFileName); ConfigPath() != want {

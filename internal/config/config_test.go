@@ -17,7 +17,7 @@ import (
 // BaseDir 落在测试二进制旁边，建出来也没人用；以前这里会在源码目录下留下
 // instances/、server-files/ 等空目录（docs/TEST_ENV_COUPLING_PLAN.md T2）。
 func init() {
-	baseDir, _ := appconfig.Load(appconfig.WithoutAutoGenerate())
+	baseDir, _ := appconfig.Load()
 	SetDirectories(baseDir)
 
 	logger.InitLoggerWithBaseDir(BaseDir)
