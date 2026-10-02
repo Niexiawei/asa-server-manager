@@ -290,3 +290,29 @@ func TestLoad_DefensiveFallbackWhenLocateFails(t *testing.T) {
 		t.Error("即使定位失败，也必须给出一个非空的兜底 BaseDir")
 	}
 }
+
+// UnsetEnvForTest 清掉全部 ASA_*，但保留测试开关 ASA_TEST_*。
+func TestUnsetEnvForTest(t *testing.T) {
+	t.Setenv("ASA_SERVER_PORT", "1")
+	t.Setenv("ASA_TEST_KEEP_ME", "1")
+
+	cleared := UnsetEnvForTest()
+	if _, ok := os.LookupEnv("ASA_SERVER_PORT"); ok {
+		t.Error("ASA_SERVER_PORT 应被清掉")
+	}
+	if os.Getenv("ASA_TEST_KEEP_ME") != "1" {
+		t.Error("ASA_TEST_* 应保留")
+	}
+	found := false
+	for _, name := range cleared {
+		if name == "ASA_SERVER_PORT" {
+			found = true
+		}
+		if strings.HasPrefix(name, "ASA_TEST_") {
+			t.Errorf("不应清掉 %s", name)
+		}
+	}
+	if !found {
+		t.Errorf("返回值应包含 ASA_SERVER_PORT，实际 %v", cleared)
+	}
+}
