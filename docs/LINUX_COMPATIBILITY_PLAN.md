@@ -1220,6 +1220,9 @@ basedir: ""
 问题从根上不存在了。`ASA_BASEDIR` 环境变量本身**不删**（现有文档已经在用，`appconfig` 对其余配置项
 也统一走这条 `ASA_*` 规则），只是不再是首次启动向导的持久化手段，纯粹作为 flag 之下的一层显式覆盖保留。
 
+> 📌 **2026-10-02**：`ASA_BASEDIR` 已移除，上面第 1 条与本段「不删」的结论作废；第 4 条「都找不到 → 自动生成」
+> 也已推翻（api / 服务模式缺配置时拒绝启动）。见 `docs/APPCONFIG_BASEDIR_PLAN.md` Part 2。
+
 **权限**：写系统固定目录（第 3 级，开发/调试用）需要管理员/root（`%ProgramData%` 默认普通用户不可写；
 `/etc/asa-server/` 同理）；写 exe 同级（第 2 级，向导默认路径）权限要求取决于 exe 自己所在的目录。
 
@@ -1319,6 +1322,10 @@ Linux 上的完整入口就是 CLI：
 两平台共享、不能各写一份的东西：BaseDir 校验规则（§10.4）与解析优先级（§10.3）。
 
 ### 10.7 `asa-server api` 始终是一等入口（原 D8，结论不变）
+
+> 📌 **2026-10-02**：不变量 1（以及下面 G5）中「缺配置时自动生成、解压即可直接 `asa-server api`」已推翻：
+> `api` 与服务模式现在要求一份存在且有效的 `config.yaml`，全新部署先 `config init` 或 `setup`。
+> 「`api` 不必经过 GUI / setup」这一点仍然成立（`config init` 不是向导）。见 `docs/APPCONFIG_BASEDIR_PLAN.md` Part 2 P2-3 第 6 条。
 
 > GUI 与 `setup` 都是**可选外壳**，任何时候用户都能绕开它们，直接 `asa-server api` 把服务跑起来。
 

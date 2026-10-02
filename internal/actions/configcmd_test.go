@@ -9,11 +9,12 @@ import (
 	"testing"
 
 	"asa-server/internal/appconfig"
+	cfgpkg "asa-server/internal/config"
 	"asa-server/pkg/userenv"
 )
 
 // configEnv 隔离三级查找与环境变量，并按「main.go 以 config 子命令启动」的方式
-// 加载一次（WithoutAutoGenerate），让 ConfigMissing/ConfigPath 反映 exe/sys 目录的真实状态。
+// 加载一次（Load 只读，不生成配置），让 ConfigMissing/ConfigPath 反映 exe/sys 目录的真实状态。
 type configEnv struct {
 	exeDir, sysDir string
 }
@@ -23,6 +24,8 @@ func newConfigEnv(t *testing.T) *configEnv {
 	e := &configEnv{exeDir: t.TempDir(), sysDir: t.TempDir()}
 	appconfig.OverrideSearchDirsForTest(t, e.exeDir, e.sysDir)
 	t.Setenv("ASA_CFG", "")
+	// ASA_BASEDIR 已不参与解析，但设了会让输出多一行「已不生效」的提示；清掉它，
+	// 输出才不随开发机变。提示本身由 TestConfigPathAndValidate_LegacyBaseDirHint 测。
 	t.Setenv("ASA_BASEDIR", "")
 	orig := validateBaseDir
 	validateBaseDir = func(string) error { return nil } // 测试机未必有 30GB
@@ -33,7 +36,7 @@ func newConfigEnv(t *testing.T) *configEnv {
 
 func (e *configEnv) reload(t *testing.T) {
 	t.Helper()
-	if _, err := appconfig.Load(appconfig.WithoutAutoGenerate()); err != nil {
+	if _, err := appconfig.Load(); err != nil {
 		t.Fatalf("Load: %v", err)
 	}
 }
@@ -229,6 +232,43 @@ func TestConfigValidate(t *testing.T) {
 	writeFile(t, bad, "server:\n  port: 70000\n")
 	if err := runConfigValidate(&out, bad); err == nil || !strings.Contains(err.Error(), "配置无效") {
 		t.Fatalf("--file 指向非法配置应报错，实际 %v", err)
+	}
+}
+
+// 遗留的 ASA_BASEDIR 不改变数据目录，但 config path / validate 要提示它已不生效，
+// 并告诉用户要沿用原目录该在哪个文件里写哪一行。
+func TestConfigPathAndValidate_LegacyBaseDirHint(t *testing.T) {
+	e := newConfigEnv(t)
+	path := filepath.Join(e.exeDir, appconfig.ConfigFileName)
+	writeFile(t, path, "basedir: \"\"\n")
+	old := filepath.Join(t.TempDir(), "old-data")
+	t.Setenv("ASA_BASEDIR", old)
+
+	baseDir, err := appconfig.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if baseDir != e.exeDir {
+		t.Fatalf("数据目录应是配置所在目录 %q，实际 %q", e.exeDir, baseDir)
+	}
+	origBase := cfgpkg.BaseDir
+	cfgpkg.BaseDir = baseDir
+	t.Cleanup(func() { cfgpkg.BaseDir = origBase })
+
+	for name, run := range map[string]func(*bytes.Buffer) error{
+		"config path":     func(b *bytes.Buffer) error { return runConfigPath(b) },
+		"config validate": func(b *bytes.Buffer) error { return runConfigValidate(b, "") },
+	} {
+		var out bytes.Buffer
+		if err := run(&out); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		s := out.String()
+		for _, want := range []string{"已不再生效", e.exeDir, "basedir:"} {
+			if !strings.Contains(s, want) {
+				t.Errorf("%s 的输出应包含 %q:\n%s", name, want, s)
+			}
+		}
 	}
 }
 

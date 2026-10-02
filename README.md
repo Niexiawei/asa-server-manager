@@ -135,6 +135,10 @@ asa-manager service remove
 
 #### HTTP API Server
 
+`api` (and service mode) needs an existing, valid `config.yaml`: run `asa-manager config init`
+(or `asa-manager setup`) first. A missing or invalid config makes it exit with code 78 instead of
+starting with defaults.
+
 ```bash
 # Start HTTP API server (HTTPS + HTTP/2 by default)
 asa-manager api

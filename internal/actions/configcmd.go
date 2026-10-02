@@ -264,12 +264,10 @@ func runConfigInit(o configInitOptions, p *prompter) (configInitResult, error) {
 		}
 	}
 	if baseDir == "" {
-		// 数据就落在配置目录里（或 ASA_BASEDIR）：同样的问题（网络盘、空间不足）照样存在，
+		// 数据就落在配置目录里：同样的问题（网络盘、空间不足）照样存在，
 		// 但这是默认值不是用户的显式选择，只提示不拦。
-		if os.Getenv("ASA_BASEDIR") == "" {
-			if verr := validateBaseDir(dir); verr != nil {
-				fmt.Fprintf(out, L("提示：数据将存放在配置文件所在目录，但它可能不合适：\n%v\n", "Hint: data will live in the config directory, which may be unsuitable:\n%v\n"), verr)
-			}
+		if verr := validateBaseDir(dir); verr != nil {
+			fmt.Fprintf(out, L("提示：数据将存放在配置文件所在目录，但它可能不合适：\n%v\n", "Hint: data will live in the config directory, which may be unsuitable:\n%v\n"), verr)
 		}
 	}
 
@@ -351,11 +349,7 @@ func printConfigInitSummary(out io.Writer, r configInitResult, forSetup bool) {
 	en := r.Lang == appconfig.LangEN
 	dataDir := r.BaseDir
 	if dataDir == "" {
-		if env := os.Getenv("ASA_BASEDIR"); env != "" {
-			dataDir = env
-		} else {
-			dataDir = r.Dir
-		}
+		dataDir = r.Dir
 	}
 	if en {
 		fmt.Fprintf(out, "\nConfig file generated: %s (English comments)\n", r.Path)
@@ -432,19 +426,20 @@ func runConfigPath(out io.Writer) error {
 	level(2, "程序目录", dirs.ExeDir)
 	level(3, "系统目录", dirs.SystemDir)
 
-	cfg := appconfig.Get()
+	// 不看 appconfig.Get().BaseDir：配置无效时 Get() 是默认配置，而 cfgpkg.BaseDir
+	// 仍是文件里的 basedir（appconfig.Load 的约定）。
 	source := "配置文件所在目录"
-	switch {
-	case !missing && cfg.BaseDir != "":
+	if !missing && !fsutil.SamePath(cfgpkg.BaseDir, filepath.Dir(path)) {
 		source = "config.yaml 的 basedir 字段"
-	case os.Getenv("ASA_BASEDIR") != "":
-		source = "环境变量 ASA_BASEDIR"
 	}
 	fmt.Fprintf(out, "数据目录：%s（来源：%s）\n", cfgpkg.BaseDir, source)
+	if hint := appconfig.LegacyBaseDirHint(cfgpkg.BaseDir, path); hint != "" {
+		fmt.Fprintf(out, "⚠ %s\n", hint)
+	}
 
 	if !missing {
 		if _, err := appconfig.CheckFile(path); err != nil {
-			fmt.Fprintf(out, "\n⚠ 这份配置无法通过校验，程序会回落到默认配置运行：\n  %v\n运行 asa-server config validate 查看详情。\n", err)
+			fmt.Fprintf(out, "\n⚠ 这份配置无法通过校验，除 config 子命令与维护命令外，程序不会启动：\n  %v\n运行 asa-server config validate 查看详情。\n", err)
 		}
 	}
 	return nil
@@ -474,11 +469,7 @@ func runConfigValidate(out io.Writer, file string) error {
 
 	dataDir := cfg.BaseDir
 	if dataDir == "" {
-		if env := os.Getenv("ASA_BASEDIR"); env != "" {
-			dataDir = env
-		} else {
-			dataDir = filepath.Dir(path)
-		}
+		dataDir = filepath.Dir(path)
 	}
 	scheme := "http"
 	if cfg.Server.TLS.Enabled {
@@ -493,6 +484,9 @@ func runConfigValidate(out io.Writer, file string) error {
 	fmt.Fprintf(out, "  管理面板：%s://<本机地址>:%d，登录鉴权%s\n", scheme, cfg.Server.Port, auth)
 	if cfg.Download.GithubProxy != "" || cfg.Download.HTTPProxy != "" {
 		fmt.Fprintf(out, "  下载代理：github_proxy=%q http_proxy=%q\n", cfg.Download.GithubProxy, cfg.Download.HTTPProxy)
+	}
+	if hint := appconfig.LegacyBaseDirHint(dataDir, path); hint != "" {
+		fmt.Fprintf(out, "⚠ %s\n", hint)
 	}
 	return nil
 }

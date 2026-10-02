@@ -1730,6 +1730,10 @@ iox.Relay(relayCtx, src, dst, arkApiLogPollInterval, ...)
 
 Windows：`go build ./...`、`go vet ./internal/... ./pkg/...`、`go test -race ./internal/... ./pkg/...` **全部通过，未排除任何包**（含 `pkg/tail`）。WSL：`go build ./...`、`go vet ./...`、`ASA_TEST_RUNTIME_USER=1 go test -race ./...` **全部通过**（`Test_SetMessageOfTheDay` 按预期跳过）。此后的批次可以直接跑全量测试作为回归基线，不必再记哪些包要排除。
 
+### 11.9 全部单测的环境耦合排查（另立文档）
+
+把 §11.8.3 同类问题在全部测试里排查了一遍，结论、修复方案与新的验证基线见 **`docs/TEST_ENV_COUPLING_PLAN.md`**。本节只做索引。
+
 ---
 
 ## 附录 A：文档路径 vs 实际代码 对照表

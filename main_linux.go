@@ -16,6 +16,10 @@ var platformCommands = []*cli.Command{
 	actions.PrefixCommand(),
 }
 
+// reportStartupConfigErrorPlatform 在 Linux 上无事可做：没有 GUI，服务模式的
+// stderr 由 systemd 收进 journal。
+func reportStartupConfigErrorPlatform(startupMode, string) {}
+
 func Commands() []*cli.Command {
 	return append(
 		commonCommands,

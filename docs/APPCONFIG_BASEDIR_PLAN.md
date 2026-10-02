@@ -7,6 +7,9 @@
 
 ## 0. 状态
 
+> 📌 **2026-10-02 后续**：本文 §2 第 3 条第 2 步里「字段为空 → `ASA_BASEDIR`」这一档将被**移除**，
+> `basedir` 字段成为数据目录的唯一显式来源。方案见文末 **Part 2**；Part 1（本节至 §7）保持原文作历史记录。
+
 ✅ 已实施。`internal/appconfig/config.go` 的 `Load()`/`EnsureDirectories(baseDir string)`
 按本文档定案的算法重写；`main.go`、`internal/webapi/authapi/middleware_test.go`、
 `internal/appconfig/{config_test.go,basedir_test.go}`、`internal/config/config_test.go`、
@@ -250,3 +253,346 @@ asa_server_data`）。同时脚本里路径拼接也出过错（Git Bash 下用 
    对 Windows 程序而言不是一个合法的绝对路径，会被解析成完全出乎意料的位置。
 3. 验证脚本执行前先确认目标临时目录下**没有**已经在跑的旧进程（按完整可执行文件
    路径查，不按名字），而不是执行完了才想起来要清理。
+
+---
+
+# Part 2：移除 `ASA_BASEDIR` 环境变量
+
+> 日期：2026-10-02　分支：`fix/audit-batch3`（基线 `f44c13d`）
+> 状态：**✅ 已实施**（2026-10-02，分支 `refactor/remove-asa-basedir`），实施记录与偏离见 P2-7。
+> 2026-10-02 确认：`Test_SetMessageOfTheDay` 用例本体不动、出错回落修正要做、追加「启动前校验：配置文件必须存在且有效」
+> （P2-3 第 6 条，同时推翻「api 不需要事先存在的配置」）、6.1 的例外清单。
+> 起因：`docs/TEST_ENV_COUPLING_PLAN.md` 的排查发现，作者本机的系统级 `ASA_BASEDIR`
+> 会让测试的行为跟着机器变（T1、T2）。`ASA_BASEDIR` 本身是遗留配置：Part 1 之后数据目录
+> 的权威已经在 `config.yaml` 的 `basedir` 字段里；SETUP_FLOW Part 2 之后，`config init
+> --basedir` 与 GUI 向导都直接把它写进文件。留着这个变量，只是多了一个看不见的输入。
+
+## P2-1. 目标
+
+1. **`ASA_BASEDIR` 不再参与任何 BaseDir 解析。** Part 1 §2 第 3 条第 2 步改为：
+
+   ```
+   2. 读到这一份 config.yaml 后，取它的 basedir 字段决定 BaseDir：
+        字段非空 → BaseDir = 字段值
+        字段为空 → BaseDir = 这份 config.yaml 所在的目录
+   ```
+
+   第 1 步（`ASA_CFG` > exe 同级 > 系统固定目录）与第 3 步（防御性兜底）不变。
+2. **防止后门复活。** `decodeFile` 开着 viper `AutomaticEnv`，`basedir` 这个键天然对应
+   `ASA_BASEDIR`。现在靠 `fileOnlyBaseDirAt` 用一个不开 `AutomaticEnv` 的 viper 重读来
+   挡住它；这一步**必须保留**，注释里的理由从「两者优先级不同」改成「这个变量已经移除，
+   不能经 viper 的自动映射复活」，并用单测钉住（P2-4）。
+3. **升级时不能悄悄换数据目录。** 移除之后，原本「字段为空 + 设了 `ASA_BASEDIR`」的部署，
+   数据目录会从环境变量指的目录变成配置文件所在目录：面板上的实例全部「消失」，看起来
+   像数据丢了。所以检测到这个变量仍然设着时，要明确告诉用户：它已经不生效，现在实际
+   用的是哪个目录，要沿用原来的目录该在配置文件里写哪一行（P2-3 第 2 条）。
+4. **不改其余 `ASA_*`**：别的配置项照旧走「flag > 环境变量 ASA_* > 文件 > 默认值」。
+   `ASA_CFG` 管的是「去哪儿找配置文件」，与本次无关，保留。
+5. **（2026-10-02 追加）启动必须有一份有效的配置文件**：找不到或校验不通过就不启动，不再回落默认配置，
+   `api` / 服务模式也不再自动生成配置。见 P2-3 第 6 条。
+
+## P2-2. 现状：`ASA_BASEDIR` 出现在哪里
+
+| 位置 | 用途 |
+| --- | --- |
+| `internal/appconfig/config.go:471-478` `resolveBaseDirValue` | 唯一真正读取它的解析逻辑 |
+| `internal/appconfig/config.go:362` | 配置解析失败时的回落值，同样经 `resolveBaseDirValue` |
+| `internal/appconfig/config.go:490-505` `fallbackBaseDir` | 警告文案「请检查 basedir 字段或 ASA_BASEDIR 环境变量」 |
+| `internal/appconfig/config.go:34-36`、`:325-329`、`:457-461` | `Config.BaseDir` / `Load` / `decodeFile` 的注释 |
+| `internal/actions/configcmd.go:267-273` | `config init` 没给 basedir 时：设了变量就跳过「配置目录合不合适」的提示 |
+| `internal/actions/configcmd.go:352-358` | `config init` 结果摘要里的「数据目录」 |
+| `internal/actions/configcmd.go:437-442` | `config path` 打印数据目录的来源 |
+| `internal/actions/configcmd.go:474-481` | `config validate` 打印数据目录 |
+| `main.go:250-252` | `loadAppConfig` 的注释 |
+| `internal/appconfig/basedir_test.go` | `clearASABaseDir`（被调用 18 处）+ 两条测试变量优先级的用例（`:157-190`） |
+| `internal/actions/configcmd_test.go:26` | `newConfigEnv` 里清空它 |
+| `internal/config/config_test.go:11-21` | 包级 `init()` 用它定位数据目录，供 `Test_SetMessageOfTheDay` 找 `ces99` |
+
+GUI 向导、配置模板（`template_{zh,en}.go`）、svcmgr（服务环境变量只注入 `ASA_CFG`）、前端都**没有**用到它。
+
+## P2-3. 设计
+
+### 1. `appconfig`：删掉这一档
+
+- `resolveBaseDirValue(fileBaseDir, dir)` 去掉环境变量分支，只剩「字段非空用字段，否则用 `dir`」。
+  它只剩一行判断，直接内联进 `Load` 的两个调用点即可，函数删掉。
+- **顺手修一处回落**（`config.go:362` / `:376`）：配置文件存在但校验失败时（比如 `auth.networks` 写错），
+  `Load` 现在返回的是**配置文件所在目录**，即使文件里明明白白写着 `basedir: E:\data`。以前设了
+  `ASA_BASEDIR` 的机器会被它兜住，移除之后这个保险就没了：配置一写错，api / 服务模式就会对着另一个
+  空目录跑起来（`loadAppConfig` 现在出错时仍然继续运行）。第 6 条改成「配置坏了不启动」之后，这个值
+  仍有两处要用：`config path` / `config validate` 要显示正确的数据目录，服务模式要把错误原因写进**这个**
+  目录的日志。改成出错时用 `fileOnlyBaseDirAt(path)`：它用
+  单独的 viper 只读 `basedir` 这一个键，`auth` 写错不影响它；只有 YAML 语法本身坏了才拿不到，
+  那时再回落到配置目录。这一条不改变任何正常输入下的结果。
+- `fallbackBaseDir` 的警告文案去掉「或 ASA_BASEDIR 环境变量」。
+- 注释同步：`Config.BaseDir`、`Load` 的包文档、`decodeFile` 里 `fileOnlyBaseDirAt` 那段（理由按 P2-1 第 2 条改写）。
+
+### 2. 检测到遗留变量时的提示
+
+在 `appconfig` 里加一个小函数，作为「这个变量还在不在」的**唯一**判断点：
+
+```go
+// LegacyBaseDirEnv 报告已移除的 ASA_BASEDIR 是否仍被设置。它不参与任何解析，
+// 只用来提示用户：这个变量已不生效，数据目录以 config.yaml 为准。
+func LegacyBaseDirEnv() (value string, set bool)
+```
+
+调用方只有三处，文案都写明「已不生效 + 当前实际数据目录 + 要沿用原目录就在哪个文件里写哪一行」：
+
+| 调用方 | 时机 | 行为 |
+| --- | --- | --- |
+| `main.go` `loadAppConfig` | 每次启动（含 api、服务、GUI） | `logger.WithConsole().Warnf`。变量值与实际 BaseDir **不同**时，追加「原来的数据很可能在 `<变量值>`，请在 `<配置文件路径>` 里写 `basedir: "<变量值>"`」；相同时只说「可以删掉这个环境变量」 |
+| `asa-server config path` | 用户主动查看 | 在「数据目录：…（来源：…）」下方多打一行同样的提示 |
+| `asa-server config validate` | 同上 | 同上 |
+
+只提示、**不阻断**：阻断的话，环境变量就又成了能左右启动结果的输入，等于换个形式把它留下来。
+`config init` 不需要提示：它总是显式写出 `basedir`（用户给了就写给的值，没给就留空 = 配置目录），
+生成的文件本身就是答案。
+
+这个提示函数与调用点打算**保留一个版本**，之后整段删掉（记进 CHANGELOG 的「后续移除」）。
+
+### 3. `actions/configcmd.go`
+
+- `:267-273`：去掉 `os.Getenv("ASA_BASEDIR") == ""` 这层条件，没给 basedir 时总是检查配置目录合不合适。
+- `:352-358`、`:474-481`：数据目录 = 字段值，否则配置目录，删掉环境变量分支。
+- `:437-442`：来源只剩「config.yaml 的 basedir 字段」/「配置文件所在目录」两种，下面接 P2-3 第 2 条的提示。
+
+### 4. `internal/config/config_test.go` 的 `init()`
+
+`Test_SetMessageOfTheDay` **本身不改**（2026-10-02 确认）。但它靠 `init()` 用 `ASA_BASEDIR` 找到数据目录，
+变量移除后 `init()` 必须换一个来源。改成走和生产一样的配置：
+
+```go
+func init() {
+	baseDir, _ := appconfig.Load(appconfig.WithoutAutoGenerate())
+	SetDirectories(baseDir)
+	logger.InitLoggerWithBaseDir(BaseDir)
+}
+```
+
+- 不构成导入环：`appconfig` 只依赖 `pkg/fsutil`、`pkg/logger`，不依赖 `internal/config`。
+- `WithoutAutoGenerate`：不在任何地方生成 `config.yaml`。第 6 条把 `Load` 改成只读后这个选项会被删掉，
+  B4 里同步改成 `appconfig.Load()`。
+- `SetDirectories` 而不是 `EnsureDirectories`：只设变量、不建目录。这样顺带解决了
+  `TEST_ENV_COUPLING_PLAN.md` T2 在源码目录 `internal/config/` 下留空目录的问题。
+- 后果：`go test` 下 exe 同级目录是测试二进制所在的临时目录，那里没有 `config.yaml`，所以
+  **只有设了 `ASA_CFG` 的机器**才会找到真实数据目录，其余机器上 `Test_SetMessageOfTheDay` 照旧跳过。
+  作者本机目前没设 `ASA_CFG`，要让这条用例继续跑，需要把 `ASA_CFG` 指向写了
+  `basedir: "E://asa_server_data"` 的那份配置所在的目录（仓库根目录的 `config.yaml` 就是）。
+  用例被跳过时，跳过信息会打出它找的路径，能看出原因。
+
+### 5. 测试
+
+`internal/appconfig/basedir_test.go`：
+
+- `clearASABaseDir` 删掉，18 个调用点一并删除（变量不再有影响，无需清理）。
+- `TestLoad_EnvASABaseDirFallsBackWhenFileFieldEmpty` 反转成 `TestLoad_ASABaseDirIsIgnored`：字段留空、
+  `t.Setenv("ASA_BASEDIR", "/from/env")`，断言 BaseDir 是配置目录，**并且** `Get().BaseDir == ""`
+  ——后者钉住 P2-1 第 2 条：viper `AutomaticEnv` 没有把它映射回来。再对 `CheckFile` 做同样的断言
+  （`config validate` 走的是它）。
+- `TestLoad_FileBasedirWinsOverEnvASABaseDir` 保留：字段照样赢，只改注释（不再是「优先级比较」，
+  而是「设了也不影响」）。
+- 新增 `TestLoad_InvalidConfigKeepsFileBasedir`：`basedir` 写了值、`auth.networks` 写坏，断言 `Load`
+  返回错误，且 BaseDir 仍是文件里的值（P2-3 第 1 条的回落修正）。
+- 新增 `LegacyBaseDirEnv` 的两条小用例（设了 / 没设）。
+
+`internal/actions/configcmd_test.go`：`newConfigEnv` 去掉 `t.Setenv("ASA_BASEDIR", "")`。新增一条：
+设了 `ASA_BASEDIR`，`config path` 与 `config validate` 的输出里数据目录不变，并且包含「已不生效」的提示。
+
+### 6. 启动前校验：配置文件必须存在且有效（2026-10-02 追加）
+
+**这一条推翻两个现有设计**，都是 2026-10-02 确认的：
+
+1. **「配置写坏也照常启动」**。现在 `main.go` `loadAppConfig` 的规则是：加载失败时记一条 ERROR，然后用默认配置继续；
+   唯一的例外是配置里写了 `auth.enabled: true`（`ErrAuthConfigInvalid` → `log.Fatalf`）。注释里的理由是：默认配置
+   不开鉴权，配置写坏的最坏后果只是「没有鉴权」，不至于「谁都登不进来」。可这只考虑了鉴权：用默认配置继续，
+   下载代理、端口、TLS、`linux.*` 运行时设置（降权用户、prefix 模式）、数据目录也一起被静默丢掉。用户看到的是
+   「程序起来了，但行为不对」，原因只在日志里的一行 ERROR。
+2. **「`asa-server api` 不需要事先存在的 config.yaml」**（`docs/LINUX_COMPATIBILITY_PLAN.md` §10.7 不变量 1、G5，
+   以及 SETUP_FLOW Part 2「api / 服务模式缺失即自动生成」）。这是在 `config init` 出现之前的遗留：那时没有别的
+   办法得到一份配置，只能启动时顺手生成。现在 `config init`、`setup`、Windows GUI 向导都能显式生成，api 启动时
+   再悄悄在 exe 旁边写一份，只会让「到底读的是哪份配置、数据落在哪」更难说清。
+
+**新规则：除了少数例外（下表），启动时找不到配置文件，或配置文件读不出来、校验不通过，就不启动。**
+
+#### 6.1 哪些入口要求配置
+
+| 入口 | 缺配置 | 配置无效 | 说明 |
+| --- | --- | --- | --- |
+| `api`（含 Linux 无参）、服务模式 | 拦 | 拦 | 本条的主体 |
+| `service install` | 拦 | 拦 | 装的时候就发现，比装完服务起不来好 |
+| `update`、`verify`、`verify-arkapi`、`arkapi-cache`、`netmon`、`cert install`、`db`、`user`、`state`、`perms`、`prefix` | 拦 | 拦 | 都要读写 BaseDir 下的数据，数据目录只能来自配置 |
+| `setup`、Windows GUI | 进入各自的生成流程（不变） | 拦 | 二者本来就负责在缺配置时生成。配置已在但写坏时，`setup` 现在会「沿用当前数据目录」带着默认配置去下载几十 GB，所以要拦 |
+| `service remove` / `stop` / `start`、`cert uninstall` | 不拦 | 不拦 | 恢复用的命令：配置坏了也必须能把服务停掉、卸掉。它们不生成配置、不建目录 |
+| `config` 子命令、帮助、版本 | 不拦 | 不拦 | `config validate` / `config path` 就是用来报告配置问题的 |
+
+最后两行合并为「维护模式」：`startupMode` 现有的 `readOnly` 语义（不生成、不建目录、出错不中止）正好合适，
+`startupModeFor` 扩成能识别 `service remove|stop|start` 与 `cert uninstall` 这两层命令（现在只看顶层命令名）。
+
+> ⚠️ 例外清单是本节唯一需要再确认的地方：`service start` 放进「不拦」是因为它只是叫 SCM / systemd 去启动服务，
+> 服务进程自己会按服务模式再校验一次；`cert uninstall` 只按指纹删系统信任存储里的证书。
+
+#### 6.2 `appconfig.Load` 变成只读
+
+自动生成没有调用方了（`main.go` 是唯一用过它的地方），所以 `Load` 不再写文件：
+
+- 删掉 `writeDefaultConfig`、`WithoutAutoGenerate` 与 `loadOptions.noAutoGenerate`。现有的 `Load(WithoutAutoGenerate())`
+  调用点（`bootstrap.Reload`、`actions` / `appconfig` 的测试、本节第 4 条的 `config_test.go` `init()`）改成 `Load()`。
+  生成配置的唯一入口是 `InitConfig`（本来就是，见 SETUP_FLOW Part 2）。
+- `startupMode.autoGenerate` 删掉，`defaultStartup` 改为「要求配置存在」。
+- 新增哨兵 `appconfig.ErrConfigInvalid`，`decodeFile` 的三种失败（读文件、解析、`Validate`）都包上它。
+  `ErrAuthConfigInvalid` 被它完全覆盖，`wrapIfAuthWanted` 与这个哨兵一起删掉；`config_test.go:149`、`:172` 的断言
+  改成 `ErrConfigInvalid`。「鉴权开着时配置写坏也不能无鉴权启动」由新规则自动满足。
+- 定位失败（`os.Executable()` 报错）依旧走第 3 步兜底，但它意味着配置找不到，按「缺配置」处理。
+
+判断写成纯函数 `startupConfigBlocks(mode startupMode, missing bool, err error) bool`，放在 `startup.go`，在
+`startup_test.go` 里按 6.1 的表逐行单测。
+
+#### 6.3 怎么告诉用户
+
+缺配置时的文案要列出查找过的三个位置（与 `config path` 同源，取 `appconfig` 已有的三级目录信息），给出下一步：
+`asa-server config init`（只生成配置）或 `asa-server setup`（生成并安装）。配置无效时给出文件路径、错误原文，以及
+「修正后重试；可运行 `asa-server config validate` 复查」。
+
+| 形态 | 渠道 |
+| --- | --- |
+| 终端里的命令 | stderr |
+| 服务模式（Linux） | stderr 进 journal。配置无效、但 `basedir` 读得出来时（第 1 条的回落修正），另外初始化文件日志并写进 `{basedir}/logs/asaServer.log` |
+| 服务模式（Windows） | stderr 没人看。写 Windows 事件日志：kardianos 的 `service install` 已经用服务名注册了事件源（`eventlog.InstallAsEventCreate`），这里用 `golang.org/x/sys/windows/svc/eventlog.Open(ServiceName)` 记一条 Error。文件日志同上 |
+| Windows GUI（双击运行） | 没有控制台，直接退出等于闪退。配置无效时用 `golang.org/x/sys/windows.MessageBox` 弹原生错误框（缺配置时 GUI 走向导，不会到这里）。放在 `main_windows.go`，Linux 侧空实现 |
+
+**退出码统一 78**（`EX_CONFIG`，与 `exitRuntimeUserUnsatisfied` 相同）。Linux 的 systemd unit 已经带
+`RestartPreventExitStatus=78`（`internal/svcmgr/service_linux.go`），服务直接进入 `failed`，不会每隔几秒重启一次。
+Windows SCM 没有配置失败恢复动作，服务停在「已停止」。
+
+为区分 GUI 与 `setup`（现在都是 `firstRunStartup`），`startupMode` 加一个 `gui bool`，由 `startupModeFor`
+在 Windows 无参与 `gui` 命令时置上。`loadAppConfig` 的文档注释整段重写，写明为什么从「回落默认值」改成「不启动」。
+
+#### 6.4 测试的连带修改
+
+- `internal/appconfig`：`TestLoadCreatesTemplateWhenMissing`、`TestGeneratedTemplateIsLoadable` 测的是自动生成，改成对
+  `InitConfig` 的产物断言（生成的模板能被 `Load` 读、默认值正确）；`TestLoadWithoutAutoGenerate` 改名为
+  「缺配置时 `Load` 不落盘、返回 `ConfigMissing`」。
+- `internal/webapi/authapi/middleware_test.go` 的 `setupEnv` 已经先写配置再 `Load()`，不用改。
+- `startup_test.go`：6.1 表的每一行，外加 `service remove` / `cert uninstall` 的两层命令识别。
+
+### 7. 文档
+
+- 本文 Part 1 不改，§0 已加指向本节的说明。
+- `docs/SETUP_FLOW_OPTIMIZATION_PLAN.md` P2-3.3（`config path` 的来源列表）与 P2-9 第 8 条、
+  `docs/LINUX_COMPATIBILITY_PLAN.md` §10.3 / §10.5（「`ASA_BASEDIR` 不删」）：原文不动，各加一行
+  「2026-10-02 已移除，见 APPCONFIG_BASEDIR_PLAN.md Part 2」。
+- 第 6 条推翻的「api 不需要事先存在的配置」：`docs/LINUX_COMPATIBILITY_PLAN.md` §10.7 不变量 1 与 G5、
+  `docs/SETUP_FLOW_OPTIMIZATION_PLAN.md` Part 2（P2-3.2 的启动模式表）同样原文不动、加一行指向本节；
+  `docs/LINUX_DEPLOYMENT.md` 是给用户看的操作手册，**直接改**：§2 里「无参数等价于 `asa-server api`」之后补一句
+  「需要先有配置文件，见 2.1」，2.1 写明 `api` / 服务不再自动生成配置。`README.md` / `README_zh.md` 的快速开始
+  若有「直接运行 api」的写法，同样改成先 `config init`。
+- 项目 `CLAUDE.md`：`appconfig` 条目里「api 与服务模式缺失时仍自动生成」「`Load(WithoutAutoGenerate())`」、
+  启动引导那段「api / 服务模式保持缺失即自动生成（§10.7 不变量 3）」以及运行时目录树里 `config.yaml` 的注释，按新规则改写。
+- `docs/TEST_ENV_COUPLING_PLAN.md`：T2 / T3 改为引用本节。
+- `CHANGELOG.md`：三条。①移除 `ASA_BASEDIR`：受影响的部署（字段为空 + 设了变量）、启动时会看到的提示、
+  一行修法，以及「提示本身将在下个版本删除」；②配置文件无效时不再以默认配置启动，退出码 78；
+  ③`api` / 服务模式不再自动生成配置，全新部署先 `config init` 或 `setup`。
+
+## P2-4. 分步实施
+
+| 步 | 内容 |
+| --- | --- |
+| B1 | `appconfig`：删掉环境变量这一档、修正出错时的回落、`LegacyBaseDirEnv`、注释与警告文案 |
+| B2 | `main.go` 启动提示；`actions/configcmd.go` 四处 + `config path` / `config validate` 的提示 |
+| B3 | 测试：`basedir_test.go`、`configcmd_test.go` 按 P2-3 第 5 条改；`internal/config/config_test.go` 的 `init()` 按第 4 条改 |
+| B4 | 启动前校验（P2-3 第 6 条）：`Load` 只读化（删 `writeDefaultConfig` / `WithoutAutoGenerate` / `startupMode.autoGenerate`）；`ErrConfigInvalid` 替换 `ErrAuthConfigInvalid`；`startup.go` 的 `startupConfigBlocks`、`startupMode.gui`、两层命令识别；`loadAppConfig` 的拦截与告知渠道（stderr / 文件日志 / Windows 事件日志 / 错误框）；`main_{windows,linux}.go`；对应单测 |
+| B5 | 文档、`CLAUDE.md` 与 CHANGELOG（P2-3 第 7 条） |
+
+B1 到 B3 一个提交（移除 `ASA_BASEDIR`），B4 一个提交（启动前校验），B5 一个提交。B4 依赖 B1 的回落修正
+（服务模式要把错误写进 `basedir` 指的那个目录），所以顺序不能颠倒。
+
+## P2-5. 验收
+
+1. `grep -rn ASA_BASEDIR --include=*.go .` 只剩 `LegacyBaseDirEnv` 的实现、它的单测和 `TestLoad_ASABaseDirIsIgnored`。
+2. Windows：`go build ./...`、`go vet ./internal/... ./pkg/...`、`go test -race ./internal/... ./pkg/...`（PowerShell），
+   分别在「`ASA_BASEDIR` 为空」与「`ASA_BASEDIR=E:\nonexistent`」两种环境下各跑一遍，结果必须相同。
+3. WSL：`go build ./...`、`go vet ./...`、`ASA_TEST_RUNTIME_USER=1 go test -race ./...`。
+4. `GOOS=linux CGO_ENABLED=0 go build ./...`。
+5. 源码目录无残留：测试前后 `git status --short --ignored` 相同，`internal/config/` 下不再出现运行时目录。
+6. 真实编译产物（按 Part 1 §7 的规范：只按完整路径 / PID 操作进程，路径用 PowerShell 构造）：
+   - exe 同级放一份 `basedir` 留空的配置，设 `ASA_BASEDIR` 指向目录 B → 数据落在 exe 同级目录，B 保持空，
+     控制台出现「已不生效 … 请写 `basedir: "B"`」；
+   - 同样的配置写上 `basedir: B`，变量也设成 B → 数据落在 B，提示只说「可以删掉这个环境变量」；
+   - `basedir: B` 加上写坏的 `auth.networks` → `asa-server api` 打出配置文件路径与错误、退出码 78、不监听端口；
+     `asa-server config path` 显示的数据目录仍是 B；
+   - `config path` / `config validate` 在第一种情形下都打出提示。
+7. 启动前校验（P2-3 第 6 条）：
+   - `startupConfigBlocks` 单测按 6.1 的表逐行覆盖（缺配置 / 配置无效 × 每类入口）；
+   - `grep -rn 'WithoutAutoGenerate\|writeDefaultConfig\|ErrAuthConfigInvalid' --include=*.go .` 无结果；
+   - 真实产物：全新目录里 `asa-server api` 打出三个查找位置与「先运行 `config init`」，退出码 78，**exe 旁边
+     没有生成 config.yaml、也没有建任何目录**；配置坏时 `asa-server setup` 在下载任何东西之前就退出；
+     配置坏时 `asa-server service stop` / `service remove` 照常可用；Windows 上配置坏时双击 exe 弹出错误框，
+     关闭后进程退出；缺配置时双击 exe 照旧打开首次设置向导；
+   - Windows 服务：装好后把配置改坏、重启服务，事件查看器「Windows 日志 → 应用程序」里有一条以服务名为来源的 Error；
+   - WSL：装成 systemd 服务后把配置改坏，`systemctl restart`，确认单元进入 `failed`、`journalctl` 与
+     `{basedir}/logs/asaServer.log` 里都有原因，且不会反复重启。
+
+## P2-6. 兼容性与风险
+
+- **受影响的部署**：只有「配置文件里 `basedir` 为空、靠 `ASA_BASEDIR` 指定数据目录」这一种。
+  `config init`、GUI 向导、`setup` 生成的配置都显式写了 `basedir` 或者本来就用配置目录，不受影响。
+- **作者本机**：系统级 `ASA_BASEDIR=E:\asa_server_data`。核对过两份配置：仓库根目录的 `config.yaml`
+  写了 `basedir: "E://asa_server_data"`；`E:\asa_server_data\config.yaml` 没写，但它本身就在
+  `E:\asa_server_data`，回落到配置目录的结果相同。所以两种启动方式的数据目录都不变，只会多一条
+  「可以删掉这个环境变量」的提示。实施后可以把这个系统环境变量删掉（需要管理员权限，由用户自己操作）。
+- **服务模式**：Windows 服务以 LocalSystem 运行，看得到系统级环境变量，提示会进服务日志；
+  Linux 的 systemd unit 只注入 `ASA_CFG` 和 `HOME`，本来就不带 `ASA_BASEDIR`。
+- **启动前校验是行为变化**：以前配置写坏还能「带着默认值跑起来」，现在起不来。对装成服务的部署，
+  这意味着改坏配置后重启服务，服务就停了。这是有意的（第 6 条），但要写进 CHANGELOG，并提醒改配置后先跑
+  `asa-server config validate` 再重启服务。
+- **api 不再自动生成配置**：已有部署不受影响——以前每次启动都会在缺失时生成一份，所以跑过的机器上一定已经
+  有 config.yaml。受影响的只有「全新解压、直接 `asa-server api`」与「部署脚本依赖首次启动生成配置」两种用法，
+  前者会看到明确的提示，后者要在脚本里加一行 `asa-server config init`（CHANGELOG 写明）。
+- **回滚**：B1 到 B3、B4 各是一个提交，可以分别 `git revert`；配置文件格式没有任何变化，回滚不需要迁移。
+
+## P2-7. 实施记录（2026-10-02，分支 `refactor/remove-asa-basedir`，基于 `master` `5dda7b9`）
+
+| 提交 | 内容 |
+| --- | --- |
+| `ae61535` | 计划文档（本 Part 2、`TEST_ENV_COUPLING_PLAN.md`、审计文档 §11.9 索引） |
+| `07d6e3d` | B1–B3：移除 `ASA_BASEDIR` |
+| `02f1c36` | B4：启动前校验配置 |
+| （本提交） | B5：文档与 CHANGELOG |
+
+### 与计划的偏离
+
+1. **`LegacyBaseDirHint(baseDir, configPath)` 也是导出的**。计划只写了 `LegacyBaseDirEnv()`；三个调用方的文案完全一样，
+   放在 `appconfig` 里写一份，免得 `main.go` 和 `actions` 各拼一遍。判断「变量还在不在」仍只有 `LegacyBaseDirEnv` 一处。
+2. **`newConfigEnv` 仍然清空 `ASA_BASEDIR`**（计划说去掉）。变量已不参与解析，但设着时 `config path` / `validate` 会多一行提示，
+   清掉它测试输出才不随开发机变；提示本身由新增的 `TestConfigPathAndValidate_LegacyBaseDirHint` 测。
+3. **`config path` 的「数据目录来源」改为比较 `cfgpkg.BaseDir` 与配置目录**，不再看 `appconfig.Get().BaseDir`。真实产物验证时发现：
+   配置无效时 `Get()` 是默认配置，来源会被误报成「配置文件所在目录」（数据目录本身是对的，来自 P2-3 第 1 条的回落修正）。
+   同一处「程序会回落到默认配置运行」的提示改为「除 config 子命令与维护命令外，程序不会启动」。
+4. **删除 `TestAutoGeneratedFileMatchesInitConfig`**（计划 6.4 没列）：它比较的是「`Load` 自动生成的文件」与 `InitConfig` 的产物，
+   前者已不存在。BOM / CRLF 由 `renderTemplateFor` 的既有用例覆盖。
+5. 多加了 `TestLoad_UnparsableConfigFallsBackToConfigDir`：YAML 本身坏掉时拿不到 `basedir`，钉住此时回落到配置目录。
+6. 计划 6.1 的表里 `cert install` 归「拦」；`cert status` 没列，按默认同样拦（它读 `{BaseDir}/certs`）。
+7. `startupMode` 新增的是 `gui`、`service` 两个字段与 `serviceStartup` / `guiStartup` 两个预设；`autoGenerate` 删除。
+   `deferDirsIfMissing` 同时承担「缺配置时自己生成」的含义（只有 setup 与 GUI 有它），没有再加一个同义字段。
+
+### 验证
+
+- Windows：`go build ./...`、`GOOS=linux CGO_ENABLED=0 go build ./...`、`go vet`（改动包，两个 GOOS）、
+  `go test -race ./internal/... ./pkg/... .` **全部通过**；改动包另在 `ASA_BASEDIR=E:\nonexistent` 下跑一遍，结果相同。
+- WSL：`go build ./...`、`go vet`（改动包）、`ASA_TEST_RUNTIME_USER=1 go test -race ./...` **全部通过**。
+- `Test_SetMessageOfTheDay`：没设 `ASA_CFG` 时跳过，跳过信息里是测试二进制临时目录下的路径；源码目录 `internal/config/`
+  下不再新建运行时目录（原有的空目录是之前留下的，未删）。
+- 真实编译产物（临时目录，未碰任何真实服务或数据目录）：
+  - 全新目录 `asa-server api` → 打出三个查找位置与 `config init` / `setup`，退出码 78，**目录里除 exe 外什么都没生成**；
+  - `basedir: B` + `server.port: 70000` → `api` 打出文件路径与错误、退出码 78；`config path` 显示数据目录 B、来源为 basedir 字段，
+    并提示「程序不会启动」；`setup --non-interactive` 在下载任何东西之前退出，退出码 78；
+  - `basedir` 留空 + `ASA_BASEDIR=B` → 数据目录建在配置所在目录，B 保持空，启动日志打出「已不再生效 … 请写 `basedir: "B"`」；
+  - `basedir: B` + `ASA_BASEDIR=B` → 数据目录建在 B，提示只说「可以删掉这个环境变量」。
+
+### 未验证（需要人工）
+
+- **Windows GUI 配置无效时的错误框**：`MessageBox` 是模态阻塞的，没有在自动化里弹。
+- **Windows 服务**：配置改坏后重启服务，事件查看器里出现以 `ASA-Server-Manager` 为来源的 Error、`{basedir}/logs/asaServer.log` 有原因。
+- **配置无效时 `service stop` / `service remove` 照常可用**：本机装着真实服务，没有在这台机器上执行服务命令。
+- **WSL systemd**：装成服务后把配置改坏，确认单元进入 `failed` 且不反复重启。

@@ -11,7 +11,6 @@ import (
 	"asa-server/internal/webapi"
 	"asa-server/pkg/logger"
 	"context"
-	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -125,10 +124,10 @@ func main() {
 	// 于是「命令行 > 配置文件 > 默认值」的优先级由 cli 库天然保证，不需要在 Action
 	// 里再判断 IsSet 然后手工合并。
 	//
-	// 启动引导的副作用（缺配置时生成模板、建数据目录）按命令决定：`config`、帮助、
-	// 版本不该碰磁盘——以前 `asa-server --help` 都会在 exe 旁边生成 config.yaml 并建
-	// 5 个数据子目录。服务模式没有命令行可看，恒为旧行为。
-	mode := defaultStartup
+	// 启动引导的副作用（要不要求配置、建不建数据目录）按命令决定：`config`、帮助、
+	// 版本与维护命令不检查配置、不碰磁盘；其余命令要求一份有效的 config.yaml。
+	// 服务模式没有命令行可看，恒为 serviceStartup。
+	mode := serviceStartup
 	if !isService {
 		mode = startupModeFor(runtime.GOOS, os.Args)
 	}
@@ -238,42 +237,68 @@ func gatedActionAPI(ctx context.Context, cmd *cli.Command) error {
 	return webapi.ActionAPI(ctx, cmd)
 }
 
-// loadAppConfig 读取 {BaseDir}/config.yaml。
+// loadAppConfig 读取 config.yaml，配置不可用时拒绝启动。
 //
-// 加载失败不阻断启动：记 ERROR 后用默认配置继续。默认配置里 auth.enabled 是 false，
-// 所以配置写坏的最坏后果是"没有鉴权"，而不是"所有人都登不进来"——
-// 对一个本机管理面板来说，后者才是真正的灾难。
+// 以前这里的规则是「加载失败不阻断启动：记 ERROR 后用默认配置继续」（只有开了鉴权
+// 时例外），api / 服务模式缺配置时还会自动生成一份。两条都在 2026-10-02 推翻
+// （docs/APPCONFIG_BASEDIR_PLAN.md Part 2 P2-3 第 6 条）：用默认配置继续，下载代理、
+// 端口、TLS、鉴权、linux.* 运行时设置与数据目录会一起被静默丢掉，用户看到的是
+// 「程序起来了，但行为不对」；自动生成则是 config init 出现之前的遗留。现在除了
+// readOnly 的命令，配置找不到或无效都退出码 78，原因经 reportStartupConfigError
+// 送到这种运行形态下看得见的地方。
 //
-// mode.readOnly（config 子命令 / 帮助 / 版本）时连报错都不在这里做：这些命令不启动
-// 任何服务，配置错误由命令自己报告（`config validate` 就是干这个的）。
+// mode.readOnly（config 子命令 / 帮助 / 版本 / 维护命令）时不在这里拦：配置错误由
+// 命令自己报告（`config validate` 就是干这个的），配置坏了也得能停服务、卸服务。
 func loadAppConfig(mode startupMode) *appconfig.Config {
 	// Load 不接收任何目录参数——查找规则（ASA_CFG > exe 同级 > 系统固定目录）与
-	// BaseDir 取值优先级（basedir 字段 > ASA_BASEDIR > config.yaml 所在目录）全部
-	// 内置在它自己的算法里，见 docs/APPCONFIG_BASEDIR_PLAN.md。
-	var opts []appconfig.LoadOption
-	if !mode.autoGenerate {
-		opts = append(opts, appconfig.WithoutAutoGenerate())
-	}
-	baseDir, err := appconfig.Load(opts...)
-	// 即使加载出错，appconfig.Load 也总会给出一个可用的兜底 BaseDir，后面建目录/
-	// 写日志可以放心使用。
+	// BaseDir 取值（basedir 字段，留空 = config.yaml 所在目录）全部内置在它自己的
+	// 算法里，见 docs/APPCONFIG_BASEDIR_PLAN.md。
+	baseDir, err := appconfig.Load()
+	// 即使加载出错，appconfig.Load 也总会给出一个可用的兜底 BaseDir（配置无效时仍是
+	// 文件里的 basedir），后面设目录变量、写失败日志可以放心使用。
 	cfgpkg.BaseDir = baseDir
-	if err == nil || mode.readOnly {
-		return appconfig.Get()
+	missing := appconfig.ConfigMissing()
+
+	if startupConfigBlocks(mode, missing, err) {
+		dirs, _ := appconfig.ConfigSearchDirs()
+		reportStartupConfigError(mode, missing,
+			startupConfigMessage(missing, appconfig.ConfigPath(), err, dirs))
+		os.Exit(exitConfigUnusable)
 	}
 
-	// 配置里明确写了要开鉴权，却又有错 —— 这时候绝不能"用默认值继续跑"：
-	// 默认值 auth.enabled 是 false，一个拼写错误就会让服务静默地不带鉴权启动。
-	// 配置错误应该表现为"起不来"，不该表现为"安全防护悄悄消失了"。
-	if errors.Is(err, appconfig.ErrAuthConfigInvalid) {
-		logger.Errorf("%v", err)
-		log.Fatalf("配置有误且已启用鉴权，服务不会以无鉴权状态启动。\n"+
-			"请修正 %s 后重试。\n%v", appconfig.ConfigPath(), err)
+	// config 子命令自己会打这条提示（config path / validate），这里不重复。
+	if !mode.readOnly {
+		if hint := appconfig.LegacyBaseDirHint(baseDir, appconfig.ConfigPath()); hint != "" {
+			logger.WithConsole().Warn(hint)
+		}
 	}
-
-	msg := fmt.Sprintf("加载 %s 失败，将使用默认配置继续启动: %v", appconfig.ConfigFileName, err)
-	logger.Error(msg)
+	if err != nil && !mode.readOnly {
+		// 走到这里只剩不拦的失败：setup / GUI 在缺配置时连配置目录都定位不出来
+		// （os.Executable() 报错）。它们接下来自己生成配置。
+		logger.Errorf("加载 %s 失败: %v", appconfig.ConfigFileName, err)
+	}
 	return appconfig.Get()
+}
+
+// exitConfigUnusable 同样是 sysexits.h 的 EX_CONFIG（与 exitRuntimeUserUnsatisfied
+// 同值）：配置文件缺失或无效，重试不会好。systemd unit 的 RestartPreventExitStatus=78
+// 让服务直接进入 failed，不会每隔几秒重启一次刷日志。
+const exitConfigUnusable = 78
+
+// reportStartupConfigError 把「配置不可用、不会启动」送到这种运行形态下看得见的地方：
+// 终端看 stderr；服务模式的 stderr 没人看（Linux 进 journal），配置文件存在时把原因
+// 写进 basedir 指向的那份平时的日志（数据目录存在才写，不为一条错误去建目录）；
+// 平台相关的渠道（Windows 事件日志、GUI 错误框）由 reportStartupConfigErrorPlatform 补上。
+func reportStartupConfigError(mode startupMode, missing bool, msg string) {
+	fmt.Fprintln(os.Stderr, msg)
+	if mode.service && !missing {
+		if info, err := os.Stat(cfgpkg.BaseDir); err == nil && info.IsDir() {
+			logger.InitLoggerWithBaseDir(cfgpkg.BaseDir)
+			logger.Error(msg)
+			_ = logger.Close()
+		}
+	}
+	reportStartupConfigErrorPlatform(mode, msg)
 }
 
 // applyAppConfig 把配置写进 webapi 的包级变量，再经 bootstrap.Apply 应用到
