@@ -121,7 +121,6 @@ func TestDefaultInitDir(t *testing.T) {
 
 // WithoutAutoGenerate：配置缺失时只用默认值，不落盘。
 func TestLoadWithoutAutoGenerate(t *testing.T) {
-	clearASABaseDir(t)
 	dir := filepath.Join(t.TempDir(), "not-created")
 	t.Setenv("ASA_CFG", dir)
 
@@ -149,7 +148,6 @@ func TestLoadWithoutAutoGenerate(t *testing.T) {
 // 自动生成模式下，ConfigMissing 反映的是「加载前有没有」，而不是「现在有没有」：
 // 首次生成那次仍报告缺失（调用方据此知道这是全新安装），之后报告存在。
 func TestConfigMissingWhenAutoGenerating(t *testing.T) {
-	clearASABaseDir(t)
 	dir := t.TempDir()
 	if _, err := loadFrom(t, dir); err != nil {
 		t.Fatalf("Load: %v", err)
@@ -171,7 +169,6 @@ func TestConfigMissingWhenAutoGenerating(t *testing.T) {
 
 // ConfigPath 必须指向真正被读的那一份——报错提示靠它告诉用户去改哪个文件。
 func TestConfigPathFollowsLookupLevel(t *testing.T) {
-	clearASABaseDir(t)
 	t.Setenv("ASA_CFG", "")
 
 	exeDir, sysDir := t.TempDir(), t.TempDir()
@@ -194,7 +191,6 @@ func TestConfigPathFollowsLookupLevel(t *testing.T) {
 }
 
 func TestCheckFile(t *testing.T) {
-	clearASABaseDir(t)
 	dir := t.TempDir()
 
 	if _, err := CheckFile(filepath.Join(dir, ConfigFileName)); err == nil {

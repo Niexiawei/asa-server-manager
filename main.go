@@ -248,8 +248,8 @@ func gatedActionAPI(ctx context.Context, cmd *cli.Command) error {
 // 任何服务，配置错误由命令自己报告（`config validate` 就是干这个的）。
 func loadAppConfig(mode startupMode) *appconfig.Config {
 	// Load 不接收任何目录参数——查找规则（ASA_CFG > exe 同级 > 系统固定目录）与
-	// BaseDir 取值优先级（basedir 字段 > ASA_BASEDIR > config.yaml 所在目录）全部
-	// 内置在它自己的算法里，见 docs/APPCONFIG_BASEDIR_PLAN.md。
+	// BaseDir 取值（basedir 字段，留空 = config.yaml 所在目录）全部内置在它自己的
+	// 算法里，见 docs/APPCONFIG_BASEDIR_PLAN.md。
 	var opts []appconfig.LoadOption
 	if !mode.autoGenerate {
 		opts = append(opts, appconfig.WithoutAutoGenerate())
@@ -258,6 +258,12 @@ func loadAppConfig(mode startupMode) *appconfig.Config {
 	// 即使加载出错，appconfig.Load 也总会给出一个可用的兜底 BaseDir，后面建目录/
 	// 写日志可以放心使用。
 	cfgpkg.BaseDir = baseDir
+	// config 子命令自己会打这条提示（config path / validate），这里不重复。
+	if !mode.readOnly {
+		if hint := appconfig.LegacyBaseDirHint(baseDir, appconfig.ConfigPath()); hint != "" {
+			logger.WithConsole().Warn(hint)
+		}
+	}
 	if err == nil || mode.readOnly {
 		return appconfig.Get()
 	}

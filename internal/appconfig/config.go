@@ -31,10 +31,10 @@ const ConfigFileName = "config.yaml"
 
 // Config 是整份应用配置
 type Config struct {
-	// BaseDir 是 §10.3 的数据目录字段，本次改造里数据目录的最高权威：非空时 Load 直接
-	// 用它作为最终 BaseDir，优先级高于 ASA_BASEDIR 环境变量。留空 = 与本文件同目录
-	// （绿色部署的默认行为，兼容现有全部安装，无需迁移），此时才轮到 ASA_BASEDIR 兜底。
-	// 见 Load 的文档。
+	// BaseDir 是 §10.3 的数据目录字段，也是数据目录唯一的显式来源：非空时 Load 直接
+	// 用它作为最终 BaseDir；留空 = 与本文件同目录（绿色部署的默认行为）。不接受任何
+	// 环境变量覆盖——遗留的 ASA_BASEDIR 已移除（docs/APPCONFIG_BASEDIR_PLAN.md
+	// Part 2）。见 Load 的文档。
 	BaseDir  string         `mapstructure:"basedir"`
 	Server   ServerConfig   `mapstructure:"server"`
 	Auth     AuthConfig     `mapstructure:"auth"`
@@ -321,12 +321,14 @@ func (c *Config) DatabasePath(baseDir string) string {
 //  3. 系统固定目录（Windows %ProgramData%\ASAServerManager，Linux /etc/asa-server）
 //  4. 都没有 → 在可执行文件同级目录生成一份默认模板
 //
-// 第二步，只看第一步选中的那一份文件的 basedir 字段（本次改造的核心目的：把
-// "数据目录到底在哪"的权威从环境变量搬进配置文件，ASA_BASEDIR 从"能让文件整个
-// 失效的最高优先级"降级为"文件没写这个字段时的兜底"，不会因为字段为空就回头去看
-// 其他档位的文件）：
+// 第二步，只看第一步选中的那一份文件的 basedir 字段（"数据目录到底在哪"的权威在
+// 配置文件里，不会因为字段为空就回头去看其他档位的文件，也不看任何环境变量——
+// 遗留的 ASA_BASEDIR 已移除，见 docs/APPCONFIG_BASEDIR_PLAN.md Part 2）：
 //  1. 字段非空 → BaseDir = 字段值
-//  2. 字段为空 → 环境变量 ASA_BASEDIR 非空则用它，否则用这份 config.yaml 所在的目录
+//  2. 字段为空 → BaseDir = 这份 config.yaml 所在的目录
+//
+// 文件存在但校验不通过时，返回的 BaseDir 仍然取文件里的 basedir 字段（只要 YAML
+// 本身读得出来）：调用方要据此显示正确的数据目录、把错误写进正确目录的日志。
 //
 // 第三步，纯防御性兜底（正常输入下不会触发——第二步最后一档恒不为空）：上面两步
 // 因为异常（比如 os.Executable() 报错）拿不到可用的 BaseDir 时，回落到可执行文件
@@ -359,7 +361,7 @@ func Load(opts ...LoadOption) (string, error) {
 	missing := !fileExists(path)
 	configMissing.Store(missing)
 	lastConfigPath.Store(path)
-	baseDir := resolveBaseDirValue("", dir) // 任何后续错误都回落到这个值
+	baseDir := dir // 生成模板失败时回落到这个值
 
 	if missing && !o.noAutoGenerate {
 		// 首次运行：写出带注释的模板，方便用户后续手改。
@@ -373,14 +375,17 @@ func Load(opts ...LoadOption) (string, error) {
 	// WithoutAutoGenerate 且文件不存在时 decodeFile 只用默认值 + 环境变量。
 	cfg, err := decodeFile(path)
 	if err != nil {
-		return baseDir, err
+		// 文件里别处写错（比如 auth.networks）不影响 basedir 这一个键：仍按文件取，
+		// 否则配置一写错，数据目录就悄悄换成了配置文件所在目录。只有 YAML 本身读不
+		// 出来时才拿不到，那时回落到配置目录。
+		return baseDirOr(fileOnlyBaseDirAt(path), dir), err
 	}
 	current.Store(cfg)
 
-	result := resolveBaseDirValue(cfg.BaseDir, dir)
+	result := baseDirOr(cfg.BaseDir, dir)
 	if result == "" {
-		// 第三步防御性兜底：正常输入下不会到这里（resolveBaseDirValue 最后一档
-		// dir 恒非空），保留这道闸门纯粹是防未来的意外。
+		// 第三步防御性兜底：正常输入下不会到这里（dir 恒非空），保留这道闸门纯粹
+		// 是防未来的意外。
 		return fallbackBaseDir(dir), nil
 	}
 	return result, nil
@@ -455,9 +460,8 @@ func decodeFile(path string) (*Config, error) {
 		return nil, wrapIfAuthWanted(v, fmt.Errorf("解析 %s 失败: %w", path, err))
 	}
 	// basedir 字段单独用一个不开 AutomaticEnv 的 viper 实例重读，只反映文件内容：
-	// 它的 key 名字面上拼出来正好是 ASA_BASEDIR，会被上面那个开了 AutomaticEnv 的
-	// v 撞见同名的 ASA_BASEDIR 环境变量，把"文件里写了什么"和"环境变量设了什么"
-	// 这两件现在优先级不同的事混在一起。
+	// 它的 key 名字面上拼出来正好是 ASA_BASEDIR，上面那个开了 AutomaticEnv 的 v
+	// 会把同名环境变量映射进来——这个变量已经移除，不能经 viper 的自动映射复活。
 	cfg.BaseDir = fileOnlyBaseDirAt(path)
 	if err := cfg.Validate(); err != nil {
 		return nil, wrapIfAuthWanted(v, err)
@@ -465,17 +469,44 @@ func decodeFile(path string) (*Config, error) {
 	return &cfg, nil
 }
 
-// resolveBaseDirValue 按"文件字段 > ASA_BASEDIR 环境变量 > config.yaml 所在目录"
-// 的优先级给出最终 BaseDir。fileBaseDir 传空串表示"文件字段不可用/未知"（比如文件还
-// 没解析成功），此时只在环境变量与目录之间选。
-func resolveBaseDirValue(fileBaseDir, dir string) string {
+// baseDirOr 是第二步：文件的 basedir 字段非空就用它，否则用 config.yaml 所在目录。
+func baseDirOr(fileBaseDir, dir string) string {
 	if fileBaseDir != "" {
 		return fileBaseDir
 	}
-	if env := os.Getenv("ASA_BASEDIR"); env != "" {
-		return env
-	}
 	return dir
+}
+
+// legacyBaseDirEnvName 是已移除的数据目录环境变量。它不参与任何解析，只用于提示。
+const legacyBaseDirEnvName = "ASA_BASEDIR"
+
+// LegacyBaseDirEnv 报告已移除的 ASA_BASEDIR 是否仍被设置。它不参与任何解析，只用来
+// 提示用户：这个变量已不生效，数据目录以 config.yaml 为准。这是「这个变量还在不在」
+// 的唯一判断点，保留一个版本后连同调用方一起删除（docs/APPCONFIG_BASEDIR_PLAN.md
+// Part 2 P2-3 第 2 条）。
+func LegacyBaseDirEnv() (value string, set bool) {
+	value = os.Getenv(legacyBaseDirEnvName)
+	return value, value != ""
+}
+
+// LegacyBaseDirHint 给出 ASA_BASEDIR 仍被设置时的提示文案；没设时返回空串。
+// baseDir 是实际生效的数据目录，configPath 是生效的配置文件（可为空）。
+func LegacyBaseDirHint(baseDir, configPath string) string {
+	value, set := LegacyBaseDirEnv()
+	if !set {
+		return ""
+	}
+	if fsutil.SamePath(value, baseDir) {
+		return fmt.Sprintf("环境变量 %s 已不再生效，数据目录以配置文件为准（当前就是 %s），可以删掉这个环境变量。",
+			legacyBaseDirEnvName, baseDir)
+	}
+	where := configPath
+	if where == "" {
+		where = ConfigFileName
+	}
+	return fmt.Sprintf("环境变量 %s=%s 已不再生效，当前数据目录是 %s。原来的数据很可能在 %s：要沿用它，"+
+		"请在 %s 里写上 basedir: %q，然后删掉这个环境变量。",
+		legacyBaseDirEnvName, value, baseDir, value, where, value)
 }
 
 // fallbackBaseDir 是第三步防御性兜底：回落到可执行文件同级目录，连这个都拿不到
@@ -500,8 +531,8 @@ func fallbackBaseDir(attempted string) string {
 		}
 	}
 	logger.WithConsole().Warnf(
-		"BaseDir 未能从 %s / 环境变量解析出来，已回落到 %s，数据将存放在这个目录，"+
-			"请检查 %s 的 basedir 字段或 ASA_BASEDIR 环境变量是否配置正确",
+		"BaseDir 未能从 %s 解析出来，已回落到 %s，数据将存放在这个目录，"+
+			"请检查 %s 的 basedir 字段是否配置正确",
 		ConfigFileName, fallback, ConfigFileName)
 	return fallback
 }

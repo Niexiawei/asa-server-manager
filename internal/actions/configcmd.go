@@ -264,12 +264,10 @@ func runConfigInit(o configInitOptions, p *prompter) (configInitResult, error) {
 		}
 	}
 	if baseDir == "" {
-		// 数据就落在配置目录里（或 ASA_BASEDIR）：同样的问题（网络盘、空间不足）照样存在，
+		// 数据就落在配置目录里：同样的问题（网络盘、空间不足）照样存在，
 		// 但这是默认值不是用户的显式选择，只提示不拦。
-		if os.Getenv("ASA_BASEDIR") == "" {
-			if verr := validateBaseDir(dir); verr != nil {
-				fmt.Fprintf(out, L("提示：数据将存放在配置文件所在目录，但它可能不合适：\n%v\n", "Hint: data will live in the config directory, which may be unsuitable:\n%v\n"), verr)
-			}
+		if verr := validateBaseDir(dir); verr != nil {
+			fmt.Fprintf(out, L("提示：数据将存放在配置文件所在目录，但它可能不合适：\n%v\n", "Hint: data will live in the config directory, which may be unsuitable:\n%v\n"), verr)
 		}
 	}
 
@@ -351,11 +349,7 @@ func printConfigInitSummary(out io.Writer, r configInitResult, forSetup bool) {
 	en := r.Lang == appconfig.LangEN
 	dataDir := r.BaseDir
 	if dataDir == "" {
-		if env := os.Getenv("ASA_BASEDIR"); env != "" {
-			dataDir = env
-		} else {
-			dataDir = r.Dir
-		}
+		dataDir = r.Dir
 	}
 	if en {
 		fmt.Fprintf(out, "\nConfig file generated: %s (English comments)\n", r.Path)
@@ -434,13 +428,13 @@ func runConfigPath(out io.Writer) error {
 
 	cfg := appconfig.Get()
 	source := "配置文件所在目录"
-	switch {
-	case !missing && cfg.BaseDir != "":
+	if !missing && cfg.BaseDir != "" {
 		source = "config.yaml 的 basedir 字段"
-	case os.Getenv("ASA_BASEDIR") != "":
-		source = "环境变量 ASA_BASEDIR"
 	}
 	fmt.Fprintf(out, "数据目录：%s（来源：%s）\n", cfgpkg.BaseDir, source)
+	if hint := appconfig.LegacyBaseDirHint(cfgpkg.BaseDir, path); hint != "" {
+		fmt.Fprintf(out, "⚠ %s\n", hint)
+	}
 
 	if !missing {
 		if _, err := appconfig.CheckFile(path); err != nil {
@@ -474,11 +468,7 @@ func runConfigValidate(out io.Writer, file string) error {
 
 	dataDir := cfg.BaseDir
 	if dataDir == "" {
-		if env := os.Getenv("ASA_BASEDIR"); env != "" {
-			dataDir = env
-		} else {
-			dataDir = filepath.Dir(path)
-		}
+		dataDir = filepath.Dir(path)
 	}
 	scheme := "http"
 	if cfg.Server.TLS.Enabled {
@@ -493,6 +483,9 @@ func runConfigValidate(out io.Writer, file string) error {
 	fmt.Fprintf(out, "  管理面板：%s://<本机地址>:%d，登录鉴权%s\n", scheme, cfg.Server.Port, auth)
 	if cfg.Download.GithubProxy != "" || cfg.Download.HTTPProxy != "" {
 		fmt.Fprintf(out, "  下载代理：github_proxy=%q http_proxy=%q\n", cfg.Download.GithubProxy, cfg.Download.HTTPProxy)
+	}
+	if hint := appconfig.LegacyBaseDirHint(dataDir, path); hint != "" {
+		fmt.Fprintf(out, "⚠ %s\n", hint)
 	}
 	return nil
 }

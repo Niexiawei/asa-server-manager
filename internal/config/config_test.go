@@ -1,21 +1,24 @@
 package config
 
 import (
+	"asa-server/internal/appconfig"
 	"asa-server/pkg/logger"
-	"log"
 	"os"
 	"path/filepath"
 	"testing"
 )
 
-// 环境耦合：这个测试文件本来就依赖本机 ASA_BASEDIR 指向的数据目录，见 CLAUDE.md
-// 的既有说明。EnsureDirectories 不再自行解析 BaseDir（见
-// docs/APPCONFIG_BASEDIR_PLAN.md），这里只是把测试原先依赖的同一个环境变量显式传
-// 进去，签名层面适配，不改变这个测试的环境耦合性质。
+// 环境耦合：Test_SetMessageOfTheDay 依赖本机真实的数据目录。数据目录与生产一样从
+// config.yaml 解析（ASA_BASEDIR 已移除，见 docs/APPCONFIG_BASEDIR_PLAN.md Part 2）：
+// go test 下「exe 同级」是测试二进制的临时目录，所以只有 ASA_CFG 指向一份写了
+// basedir 的配置时才会找到真实数据目录，其余机器上那条用例跳过。
+//
+// 只设目录变量、不建目录（SetDirectories 而不是 EnsureDirectories）：没有配置时
+// BaseDir 落在测试二进制旁边，建出来也没人用；以前这里会在源码目录下留下
+// instances/、server-files/ 等空目录（docs/TEST_ENV_COUPLING_PLAN.md T2）。
 func init() {
-	if err := EnsureDirectories(os.Getenv("ASA_BASEDIR")); err != nil {
-		log.Fatal(err)
-	}
+	baseDir, _ := appconfig.Load(appconfig.WithoutAutoGenerate())
+	SetDirectories(baseDir)
 
 	logger.InitLoggerWithBaseDir(BaseDir)
 }
