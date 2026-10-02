@@ -43,9 +43,9 @@
 | T5 | ✅ | A+D | `pkg/procx` `Test_QueryProcess` | 查作者本机 `Port=9310` 的 `ArkAscendedServer.exe`，只打印不断言——查到查不到都通过。**2026-10-02 已修复**（`0bddb7b`），新用例顺带抓到 `escapeWQL` 的真 bug |
 | T6 | ✅ | B | `certmgr` / `frpmanage` / `webapi` 的 `TestMain`，`instance` 的 `withTempStateManager` | 日志写进系统临时目录的 `logs/asaServer.log`，从不清理（本机已 1.9 MB），多个测试二进制并发写同一个 lumberjack 文件。**2026-10-02 已修复**（`8c460e4`） |
 | T7 | ✅ | E | `internal/runner/runner_linux_test.go`、`pkg/umuruntime/host_linux_test.go` | `PROTON_VERB=run` 等**承重回归用例**在没有可用 Python 的机器上静默跳过。**2026-10-02 已修复**（`33d5882`） |
-| T8 | P3 | A（潜在） | `batchmanage`、`installer/status_test.go` 等 | 依赖全局目录变量「恰好为空」：判活读的是相对**当前目录**的 `instances/<名字>/`，只把部分目录变量指向临时目录 |
-| T9 | P3 | — | `internal/countdown` `TestWaitCancelOneInstanceContinuesOthers` | 注释写「默认跳过」，实际只在 `-short` 下跳过，每次全量都要多等 30 秒 |
-| T10 | 记录 | E | Linux 侧十余处 | root / 非 root、`ASA_TEST_*` 开关、Xvfb、ACL、overlayfs、显示等条件跳过：不改代码，但要有一张「哪个环境能测到什么」的验证矩阵 |
+| T8 | ✅ | A（潜在） | `batchmanage`、`installer/status_test.go` 等 | 依赖全局目录变量「恰好为空」：判活读的是相对**当前目录**的 `instances/<名字>/`，只把部分目录变量指向临时目录。**2026-10-02 已修复**（`eff077b`） |
+| T9 | ✅ | — | `internal/countdown` `TestWaitCancelOneInstanceContinuesOthers` | 注释写「默认跳过」，实际只在 `-short` 下跳过，每次全量都要多等 30 秒。**2026-10-02 已修复**（`be54de9`，改注释、保留默认运行） |
+| T10 | 记录 | E | Linux 侧十余处 | root / 非 root、`ASA_TEST_*` 开关、Xvfb、ACL、overlayfs、显示等条件跳过：不改代码，但要有一张「哪个环境能测到什么」的验证矩阵。**2026-10-02 矩阵按实测名单更新，见 T10 与 §7** |
 | T11 | 不改 | B | `pkg/userenv` `TestUserRoundTrip` | 真写 HKCU，但变量名一次性、`t.Cleanup` 删除，可以接受 |
 
 ---
@@ -172,7 +172,7 @@ func init() {
 
 **修复**：`pkg/pyfinder` 的显式覆盖只是执行解释器、读 `sys.version_info`（`pkg/pyfinder/pyfinder.go:36`），所以可以在 `t.TempDir()` 里放一个只回显 `3 12` 的 `#!/bin/sh` 脚本，经 `runner.Config.PythonBin` / `umu.Config.PythonBin` 指过去。这样用例不再依赖宿主的 Python，`Skip` 分支可以删掉，改成 `t.Fatal`。实施时要确认没有其他环节会真的拿这个解释器去执行 `umu-run`（这几条用例只拼命令、不 exec，按现在的代码是成立的）。
 
-### T8 [P3] 依赖全局目录变量「恰好为空」
+### T8 [✅ 已修复] 依赖全局目录变量「恰好为空」
 
 `internal/config` 的 `BaseDir` / `InstancesDir` / `ServerFilesDir` / `SteamCmdDir` / `BackupsDir` 是包级变量，测试各自决定换掉哪几个：
 
@@ -183,7 +183,7 @@ func init() {
 
 **修复**：在 `internal/config` 提供一个测试辅助函数 `UseTempDirsForTest(t) string`：调用 `SetDirectories(t.TempDir())`，并用 `t.Cleanup` 恢复**全部五个**变量。上面列的用例以及 `plugindata` / `arkapimanage` / `pluginapi` / `mirror` 里各自手写的「保存 → 替换 → 还原」都改用它。这一条不急，可以和 T2 一起做。
 
-### T9 [P3] 30 秒的倒计时用例注释与行为不符
+### T9 [✅ 已修复] 30 秒的倒计时用例注释与行为不符
 
 `internal/countdown/run_test.go:348-353` 的注释说这条「必然要跑满 30s，默认跳过」，代码却只在 `testing.Short()` 时跳过，而全量验证命令从来不带 `-short`。实测一里它独占了 30 秒，`countdown` 包总共 34 秒，是全仓最慢的包。
 
@@ -207,6 +207,26 @@ func init() {
 | `runner.CheckRuntime()` 通过 | `internal/actions` `TestVerifyEnvironmentReady_NilWhenEverythingPresent` | Windows 恒通过；Linux 上要有已装好的运行时，否则跳过 |
 
 **要做的**：把这张表的「怎么跑」写成 §5 验证步骤的一部分，至少补上「WSL 普通用户跑一遍」。`TestVerifyEnvironmentReady_NilWhenEverythingPresent` 在 Linux 上可以像它对 SteamCMD 的做法一样，把运行时也伪造进临时 BaseDir，不再依赖宿主（可选，做 T7 时顺手）。
+
+**2026-10-02 实测的 SKIP 基线**（`go test -count=1 -json`，分支 `test/env-coupling-p3`）。以后某个环境多出一条不在这里的 SKIP，
+要么补进来，要么说明又有用例开始依赖环境了：
+
+| 环境 | SKIP 的用例 | 原因 |
+| --- | --- | --- |
+| Windows（作者本机，普通用户，未设 `ASA_CFG`） | `internal/config` `Test_SetMessageOfTheDay` | T3：没设 `ASA_CFG` 就找不到 `ces99` |
+|  | `pkg/userenv` `TestProfileScriptIsSourceable` | 没有 POSIX sh |
+| WSL root（`ASA_TEST_RUNTIME_USER=1`，WSLg 有显示） | `internal/config` `Test_SetMessageOfTheDay` | 同上 |
+|  | `internal/actions` `TestVerifyEnvironmentReady_NilWhenEverythingPresent` | 没装 umu 运行时（见下「未做」） |
+|  | `internal/runner` `TestRuntimeUser_NoopWhenNotRoot` | 断言的是非 root 行为 |
+|  | `pkg/sysuser` `TestHomeDir_FallsBackToProcessHomeWhenNotManaged`、`TestChildIDs_ZeroWhenNotManaged` | 断言的是「不降权」分支，只在非 root 下成立 |
+|  | `pkg/umuruntime/plugins/xdisplay` `TestAcquireUnavailableIsTyped` | WSLg 设了 `DISPLAY`，能拿到显示 |
+|  | `pkg/xvfb` `TestEnsureSocketDirIsRootOnly` | 断言的是非 root 行为 |
+|  | `pkg/xvfb` `TestRemountIsNoOpWhenWritable` | 这台机器的 `/tmp/.X11-unix` 不可写 |
+|  | `pkg/xvfb` `TestAcquireEndToEnd` | 要 `ASA_TEST_XVFB=1` |
+| WSL 普通用户 | **待人工跑**（§7.4） | 预期：上面四条断言非 root 行为的用例（`runner` 一条、`sysuser` 两条、`xvfb` `TestEnsureSocketDirIsRootOnly`）会运行并通过；root 才能跑的那几条（`pkg/sysuser` Managed 分支、`pkg/wineprefix` overlay 守卫、`pkg/xvfb` `ensureSocketDir`、`ASA_TEST_RUNTIME_USER` 那条）改为 SKIP |
+
+**未做**：`TestVerifyEnvironmentReady_NilWhenEverythingPresent` 的 Linux 伪造。要伪造运行时就得在测试里改 `runner` 的包级配置，
+而 `runner` 没有导出读取 / 还原配置的接口，只能再给它加一个测试钩子——超出「测试修复」的范围，维持跳过。
 
 ### T11 [不改] `pkg/userenv` 真写注册表
 
@@ -242,7 +262,7 @@ func init() {
 
 **二批（P2）**：T4、T5、T6、T7。 **✅ 2026-10-02 完成。**
 
-**三批（P3 与记录）**：T8、T9，以及把 T10 的矩阵写进验证步骤。
+**三批（P3 与记录）**：T8、T9，以及把 T10 的矩阵写进验证步骤。 **✅ 2026-10-02 完成**（T10 中需要人工的部分见 §7）。
 
 **每批的验证**（新的回归基线，比 §11.8.4 多三轮）：
 
@@ -295,10 +315,196 @@ func init() {
 - 回归：Windows `go build ./...`、`go vet ./internal/... ./pkg/... .`、`go test -race ./internal/... ./pkg/... .` 通过；WSL `go build ./...`、
   `go vet ./...`、`ASA_TEST_RUNTIME_USER=1 go test -race ./...` 通过。
 
-**仍未做**：三批（T8、T9、T10 的验证矩阵）；§5 第 5 条「WSL 普通用户跑一遍」。
+**仍未做**：已在三批（§5.2）中完成。
+
+## 5.2 三批实施记录（2026-10-02，分支 `test/env-coupling-p3`，基于 `test/env-coupling`）
+
+| 提交 | 内容 |
+| --- | --- |
+| `eff077b` | T8：`cfgpkg.UseTempDirsForTest(t)`（`internal/config/testdirs.go`），20 个测试文件里手写的「保存 → 替换 → 还原」改用它；`batchmanage` 的 `newTestManager` 与 `countdown` 的 `TestMain` 也把目录变量指向空临时目录 |
+| `be54de9` | T9：注释改为「只在 `-short` 时跳过」，用例照旧默认运行 |
+
+**与方案的偏离 / 补充**：
+
+1. **顺手修了 `actions/setup_test.go` 的还原错误**：它用 `SetDirectories(origBase)` 还原，`origBase` 为空时会把 `InstancesDir` 等设成
+   相对路径 `"instances"`，而不是还原成空串——后面的用例拿到的目录变量就和开始时不一样了。改用 `UseTempDirsForTest`。
+2. `countdown` 的 `TestMain` 没有 `testing.TB`，用 `os.MkdirTemp` + `SetDirectories` 内联实现，跑完删目录。
+3. `internal/actions/configcmd_test.go` 里有一处只把 `BaseDir` 设成 `Load` 的返回值，那是要验证的那个具体值，不是「换成临时目录」，保留。
+4. T10 不改代码，按实测名单更新了矩阵（见 T10）。WSL 里只有 root 账号，新建普通用户属于改动 WSL 系统，留给人工（§7）。
+
+**验证**：Windows `go build ./...`、`go vet ./internal/... ./pkg/... .`、`go test -race ./internal/... ./pkg/... .` 通过；WSL `go build ./...`、
+`go vet ./...`、`ASA_TEST_RUNTIME_USER=1 go test -race ./...` 通过。
 
 ## 6. 本次排查留下的、需要人工处理的事
 
 - `internal/config/{instances,server-files,steamcmd,backups,logs}` 是 T2 建出来的空目录，被 gitignore，不影响提交。T2 已修复（2026-10-02），**现在就可以手动删掉**，之后不会再被建出来。
-- `%TEMP%\logs\asaServer.log`（1.9 MB）是 T6 的产物，做完 T6 之后可以手动删掉。
-- 第 1 节第 5 条提到的 WSL 实测：2026-10-02 在 `refactor/remove-asa-basedir` 上已跑过一次全量 `ASA_TEST_RUNTIME_USER=1 go test -race ./...`（root，全部通过），但 SKIP 名单还没收集，WSL 普通用户那一轮也还没跑。
+- `%TEMP%\logs\asaServer.log`（1.9 MB）是 T6 的产物，T6 已修复（2026-10-02），现在可以手动删掉（命令见 §7.6）。
+- 第 1 节第 5 条提到的 WSL 实测：2026-10-02 在 `refactor/remove-asa-basedir` 上已跑过一次全量 `ASA_TEST_RUNTIME_USER=1 go test -race ./...`（root，全部通过），root 的 SKIP 名单已收集进 T10 基线表；WSL 普通用户那一轮见 §7.4。
+
+## 7. 人工验证清单（2026-10-02）
+
+自动化覆盖不到的项目集中在这里，含 `docs/APPCONFIG_BASEDIR_PLAN.md` P2-7「未验证」那几条。全部基于分支 `test/env-coupling-p3`
+（它包含移除 `ASA_BASEDIR`、启动前校验与本文的全部修复）。每一步的「期望」就是判据；结果不符时把那一步的完整输出贴回来。
+
+验证用的程序与数据都放在**独立目录**（Windows `C:\asa-verify`、WSL `/opt/asa-verify`），不碰 `E:\asa_server_data` 与 WSL 里现有的
+`/opt/asa-server`。`config init --basedir` 会检查剩余空间（≥ 30GB），这两个位置目前都够；不够时换一个盘符或目录。
+
+### 7.1 Windows GUI：配置无效时弹错误框，缺配置时仍打开向导
+
+普通 PowerShell：
+
+```powershell
+cd D:\golang\asa-server
+git switch test/env-coupling-p3
+$v = 'C:\asa-verify'
+New-Item -ItemType Directory -Force $v | Out-Null
+go build -o "$v\asa-server.exe" .
+& "$v\asa-server.exe" config init --dir $v --basedir "$v\data" --non-interactive
+(Get-Content "$v\config.yaml") -replace '^  port: 19193$', '  port: 70000' | Set-Content "$v\config.yaml" -Encoding utf8
+& "$v\asa-server.exe" config validate; "exit=$LASTEXITCODE"
+```
+
+- 期望：`config validate` 报「配置无效」并点名 `server.port`，`exit=1`。
+
+然后在资源管理器里**双击** `C:\asa-verify\asa-server.exe`（不带参数 = GUI）：
+
+- 期望：弹出标题为「ASA Server Manager 无法启动」的错误框，正文含 `C:\asa-verify\config.yaml`、`server.port: 端口必须在 1-65535 之间，当前为 70000`
+  与 `asa-server config validate`。旁边那个黑色控制台窗口里也是同一段话。
+- 点「确定」后进程退出：`Get-Process | Where-Object Path -eq 'C:\asa-verify\asa-server.exe'` 没有输出。
+
+缺配置时不应被拦：
+
+```powershell
+Rename-Item "$v\config.yaml" config.yaml.off
+```
+
+再双击 exe：
+
+- 期望：**不弹错误框**，主窗口出现、随后弹出「首次设置」向导。直接关掉向导窗口（不要在第 1 页选自定义目录——那会写用户级 `ASA_CFG`），
+  再从托盘退出程序。
+
+```powershell
+Rename-Item "$v\config.yaml.off" config.yaml   # 恢复（仍是坏的，7.2 要用）
+```
+
+### 7.2 Windows 服务：配置无效时拒绝安装 / 启动，原因进事件日志与日志文件，维护命令照常
+
+**管理员** PowerShell（本机 2026-10-02 确认没有已安装的 `ASA-Server-Manager` 服务；若 `sc.exe query` 显示已存在，先停下来告诉我）：
+
+```powershell
+$v = 'C:\asa-verify'
+sc.exe query ASA-Server-Manager                     # 期望：1060，服务不存在
+
+# ① 配置无效时，service install 被拦
+& "$v\asa-server.exe" service install; "exit=$LASTEXITCODE"
+sc.exe query ASA-Server-Manager
+```
+
+- 期望：打出「无法通过校验，程序不会启动」，`exit=78`；`sc.exe query` 仍是 1060（没装上）。
+
+```powershell
+# ② 改回有效配置并安装（会建出 C:\asa-verify\data，不会装证书、不会启动服务）
+(Get-Content "$v\config.yaml") -replace '^  port: 70000$', '  port: 19193' | Set-Content "$v\config.yaml" -Encoding utf8
+& "$v\asa-server.exe" service install; "exit=$LASTEXITCODE"
+
+# ③ 再改坏，启动服务
+(Get-Content "$v\config.yaml") -replace '^  port: 19193$', '  port: 70000' | Set-Content "$v\config.yaml" -Encoding utf8
+& "$v\asa-server.exe" service start; "exit=$LASTEXITCODE"
+Start-Sleep 3
+sc.exe query ASA-Server-Manager
+Get-WinEvent -FilterHashtable @{LogName='Application'; ProviderName='ASA-Server-Manager'} -MaxEvents 3 |
+    Format-List TimeCreated, LevelDisplayName, Message
+Get-Content "$v\data\logs\asaServer.log" -Tail 5
+```
+
+- 期望（②）：`exit=0`，`C:\asa-verify\data` 下出现 `instances`、`logs` 等目录。
+- 期望（③）：`service start` 可能报服务启动失败（SCM 的「进程意外终止」之类），这是预期的；`sc.exe query` 显示 `STOPPED`；
+  事件日志里有一条**刚才时间**、级别为「错误」、正文是「配置文件 … 无法通过校验，程序不会启动」的记录；`asaServer.log` 末尾有同样的内容。
+
+```powershell
+# ④ 配置仍是坏的：维护命令照常可用
+& "$v\asa-server.exe" service stop; "exit=$LASTEXITCODE"
+& "$v\asa-server.exe" service remove; "exit=$LASTEXITCODE"
+sc.exe query ASA-Server-Manager
+```
+
+- 期望：两条命令都**不出现**「无法通过校验」、退出码不是 78（`service stop` 对已停止的服务可能提示「未在运行」，可以接受）；
+  `service remove` 之后 `sc.exe query` 回到 1060。
+
+### 7.3 WSL systemd：配置无效时单元进入 failed，不反复重启
+
+WSL（root）：
+
+```sh
+systemctl list-unit-files | grep -i asa             # 期望：无输出（没有同名单元；有的话先停下来告诉我）
+cd /mnt/d/golang/asa-server && git status -sb | head -1   # 确认在 test/env-coupling-p3
+V=/opt/asa-verify
+mkdir -p $V && go build -o $V/asa-server .
+$V/asa-server config init --dir $V --basedir $V/data --non-interactive
+$V/asa-server service install; echo "exit=$?"
+sed -i 's/^  port: 19193$/  port: 70000/' $V/config.yaml
+systemctl restart ASA-Server-Manager; sleep 10
+systemctl show ASA-Server-Manager -p ActiveState -p Result -p ExecMainStatus -p NRestarts
+sleep 20
+systemctl show ASA-Server-Manager -p NRestarts
+journalctl -u ASA-Server-Manager -n 20 --no-pager
+tail -n 5 $V/data/logs/asaServer.log
+```
+
+- 期望：`service install` 的 `exit=0`；`ActiveState=failed`、`ExecMainStatus=78`；两次 `NRestarts` 相同（没有每隔几秒重启）；
+  `journalctl` 与 `asaServer.log` 里都有「无法通过校验，程序不会启动」。
+
+清理：
+
+```sh
+$V/asa-server service stop; $V/asa-server service remove; echo "exit=$?"   # 配置仍是坏的，期望照常成功
+systemctl list-unit-files | grep -i asa             # 期望：无输出
+rm -rf $V
+```
+
+### 7.4 WSL 普通用户跑全量测试（T10）
+
+WSL 里目前只有 root。以下会**新建一个系统账号 `asatest`**，跑完删掉；模块缓存 `/.golang/pkg/mod` 对其他用户可读，`GOPROXY=off` 保证不联网。
+
+```sh
+useradd -m -s /bin/bash asatest
+su - asatest -c '
+  cd /mnt/d/golang/asa-server
+  export PATH=/usr/local/go/bin:$PATH GOMODCACHE=/.golang/pkg/mod GOPROXY=off GOFLAGS=-mod=readonly
+  id
+  go test -race -count=1 ./... > /tmp/asatest-race.log 2>&1; echo "exit=$?"
+  grep -E "^(FAIL|--- FAIL|panic)" /tmp/asatest-race.log
+  go test -count=1 -json ./... 2>/dev/null | grep "\"Action\":\"skip\"" | grep "\"Test\"" |
+    sed -E "s/.*\"Package\":\"([^\"]+)\",\"Test\":\"([^\"]+)\".*/\1 \2/"
+'
+userdel -r asatest
+```
+
+- 期望：`id` 显示非 0 的 uid；`exit=0`，没有 `FAIL`；SKIP 名单里**没有** `TestRuntimeUser_NoopWhenNotRoot`、
+  `TestHomeDir_FallsBackToProcessHomeWhenNotManaged`、`TestChildIDs_ZeroWhenNotManaged`、`TestEnsureSocketDirIsRootOnly`
+  （它们在普通用户下才真的运行），而多出 root 才能跑的那几条（见 T10 基线表最后一行）。把 SKIP 名单整段贴回来，我补进 T10 的基线表。
+
+### 7.5 （可选）`Test_SetMessageOfTheDay` 在本机照旧运行
+
+```powershell
+cd D:\golang\asa-server
+$env:ASA_CFG = 'D:\golang\asa-server'; go test -count=1 -v -run Test_SetMessageOfTheDay ./internal/config/; Remove-Item Env:ASA_CFG
+```
+
+- 期望：`--- PASS: Test_SetMessageOfTheDay`。它会照旧把公告写进 `E:\asa_server_data\instances\ces99` 的 `GameUserSettings.ini`（T3 的原有行为）。
+
+### 7.6 收尾清理（都不影响提交）
+
+```powershell
+cd D:\golang\asa-server
+Remove-Item -Recurse -Force internal\config\backups, internal\config\instances, internal\config\logs, internal\config\server-files, internal\config\steamcmd   # T2 留下的空目录
+Remove-Item -Force "$env:TEMP\logs\asaServer.log"     # T6 修复前的产物
+Remove-Item -Recurse -Force C:\asa-verify             # 7.1 / 7.2 的验证目录（服务已在 7.2 ④ 删除）
+```
+
+`ASA_BASEDIR` 已经不起作用，但系统级的那个变量还在，每次启动会多一条「可以删掉」的提示。要删的话（管理员 PowerShell，之后新开的进程生效）：
+
+```powershell
+[Environment]::SetEnvironmentVariable('ASA_BASEDIR', $null, 'Machine')
+```
+
