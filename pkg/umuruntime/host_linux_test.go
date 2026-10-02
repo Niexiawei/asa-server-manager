@@ -96,9 +96,23 @@ func readyBase(t *testing.T) Config {
 	}
 	return Config{
 		Runtime: "umu",
-		Umu:     umu.Config{BaseDir: base, ProtonVersion: "GE-Proton10-34", GameID: "umu-default"},
-		Prefix:  wineprefix.Config{BaseDir: base, ProtonVersion: "GE-Proton10-34"},
+		Umu: umu.Config{BaseDir: base, ProtonVersion: "GE-Proton10-34", GameID: "umu-default",
+			PythonBin: fakePython(t)},
+		Prefix: wineprefix.Config{BaseDir: base, ProtonVersion: "GE-Proton10-34"},
 	}
+}
+
+// fakePython 是一个只回答版本探测的假解释器（pyfinder 的探测只是执行它、读
+// "<major> <minor>"）。用到它的用例只拼启动命令、不 exec，有它就不依赖宿主装没装
+// Python——以前缺 Python 的机器上这些用例静默 SKIP，守 PROTON_VERB=run 的那条也在内
+// （docs/TEST_ENV_COUPLING_PLAN.md T7）。
+func fakePython(t *testing.T) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "python3")
+	if err := os.WriteFile(p, []byte("#!/bin/sh\necho \"3 12\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return p
 }
 
 func TestCheckReportsNotReadyTyped(t *testing.T) {
@@ -209,11 +223,8 @@ func TestCloseReverseOrder(t *testing.T) {
 	}
 }
 
-func commandOrSkip(t *testing.T, h *Host, spec LaunchSpec) *Command {
+func mustCommand(t *testing.T, h *Host, spec LaunchSpec) *Command {
 	t.Helper()
-	if _, err := h.Umu().Interpreter(); err != nil {
-		t.Skipf("no usable Python interpreter here: %v", err)
-	}
 	c, err := h.Command(context.Background(), "/srv/Game.exe", []string{"-a"}, spec)
 	if err != nil {
 		t.Fatal(err)
@@ -244,7 +255,7 @@ func TestCommandEnvLayering(t *testing.T) {
 	gui := newFakeEnv("xd", CapGUI, "DISPLAY=:77", nil)
 	h := mustHost(t, cfg, gui)
 
-	c := commandOrSkip(t, h, LaunchSpec{
+	c := mustCommand(t, h, LaunchSpec{
 		Env:   []string{"PROTON_VERB=waitforexitandrun", "HOME=/root", "XDG_RUNTIME_DIR=/run/user/0"},
 		Needs: []Capability{CapGUI, CapGUI},
 	})
@@ -280,9 +291,6 @@ func TestCommandEnvLayering(t *testing.T) {
 func TestCommandUnprovidedNeedFails(t *testing.T) {
 	gui := newFakeEnv("xd", CapGUI, "DISPLAY=:77", nil)
 	h := mustHost(t, readyBase(t), gui)
-	if _, err := h.Umu().Interpreter(); err != nil {
-		t.Skipf("no usable Python interpreter here: %v", err)
-	}
 
 	_, err := h.Command(context.Background(), "/srv/Game.exe", nil, LaunchSpec{
 		Needs: []Capability{CapGUI, "cap.nobody"},
