@@ -135,6 +135,9 @@ asa-manager service remove
 
 #### HTTP API 服务器
 
+`api`（以及服务模式）需要一份已存在且有效的 `config.yaml`：先运行 `asa-manager config init`
+（或 `asa-manager setup`）。缺少配置或配置无效时以退出码 78 退出，不会再用默认配置启动。
+
 ```bash
 # 启动 HTTP API 服务器（默认 HTTPS + HTTP/2）
 asa-manager api

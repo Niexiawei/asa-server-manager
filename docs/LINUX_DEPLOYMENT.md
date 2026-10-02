@@ -200,6 +200,8 @@ go build -o asa-server .
 gopsutil、creack/pty）全是纯 Go，静态二进制交叉编译无痛。
 
 **Linux 上无参数直接运行 `asa-server` 等价于 `asa-server api`**（没有 GUI 可退回）。
+`api` 与服务模式**需要先有一份有效的 `config.yaml`**（见 2.1）：找不到或校验不通过时以退出码 78 退出，
+不会再自动生成配置、也不会用默认配置启动。
 
 ### 2.1 首次部署流程：先配置、后初始化
 
@@ -220,7 +222,12 @@ sudo ./asa-server setup                             # 检测到已有配置，�
 - **直接跑 `setup` 也行**：没有配置时它会先生成一份、打印要检查的配置项，然后**停下来等你改**，
   回车后重新加载（包括下载代理）才开始下载。非交互模式下必须给 `--basedir`，或者先 `config init`。
 - 排障看 `asa-server config path`：三级查找（`ASA_CFG` → 程序目录 → `/etc/asa-server`）各自有没有配置、当前用的是哪一份、
-  数据目录来自哪里；配置校验不过时它会提醒「程序会回落到默认配置运行」。
+  数据目录来自哪里；配置校验不过时它会提醒「程序不会启动」。
+- **配置必须存在且有效**：`api`、服务模式与其余命令找不到配置或校验不通过时退出码 78、不启动（systemd 单元带
+  `RestartPreventExitStatus=78`，会直接进入 `failed` 而不是反复重启，原因看 `journalctl -u ASA-Server-Manager`）。
+  只有 `config` 子命令与 `service stop|start|remove`、`cert uninstall` 不受影响。**改完配置先 `config validate` 再重启服务。**
+- 数据目录只由 `config.yaml` 的 `basedir` 决定（留空 = 配置文件所在目录）。旧的 `ASA_BASEDIR` 环境变量已移除；
+  仍设着它时程序会提示该在配置里写哪一行。
 - `--help`、`config` 子命令都不会在磁盘上生成任何东西（以前 `asa-server --help` 会在程序旁边生成 `config.yaml` 并建 5 个数据目录）。
 
 **配置文件放在别处**：`config init --dir /etc/asa-server/cfg --set-env` 以 root 写入 `/etc/profile.d/asa-server.sh`

@@ -202,7 +202,8 @@ func init() {
 
 ## 5. 实施排期与验证
 
-**零批（先做）**：移除 `ASA_BASEDIR`（`docs/APPCONFIG_BASEDIR_PLAN.md` Part 2），T2 随之解决。
+**零批（先做）**：移除 `ASA_BASEDIR`（`docs/APPCONFIG_BASEDIR_PLAN.md` Part 2），T2 随之解决。**✅ 2026-10-02 已完成**（`07d6e3d`），
+同一分支还做了启动前配置校验（`02f1c36`），T1 的「其余 `ASA_*` 变量污染测试」**尚未处理**。
 
 **一批（P1）**：T1。T3 不改。
 
