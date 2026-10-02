@@ -42,15 +42,7 @@ func hasReparsePointAttr(t *testing.T, path string) bool {
 // 递归进 junction，migrateExceptionJunctions 的 !fi.IsDir() 也拦得住。所以即便识别
 // 失效，实测也不会删到源数据——第 2 组断言是兜底，第 1 组才是识别失效的真实症状。
 func TestSyncDoesNotDeleteThroughJunctions(t *testing.T) {
-	root := t.TempDir()
-
-	origBase, origServerFiles, origInstances := cfgpkg.BaseDir, cfgpkg.ServerFilesDir, cfgpkg.InstancesDir
-	t.Cleanup(func() {
-		cfgpkg.BaseDir, cfgpkg.ServerFilesDir, cfgpkg.InstancesDir = origBase, origServerFiles, origInstances
-	})
-	cfgpkg.BaseDir = root
-	cfgpkg.ServerFilesDir = filepath.Join(root, "server-files")
-	cfgpkg.InstancesDir = filepath.Join(root, "instances")
+	cfgpkg.UseTempDirsForTest(t)
 
 	// 造一棵有代表性的源目录树：
 	//   Engine/            —— 普通顶层目录，会被整体 junction，子内容不进镜像
@@ -161,15 +153,7 @@ func TestSyncDoesNotDeleteThroughJunctions(t *testing.T) {
 // 文件不再建符号链接，一律复制：镜像里的文件必须是真实副本。
 // 这样两种权限下行为一致，也不会再出现"有时链接有时复制"的类型抖动。
 func TestMirrorFilesAreRealCopies(t *testing.T) {
-	root := t.TempDir()
-
-	origBase, origServerFiles, origInstances := cfgpkg.BaseDir, cfgpkg.ServerFilesDir, cfgpkg.InstancesDir
-	t.Cleanup(func() {
-		cfgpkg.BaseDir, cfgpkg.ServerFilesDir, cfgpkg.InstancesDir = origBase, origServerFiles, origInstances
-	})
-	cfgpkg.BaseDir = root
-	cfgpkg.ServerFilesDir = filepath.Join(root, "server-files")
-	cfgpkg.InstancesDir = filepath.Join(root, "instances")
+	cfgpkg.UseTempDirsForTest(t)
 
 	// 根目录散落文件走的正是原先 createFileSymlink 那条分支
 	rootFile := filepath.Join(cfgpkg.ServerFilesDir, "steamclient.dll")

@@ -1,6 +1,7 @@
 package batchmanage
 
 import (
+	cfgpkg "asa-server/internal/config"
 	"asa-server/internal/countdown"
 	instancepkg "asa-server/internal/instance"
 	"context"
@@ -197,6 +198,9 @@ func TestResultStatus(t *testing.T) {
 // 广播器归 manager 所有、跨操作存活，所以它的生命周期挂在测试上而非单次操作上。
 func newTestManager(t *testing.T) *BatchManager {
 	t.Helper()
+	// 主循环会对实例判活（读 InstancesDir 下的配置与 PID 文件）。目录变量指向空的
+	// 临时目录，「测试实例名不存在」才不依赖当前目录下恰好有什么。
+	cfgpkg.UseTempDirsForTest(t)
 	lb := NewLogBroadcaster()
 	lb.Start()
 	t.Cleanup(lb.Stop)

@@ -28,9 +28,7 @@ func TestMain(m *testing.M) {
 func startTLSServer(t *testing.T, handler http.Handler) (string, *x509.CertPool) {
 	t.Helper()
 
-	original := cfgpkg.BaseDir
-	cfgpkg.BaseDir = t.TempDir()
-	t.Cleanup(func() { cfgpkg.BaseDir = original })
+	cfgpkg.UseTempDirsForTest(t)
 
 	tlsConfig, err := certmgr.EnsureTLSConfig(certmgr.Options{Trust: false})
 	if err != nil {

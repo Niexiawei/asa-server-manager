@@ -24,9 +24,7 @@ func TestMain(m *testing.M) {
 // withTempBaseDir 把证书目录指向临时目录，避免测试污染真实 {BaseDir}/certs
 func withTempBaseDir(t *testing.T) {
 	t.Helper()
-	original := cfgpkg.BaseDir
-	cfgpkg.BaseDir = t.TempDir()
-	t.Cleanup(func() { cfgpkg.BaseDir = original })
+	cfgpkg.UseTempDirsForTest(t)
 
 	if err := os.MkdirAll(CertsDir(), 0700); err != nil {
 		t.Fatalf("创建证书目录失败: %v", err)

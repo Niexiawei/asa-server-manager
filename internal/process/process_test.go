@@ -2,7 +2,6 @@ package process
 
 import (
 	cfgpkg "asa-server/internal/config"
-	"path/filepath"
 	"testing"
 )
 
@@ -11,9 +10,7 @@ import (
 // same pattern used by internal/mirror's tests.
 func withTempInstancesDir(t *testing.T) {
 	t.Helper()
-	orig := cfgpkg.InstancesDir
-	cfgpkg.InstancesDir = filepath.Join(t.TempDir(), "instances")
-	t.Cleanup(func() { cfgpkg.InstancesDir = orig })
+	cfgpkg.UseTempDirsForTest(t)
 }
 
 func TestSaveAndGetLauncherPID(t *testing.T) {

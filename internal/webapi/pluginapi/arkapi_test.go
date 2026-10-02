@@ -23,12 +23,7 @@ import (
 
 func setupArkApiEnv(t *testing.T) {
 	t.Helper()
-	root := t.TempDir()
-	origBase, origSF, origInst := cfgpkg.BaseDir, cfgpkg.ServerFilesDir, cfgpkg.InstancesDir
-	t.Cleanup(func() { cfgpkg.BaseDir, cfgpkg.ServerFilesDir, cfgpkg.InstancesDir = origBase, origSF, origInst })
-	cfgpkg.BaseDir = root
-	cfgpkg.ServerFilesDir = filepath.Join(root, "server-files")
-	cfgpkg.InstancesDir = filepath.Join(root, "instances")
+	cfgpkg.UseTempDirsForTest(t)
 	loader := filepath.Join(cfgpkg.ServerFilesDir, "ShooterGame", "Binaries", "Win64", "AsaApiLoader.exe")
 	if err := os.MkdirAll(filepath.Dir(loader), 0755); err != nil {
 		t.Fatal(err)

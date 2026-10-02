@@ -11,13 +11,7 @@ import (
 
 func withEmptyBaseDir(t *testing.T) {
 	t.Helper()
-	base := t.TempDir()
-	oldSteam, oldServer := cfgpkg.SteamCmdDir, cfgpkg.ServerFilesDir
-	cfgpkg.SteamCmdDir = filepath.Join(base, "steamcmd")
-	cfgpkg.ServerFilesDir = filepath.Join(base, "server-files")
-	t.Cleanup(func() {
-		cfgpkg.SteamCmdDir, cfgpkg.ServerFilesDir = oldSteam, oldServer
-	})
+	cfgpkg.UseTempDirsForTest(t)
 }
 
 func TestVerifyEnvironmentReady_ReportsMissingAndPointsAtSetup(t *testing.T) {

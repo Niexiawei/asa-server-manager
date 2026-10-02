@@ -27,14 +27,7 @@ const layoutInst = "layoutinst"
 // setupArkApiLayout 造一个装了 ArkApi 主程序与一个插件的 server-files，以及一个实例。
 func setupArkApiLayout(t *testing.T) *cfgpkg.InstanceConfig {
 	t.Helper()
-	root := t.TempDir()
-	origBase, origServerFiles, origInstances := cfgpkg.BaseDir, cfgpkg.ServerFilesDir, cfgpkg.InstancesDir
-	t.Cleanup(func() {
-		cfgpkg.BaseDir, cfgpkg.ServerFilesDir, cfgpkg.InstancesDir = origBase, origServerFiles, origInstances
-	})
-	cfgpkg.BaseDir = root
-	cfgpkg.ServerFilesDir = filepath.Join(root, "server-files")
-	cfgpkg.InstancesDir = filepath.Join(root, "instances")
+	cfgpkg.UseTempDirsForTest(t)
 
 	win64 := serverWin64()
 	writeAt(t, filepath.Join(win64, "ArkAscendedServer.exe"), "exe")

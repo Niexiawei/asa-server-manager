@@ -15,11 +15,7 @@ import (
 // setupEnv 把 cfgpkg 的目录变量指到临时目录，返回 (instanceName, mirrorDir)。
 func setupEnv(t *testing.T) (string, string) {
 	t.Helper()
-	root := t.TempDir()
-
-	origInstances := cfgpkg.InstancesDir
-	t.Cleanup(func() { cfgpkg.InstancesDir = origInstances })
-	cfgpkg.InstancesDir = filepath.Join(root, "instances")
+	root := cfgpkg.UseTempDirsForTest(t)
 
 	mirrorDir := filepath.Join(root, "server-files-tmp-test")
 	if err := os.MkdirAll(MirrorPluginsDir(mirrorDir), 0755); err != nil {
@@ -225,10 +221,7 @@ func TestFirstRunSeedsFromMirror(t *testing.T) {
 
 // 两个实例各自持有独立的数据，互不影响 —— 这正是整件事要解决的问题。
 func TestInstancesAreIsolated(t *testing.T) {
-	root := t.TempDir()
-	origInstances := cfgpkg.InstancesDir
-	t.Cleanup(func() { cfgpkg.InstancesDir = origInstances })
-	cfgpkg.InstancesDir = filepath.Join(root, "instances")
+	root := cfgpkg.UseTempDirsForTest(t)
 
 	for _, tc := range []struct{ inst, payload string }{{"a", "perm-a"}, {"b", "perm-b"}} {
 		mirrorDir := filepath.Join(root, "server-files-tmp-"+tc.inst)

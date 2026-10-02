@@ -80,15 +80,7 @@ func TestCleanupRescuesPluginDataFirst(t *testing.T) {
 // setupPluginMirror 造一个装了 ArkApi 插件的源目录并建好镜像。
 func setupPluginMirror(t *testing.T) (string, map[string]string) {
 	t.Helper()
-	root := t.TempDir()
-
-	origBase, origServerFiles, origInstances := cfgpkg.BaseDir, cfgpkg.ServerFilesDir, cfgpkg.InstancesDir
-	t.Cleanup(func() {
-		cfgpkg.BaseDir, cfgpkg.ServerFilesDir, cfgpkg.InstancesDir = origBase, origServerFiles, origInstances
-	})
-	cfgpkg.BaseDir = root
-	cfgpkg.ServerFilesDir = filepath.Join(root, "server-files")
-	cfgpkg.InstancesDir = filepath.Join(root, "instances")
+	cfgpkg.UseTempDirsForTest(t)
 
 	srcPluginDir := filepath.Join(cfgpkg.ServerFilesDir, filepath.FromSlash(pluginRelDir))
 	writeAt(t, filepath.Join(srcPluginDir, "config.json"), `{"ClusterSyncTime":60}`)

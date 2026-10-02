@@ -9,14 +9,7 @@ import (
 
 func withBaseDir(t *testing.T) string {
 	t.Helper()
-	base := t.TempDir()
-	oldSteam, oldServer := cfgpkg.SteamCmdDir, cfgpkg.ServerFilesDir
-	cfgpkg.SteamCmdDir = filepath.Join(base, "steamcmd")
-	cfgpkg.ServerFilesDir = filepath.Join(base, "server-files")
-	t.Cleanup(func() {
-		cfgpkg.SteamCmdDir, cfgpkg.ServerFilesDir = oldSteam, oldServer
-	})
-	return base
+	return cfgpkg.UseTempDirsForTest(t)
 }
 
 func TestCheckInstalled_EmptyBaseDir(t *testing.T) {

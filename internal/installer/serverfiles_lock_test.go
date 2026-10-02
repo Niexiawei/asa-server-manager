@@ -12,11 +12,7 @@ import (
 // withTempBaseDir 让 server-files 更新锁落在临时目录，实例目录为空（没有存活实例）。
 func withTempBaseDir(t *testing.T) string {
 	t.Helper()
-	origBase, origInstances := cfgpkg.BaseDir, cfgpkg.InstancesDir
-	cfgpkg.BaseDir = t.TempDir()
-	cfgpkg.InstancesDir = filepath.Join(cfgpkg.BaseDir, "instances")
-	t.Cleanup(func() { cfgpkg.BaseDir, cfgpkg.InstancesDir = origBase, origInstances })
-	return filepath.Join(cfgpkg.BaseDir, serverFilesLockName)
+	return filepath.Join(cfgpkg.UseTempDirsForTest(t), serverFilesLockName)
 }
 
 // 另一个 asa-server 进程（终端里的 update，或服务）正在改写 server-files：
