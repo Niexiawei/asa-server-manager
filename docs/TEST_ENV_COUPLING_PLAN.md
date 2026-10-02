@@ -25,6 +25,7 @@
 
 1. **静态扫描**：在全部测试文件里搜绝对路径、作者本机的名字（`ces99` / `asa_server_data` / `nicoi`）、`os.Getenv`、`init()` / `TestMain`、对全局目录变量的读写、网络调用、`t.Skip` 条件、`fmt.Println` 型输出，再逐个读命中的用例。
 2. **实测一：Windows 去掉 `ASA_BASEDIR`**。作者本机的**系统级**环境变量是 `ASA_BASEDIR=E:\asa_server_data`，CI 与别人的机器上没有它。清掉后跑全量 `go test -count=1 -json ./internal/... ./pkg/... .`：51 个包通过、0 失败，跳过 `Test_SetMessageOfTheDay` 和 `TestProfileScriptIsSourceable`（Windows 上没有 sh，属预期）。但源码树里多出了目录，见 T2。
+   （📌 2026-10-02 移除 `ASA_BASEDIR` 之后，这个变量对任何测试都已没有影响：把它设成不存在的目录 `E:\nonexistent` 跑 `.`、`appconfig`、`actions`、`config`、`authapi`，全部通过。这一轮实测以后不再需要，见 §5。）
 3. **实测二：时区**。`internal/schedule`、`internal/auth`、`pkg/serverinfo`、`internal/state`、`internal/appconfig`、`internal/arkapimanage`、`pkg/arkcache` 在 `TZ=UTC / America/New_York / Australia/Lord_Howe（半小时夏令时）/ Pacific/Kiritimati（UTC+14）` 下各跑一遍，全部通过。**没有时区耦合。**
 4. **实测三：开发机多导出几个 `ASA_*` 变量**。设上 `ASA_SERVER_PORT=1`、`ASA_AUTH_ENABLED=true`、`ASA_SERVER_TLS=false`、`ASA_LOG_LEVEL=debug`、`ASA_AUTH_LAN_BYPASS=true` 后跑读配置的几个包：**3 个包、至少 13 个用例失败**，见 T1。
 5. **WSL 本轮没有实测**：在 WSL 里跑全量的那条命令被本机的权限策略拦下，没有执行。WSL 的基线用的是 §11.8.4 的结果（全量通过、`Test_SetMessageOfTheDay` 跳过）；Linux 上的跳过条件由静态扫描得出（§3 T10）。实施前需要补一次 WSL 实测，并且同时在 root 与普通用户下各跑一遍。
@@ -35,8 +36,8 @@
 
 | 编号 | 级别 | 类 | 位置 | 一句话 |
 | --- | --- | --- | --- | --- |
-| T1 | P1 | A | `internal/appconfig`、`internal/actions`、`internal/webapi/authapi` | 测试只隔离了 `ASA_CFG` / `ASA_BASEDIR`，开发机上任何其他 `ASA_*` 变量都会经 viper `AutomaticEnv` 改写配置，实测 13+ 用例失败 |
-| T2 | P1 | A+B | `internal/config/config_test.go` 的 `init()` | 包级 `init` 用 `ASA_BASEDIR` 建目录：没设时在**源码目录** `internal/config/` 下建 5 个运行时目录（已实测），设了时整包的全局目录指向**生产数据目录**。**→ 并入 `APPCONFIG_BASEDIR_PLAN.md` Part 2** |
+| T1 | P1 | A | `internal/appconfig`、`internal/actions`、`internal/webapi/authapi` | 测试只隔离了 `ASA_CFG`，开发机上任何其他 `ASA_*` 变量都会经 viper `AutomaticEnv` 改写配置，实测 14 个用例失败（2026-10-02 移除 `ASA_BASEDIR` 后复测，仍未处理） |
+| T2 | ✅ | A+B | `internal/config/config_test.go` 的 `init()` | 包级 `init` 用 `ASA_BASEDIR` 建目录：没设时在**源码目录** `internal/config/` 下建 5 个运行时目录（已实测），设了时整包的全局目录指向**生产数据目录**。**2026-10-02 随 `ASA_BASEDIR` 移除一起修复**（`07d6e3d`、`02f1c36`） |
 | T3 | 不改 | A+B+D | `internal/config` `Test_SetMessageOfTheDay` | §11.8.3 只做了「没有就跳过」。在作者本机上仍然往真实实例 `ces99` 写入公告。**2026-10-02 确认：保持现状** |
 | T4 | P2 | C+D | `pkg/netutil` `TestResolveDomainToIPv4` | 解析作者的域名 `asa.nicoi.cn`，只打印不断言；断网、DNS 受限或域名过期时失败 |
 | T5 | P2 | A+D | `pkg/procx` `Test_QueryProcess` | 查作者本机 `Port=9310` 的 `ArkAscendedServer.exe`，只打印不断言——查到查不到都通过 |
@@ -61,15 +62,27 @@
 
 （输出截到前 40 行，实际失败可能更多。）
 
-**原因**：`appconfig.Load` 开着 `SetEnvPrefix("ASA") + AutomaticEnv()`（`internal/appconfig/config.go:442-444`），这是产品的设计（flag > 环境变量 > 文件）。测试一侧只有 `clearASABaseDir`、`newConfigEnv` 等几处清了 `ASA_CFG` / `ASA_BASEDIR`，其余 `ASA_*` 都从开发机的环境里直接透进来。现在作者本机只设了 `ASA_BASEDIR`，所以没有暴露。但只要有人为了调试导出过 `ASA_SERVER_PORT`，或在装过服务的机器上跑测试，就会出现「代码没改、测试却挂了」。
+> 📌 **2026-10-02 移除 `ASA_BASEDIR` 后复测**（同样五个变量，外加 `ASA_BASEDIR=E:\nonexistent`）：**14 个用例失败**，问题仍在。
+> 名单随 Part 2 的测试改名而变：`internal/appconfig` 是 `TestLoad_ASACFGWinsOverExeAndSystemDir`、`TestLoad_TwoLevelSearch_FallsBackToSystemDir`、
+> `TestLoad_InvalidConfigKeepsFileBasedir`（新增）、`TestLoadMissingConfigUsesDefaultsAndWritesNothing`（原 `TestLoadCreatesTemplateWhenMissing`）、
+> `TestGeneratedTemplateIsLoadable`、`TestLoadReadsUserValues`、`TestInvalidAuthConfigIsFatal`、`TestLoadAcceptsBOMAndCRLF`、
+> `TestLoadMissingConfigWritesNothing`（原 `TestLoadWithoutAutoGenerate`）、`TestCheckFile`；`actions` 与 `authapi` 同上不变。
+> 单独设 `ASA_BASEDIR` 时**一个都不失败**，所以这 14 个全是其余 `ASA_*` 造成的。
+>
+> 复测时还看到一个值得记下的细节：`ASA_AUTH_LAN_BYPASS=true` 会把文件里整个 `auth.lan_bypass` 子树（含 `networks`）顶掉，
+> 于是「非法 networks 应报错」的用例反而不报错了——环境变量覆盖的是一整个键，不是只改其中一个字段。
+
+**原因**：`appconfig.Load` 开着 `SetEnvPrefix("ASA") + AutomaticEnv()`（`internal/appconfig/config.go` `decodeFile`），这是产品的设计（flag > 环境变量 > 文件）。测试一侧只有 `newConfigEnv`、`loadFrom` 等几处清了 `ASA_CFG`，其余 `ASA_*` 都从开发机的环境里直接透进来。作者本机只设了 `ASA_BASEDIR`，而它现在只用于提示、不参与解析，所以没有暴露。但只要有人为了调试导出过 `ASA_SERVER_PORT`，或在装过服务的机器上跑测试，就会出现「代码没改、测试却挂了」。
+
+（移除前测试里还有一个只清 `ASA_BASEDIR` 的 `clearASABaseDir`，已随 Part 2 删除。`newConfigEnv` 仍清 `ASA_BASEDIR`，理由变了：变量设着时 `config path` / `validate` 会多一行「已不生效」的提示，见 `docs/APPCONFIG_BASEDIR_PLAN.md` P2-7 偏离 2。下面的 `IsolateEnvForTest` 落地后，这一行可以并入它。）
 
 **修复**：
 
 1. 在 `internal/appconfig` 加一个**导出的**测试辅助函数（同包已有 `OverrideSearchDirsForTest(t, ...)`，沿用同一命名），例如 `IsolateEnvForTest(t)`：遍历 `os.Environ()`，对每个 `ASA_` 前缀的变量先 `t.Setenv(k, "")`（登记还原），再 `os.Unsetenv(k)`（viper 判断的是「有没有设」，设成空串和没设不等价，实施时要用用例核实这一点）。
-2. 调用点：`appconfig` 包内的 `loadFrom`、`clearASABaseDir`、`writeConfig` 这一类入口，`actions` 的 `newConfigEnv`，`authapi` 的 `setupEnv`。各包也可以在 `TestMain` 里统一清一次，但 `t.Setenv` 版本更稳：单个用例自己 `t.Setenv("ASA_SERVER_PORT", "9999")`（`config_test.go:202`）的写法不受影响。
+2. 调用点：`appconfig` 包内的 `loadFrom`、`OverrideSearchDirsForTest`、`writeConfig` 这一类入口，`actions` 的 `newConfigEnv`，`authapi` 的 `setupEnv`，以及 `internal/config/config_test.go` 的 `init()` 之外的所有 `appconfig.Load()` 调用点（`init()` 有意读开发机的 `ASA_CFG`，见 T3，不能清）。各包也可以在 `TestMain` 里统一清一次，但 `t.Setenv` 版本更稳：单个用例自己 `t.Setenv("ASA_SERVER_PORT", "9999")`（`config_test.go:202`）的写法不受影响。
 3. 回归：在 CI 或验证脚本里加一轮「带脏 `ASA_*` 环境」的运行（§5）。
 
-### T2 [P1] `internal/config` 的包级 `init()` 依赖 `ASA_BASEDIR`
+### T2 [✅ 已修复] `internal/config` 的包级 `init()` 依赖 `ASA_BASEDIR`
 
 **代码**（`internal/config/config_test.go:15-21`）：
 
@@ -88,11 +101,26 @@ func init() {
 - **设了 `ASA_BASEDIR`**（作者本机）：整个 `config` 包测试期间 `BaseDir` / `InstancesDir` 等全局变量指向 `E:\asa_server_data`，日志初始化到生产日志 `E:\asa_server_data\logs\asaServer.log`。`config_plugins_test.go`、`config_update_test.go` 都自己把 `InstancesDir` 换成了临时目录，所以目前只有 T3 真的碰到了生产数据；但以后新加的用例只要忘了换，就会直接读写生产实例。
 - `log.Fatal` 会让整个包的测试进程直接退出，连「哪个用例」都报不出来。
 
-**修复**：~~删掉这个 `init()`~~（T3 保持现状，它仍需要 `init()` 定位数据目录）。**2026-10-02 改为随 `ASA_BASEDIR` 的移除一起处理**：`init()` 改走 `appconfig.Load(WithoutAutoGenerate())` + `SetDirectories`（只设变量、不建目录），见 `docs/APPCONFIG_BASEDIR_PLAN.md` Part 2 P2-3 第 4 条。
+**修复**：~~删掉这个 `init()`~~（T3 保持现状，它仍需要 `init()` 定位数据目录）。**2026-10-02 随 `ASA_BASEDIR` 的移除一起处理**：`init()` 改走 `appconfig.Load()` + `SetDirectories`（只设变量、不建目录），见 `docs/APPCONFIG_BASEDIR_PLAN.md` Part 2 P2-3 第 4 条。（计划里写的是 `Load(WithoutAutoGenerate())`，同一分支的 `02f1c36` 把 `Load` 改成只读、删掉了这个选项，最终就是 `Load()`。）
+
+**修复后的结果**（2026-10-02 复测）：
+
+- 不设 `ASA_CFG` 时：`go test` 下「exe 同级」是测试二进制的临时目录，那里没有配置，`BaseDir` 落在 `go-build` 临时目录里；
+  `init()` 不再建任何目录，日志也写进那个临时目录（随 `go test` 清理），不再碰 `E:\asa_server_data\logs`。
+  在 `ASA_BASEDIR` 与 `ASA_CFG` 都为空的环境下跑 `internal/config`，`internal/config/` 下没有新建任何目录。
+- 设了 `ASA_CFG`：读那份配置的 `basedir`，与生产一致——这是 T3 留着的、有意的耦合。
+- `log.Fatal` 也随之去掉：`Load` 失败只意味着 T3 找不到实例、跳过。
+- 原来留下的 `internal/config/{instances,server-files,steamcmd,backups,logs}` 五个空目录不会再被重建，可以手动删掉（见 §6）。
 
 ### T3 [不改] `Test_SetMessageOfTheDay` 仍在改作者本机的真实实例
 
 > **2026-10-02 确认：这个测试不动。** 下面保留排查时的分析作记录。它依赖的 `init()` 随 T2 调整，用例本体不变。
+>
+> **移除 `ASA_BASEDIR` 后它在作者本机上的变化**：以前靠系统级 `ASA_BASEDIR=E:\asa_server_data` 找到 `ces99`，现在要靠 `ASA_CFG`
+> 指向一份写了 `basedir: "E://asa_server_data"` 的配置（仓库根目录的 `config.yaml` 就是）。作者本机目前没设 `ASA_CFG`，
+> 所以**这条用例在作者本机上现在也是跳过的**，跳过信息里的路径是测试二进制临时目录下的 `instances\ces99\...`。
+> 要让它在本机运行，**只在跑测试的那个终端里**设：`$env:ASA_CFG='D:\golang\asa-server'; go test ./internal/config/`。
+> 不要把 `ASA_CFG` 设成用户 / 系统级环境变量：它是三级查找的最高一级，会让本机所有 asa-server（包括服务）都改读那份配置。
 
 §11.8.3 ② 按当时的要求做成了「`ces99` 的 `GameUserSettings.ini` 不存在就跳过」，并注明「仍会改写作者本机 `ces99` 的真实配置文件，是原有行为」。放到这次排查的标准下，它同时属于 A、B、D 三类：
 
@@ -197,6 +225,11 @@ func init() {
 - **时区与夏令时**：实测二全部通过。
 - **ETW**：已有同名会话就跳过，不会抢走正在运行的服务的会话。
 - **源码树**：实测一前后对比，除了 T2 的那几个目录，全量测试不往仓库里写任何文件。
+- **移除 `ASA_BASEDIR` 时新增 / 改写的测试**（2026-10-02 补查）：`startup_test.go` 的 `TestStartupConfigBlocks` / `TestStartupConfigMessage`
+  是纯函数用例；`appconfig` 的 `TestLoad_ASABaseDirIsIgnored`、`TestLoad_InvalidConfigKeepsFileBasedir`、`TestLoad_UnparsableConfigFallsBackToConfigDir`、
+  `TestLegacyBaseDirEnv` 与 `actions` 的 `TestConfigPathAndValidate_LegacyBaseDirHint` 都用 `t.Setenv` 自己设 / 清 `ASA_BASEDIR`，配置写在
+  `t.TempDir()`、查找目录经 `OverrideSearchDirsForTest` 换掉，不读开发机的配置。它们同样受 T1 影响（脏 `ASA_*` 下
+  `TestLoad_InvalidConfigKeepsFileBasedir` 失败，原因是上面 T1 记的 `ASA_AUTH_LAN_BYPASS` 顶掉整个子树），与 T1 一起修即可，没有新增的耦合类型。
 
 ---
 
@@ -214,11 +247,11 @@ func init() {
 **每批的验证**（新的回归基线，比 §11.8.4 多三轮）：
 
 1. Windows 常规：`go build ./...`、`go vet ./internal/... ./pkg/...`、`go test -race ./internal/... ./pkg/...`（PowerShell）。
-2. **Windows 干净环境**：同一条测试命令，但先把 `ASA_BASEDIR` 设为空串。
-3. **Windows 脏环境**：额外设上 `ASA_SERVER_PORT=1`、`ASA_AUTH_ENABLED=true`、`ASA_SERVER_TLS=false`、`ASA_AUTH_LAN_BYPASS=true`，结果必须与第 1 轮相同。这一轮是 T1 的回归。
+2. ~~**Windows 干净环境**：同一条测试命令，但先把 `ASA_BASEDIR` 设为空串。~~ 2026-10-02 `ASA_BASEDIR` 已移除、不再影响任何测试，这一轮取消，改为在第 3 轮里顺带设一个无意义的 `ASA_BASEDIR`。
+3. **Windows 脏环境**：额外设上 `ASA_SERVER_PORT=1`、`ASA_AUTH_ENABLED=true`、`ASA_SERVER_TLS=false`、`ASA_AUTH_LAN_BYPASS=true`、`ASA_BASEDIR=E:\nonexistent`，结果必须与第 1 轮相同。这一轮是 T1 的回归，也守住「`ASA_BASEDIR` 不会经 viper 自动映射复活」。
 4. WSL root：`ASA_TEST_RUNTIME_USER=1 go test -race ./...`。
 5. **WSL 普通用户**：同一条命令（不带 `ASA_TEST_RUNTIME_USER`），覆盖 T10 表里「必须不是 root」的那几条。
-6. **源码树无残留**：测试前后对比 `git status --short --ignored`，不能多出任何条目。
+6. **源码树无残留**：测试前后对比 `git status --short --ignored`，不能多出任何条目。git 不显示**空目录**（T2 留下的正是空目录），所以还要看一眼测试开始之后新建的目录（PowerShell：`Get-ChildItem -Recurse -Directory | Where-Object CreationTime -gt $t`）。
 
 做完一、二批之后，`go test -json` 输出里的 SKIP 只应剩下 T10 表里列出的那些。新出现的 SKIP 要么补进表里，要么就说明又有用例开始依赖环境了。
 
@@ -226,6 +259,6 @@ func init() {
 
 ## 6. 本次排查留下的、需要人工处理的事
 
-- `internal/config/{instances,server-files,steamcmd,backups,logs}` 是 T2 建出来的空目录，被 gitignore，不影响提交。做完 T2 之后可以手动删掉。
+- `internal/config/{instances,server-files,steamcmd,backups,logs}` 是 T2 建出来的空目录，被 gitignore，不影响提交。T2 已修复（2026-10-02），**现在就可以手动删掉**，之后不会再被建出来。
 - `%TEMP%\logs\asaServer.log`（1.9 MB）是 T6 的产物，做完 T6 之后可以手动删掉。
-- 第 1 节第 5 条提到的 WSL 实测，需要在允许执行 WSL 命令后补跑一次。
+- 第 1 节第 5 条提到的 WSL 实测：2026-10-02 在 `refactor/remove-asa-basedir` 上已跑过一次全量 `ASA_TEST_RUNTIME_USER=1 go test -race ./...`（root，全部通过），但 SKIP 名单还没收集，WSL 普通用户那一轮也还没跑。
