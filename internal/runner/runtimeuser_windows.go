@@ -12,7 +12,9 @@ import "context"
 
 func ensureRuntimeUser(ctx context.Context) error { return nil }
 
-func verifyRuntimeAccess(forceDeep bool, extraOwnership ...string) []Problem { return nil }
+func verifyRuntimeAccess(forceDeep bool, prefixKey string, extraOwnership ...string) []Problem {
+	return nil
+}
 
 func fixRuntimeOwnership(ctx context.Context) error { return nil }
 

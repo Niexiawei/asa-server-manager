@@ -27,10 +27,10 @@ func TestRuntimeUser_NoopWhenNotRoot(t *testing.T) {
 	if err := ensureRuntimeUser(context.Background()); err != nil {
 		t.Fatalf("ensureRuntimeUser as non-root: want nil, got %v", err)
 	}
-	if p := verifyRuntimeAccess(false); p != nil {
+	if p := verifyRuntimeAccess(false, ""); p != nil {
 		t.Fatalf("verifyRuntimeAccess as non-root: want nil, got %v", p)
 	}
-	if p := verifyRuntimeAccess(true); p != nil {
+	if p := verifyRuntimeAccess(true, ""); p != nil {
 		t.Fatalf("verifyRuntimeAccess(deep) as non-root: want nil, got %v", p)
 	}
 	if err := chownMirrorForRuntime(t.TempDir()); err != nil {
@@ -148,7 +148,7 @@ func TestRuntimeUser_CreateReconcileVerify(t *testing.T) {
 		}
 	}
 
-	if probs := verifyRuntimeAccess(false); len(probs) != 0 {
+	if probs := verifyRuntimeAccess(false, ""); len(probs) != 0 {
 		t.Fatalf("verifyRuntimeAccess after reconcile: %v", probs)
 	}
 
@@ -163,7 +163,7 @@ func TestRuntimeUser_CreateReconcileVerify(t *testing.T) {
 	if err := ensureRuntimeUser(context.Background()); err != nil {
 		t.Fatalf("ensureRuntimeUser with a root-owned mirror: %v", err)
 	}
-	if probs := verifyRuntimeAccess(false); len(probs) != 0 {
+	if probs := verifyRuntimeAccess(false, ""); len(probs) != 0 {
 		t.Fatalf("startup gate must not block on a mirror the startup reconcile doesn't repair, got %v", probs)
 	}
 	// ...but it is still visible: as an advisory, and as a blocker at that
@@ -171,7 +171,7 @@ func TestRuntimeUser_CreateReconcileVerify(t *testing.T) {
 	if p := checkMirrorOwnership(); p == nil || !p.Warning {
 		t.Fatalf("root-owned mirror not reported as an advisory: %+v", p)
 	}
-	if probs := verifyRuntimeAccess(false, mirror); len(probs) == 0 {
+	if probs := verifyRuntimeAccess(false, "", mirror); len(probs) == 0 {
 		t.Fatal("launch check including the mirror must report its drift")
 	}
 	// perms fix repairs it.
@@ -181,13 +181,13 @@ func TestRuntimeUser_CreateReconcileVerify(t *testing.T) {
 	if p := checkMirrorOwnership(); p != nil {
 		t.Fatalf("mirror still drifted after fixRuntimeOwnership: %+v", p)
 	}
-	if probs := verifyRuntimeAccess(false, mirror); len(probs) != 0 {
+	if probs := verifyRuntimeAccess(false, "", mirror); len(probs) != 0 {
 		t.Fatalf("launch check after fixRuntimeOwnership: %v", probs)
 	}
 
 	// Break ownership, self-check must catch it.
 	_ = os.Lchown(filepath.Join(base, "umu-prefix"), 0, 0)
-	probs := verifyRuntimeAccess(false)
+	probs := verifyRuntimeAccess(false, "")
 	found := false
 	for _, p := range probs {
 		if p.Name == "umu-runtime-owner-drift" {

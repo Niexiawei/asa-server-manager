@@ -79,7 +79,7 @@ func checkOverlayfs() *Problem {
 // `asa-server setup` *before* EnsureRuntime creates the user, where a
 // "user missing" result would be a false alarm. The real enforcement is
 // package main's startup gate (EnsureRuntimeUser then VerifyRuntimeAccess).
-func runtimeUserProblems() []Problem { return verifyRuntimeAccess(false) }
+func runtimeUserProblems() []Problem { return verifyRuntimeAccess(false, "") }
 
 // checkDisplay reports whether this host can hand a Wine process an X display.
 //
@@ -155,6 +155,9 @@ func describePluginProblem(p Problem) Problem {
 				"默认开）；这一步也失败时，需要系统里有一个不需要 xauth cookie 就能连的 X 服务，" +
 				"并可用 config.yaml 的 linux.display 指定它",
 		}
+	case xdisplay.RootXvfbProblemName:
+		p.Fix += "：把 config.yaml 的 linux.umu_run_as_root 改回 false（默认）。" +
+			"只影响启用了 ArkApi 的实例 —— 其他实例不会拉起 Xvfb"
 	}
 	return p
 }

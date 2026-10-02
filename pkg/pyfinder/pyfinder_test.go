@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"testing"
+	"time"
 )
 
 // fakePython writes an executable stub that prints "<major> <minor>" (what
@@ -271,5 +272,35 @@ func TestCandidateNames_Order(t *testing.T) {
 
 	if names[len(names)-2] != "python3" || names[len(names)-1] != "python" {
 		t.Fatalf("tail = %v, want [... python3 python]", names[len(names)-2:])
+	}
+}
+
+// A candidate that hangs (here it also leaves a grandchild holding stdout)
+// must not hang Resolve: it times out and counts as one that failed.
+func TestResolveAuto_SkipsHangingCandidate(t *testing.T) {
+	dir := t.TempDir()
+	isolate(t, dir)
+	r := New()
+
+	orig := probeTimeout
+	probeTimeout = 300 * time.Millisecond
+	t.Cleanup(func() { probeTimeout = orig })
+
+	hang := filepath.Join(dir, "python3.13")
+	if err := os.WriteFile(hang, []byte("#!/bin/sh\nsleep 30 &\nsleep 30\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fakePython(t, dir, "python3.10", 3, 10)
+
+	start := time.Now()
+	got, err := r.Resolve("")
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if got.Minor != 10 {
+		t.Fatalf("got %s, want 3.10", got.Version())
+	}
+	if d := time.Since(start); d > 5*time.Second {
+		t.Fatalf("Resolve took %v with a hanging candidate", d)
 	}
 }

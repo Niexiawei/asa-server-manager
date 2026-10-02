@@ -61,6 +61,14 @@ func instanceLock(instanceName string) *sync.Mutex {
 	return v.(*sync.Mutex)
 }
 
+// lockInstance 拿实例级锁，并先补完上一次中断的插件更新（见 txn.go）。返回解锁函数。
+func lockInstance(instanceName string) func() {
+	mu := instanceLock(instanceName)
+	mu.Lock()
+	recoverPluginTxn(instanceName)
+	return mu.Unlock
+}
+
 // InstanceArkApiDir 返回 {BaseDir}/instances/{name}/ArkApi。
 func InstanceArkApiDir(instanceName string) string {
 	return filepath.Join(cfgpkg.InstancesDir, instanceName, instanceArkApiDirName)
@@ -134,9 +142,7 @@ func InitInstanceLayout(instanceName string) error {
 // 是「端口在监听」，漏掉了正在启动的实例（docs/PLAN_IMPLEMENTATION_AUDIT_2026-09-29.md
 // §7.2 P1-20）。参数是必填的，新的调用方必须显式回答这个问题。
 func MigrateInstance(instanceName, mirrorDir string, running func() bool) error {
-	mu := instanceLock(instanceName)
-	mu.Lock()
-	defer mu.Unlock()
+	defer lockInstance(instanceName)()
 	if running() {
 		return ErrInstanceRunning
 	}

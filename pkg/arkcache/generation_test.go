@@ -6,7 +6,9 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 const testHash = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
@@ -169,8 +171,8 @@ func TestWriteMetadataIsAtomicAndComplete(t *testing.T) {
 	if raw["cache_directory"] != rel {
 		t.Fatalf("cache_directory = %v, want %q（必须带 generations/ 前缀）", raw["cache_directory"], rel)
 	}
-	if _, err := os.Stat(filepath.Join(root, metadataFileName+".tmp")); err == nil {
-		t.Fatal(".tmp 没有被清掉")
+	if left, _ := filepath.Glob(filepath.Join(root, metadataFileName+".*.tmp")); len(left) != 0 {
+		t.Fatalf(".tmp 没有被清掉: %v", left)
 	}
 }
 
@@ -198,5 +200,75 @@ func TestPruneGenerationsKeepsCurrentHash(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(current))); err != nil {
 		t.Fatal("当前 generation 被误删了")
+	}
+}
+
+// 跨哈希交错（另一个进程刚为 h2 提交了 metadata）时，以 h1 的身份清理也不能删掉
+// metadata 此刻指向的 h2 那一代。
+func TestPruneGenerationsKeepsReferencedGeneration(t *testing.T) {
+	root := t.TempDir()
+	h1 := seedGeneration(t, root, testHash, "LM")
+	h2 := seedGeneration(t, root, strings.Repeat("b", 64), "LM") // metadata 现在指向它
+
+	pruneGenerations(root, testHash, h1, 0, false)
+	if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(h2))); err != nil {
+		t.Fatal("metadata 正指向的 generation 被删了")
+	}
+	if res, err := Inspect(root, ""); err != nil || !res.Ready {
+		t.Fatalf("清理之后缓存不可用: %v %s", err, res.Reason)
+	}
+}
+
+func TestStagingIsNotAGeneration(t *testing.T) {
+	root := t.TempDir()
+	current := seedGeneration(t, root, testHash, "LM")
+
+	fresh := filepath.Join(root, generationsRel, stagingPrefix+newGenerationName(testHash, 1))
+	stale := filepath.Join(root, generationsRel, stagingPrefix+newGenerationName(testHash, 2))
+	for _, d := range []string{fresh, stale} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	old := time.Now().Add(-2 * staleStagingAge)
+	if err := os.Chtimes(stale, old, old); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, name := range listGenerations(root) {
+		if strings.HasPrefix(name, stagingPrefix) {
+			t.Fatalf("listGenerations 列出了 staging: %s", name)
+		}
+	}
+	pruneGenerations(root, testHash, current, 0, false)
+	if _, err := os.Stat(fresh); err != nil {
+		t.Fatal("别人正在解压的 staging 被删了")
+	}
+	if _, err := os.Stat(stale); err == nil {
+		t.Fatal("崩溃遗留的 staging 没有被回收")
+	}
+}
+
+func TestWriteMetadataConcurrentWritersNeverTear(t *testing.T) {
+	root := t.TempDir()
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			h := strings.Repeat(string(rune('a'+i%6)), 64)
+			for j := 0; j < 20; j++ {
+				_ = writeMetadata(root, metadata{Version: cacheMetadataVersion, ExecutableHash: h,
+					LastModified: strings.Repeat("x", 200*i), CacheDirectory: generationRelPath(newGenerationName(h, j))})
+			}
+		}(i)
+	}
+	wg.Wait()
+	data, err := os.ReadFile(filepath.Join(root, metadataFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := parseMetadata(data); err != nil {
+		t.Fatalf("并发写之后 metadata 不合法: %v", err)
 	}
 }

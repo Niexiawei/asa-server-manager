@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"asa-server/pkg/filelock"
 )
 
 // zipBytes 把 goodEntries 打成内存里的 ZIP，直接当 CDN 的响应体。
@@ -91,8 +93,11 @@ func TestPrepareEndToEnd(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(env.req.WorkDir, env.hash+".zip")); err == nil {
 		t.Fatal("中转 ZIP 没被清掉")
 	}
-	if _, err := os.Stat(filepath.Join(env.req.WorkDir, env.hash+".lock")); err == nil {
-		t.Fatal("锁文件没被释放")
+	// 锁文件本身留在盘上（flock 不能删路径），但锁必须已经放掉。
+	if release, err := filelock.TryLock(filepath.Join(env.req.WorkDir, env.hash+".lock"), filelock.Exclusive); err != nil {
+		t.Fatalf("预取锁没被释放: %v", err)
+	} else {
+		release()
 	}
 
 	// 幂等：第二次直接走快路径，不再发任何请求。
@@ -229,5 +234,67 @@ func TestGC(t *testing.T) {
 	// 当前缓存必须毫发无伤。
 	if got, err := Inspect(env.req.CacheRoot, env.hash); err != nil || !got.Ready {
 		t.Fatalf("GC 把当前缓存弄坏了: %v %s", err, got.Reason)
+	}
+}
+
+// 等同一哈希槽位的调用方必须能被取消；槽位在没人用之后回收。
+func TestLockHashIsCancelableAndReclaimed(t *testing.T) {
+	const h = "slot-test"
+	unlock, err := lockHash(context.Background(), h)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := lockHash(ctx, h)
+		done <- err
+	}()
+	cancel()
+	if err := <-done; err == nil {
+		t.Fatal("取消之后仍然拿到了槽位")
+	}
+
+	unlock()
+	slotsMu.Lock()
+	_, left := slots[h]
+	slotsMu.Unlock()
+	if left {
+		t.Fatal("没人使用的槽位没有被回收")
+	}
+
+	again, err := lockHash(context.Background(), h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again()
+}
+
+// 有人正持有某个哈希的预取锁（在下载）时，GC 不碰那一组中转物。
+func TestGCSkipsTransientsOfHashBeingDownloaded(t *testing.T) {
+	body := zipBytes(t, goodEntries(t)...)
+	cdn := newCDN(t, body, "LM", cdnOpts{})
+	env := newPrepareEnv(t, cdn.prefix())
+	if res := Prepare(context.Background(), env.req); !res.Ready {
+		t.Fatalf("预取失败: %s", res.Reason)
+	}
+
+	// 当前缓存有效、但正在按新的 Last-Modified 重下：锁被持有，.part 在长。
+	part := filepath.Join(env.req.WorkDir, env.hash+".zip.part")
+	if err := os.WriteFile(part, []byte("growing"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	release, err := filelock.TryLock(lockPath(env.req.WorkDir, env.hash), filelock.Exclusive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+
+	if _, err := GC(env.req, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(part); err != nil {
+		t.Fatal("GC 删掉了正在下载的 .part")
 	}
 }

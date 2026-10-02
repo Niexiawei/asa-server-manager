@@ -47,6 +47,9 @@ type InstanceInfo struct {
 	StatusHistory []statepkg.InstanceState `json:"status_history"`
 	AsaVersion    string                   `json:"asaVersion,omitempty"`
 	Error         string                   `json:"error,omitempty"`
+	// NameWarning 非空表示这个（早先建的）实例名现在不允许再起：通常是 Windows
+	// 不认的名字。照常可用，只是建议改名 —— 数据目录搬到 Windows 上会打不开。
+	NameWarning string `json:"name_warning,omitempty"`
 }
 
 type ListResponse struct {
@@ -105,6 +108,9 @@ func (h *Handler) listInstances(c *gin.Context) {
 		if err != nil {
 			info.Error = err.Error()
 		}
+		if nameErr := cfgpkg.ValidateNewInstanceName(instanceName); nameErr != nil {
+			info.NameWarning = nameErr.Error() + "；建议重命名"
+		}
 
 		instanceInfos = append(instanceInfos, info)
 	}
@@ -129,7 +135,7 @@ func (h *Handler) createInstance(c *gin.Context) {
 		return
 	}
 
-	if err := apiresp.ValidateInstanceName(req.Name); err != nil {
+	if err := cfgpkg.ValidateNewInstanceName(req.Name); err != nil {
 		c.JSON(http.StatusBadRequest, apiresp.StatusResponse{
 			Success: false,
 			Error:   err.Error(),
@@ -318,7 +324,7 @@ func (h *Handler) renameInstance(c *gin.Context) {
 		return
 	}
 
-	if err := apiresp.ValidateInstanceName(req.NewName); err != nil {
+	if err := cfgpkg.ValidateNewInstanceName(req.NewName); err != nil {
 		c.JSON(http.StatusBadRequest, apiresp.StatusResponse{
 			Success: false,
 			Error:   err.Error(),

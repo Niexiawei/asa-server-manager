@@ -448,17 +448,34 @@ func (r *Resolver) Acquire(context.Context) (umuruntime.Lease, error) {
 // reason; Fix names only the mechanism. What the missing display breaks —
 // and therefore how severe it is — depends on which executables the calling
 // program runs, so Warning is left for the caller to decide.
+//
+// It also reports, as an advisory, a self-managed Xvfb that would run as root
+// without access control (RootXvfbProblemName) — only when that Xvfb is
+// actually in the candidate chain.
 func (r *Resolver) Preflight() []problem.Problem {
-	_, blocked := r.Plan()
-	if blocked == "" {
-		return nil
+	plans, blocked := r.Plan()
+	if blocked != "" {
+		return []problem.Problem{{
+			Name:   ProblemName,
+			Detail: blocked,
+			Fix:    xvfb.InstallHint,
+		}}
 	}
-	return []problem.Problem{{
-		Name:   ProblemName,
-		Detail: blocked,
-		Fix:    xvfb.InstallHint,
-	}}
+	if containsKind(plans, KindManaged) && r.xvfb.RunsAsRoot() {
+		return []problem.Problem{{
+			Name:    RootXvfbProblemName,
+			Warning: true,
+			Detail: "自管 Xvfb 将以 root 运行，且没有访问认证：本机任何账号都能连上这个 X 服务端、" +
+				"向 Wine 窗口注入输入；X 服务端以 root 运行时，它的历史漏洞也是本地提权面",
+			Fix: "让 Wine 进程以非 root 的专用账号运行（Xvfb 随之降权）",
+		}}
+	}
+	return nil
 }
+
+// RootXvfbProblemName is the Name of Preflight's advisory for a
+// self-managed Xvfb that would run as root without access control.
+const RootXvfbProblemName = "x11-xvfb-root-noauth"
 
 // Report is Status for umuruntime.Host.Status; the Info is in Data.
 // Read-only.

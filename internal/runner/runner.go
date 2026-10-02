@@ -228,6 +228,24 @@ func RemoveInstancePrefix(instanceName string) error {
 	return removeInstancePrefix(instanceName)
 }
 
+// RemovePrefixLayer deletes only instanceName's overlay writable layer, and
+// RemovePrefixDir only its per-instance prefix (umu-prefix-<name>).
+// RemovePrefixBackup deletes one Proton-version backup of the shared prefix,
+// by the path PrefixStatus reported. All three refuse while a wineserver holds
+// the target, and are no-ops on Windows.
+//
+// `prefix gc` lists each shape as its own row and must remove exactly that
+// row: RemoveInstancePrefix removes both shapes, which for a stopped instance
+// whose leftover per-instance prefix was the candidate also deleted the overlay
+// layer it is using now.
+func RemovePrefixLayer(instanceName string) error { return removePrefixLayer(instanceName) }
+
+// RemovePrefixDir: see RemovePrefixLayer.
+func RemovePrefixDir(instanceName string) error { return removePrefixDir(instanceName) }
+
+// RemovePrefixBackup: see RemovePrefixLayer.
+func RemovePrefixBackup(path string) error { return removePrefixBackup(path) }
+
 // PrefixStatus lists every Wine prefix directory under BaseDir — the shared
 // one plus any per-instance ones. Read-only and offline. Empty on Windows.
 func PrefixStatus() []PrefixInfo { return prefixStatus() }
@@ -392,13 +410,15 @@ func EnsureRuntimeUser(ctx context.Context) error { return ensureRuntimeUser(ctx
 //
 // It checks only what EnsureRuntimeUser repairs, so a problem reported here
 // is one that repair could not fix — never one it didn't try to.
-func VerifyRuntimeAccess() []Problem { return verifyRuntimeAccess(false) }
+func VerifyRuntimeAccess() []Problem { return verifyRuntimeAccess(false, "") }
 
 // VerifyRuntimeAccessForLaunch is VerifyRuntimeAccess plus this instance's
 // mirror, with the real-write deep probe forced on — used as the
-// per-instance start gate, after ChownMirrorForRuntime(mirrorDir).
-func VerifyRuntimeAccessForLaunch(mirrorDir string) []Problem {
-	return verifyRuntimeAccess(true, mirrorDir)
+// per-instance start gate, after ChownMirrorForRuntime(mirrorDir). prefixKey
+// is the launch's PrefixKeyFor: the probe writes into the prefix this launch
+// uses, never into the shared lower other overlay instances have mounted.
+func VerifyRuntimeAccessForLaunch(mirrorDir, prefixKey string) []Problem {
+	return verifyRuntimeAccess(true, prefixKey, mirrorDir)
 }
 
 // FixRuntimeOwnership re-applies runtime-user ownership to every directory

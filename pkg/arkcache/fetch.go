@@ -177,18 +177,24 @@ func fetchZip(ctx context.Context, req Request, hash string) (fetchOutcome, erro
 			continue
 		}
 
-		// 换源/换版本就绝不能 append 到旧 .part 上。
+		// 换源/换版本就绝不能 append 到旧 .part 上，也不能复用一个已下完的 ZIP ——
+		// 后者只凭「字节数相等」就会被采用，而 metadata 的 last_modified 取自本次
+		// HEAD，内容与时间戳就对不上了。旁车缺失/读不出同样算不同源。
 		if !readSidecar(metaPath).sameSource(info) {
 			_ = os.Remove(partPath)
+			_ = os.Remove(zipPath)
 		}
 		writeSidecar(metaPath, info.sidecar())
 
 		if fi, statErr := os.Stat(zipPath); statErr != nil || fi.Size() != info.contentLength {
 			_ = os.Remove(zipPath)
 			if err := download.Fetch(ctx, download.Options{
-				URL:      url,
-				Dest:     zipPath,
-				Resume:   true,
+				URL:    url,
+				Dest:   zipPath,
+				Resume: true,
+				// HEAD 声明的精确长度（上面已确认不超过 MaxSize）：GET 回来的
+				// body 比它长就是对端出错，没有写到磁盘满的理由。
+				MaxBytes: info.contentLength,
 				Progress: req.Progress,
 			}); err != nil {
 				if ctx.Err() != nil {

@@ -110,10 +110,17 @@ func reconcileMissingState(instanceName string) (bool, string) {
 	return true, ""
 }
 
+// killGraceTimeout 是收进程树时 SIGTERM 之后等它们自己退出的上限，过了就 SIGKILL。
+const killGraceTimeout = 15 * time.Second
+
+// killGameServer 结束 pid 及其整棵进程树：先请求退出，等不到就强杀。
+//
+// 曾经是「TerminateTree 出错才 KillTree」：Linux 上 SIGTERM 只要投递成功就不报错，
+// 忽略 SIGTERM 的 Wine 进程于是永远不会被升级到 SIGKILL，留下来占着端口与 Wine 会话
+// （docs/PLAN_IMPLEMENTATION_AUDIT_2026-09-29.md §6.2）。
 func killGameServer(pid int) {
-	if err := procx.TerminateTree(pid); err != nil {
+	if err := procx.TerminateTreeGracefully(pid, killGraceTimeout); err != nil {
 		logger.Warnf("failed to kill process PID %d: %s", pid, err.Error())
-		_ = procx.KillTree(pid)
 	}
 }
 

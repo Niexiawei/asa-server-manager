@@ -65,6 +65,15 @@ func isUnderArkApiGenerations(relPath string) bool {
 	return relPath == arkApiGenerationsRelPath || strings.HasPrefix(relPath, arkApiGenerationsRelPath+"/")
 }
 
+// isArkApiStaging 判断相对路径是否是 pkg/arkcache 正在解压的 generation
+// （generations/.staging-*，含其内部）。它校验通过后才整目录 rename 成正式的
+// generation；在那之前被复制进镜像就是半成品 —— 而 managed 模式下 generations/
+// 不做内容对账，半成品永远不会被修复。
+func isArkApiStaging(relPath string) bool {
+	rest, ok := strings.CutPrefix(relPath, arkApiGenerationsRelPath+"/")
+	return ok && strings.HasPrefix(rest, arkcache.StagingDirPrefix)
+}
+
 // sourceCacheManaged 报告源目录里的 ArkApi/Cache 是不是**我们备的**那一份
 // （对当前 exe 有效）。见 docs/ARKAPI_CACHE_PREFETCH_PLAN.md §7。
 //
@@ -84,7 +93,9 @@ func sourceCacheManaged() bool {
 		return false
 	}
 	res, err := arkcache.Inspect(filepath.Join(cfgpkg.ServerFilesDir, filepath.FromSlash(arkApiCacheRelPath)), hash)
-	return err == nil && res.Ready
+	// 我们写出的 metadata 一定带 generation；ArkApi 自己留下的历史格式（裸哈希、
+	// 缓存直接落在 Cache 根）Inspect 也会判为 Ready，但那不是我们备的。
+	return err == nil && res.Ready && res.Generation != ""
 }
 
 // isLogFile 判断是否为日志文件（.log，大小写不敏感）。
@@ -900,6 +911,13 @@ func collectSourceEntries(srcDir string, exceptionTargets map[string]string) ([]
 		}
 
 		relPath = filepath.ToSlash(relPath)
+
+		if isArkApiStaging(relPath) {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
 
 		if info.IsDir() {
 			// 精确匹配 exception target → 记录为 symlink（junction），不递归

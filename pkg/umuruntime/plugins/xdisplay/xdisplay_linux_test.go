@@ -311,7 +311,10 @@ func TestPluginShape(t *testing.T) {
 // TestProbeAndPreflightAgreeWithPlan: 插件接口上的三个只读判断必须与候选链是同一个
 // 答案，否则自检说「能拿到显示」而启动被拒（反之亦然）。
 func TestProbeAndPreflightAgreeWithPlan(t *testing.T) {
-	r := testResolver(Config{})
+	// 降权身份在场：root 下的「Xvfb 无认证」建议项不该出现，这条只比对候选链。
+	r := testResolver(Config{Xvfb: xvfb.Config{
+		ChildIDs: func() (uint32, uint32, bool) { return 1000, 1000, true },
+	}})
 	plans, blocked := r.Plan()
 
 	ok, detail := r.Probe()
@@ -373,4 +376,31 @@ func TestTargetIsALease(t *testing.T) {
 		t.Errorf("Describe = %q", l.Describe())
 	}
 	l.Release() // 不许 panic
+}
+
+// root 下没有降权身份时，自管 Xvfb 以 root 跑、且无访问认证：自检要说出来（建议项），
+// 但只在自管 Xvfb 真的在候选链里时说。
+func TestPreflightFlagsRootUnauthenticatedXvfb(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("需要 root：非 root 时 Xvfb 不可能以 root 运行")
+	}
+	r := testResolver(Config{Xvfb: xvfb.Config{AllowX11Remount: true}})
+	plans, blocked := r.Plan()
+	if blocked != "" || !containsKind(plans, KindManaged) {
+		t.Skipf("这台机器上自管 Xvfb 不在候选链里: %+v %s", plans, blocked)
+	}
+	probs := r.Preflight()
+	if len(probs) != 1 || probs[0].Name != RootXvfbProblemName || !probs[0].Warning {
+		t.Fatalf("Preflight = %+v, want one advisory %q", probs, RootXvfbProblemName)
+	}
+
+	dropped := testResolver(Config{Xvfb: xvfb.Config{
+		AllowX11Remount: true,
+		ChildIDs:        func() (uint32, uint32, bool) { return 1000, 1000, true },
+	}})
+	for _, p := range dropped.Preflight() {
+		if p.Name == RootXvfbProblemName {
+			t.Fatal("降权身份在场时不该报 root Xvfb")
+		}
+	}
 }

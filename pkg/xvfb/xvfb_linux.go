@@ -156,6 +156,18 @@ func binaryPath(cfg Config) (string, error) {
 
 // BinaryPath resolves Xvfb's path the same way Acquire will: Config.Bin
 // first, then PATH, then a few well-known fallback locations. Read-only.
+// RunsAsRoot reports whether a self-managed Xvfb would run as root: no
+// drop-privileges identity is in effect and this process is root. Read-only.
+//
+// The X server is started with -ac and no -auth (see commonArgs), so any
+// local account can connect to it. Under a dropped identity that is an
+// unprivileged process; as root it is also a local privilege-escalation
+// surface. Callers surface this as an advisory.
+func (m *Manager) RunsAsRoot() bool {
+	_, _, managed := m.config().childIDs()
+	return !managed && os.Geteuid() == 0
+}
+
 func (m *Manager) BinaryPath() (string, error) {
 	return binaryPath(m.config())
 }
@@ -627,6 +639,10 @@ func (m *Manager) spawn(cfg Config, bin string, args []string, extra *os.File) (
 	cred, err := cfg.credential()
 	if err != nil {
 		return nil, fmt.Errorf("解析运行时用户失败: %w", err)
+	}
+	if cred == nil && os.Geteuid() == 0 {
+		cfg.warnf("自管 Xvfb 将以 root 运行，且没有访问认证（-ac）：本机任何账号都能连上它、" +
+			"向 Wine 窗口注入输入；X 服务端以 root 运行时，它的历史漏洞也是本地提权面")
 	}
 
 	cmd := exec.Command(bin, args...)

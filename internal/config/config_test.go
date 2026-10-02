@@ -4,6 +4,7 @@ import (
 	"asa-server/pkg/logger"
 	"log"
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -19,8 +20,17 @@ func init() {
 	logger.InitLoggerWithBaseDir(BaseDir)
 }
 
+// 环境耦合：改的是本机真实存在的实例 ces99 的 GameUserSettings.ini。
+// SetMessageOfTheDay 只改文件、不要求实例在运行，所以前提是「这个实例存在」，
+// 没有它的机器（CI、WSL、别人的开发机）上跳过，而不是报失败。
 func Test_SetMessageOfTheDay(t *testing.T) {
-	err := SetMessageOfTheDay("ces99", "哈哈哈哈123456", 30)
+	const instance = "ces99"
+	gus := filepath.Join(InstancesDir, instance, "Config", "GameUserSettings.ini")
+	if _, err := os.Stat(gus); err != nil {
+		t.Skipf("本机没有实例 %s 的 GameUserSettings.ini（%v），跳过", instance, err)
+	}
+
+	err := SetMessageOfTheDay(instance, "哈哈哈哈123456", 30)
 	if err != nil {
 		t.Error(err)
 	}

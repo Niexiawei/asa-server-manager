@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"testing"
 
 	"asa-server/pkg/umu"
@@ -218,9 +217,8 @@ func TestStatus_CurrentFollowsMode(t *testing.T) {
 		t.Error("per-instance 模式下可写层是旧模式残留，不该是 Current")
 	}
 
-	// 版本备份任何模式下都不是 Current，且它的 Key 必须以 "bak-" 开头 ——
-	// 调用方靠这个前缀决定用 RemoveAll 而不是 Remove，认错了就会去删一个
-	// 不存在的路径然后报「完成」。
+	// 版本备份任何模式下都不是 Current，并由 Backup 标出来 —— 调用方据此改用
+	// RemoveBackup。判据是「匹配到哪个 pattern」，不是名字（见下一条用例）。
 	m.Reconfigure(Config{PrefixMode: "shared", BaseDir: base})
 	var bak *Info
 	for _, p := range m.Status() {
@@ -235,8 +233,80 @@ func TestStatus_CurrentFollowsMode(t *testing.T) {
 	if bak.Current {
 		t.Error("版本备份不该是 Current")
 	}
-	if !strings.HasPrefix(bak.Key, "bak-") {
-		t.Errorf("版本备份的 Key = %q，应以 \"bak-\" 开头", bak.Key)
+	if !bak.Backup {
+		t.Error("版本备份没有被标成 Backup")
+	}
+}
+
+// 实例名本身以 bak- 开头时，它的独立前缀不是版本备份：不能走跳过 wineserver
+// 确认的那条删除路径。
+func TestStatus_InstanceNamedBakIsNotABackup(t *testing.T) {
+	base := t.TempDir()
+	perInst := filepath.Join(base, "umu-prefix-bak-island")
+	if err := os.MkdirAll(perInst, 0755); err != nil {
+		t.Fatal(err)
+	}
+	m := newManager(Config{PrefixMode: "per-instance", BaseDir: base})
+	for _, p := range m.Status() {
+		if p.Path == perInst && p.Backup {
+			t.Fatal("实例 bak-island 的前缀被当成了版本备份")
+		}
+	}
+	if err := m.RemoveBackup(perInst); err == nil {
+		t.Fatal("RemoveBackup 接受了一个不是版本备份的路径")
+	}
+	if _, err := os.Stat(perInst); err != nil {
+		t.Fatal("RemoveBackup 删掉了实例前缀")
+	}
+}
+
+// gc 的一行只能删它自己那种形态：删旧模式留下的独立前缀，不能带走同名实例
+// 当前在用的可写层（反之亦然）。
+func TestRemoveLayerAndPrefixAreIndependent(t *testing.T) {
+	base := t.TempDir()
+	cfg := Config{PrefixMode: "overlay", BaseDir: base}
+	m := newManager(cfg)
+
+	perInst := filepath.Join(base, "umu-prefix-srv1")
+	layer := overlayUpperDir(cfg, "srv1")
+	for _, d := range []string{perInst, layer} {
+		if err := os.MkdirAll(d, 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := m.RemovePrefix("srv1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(perInst); !os.IsNotExist(err) {
+		t.Error("独立前缀没被删掉")
+	}
+	if _, err := os.Stat(layer); err != nil {
+		t.Fatal("删独立前缀时带走了可写层")
+	}
+
+	if err := os.MkdirAll(perInst, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.RemoveLayer("srv1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(overlayInstanceDir(cfg, "srv1")); !os.IsNotExist(err) {
+		t.Error("可写层没被删掉")
+	}
+	if _, err := os.Stat(perInst); err != nil {
+		t.Fatal("删可写层时带走了独立前缀")
+	}
+
+	backup := filepath.Join(base, "umu-prefix.bak-GE-Proton10-30")
+	if err := os.MkdirAll(backup, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.RemoveBackup(backup); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(backup); !os.IsNotExist(err) {
+		t.Error("版本备份没被删掉")
 	}
 }
 
@@ -352,6 +422,28 @@ func TestOverlayLayerFollowsLowerProvisioning(t *testing.T) {
 	for _, info := range m.Status() {
 		if info.Overlay && info.Key == "a" && info.ProtonVersion != proton {
 			t.Errorf("Status ProtonVersion = %q, want %q", info.ProtonVersion, proton)
+		}
+	}
+}
+
+// 启动前的真实写探测必须落在这次启动用的前缀上：overlay 模式下共享前缀是所有
+// 在跑实例挂载着的 lowerdir，往里写是未定义行为。
+func TestProbeDir_FollowsLaunchPrefix(t *testing.T) {
+	base := t.TempDir()
+	shared := filepath.Join(base, "umu-prefix")
+	m := newManager(Config{BaseDir: base})
+
+	for _, c := range []struct {
+		mode, key, want string
+	}{
+		{"shared", "", shared},
+		{"per-instance", "srv1", shared + "-srv1"},
+		{"overlay", "srv1", filepath.Join(base, "umu-prefix-overlay", "srv1")},
+		{"overlay", "", shared},
+	} {
+		m.Reconfigure(Config{PrefixMode: c.mode, BaseDir: base})
+		if got := m.ProbeDir(c.key); got != c.want {
+			t.Errorf("mode=%s key=%q: ProbeDir = %q, want %q", c.mode, c.key, got, c.want)
 		}
 	}
 }

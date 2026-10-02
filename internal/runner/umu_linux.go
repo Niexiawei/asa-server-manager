@@ -197,6 +197,12 @@ func removeInstancePrefix(instanceName string) error {
 
 func prefixStatus() []PrefixInfo { return hostFor(getConfig()).Prefixes().Status() }
 
+func removePrefixLayer(key string) error { return hostFor(getConfig()).Prefixes().RemoveLayer(key) }
+
+func removePrefixDir(key string) error { return hostFor(getConfig()).Prefixes().RemovePrefix(key) }
+
+func removePrefixBackup(path string) error { return hostFor(getConfig()).Prefixes().RemoveBackup(path) }
+
 func prepareSharedPrefixWrite(op string) (func(), error) {
 	return hostFor(getConfig()).Prefixes().PrepareSharedWrite(op)
 }

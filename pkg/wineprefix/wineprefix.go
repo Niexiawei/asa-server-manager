@@ -100,6 +100,10 @@ type Info struct {
 	// Current means the mode in force right now would use this exact path
 	// for this key — i.e. it is live, not a leftover from a past mode.
 	Current bool
+	// Backup marks a Proton-version backup of the shared prefix
+	// (<shared>.bak-<版本>). Its Key is the suffix ("bak-<版本>") and means
+	// nothing as an instance name. Remove it with Manager.RemoveBackup.
+	Backup bool
 }
 
 // --- overlay path layout (portable: no platform-specific API) ---

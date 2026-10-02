@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 )
 
 // IsProcessExited reports whether the process with the given PID has exited.
@@ -162,12 +163,66 @@ func signalPID(pid int, sig syscall.Signal) error {
 	return syscall.Kill(pid, sig)
 }
 
+// TerminateTreeGracefully sends SIGTERM to pid and every descendant, waits
+// up to grace for them to exit, then SIGKILLs whichever are still there.
+//
+// TerminateTree alone is not "terminate, escalating if needed": it returns
+// nil as soon as SIGTERM is *delivered*, so a caller that falls back to
+// KillTree only on error never escalates — a Wine process that ignores
+// SIGTERM simply stays. And the escalation can't be a second KillTree(pid):
+// by then the root may be gone and its children reparented, out of reach of
+// a fresh walk. Both rounds therefore act on one snapshot taken before the
+// first signal. Each member is remembered with its start time, so a PID the
+// kernel hands to an unrelated process during the grace period is not
+// killed in the second round.
+//
+// The error is the one from the SIGTERM round (a member that vanished on its
+// own is not an error); the SIGKILL round is best effort.
+func TerminateTreeGracefully(pid int, grace time.Duration) error {
+	if pid <= 1 {
+		return fmt.Errorf("procx: refusing to signal pid %d", pid)
+	}
+	tree := processTree(pid)
+	starts := make(map[int]uint64, len(tree))
+	for _, p := range tree {
+		if st, ok := readStat(p); ok {
+			starts[p] = st.start
+		}
+	}
+	survivors := func() []int {
+		var out []int
+		for p, start := range starts {
+			if st, ok := readStat(p); ok && st.state != 'Z' && st.start == start {
+				out = append(out, p)
+			}
+		}
+		return out
+	}
+
+	err := signalPIDs(tree, syscall.SIGTERM)
+	deadline := time.Now().Add(grace)
+	for len(survivors()) > 0 && time.Now().Before(deadline) {
+		time.Sleep(gracefulPoll)
+	}
+	if left := survivors(); len(left) > 0 {
+		_ = signalPIDs(left, syscall.SIGKILL)
+	}
+	return err
+}
+
+const gracefulPoll = 200 * time.Millisecond
+
 func signalTree(pid int, sig syscall.Signal) error {
 	if pid <= 1 {
 		return fmt.Errorf("procx: refusing to signal pid %d", pid)
 	}
+	return signalPIDs(processTree(pid), sig)
+}
+
+// signalPIDs signals a snapshot taken by processTree (parents before
+// children), plus the process groups its members lead.
+func signalPIDs(tree []int, sig syscall.Signal) error {
 	self := os.Getpid()
-	tree := processTree(pid)
 
 	// Process groups still get swept, but only those *led by a member of the
 	// tree* — that catches grandchildren already reparented away (their ppid
@@ -245,6 +300,41 @@ func readPPID(pid int) (int, bool) {
 		return 0, false
 	}
 	return parsePPIDFromStat(data)
+}
+
+// procStat is the part of /proc/<pid>/stat this package uses.
+type procStat struct {
+	state byte   // field 3: R, S, D, Z, ...
+	start uint64 // field 22: start time in clock ticks since boot
+}
+
+// readStat reads state and start time out of /proc/<pid>/stat. Together with
+// the PID, the start time identifies a process: a reused PID has a later one.
+func readStat(pid int) (procStat, bool) {
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	if err != nil {
+		return procStat{}, false
+	}
+	return parseStat(data)
+}
+
+// parseStat counts fields from the LAST ')' for the same reason
+// parsePPIDFromStat does.
+func parseStat(data []byte) (procStat, bool) {
+	i := bytes.LastIndexByte(data, ')')
+	if i < 0 {
+		return procStat{}, false
+	}
+	fields := strings.Fields(string(data[i+1:]))
+	// fields[0] is field 3 (state), so field 22 (starttime) is fields[19].
+	if len(fields) < 20 || len(fields[0]) != 1 {
+		return procStat{}, false
+	}
+	start, err := strconv.ParseUint(fields[19], 10, 64)
+	if err != nil {
+		return procStat{}, false
+	}
+	return procStat{state: fields[0][0], start: start}, true
 }
 
 // parsePPIDFromStat extracts field 4 (ppid) from a /proc/<pid>/stat line.

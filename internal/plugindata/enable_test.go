@@ -166,7 +166,7 @@ func TestConfigOfDisabledPlugin(t *testing.T) {
 }
 
 func TestValidatePluginName(t *testing.T) {
-	for _, bad := range []string{"", "a/b", `a\b`, "..", "a..b", "C:x", "A,B", ".hidden"} {
+	for _, bad := range []string{"", "a/b", `a\b`, "..", "a..b", "C:x", "A,B", ".hidden", "CON", "nul.dll", "Foo.", "Foo ", " Foo", "a|b"} {
 		if ValidatePluginName(bad) == nil {
 			t.Errorf("%q 应被拒", bad)
 		}

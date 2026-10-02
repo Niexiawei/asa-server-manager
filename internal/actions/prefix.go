@@ -72,7 +72,7 @@ func actionPrefixStatus(ctx context.Context, cmd *cli.Command) error {
 
 		owner := "共享（全部实例）"
 		switch {
-		case strings.HasPrefix(p.Key, "bak-"):
+		case p.Backup:
 			owner = "旧版本备份"
 		case p.Key != "" && instances[p.Key]:
 			owner = "实例 " + p.Key
@@ -163,14 +163,17 @@ func actionPrefixGC(ctx context.Context, cmd *cli.Command) error {
 	var failed int
 	for _, p := range candidates {
 		fmt.Printf("删除 %s ... ", p.Path)
-		// 备份目录不属于任何实例，RemoveInstancePrefix 认不出来，直接删。
-		// 每实例前缀走 RemoveInstancePrefix，让它再确认一次 wineserver 占用 ——
-		// 列表是几秒前拍的快照，这期间实例完全可能被启动。
+		// 每一行只删它自己那种形态，且都再确认一次 wineserver 占用 —— 列表是几秒前
+		// 拍的快照，这期间实例完全可能被启动。按形态分开删是因为同一个实例名可能
+		// 同时有两种：当前在用的可写层与上一个模式留下的独立前缀，删后者不能带走前者。
 		var err error
-		if strings.HasPrefix(p.Key, "bak-") {
-			err = os.RemoveAll(p.Path)
-		} else {
-			err = runner.RemoveInstancePrefix(p.Key)
+		switch {
+		case p.Backup:
+			err = runner.RemovePrefixBackup(p.Path)
+		case p.Overlay:
+			err = runner.RemovePrefixLayer(p.Key)
+		default:
+			err = runner.RemovePrefixDir(p.Key)
 		}
 		if err != nil {
 			failed++

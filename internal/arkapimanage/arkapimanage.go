@@ -45,8 +45,15 @@ var instanceBusy = func(instanceName string) string {
 // 配置总是先写；实例停止时随即落位（applied=true），运行中或正在启动时只写配置，
 // 由下一次 StartServer 落位（applied=false）——运行中的 ArkApi 占着 dll，目录挪不动。
 func SetPluginEnabled(instanceName, plugin string, enabled bool) (applied bool, err error) {
+	if err := cfgpkg.ValidateInstanceName(instanceName); err != nil {
+		return false, err
+	}
 	if err := plugindata.ValidatePluginName(plugin); err != nil {
 		return false, err
+	}
+	// 实例不存在时它当然也「没迁移」，不先查的话报出来的是误导人的 ErrLegacyLayout。
+	if !instanceExists(instanceName) {
+		return false, fmt.Errorf("实例 %s 不存在", instanceName)
 	}
 	if !plugindata.IsMigrated(instanceName) {
 		return false, ErrLegacyLayout
