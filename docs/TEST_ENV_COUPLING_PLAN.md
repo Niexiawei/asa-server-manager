@@ -36,13 +36,13 @@
 
 | 编号 | 级别 | 类 | 位置 | 一句话 |
 | --- | --- | --- | --- | --- |
-| T1 | P1 | A | `internal/appconfig`、`internal/actions`、`internal/webapi/authapi` | 测试只隔离了 `ASA_CFG`，开发机上任何其他 `ASA_*` 变量都会经 viper `AutomaticEnv` 改写配置，实测 14 个用例失败（2026-10-02 移除 `ASA_BASEDIR` 后复测，仍未处理） |
+| T1 | ✅ | A | `internal/appconfig`、`internal/actions`、`internal/webapi/authapi` | 测试只隔离了 `ASA_CFG`，开发机上任何其他 `ASA_*` 变量都会经 viper `AutomaticEnv` 改写配置，实测 14 个用例失败。**2026-10-02 已修复**（`e41c7eb`），复测 0 失败 |
 | T2 | ✅ | A+B | `internal/config/config_test.go` 的 `init()` | 包级 `init` 用 `ASA_BASEDIR` 建目录：没设时在**源码目录** `internal/config/` 下建 5 个运行时目录（已实测），设了时整包的全局目录指向**生产数据目录**。**2026-10-02 随 `ASA_BASEDIR` 移除一起修复**（`07d6e3d`、`02f1c36`） |
 | T3 | 不改 | A+B+D | `internal/config` `Test_SetMessageOfTheDay` | §11.8.3 只做了「没有就跳过」。在作者本机上仍然往真实实例 `ces99` 写入公告。**2026-10-02 确认：保持现状** |
-| T4 | P2 | C+D | `pkg/netutil` `TestResolveDomainToIPv4` | 解析作者的域名 `asa.nicoi.cn`，只打印不断言；断网、DNS 受限或域名过期时失败 |
-| T5 | P2 | A+D | `pkg/procx` `Test_QueryProcess` | 查作者本机 `Port=9310` 的 `ArkAscendedServer.exe`，只打印不断言——查到查不到都通过 |
-| T6 | P2 | B | `certmgr` / `frpmanage` / `webapi` 的 `TestMain`，`instance` 的 `withTempStateManager` | 日志写进系统临时目录的 `logs/asaServer.log`，从不清理（本机已 1.9 MB），多个测试二进制并发写同一个 lumberjack 文件 |
-| T7 | P2 | E | `internal/runner/runner_linux_test.go`、`pkg/umuruntime/host_linux_test.go` | `PROTON_VERB=run` 等**承重回归用例**在没有可用 Python 的机器上静默跳过 |
+| T4 | ✅ | C+D | `pkg/netutil` `TestResolveDomainToIPv4` | 解析作者的域名 `asa.nicoi.cn`，只打印不断言；断网、DNS 受限或域名过期时失败。**2026-10-02 已修复**（`a6ff113`） |
+| T5 | ✅ | A+D | `pkg/procx` `Test_QueryProcess` | 查作者本机 `Port=9310` 的 `ArkAscendedServer.exe`，只打印不断言——查到查不到都通过。**2026-10-02 已修复**（`0bddb7b`），新用例顺带抓到 `escapeWQL` 的真 bug |
+| T6 | ✅ | B | `certmgr` / `frpmanage` / `webapi` 的 `TestMain`，`instance` 的 `withTempStateManager` | 日志写进系统临时目录的 `logs/asaServer.log`，从不清理（本机已 1.9 MB），多个测试二进制并发写同一个 lumberjack 文件。**2026-10-02 已修复**（`8c460e4`） |
+| T7 | ✅ | E | `internal/runner/runner_linux_test.go`、`pkg/umuruntime/host_linux_test.go` | `PROTON_VERB=run` 等**承重回归用例**在没有可用 Python 的机器上静默跳过。**2026-10-02 已修复**（`33d5882`） |
 | T8 | P3 | A（潜在） | `batchmanage`、`installer/status_test.go` 等 | 依赖全局目录变量「恰好为空」：判活读的是相对**当前目录**的 `instances/<名字>/`，只把部分目录变量指向临时目录 |
 | T9 | P3 | — | `internal/countdown` `TestWaitCancelOneInstanceContinuesOthers` | 注释写「默认跳过」，实际只在 `-short` 下跳过，每次全量都要多等 30 秒 |
 | T10 | 记录 | E | Linux 侧十余处 | root / 非 root、`ASA_TEST_*` 开关、Xvfb、ACL、overlayfs、显示等条件跳过：不改代码，但要有一张「哪个环境能测到什么」的验证矩阵 |
@@ -52,7 +52,7 @@
 
 ## 3. 逐条说明
 
-### T1 [P1] 其他 `ASA_*` 环境变量会改写测试读到的配置
+### T1 [✅ 已修复] 其他 `ASA_*` 环境变量会改写测试读到的配置
 
 **现象**（实测三）：
 
@@ -135,7 +135,7 @@ func init() {
 - **方案甲（推荐）**：彻底改成自包含，不再碰 `ces99`；
 - **方案乙**：保留现在的「有就跑」用例，但改成先备份、`t.Cleanup` 里还原，另外再加上自包含用例。
 
-### T4 [P2] `TestResolveDomainToIPv4` 依赖外网与作者的域名
+### T4 [✅ 已修复] `TestResolveDomainToIPv4` 依赖外网与作者的域名
 
 `pkg/netutil/netutil_test.go:44-51`：解析 `asa.nicoi.cn`，成功就 `fmt.Println(ips)`，不检查结果。断网、公司 DNS 拦截或域名到期都会让它失败；解析成功时也没有验证返回的是不是 IPv4。
 
@@ -147,13 +147,13 @@ func init() {
 
 `internal/actions` 的 `TestSelftestDNSUsesGoResolver` 在 DNS 不通时会 `Skip`，并且先检查了错误文案，已经是正确的写法，不用改。
 
-### T5 [P2] `Test_QueryProcess` 是查作者实例的调试程序
+### T5 [✅ 已修复] `Test_QueryProcess` 是查作者实例的调试程序
 
 `pkg/procx/wmi_windows_test.go`：`QueryProcess("ArkAscendedServer.exe", "Port=9310")`，打印结果，不断言。作者本机开着那个实例时会打印出来，没开时返回空切片，两种情况都通过，所以这个用例**什么也没测**。性质与 `Test_tail` 相同。
 
 **修复**：查**测试进程自己**：用 `filepath.Base(os.Executable())` 作名字、`-test.` 作命令行片段，断言结果里有 `os.Getpid()`，并且 `CommandLine` 非空；再加一条必然查不到的组合，断言返回空切片且没有错误。`escapeWQL` 对 `'`、`%`、`_`、`\` 的转义如果还没有单测，也在这里补上：它决定了实例名里带这些字符时会不会查错进程。
 
-### T6 [P2] 测试日志写进共享的系统临时目录，从不清理
+### T6 [✅ 已修复] 测试日志写进共享的系统临时目录，从不清理
 
 `internal/certmgr/ca_test.go:17`、`internal/frpmanage/manager_test.go:15`、`internal/webapi/transport_test.go:20`、`internal/instance/stoppable_test.go:14` 都调用 `logger.InitLoggerWithBaseDir(os.TempDir())`，结果是 `%TEMP%\logs\asaServer.log`（Linux 上是 `/tmp/logs/asaServer.log`）。
 
@@ -163,7 +163,7 @@ func init() {
 
 **修复**：`TestMain` 里用 `os.MkdirTemp("", "asa-test-*")`，`m.Run()` 之后先关闭 logger 的文件句柄（`pkg/logger` 的单测 `initForTest` 已经处理过 Windows 上「文件句柄没关就删不掉目录」的问题，可以照抄），再 `os.RemoveAll`；`withTempStateManager` 这种在用例里初始化的，改用 `t.TempDir()` 并在 `t.Cleanup` 里关闭。
 
-### T7 [P2] 承重回归用例在没有 Python 的机器上静默跳过
+### T7 [✅ 已修复] 承重回归用例在没有 Python 的机器上静默跳过
 
 - `internal/runner/runner_linux_test.go:97-100`、`:143-146`：`umuCommandLine` 出错就 `Skip`。这两条守的是 `PROTON_VERB=run`（写错了，共享 prefix 下第二个实例会永久排队，见 `docs/UMU_PREFIX_PLAN.md`）和关闭 Xalia。
 - `pkg/umuruntime/host_linux_test.go:213-216`、`:284`：`commandOrSkip` 在 `Interpreter()` 失败时 `Skip`，`Host.Command` 环境变量叠加顺序的用例都依赖它。
@@ -238,9 +238,9 @@ func init() {
 **零批（先做）**：移除 `ASA_BASEDIR`（`docs/APPCONFIG_BASEDIR_PLAN.md` Part 2），T2 随之解决。**✅ 2026-10-02 已完成**（`07d6e3d`），
 同一分支还做了启动前配置校验（`02f1c36`），T1 的「其余 `ASA_*` 变量污染测试」**尚未处理**。
 
-**一批（P1）**：T1。T3 不改。
+**一批（P1）**：T1。T3 不改。 **✅ 2026-10-02 完成。**
 
-**二批（P2）**：T4、T5、T6、T7。
+**二批（P2）**：T4、T5、T6、T7。 **✅ 2026-10-02 完成。**
 
 **三批（P3 与记录）**：T8、T9，以及把 T10 的矩阵写进验证步骤。
 
@@ -256,6 +256,46 @@ func init() {
 做完一、二批之后，`go test -json` 输出里的 SKIP 只应剩下 T10 表里列出的那些。新出现的 SKIP 要么补进表里，要么就说明又有用例开始依赖环境了。
 
 ---
+
+## 5.1 一批、二批实施记录（2026-10-02，分支 `test/env-coupling`，基于 `refactor/remove-asa-basedir`）
+
+| 提交 | 内容 |
+| --- | --- |
+| `e41c7eb` | T1：`appconfig.UnsetEnvForTest()` + `appconfig` / `actions` / `authapi` 三个包的 `TestMain` |
+| `a6ff113` | T4：`netutil` 解析用例改字面 IP |
+| `0bddb7b` | T5：`procx` WMI 用例查自己；**`escapeWQL` 修复**（见下） |
+| `8c460e4` | T6：`logger.InitTempForTest()`，四处测试日志改进各自的临时目录 |
+| `33d5882` | T7：`runner` / `umuruntime` 的启动命令用例改用假解释器 |
+
+**与方案的偏离**：
+
+1. **T1 用 `TestMain` + `os.Unsetenv`，不是逐个用例 `t.Setenv`**。方案担心「设成空串和没设不等价」，于是想先 `t.Setenv` 再 `Unsetenv`；
+   实际上按包在 `TestMain` 里一次清掉更简单，也覆盖到了以后新加的用例。单个用例需要某个变量时照常 `t.Setenv`（它在用例结束时恢复成
+   「没设」）。`ASA_TEST_*` 是测试开关，保留；`internal/config` 的 `init()` 有意读 `ASA_CFG`（T3），不加这个 `TestMain`。
+   `newConfigEnv` 里单独清 `ASA_BASEDIR` 的那行已并入，删除。
+2. **T4 不保留真实公网解析**，也没加 `.invalid` 的报错用例：系统解析器与运营商 DNS 对 NXDOMAIN 的处理不一致（有的会劫持成广告 IP），
+   这条用例会重新变成依赖环境。只留字面 IP（IPv4、IPv6、IPv4 映射的 IPv6），三个解析函数各断言一次。
+3. **T5 的新用例当场抓到一个真 bug**：`escapeWQL` 把单引号按 SQL 惯例翻倍、反斜杠原样保留，而 WQL 字符串字面量要用反斜杠转义
+   这两个字符——两种写法 WMI 都直接报「无效查询」。受影响的生产路径是 `internal/instance` 的 `killInstanceProcesses`：它按
+   `AltSaveDirectoryName=<SaveDir>` 查进程，SaveDir 带单引号时查询失败、清场落空（只记一条 Warn）。改成 `\` → `\\`、`'` → `\'`
+   （反斜杠必须先转），LIKE 通配符那一层的方括号转义不变。新增用例：带 `' \ % _ [` 的查询都被 WMI 接受；用测试二进制所在目录
+   （满是反斜杠）作片段能查到自己；`procx_test.exe` 查不到 `procx.test.exe`（`_` 不再是通配符）。Linux 的 `QueryProcess` 是读
+   `/proc` 做子串匹配，不受影响。
+4. **T6 加了一个公共函数 `logger.InitTempForTest()`**，而不是在四个 `TestMain` 里各写一遍「建目录 → 初始化 → 关句柄 → 删目录」。
+   `instance` 原来在每个用例里 `InitLoggerWithBaseDir(os.TempDir())`，改成包级 `TestMain`（逐用例初始化再在 `t.Cleanup` 里删目录的话，
+   之后的用例一写日志，lumberjack 会把已删的目录重新建出来）。
+
+**验证**：
+
+- T1：脏环境（`ASA_SERVER_PORT=1`、`ASA_AUTH_ENABLED=true`、`ASA_SERVER_TLS=false`、`ASA_LOG_LEVEL=debug`、`ASA_AUTH_LAN_BYPASS=true`、
+  `ASA_BASEDIR=E:\nonexistent`）下全量 `go test ./internal/... ./pkg/... .` **0 失败**（修复前 14 个）。
+- T6：跑完 `logger`、`certmgr`、`frpmanage`、`webapi`、`instance` 后 `%TEMP%\logs\asaServer.log` 大小不变，`%TEMP%` 下没有遗留的 `asa-test-log-*`。
+- T7：WSL 里把 `PATH` 换成只有 `go` 的目录（模拟没有 Python 的机器），`TestUmuCommandLine_PinsProtonVerbToRun`、`TestUmuCommandLine_DisablesXalia`、
+  `TestCommandEnvLayering`、`TestCommandUnprovidedNeedFails` 从 SKIP 变为运行并通过；有 Python 时同样通过。
+- 回归：Windows `go build ./...`、`go vet ./internal/... ./pkg/... .`、`go test -race ./internal/... ./pkg/... .` 通过；WSL `go build ./...`、
+  `go vet ./...`、`ASA_TEST_RUNTIME_USER=1 go test -race ./...` 通过。
+
+**仍未做**：三批（T8、T9、T10 的验证矩阵）；§5 第 5 条「WSL 普通用户跑一遍」。
 
 ## 6. 本次排查留下的、需要人工处理的事
 
