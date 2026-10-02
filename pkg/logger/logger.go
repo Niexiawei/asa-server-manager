@@ -141,6 +141,25 @@ func Close() error {
 	return currentFileWriter.Close()
 }
 
+// InitTempForTest 仅供测试使用（在 TestMain 里调）：把日志初始化到一个新建的临时目录，
+// 返回清理函数，m.Run() 之后调用——先关文件句柄再删目录（Windows 删不掉仍打开的文件）。
+//
+// 不要用 InitLoggerWithBaseDir(os.TempDir())：那会让每个测试二进制都往同一个
+// %TEMP%\logs\asaServer.log 里追加、从不清理，几个包并行跑时还会抢同一个
+// lumberjack 文件轮转（docs/TEST_ENV_COUPLING_PLAN.md T6）。建临时目录失败时退回
+// 纯控制台兜底 logger，不让测试因为日志起不来。
+func InitTempForTest() (cleanup func()) {
+	dir, err := os.MkdirTemp("", "asa-test-log-*")
+	if err != nil {
+		return func() {}
+	}
+	InitLoggerWithBaseDir(dir)
+	return func() {
+		_ = Close()
+		_ = os.RemoveAll(dir)
+	}
+}
+
 func buildLoggers(baseDir string, o options) {
 	logFilePath = filepath.Join(baseDir, "logs", o.fileName)
 	if err := os.MkdirAll(filepath.Dir(logFilePath), 0755); err != nil {

@@ -196,3 +196,20 @@ func TestWithLogFileName_OverridesDefault(t *testing.T) {
 		t.Fatalf("expected %s to exist: %v", want, err)
 	}
 }
+
+// InitTempForTest 把日志放进一个新建的临时目录，清理函数关句柄并删掉整个目录。
+func TestInitTempForTest(t *testing.T) {
+	cleanup := InitTempForTest()
+	path := GetLogFilePath()
+	if !strings.Contains(filepath.Base(filepath.Dir(filepath.Dir(path))), "asa-test-log-") {
+		t.Fatalf("日志应在 asa-test-log-* 临时目录下，实际 %q", path)
+	}
+	Info("hello")
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("日志文件应已创建: %v", err)
+	}
+	cleanup()
+	if _, err := os.Stat(filepath.Dir(filepath.Dir(path))); !os.IsNotExist(err) {
+		t.Errorf("清理后临时目录应被删除: %v", err)
+	}
+}

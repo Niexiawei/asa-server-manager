@@ -2,16 +2,13 @@ package instance
 
 import (
 	statepkg "asa-server/internal/state"
-	"asa-server/pkg/logger"
-	"os"
 	"testing"
 )
 
 // withTempStateManager 把全局状态管理器指到一个临时目录，避免污染真实状态库。
+// 日志由 TestMain 指到临时目录（main_test.go）。
 func withTempStateManager(t *testing.T) {
 	t.Helper()
-
-	logger.InitLoggerWithBaseDir(os.TempDir())
 
 	// 前面的用例可能已经初始化过全局单例，先关掉才能重新指向临时目录
 	_ = statepkg.CloseStateManager()
