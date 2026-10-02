@@ -346,7 +346,9 @@ func TestWaitAllCancelled(t *testing.T) {
 }
 
 // Wait 层面的端到端验证：一个实例被取消，其余跑满整轮后正常返回。
-// 因为 Wait 会 Validate（下界 MinTotal），这条必然要跑满 30s，默认跳过。
+// 因为 Wait 会 Validate（下界 MinTotal），这条必然要跑满 30s——全量测试里最慢的
+// 一条。它是唯一覆盖「多实例对齐倒计时、取消其中一台」的端到端用例，所以默认照跑，
+// 只在 go test -short 时跳过（docs/TEST_ENV_COUPLING_PLAN.md T9）。
 func TestWaitCancelOneInstanceContinuesOthers(t *testing.T) {
 	if testing.Short() {
 		t.Skip("需要跑满 MinTotal(30s) 的真实倒计时")
