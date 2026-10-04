@@ -28,8 +28,8 @@ import (
 
 // 首次启动向导：配置位置 → 数据目录 → 生成并检查配置 → 初始化环境。
 //
-// 三级查找都没有 config.yaml 时（GUI 以 WithoutAutoGenerate 加载，缺失时文件确实
-// 不存在）由 runFirstLaunchWizardIfNeeded 打开。它等价于 CLI 的
+// 三级查找都没有 config.yaml 时（appconfig.Load 只读，缺失时文件确实不存在）由
+// runFirstLaunchWizardIfNeeded 打开。它等价于 CLI 的
 // `config init --dir --basedir [--set-env]` + 编辑 + `config validate` + `setup`
 // （§10.7 不变量 2：向导做的事都有 CLI 等价物）。
 // 见 docs/SETUP_FLOW_OPTIMIZATION_PLAN.md Part 2 §P2-3.5。

@@ -63,15 +63,15 @@ func Apply(cfg *appconfig.Config, baseDir string) {
 // cfgpkg.BaseDir → 建数据目录 → 日志切到新目录 → Apply。顺序与 main.go 启动时
 // 一致，给「运行中改了配置 / 刚选定数据目录」的 setup 与 GUI 向导用，不需要重启。
 //
-// 以 WithoutAutoGenerate 加载：调用方要么刚写好配置，要么就是在检查「用户改完
-// 了没有」，这时候替用户凭空生成一份默认配置只会掩盖问题。
+// appconfig.Load 只读，不会替用户凭空生成配置：调用方要么刚写好配置，要么就是在
+// 检查「用户改完了没有」，生成默认配置只会掩盖问题。
 //
 // 配置加载或校验失败时返回错误，cfgpkg.BaseDir / 日志 / 运行时配置都保持原样
 // （appconfig.Get() 也不变，Load 只在校验通过后才替换）。建数据目录失败时
 // cfgpkg 的目录变量已经切到新值（EnsureDirectories 先赋值后建目录），日志与运行时
 // 配置仍是旧的——调用方应把这当作致命错误提示用户换目录。
 func Reload() (string, *appconfig.Config, error) {
-	baseDir, err := appconfig.Load(appconfig.WithoutAutoGenerate())
+	baseDir, err := appconfig.Load()
 	if err != nil {
 		return "", nil, fmt.Errorf("重新加载 %s 失败: %w", appconfig.ConfigPath(), err)
 	}

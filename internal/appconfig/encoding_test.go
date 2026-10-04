@@ -11,7 +11,6 @@ import (
 // 否则 BOM 会粘在第一个 key 上（变成 "<BOM>basedir"），basedir 字段静默丢失，数据目录
 // 回落到配置文件所在目录，而且不报任何错。
 func TestLoadAcceptsBOMAndCRLF(t *testing.T) {
-	clearASABaseDir(t)
 	dir := t.TempDir()
 	dataDir := filepath.Join(t.TempDir(), "data")
 

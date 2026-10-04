@@ -12,9 +12,18 @@
   不会丢任何东西。`shared` / `per-instance` 模式不受影响。
 - `GET /api/system/preflight` 的响应里，`display` 字段换成了 `runtimePlugins`（每个 Linux 运行时组件——图形显示、
   VC++ 运行时——的状态列表）。自带的前端没有用到它；自己写了脚本读这个字段的需要改读新字段。
-- **`config.yaml` 不再在任意命令启动时顺手生成**：`--help`、`config` 子命令完全不碰磁盘；`setup` 与 Windows GUI 在没有配置时
-  由自己引导生成。`api` 与服务模式缺配置时仍自动生成，已有 `config.yaml` 的部署不受影响
-  （`docs/SETUP_FLOW_OPTIMIZATION_PLAN.md` Part 2）。
+- **`config.yaml` 不再在任何命令启动时自动生成**：`--help`、`config` 子命令完全不碰磁盘；`setup` 与 Windows GUI 在没有配置时
+  由自己引导生成；**`api` 与服务模式缺配置时拒绝启动**（退出码 78），全新部署先运行 `asa-server config init`（或 `setup`），
+  靠首次启动生成配置的部署脚本要补上这一行。已有 `config.yaml` 的部署不受影响
+  （`docs/SETUP_FLOW_OPTIMIZATION_PLAN.md` Part 2、`docs/APPCONFIG_BASEDIR_PLAN.md` Part 2）。
+- **配置文件校验不通过时不再以默认配置启动**：以前只记一条错误日志，然后带着默认配置跑起来（下载代理、端口、TLS、Linux 运行时设置
+  与数据目录一起被静默丢掉）；现在 `api`、服务、`setup`、GUI 与其余命令都直接退出（退出码 78），并说明哪个文件、哪里错了。
+  服务模式的原因写进平时的日志（Windows 另写一条事件日志），Linux 的 systemd 单元会进入 `failed` 而不是反复重启。
+  `config` 子命令与 `service stop|start|remove`、`cert uninstall` 不受影响。**改完配置先 `asa-server config validate` 再重启服务。**
+- **移除 `ASA_BASEDIR` 环境变量**：数据目录只由 `config.yaml` 的 `basedir` 字段决定，留空 = 配置文件所在目录。
+  受影响的只有「`basedir` 留空、靠 `ASA_BASEDIR` 指定数据目录」的部署：升级后数据目录会变成配置文件所在目录，看起来像实例全没了。
+  程序检测到这个变量仍设着时会在启动日志和 `config path` / `config validate` 里提示，照提示在 `config.yaml` 里写上
+  `basedir: "<原来的目录>"` 即可，然后删掉这个环境变量。这条提示将在下个版本删除（`docs/APPCONFIG_BASEDIR_PLAN.md` Part 2）。
 - **Linux，systemd 服务**：unit 里的环境变量改为带引号的 `Environment="K=V"`。旧 unit 在路径不含空格时照常工作；
   配置 / 数据目录路径里有空格的，`service remove` 后重新 `service install` 一次。
 - **Linux，新配置项 `linux.launch_gate_timeout`**（默认 `20m`，不得小于 `1m`）：`prefix_mode: shared` 下一台实例初始化超过这么久，

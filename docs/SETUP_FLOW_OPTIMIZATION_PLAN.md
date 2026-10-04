@@ -729,6 +729,9 @@ func CheckFile(path string) (*Config, error)
 
 ### P2-3.2 `main.go`：按命令决定引导方式
 
+> 📌 **2026-10-02**：下表「`api`、Linux 无参、服务模式、其余命令 —— autoGenerate ✓」已推翻：`appconfig.Load` 改为只读，
+> 这些入口缺配置或配置无效时拒绝启动；另外新增了不检查配置的维护命令。见 `docs/APPCONFIG_BASEDIR_PLAN.md` Part 2 P2-3 第 6 条。
+
 `loadAppConfig()` 与 `EnsureDirectories` 发生在 CLI 解析之前，所以要先「偷看」本次要跑的命令：
 
 ```go
@@ -799,6 +802,7 @@ asa-server config validate [--file PATH]
    把终端 / SSH 客户端字符集改成 UTF-8，之后可 `config init --force --lang zh` 重新生成。
 
 **`config path`**：打印 `ConfigPath()`、是否存在、解析出的 BaseDir 及其来源（字段 / `ASA_BASEDIR` / 配置同目录）。
+（📌 2026-10-02：`ASA_BASEDIR` 已移除，来源只剩「字段 / 配置同目录」，变量仍设着时另打一行提示。见 `docs/APPCONFIG_BASEDIR_PLAN.md` Part 2。）
 排障用，一眼看清三级查找与 basedir 优先级到底落在哪。
 
 **`config validate`**：`--file` > `ConfigPath()`，调 `appconfig.CheckFile`；通过打印「配置有效」+
@@ -1134,6 +1138,8 @@ Windows `go test ./internal/appconfig/ ./internal/actions/ ./internal/installer/
    那是默认值不是用户的显式选择。显式给的 basedir 校验失败时，交互模式重新询问，非交互直接报错。
 9. **`config path` 额外做了一次 `CheckFile`**：配置有错时提示「程序会回落到默认配置运行」并指向 `config validate`——
    排障时最想知道的就是「我改的配置到底生效没有」。
+   （📌 2026-10-02：第 8 条的 `ASA_BASEDIR` 已移除；本条的提示改为「程序不会启动」，因为配置无效时已不再回落默认配置。
+   见 `docs/APPCONFIG_BASEDIR_PLAN.md` Part 2。）
 10. **`config validate` 的输出**额外带上数据目录、面板地址 / 端口 / 鉴权开关、下载代理（非空时），方便改完一眼核对。
 
 ## P2-9. 实施记录（C6–C7，2026-09-29）
