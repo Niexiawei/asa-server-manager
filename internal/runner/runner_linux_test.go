@@ -73,6 +73,7 @@ func TestUmuCommandLine_PinsProtonVerbToRun(t *testing.T) {
 		PrefixMode:    "shared",
 		GameID:        "umu-default",
 		BaseDir:       base,
+		PythonBin:     fakePython(t),
 	})
 	t.Cleanup(func() { Configure(defaultConfig()) })
 
@@ -96,7 +97,7 @@ func TestUmuCommandLine_PinsProtonVerbToRun(t *testing.T) {
 
 	c, err := umuCommandLine(context.Background(), filepath.Join(base, "ArkAscendedServer.exe"), nil, Options{})
 	if err != nil {
-		t.Skipf("umuCommandLine unavailable in this environment: %v", err)
+		t.Fatalf("umuCommandLine: %v", err)
 	}
 	env := c.Env
 
@@ -123,6 +124,7 @@ func TestUmuCommandLine_DisablesXalia(t *testing.T) {
 		PrefixMode:    "shared",
 		GameID:        "umu-default",
 		BaseDir:       base,
+		PythonBin:     fakePython(t),
 	})
 	t.Cleanup(func() { Configure(defaultConfig()) })
 
@@ -142,7 +144,7 @@ func TestUmuCommandLine_DisablesXalia(t *testing.T) {
 
 	c, err := umuCommandLine(context.Background(), filepath.Join(base, "ArkAscendedServer.exe"), nil, Options{})
 	if err != nil {
-		t.Skipf("umuCommandLine unavailable in this environment: %v", err)
+		t.Fatalf("umuCommandLine: %v", err)
 	}
 	env := c.Env
 
@@ -166,4 +168,17 @@ func TestCheckRuntime_MessagesPointAtSetup(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "asa-server setup") {
 		t.Fatalf("want a 'run asa-server setup' hint, got %v", err)
 	}
+}
+
+// fakePython 是一个只回答版本探测的假解释器（pyfinder 的探测只是执行它、读
+// "<major> <minor>"）。umuCommandLine 只拼命令、不 exec，有它就不依赖宿主装没装
+// Python——以前缺 Python 的机器上，守 PROTON_VERB=run 与 Xalia 的两条用例静默 SKIP
+// （docs/TEST_ENV_COUPLING_PLAN.md T7）。
+func fakePython(t *testing.T) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "python3")
+	if err := os.WriteFile(p, []byte("#!/bin/sh\necho \"3 12\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return p
 }

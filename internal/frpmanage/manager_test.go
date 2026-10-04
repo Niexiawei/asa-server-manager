@@ -12,8 +12,10 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	logger.InitLoggerWithBaseDir(os.TempDir())
-	os.Exit(m.Run())
+	cleanup := logger.InitTempForTest()
+	code := m.Run()
+	cleanup()
+	os.Exit(code)
 }
 
 // unreachableConfig 指向一个必定拒绝连接的本地端口。

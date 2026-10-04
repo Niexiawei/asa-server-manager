@@ -640,6 +640,25 @@ func OverrideSearchDirsForTest(t testing.TB, exeDir, systemDir string) {
 	})
 }
 
+// UnsetEnvForTest 仅供测试使用，在 TestMain 里、m.Run() 之前调用：清掉当前进程里
+// 所有 ASA_* 环境变量，让读配置的测试不受开发机环境影响——decodeFile 开着 viper 的
+// AutomaticEnv，开发机上随手导出的 ASA_SERVER_PORT 之类会直接改写测试读到的配置
+// （docs/TEST_ENV_COUPLING_PLAN.md T1）。ASA_TEST_* 是测试自己的开关，保留。
+// 单个用例需要某个变量时照常 t.Setenv。返回被清掉的变量名，便于诊断。
+func UnsetEnvForTest() []string {
+	var cleared []string
+	for _, kv := range os.Environ() {
+		name, _, _ := strings.Cut(kv, "=")
+		if !strings.HasPrefix(name, "ASA_") || strings.HasPrefix(name, "ASA_TEST_") {
+			continue
+		}
+		if err := os.Unsetenv(name); err == nil {
+			cleared = append(cleared, name)
+		}
+	}
+	return cleared
+}
+
 // ErrConfigInvalid 表示配置文件读不出来、解析失败或校验不通过（含 ASA_* 环境变量
 // 叠加之后的值）。调用方必须让程序停下来，不能「回落默认值继续跑」：默认配置会把
 // 下载代理、端口、TLS、鉴权、linux.* 运行时设置一起静默丢掉，用户看到的是「程序

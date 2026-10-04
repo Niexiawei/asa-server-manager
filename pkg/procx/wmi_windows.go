@@ -9,13 +9,19 @@ import (
 	"github.com/yusufpapurcu/wmi"
 )
 
-// escapeWQL 转义 WQL 字符串字面量与 LIKE 通配符。
+// escapeWQL 转义 WQL 字符串字面量与 LIKE 通配符，两层各管各的：
 //
-// WQL 的 LIKE 不认反斜杠转义，通配符只能用方括号集合字面化：
-// `%` -> `[%]`、`_` -> `[_]`、`[` -> `[[]`；`]` 在集合外本就是字面量。
-// 单引号按 SQL 惯例翻倍。`[` 必须最先替换，否则会把后面新插入的括号再转一遍。
+//   - 字符串字面量这一层用**反斜杠**转义：`\` -> `\\`、`'` -> `\'`。不是 SQL 的
+//     单引号翻倍——翻倍和裸反斜杠都会让 WMI 直接报「无效查询」（实测，
+//     TestQueryProcess_EscapedQueryIsAccepted）。命令行里满是 Windows 路径，
+//     反斜杠不转义的话，凡是带路径的片段都查不了。`\` 必须先于 `'` 替换，否则会
+//     把刚插入的转义符再转一遍。
+//   - LIKE 这一层不认反斜杠转义，通配符只能用方括号集合字面化：
+//     `%` -> `[%]`、`_` -> `[_]`、`[` -> `[[]`；`]` 在集合外本就是字面量。
+//     `[` 必须先于 `%`、`_` 替换，否则会把后面新插入的括号再转一遍。
 func escapeWQL(s string) string {
-	s = strings.ReplaceAll(s, "'", "''")
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, "'", `\'`)
 	s = strings.ReplaceAll(s, "[", "[[]")
 	s = strings.ReplaceAll(s, "%", "[%]")
 	s = strings.ReplaceAll(s, "_", "[_]")

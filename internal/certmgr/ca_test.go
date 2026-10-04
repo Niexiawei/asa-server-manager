@@ -14,9 +14,11 @@ import (
 // TestMain 把私钥加固换成空实现：真实实现会为每个临时文件拉起 icacls 子进程，
 // 测试里既慢又没有验证价值
 func TestMain(m *testing.M) {
-	logger.InitLoggerWithBaseDir(os.TempDir())
+	cleanup := logger.InitTempForTest()
 	hardenKey = func(string) {}
-	os.Exit(m.Run())
+	code := m.Run()
+	cleanup()
+	os.Exit(code)
 }
 
 // withTempBaseDir 把证书目录指向临时目录，避免测试污染真实 {BaseDir}/certs

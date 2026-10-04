@@ -17,8 +17,10 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	logger.InitLoggerWithBaseDir(os.TempDir())
-	os.Exit(m.Run())
+	cleanup := logger.InitTempForTest()
+	code := m.Run()
+	cleanup()
+	os.Exit(code)
 }
 
 // startTLSServer 用与生产完全相同的 Protocols / HTTP2Config / 本地 CA 证书起一个监听器，

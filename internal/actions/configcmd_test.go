@@ -23,10 +23,8 @@ func newConfigEnv(t *testing.T) *configEnv {
 	t.Helper()
 	e := &configEnv{exeDir: t.TempDir(), sysDir: t.TempDir()}
 	appconfig.OverrideSearchDirsForTest(t, e.exeDir, e.sysDir)
+	// 开发机上的 ASA_*（含会多打一行提示的 ASA_BASEDIR）已在 TestMain 里清掉。
 	t.Setenv("ASA_CFG", "")
-	// ASA_BASEDIR 已不参与解析，但设了会让输出多一行「已不生效」的提示；清掉它，
-	// 输出才不随开发机变。提示本身由 TestConfigPathAndValidate_LegacyBaseDirHint 测。
-	t.Setenv("ASA_BASEDIR", "")
 	orig := validateBaseDir
 	validateBaseDir = func(string) error { return nil } // 测试机未必有 30GB
 	t.Cleanup(func() { validateBaseDir = orig })

@@ -3,6 +3,7 @@ package netutil
 import (
 	"fmt"
 	"net"
+	"slices"
 	"testing"
 )
 
@@ -41,11 +42,36 @@ func TestFreeUDPPortNotRepeated(t *testing.T) {
 	}
 }
 
-func TestResolveDomainToIPv4(t *testing.T) {
-	ips, err := ResolveDomainToIPv4("asa.nicoi.cn")
-	if err != nil {
-		t.Error(err)
-		return
+// 三个解析函数按地址族筛选。输入用字面 IP：net.LookupIP 对字面 IP 直接返回，
+// 不发任何 DNS 查询，断网、DNS 受限的机器上结果也一样。以前这里解析的是一个真实
+// 公网域名、只打印不断言（docs/TEST_ENV_COUPLING_PLAN.md T4）。
+func TestResolveDomainFiltersByFamily(t *testing.T) {
+	cases := []struct {
+		in             string
+		all, ipv4, ip6 []string
+	}{
+		{"127.0.0.1", []string{"127.0.0.1"}, []string{"127.0.0.1"}, nil},
+		{"::1", []string{"::1"}, nil, []string{"::1"}},
+		// IPv4 映射的 IPv6 地址按 IPv4 处理（To4 非空）。
+		{"::ffff:192.0.2.1", []string{"192.0.2.1"}, []string{"192.0.2.1"}, nil},
 	}
-	fmt.Println(ips)
+	for _, c := range cases {
+		t.Run(c.in, func(t *testing.T) {
+			check := func(name string, got []string, err error, want []string) {
+				t.Helper()
+				if err != nil {
+					t.Fatalf("%s(%q): %v", name, c.in, err)
+				}
+				if !slices.Equal(got, want) {
+					t.Errorf("%s(%q) = %v，期望 %v", name, c.in, got, want)
+				}
+			}
+			got, err := ResolveDomainToIP(c.in)
+			check("ResolveDomainToIP", got, err, c.all)
+			got, err = ResolveDomainToIPv4(c.in)
+			check("ResolveDomainToIPv4", got, err, c.ipv4)
+			got, err = ResolveDomainToIPv6(c.in)
+			check("ResolveDomainToIPv6", got, err, c.ip6)
+		})
+	}
 }
