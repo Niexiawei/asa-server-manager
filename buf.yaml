@@ -1,0 +1,21 @@
+# Protobuf 模块定义：管理器互控（docs/REMOTE_MANAGER_MESH_PLAN.md §12 P1-1）。
+# 生成代码提交进仓库，go build 不需要 buf；改了 proto 后运行 `buf generate`。
+version: v2
+modules:
+  - path: api
+lint:
+  use:
+    - STANDARD
+  except:
+    # Session / Relay 是双向流，收发的是信封消息而不是一问一答，
+    # 硬套 XxxRequest/XxxResponse 命名反而误导。
+    - RPC_REQUEST_STANDARD_NAME
+    - RPC_RESPONSE_STANDARD_NAME
+    - RPC_REQUEST_RESPONSE_UNIQUE
+    # 服务名与 Role 的零值沿用计划文档里的叫法（Coordinator / Peer / ROLE_NONE）：
+    # ROLE_NONE 就是「未授权」这个真实取值，不是「未设置」。
+    - SERVICE_SUFFIX
+    - ENUM_ZERO_VALUE_SUFFIX
+breaking:
+  use:
+    - WIRE_JSON

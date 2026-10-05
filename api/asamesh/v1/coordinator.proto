@@ -1,0 +1,150 @@
+// 管理器 ↔ 协调节点。见 docs/REMOTE_MANAGER_MESH_PLAN.md §5.2、§5.4、§12 P1-1。
+//
+// 协调节点只做三件事：在线登记、交换候选地址、字节中转。它不理解业务，
+// 也不签发任何身份——节点 ID 由管理器自己的公钥决定，协调节点按 TLS 客户端证书算出。
+//
+// 兼容规则：本服务只做向后兼容的增量（加字段、加方法、加 oneof 分支），字段号永不复用。
+syntax = "proto3";
+
+package asamesh.v1;
+
+option go_package = "asa-server/internal/mesh/meshpb;meshpb";
+
+service Coordinator {
+  // 一条长连接：登记在线、上报候选地址、接收信令（有人要经中转连你、被踢下线）。
+  // 首帧必须是 Register；被拒绝时以 PermissionDenied 结束。
+  rpc Session(stream NodeMessage) returns (stream CoordMessage);
+  // 查询同一网络里的某个节点。节点不存在、不在同一网络、不在线一律返回 NotFound。
+  rpc Resolve(ResolveRequest) returns (ResolveResponse);
+  // 申请一个中转会话：协调节点经对端的 Session 下发 IncomingRelay，返回本端的会话凭据。
+  rpc OpenRelay(OpenRelayRequest) returns (OpenRelayResponse);
+  // 中转字节流：首帧 join，之后全是不透明的 data。
+  rpc Relay(stream RelayFrame) returns (stream RelayFrame);
+}
+
+enum Transport {
+  TRANSPORT_UNSPECIFIED = 0;
+  TRANSPORT_TCP = 1;
+  TRANSPORT_UDP = 2;
+}
+
+enum CandidateKind {
+  CANDIDATE_KIND_UNSPECIFIED = 0;
+  CANDIDATE_KIND_HOST = 1; // 本机网卡地址
+  CANDIDATE_KIND_SRFLX = 2; // STUN 问到的服务器反射地址（P6）
+  CANDIDATE_KIND_MAPPED = 3; // UPnP / NAT-PMP / PCP 端口映射（P6）
+  CANDIDATE_KIND_CONFIGURED = 4; // 用户手填的地址
+}
+
+message Candidate {
+  Transport transport = 1;
+  CandidateKind kind = 2;
+  string addr = 3; // host:port
+}
+
+message NodeMessage {
+  oneof msg {
+    Register register = 1; // Session 首帧，且只能是首帧
+    CandidatesUpdate candidates = 2; // P2
+    PunchOffer punch_offer = 10; // P6（§5.6），P1 只定义不实现
+    PunchAnswer punch_answer = 11; // P6
+  }
+}
+
+message Register {
+  string network_id = 1;
+  // 只在首次接入时必需；已是该网络成员时协调节点忽略它。
+  string network_secret = 2;
+  string version = 3;
+  // P1 声明 "relay.v1"；打洞是 "punch.v1"。
+  repeated string capabilities = 4;
+  repeated Candidate candidates = 5;
+  // 本机备注名，只给协调节点的 node list 看。
+  string label = 6;
+}
+
+message CandidatesUpdate {
+  repeated Candidate candidates = 1;
+}
+
+message CoordMessage {
+  oneof msg {
+    Registered registered = 1;
+    IncomingRelay incoming_relay = 2;
+    Kicked kicked = 3;
+    PunchStart punch_start = 10; // P6
+  }
+}
+
+message Registered {
+  // 协调节点按 TLS 客户端证书算出的节点 ID，回显给管理器核对。
+  string node_id = 1;
+  // 协调节点看到的本端出口地址（ip:port）。
+  string observed_addr = 2;
+  int64 server_time_unix_ms = 3;
+  // 协调节点的 STUN 地址（host:port，主机名由管理器自己解析）；未开 STUN 时为空。
+  repeated string stun_addrs = 4;
+}
+
+message IncomingRelay {
+  string session_id = 1;
+  string from_node_id = 2;
+  bytes token = 3;
+}
+
+message Kicked {
+  string reason = 1;
+}
+
+message PunchOffer {
+  string target_node_id = 1;
+  string session_id = 2;
+  repeated Candidate candidates = 3;
+}
+
+message PunchAnswer {
+  string session_id = 1;
+  repeated Candidate candidates = 2;
+}
+
+message PunchStart {
+  string session_id = 1;
+  string peer_node_id = 2;
+  repeated Candidate peer_candidates = 3;
+  int64 start_unix_ms = 4;
+  bytes session_key = 5;
+}
+
+// ⚠️ 没有 network_id 字段——网络只能来自调用者自己的 Session（§8.4.5）。
+message ResolveRequest {
+  string node_id = 1;
+}
+
+message ResolveResponse {
+  string version = 1;
+  repeated string capabilities = 2;
+  repeated Candidate candidates = 3;
+  string peer_observed_ip = 4;
+  string self_observed_ip = 5;
+}
+
+message OpenRelayRequest {
+  string target_node_id = 1;
+}
+
+message OpenRelayResponse {
+  string session_id = 1;
+  bytes token = 2;
+}
+
+message RelayFrame {
+  oneof msg {
+    RelayJoin join = 1;
+    bytes data = 2;
+  }
+}
+
+message RelayJoin {
+  string session_id = 1;
+  bytes token = 2;
+}

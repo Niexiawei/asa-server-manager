@@ -1,0 +1,34 @@
+// 管理器 ↔ 管理器。跑在端到端 mTLS 之上（直连或经中转），见
+// docs/REMOTE_MANAGER_MESH_PLAN.md §5.5、§12 P1-1。
+//
+// P1 只有 Hello；Pair 与 HTTP（P3）以后作为新方法追加，加方法不是破坏性变更。
+syntax = "proto3";
+
+package asamesh.v1;
+
+option go_package = "asa-server/internal/mesh/meshpb;meshpb";
+
+service Peer {
+  // 版本、能力列表、对方授予我的角色。未配对的身份也能调用。
+  rpc Hello(HelloRequest) returns (HelloResponse);
+}
+
+enum Role {
+  ROLE_NONE = 0;
+  ROLE_OPERATOR = 1;
+  ROLE_ADMIN = 2;
+}
+
+message HelloRequest {
+  string version = 1;
+  repeated string capabilities = 2;
+}
+
+message HelloResponse {
+  string version = 1;
+  repeated string capabilities = 2;
+  // P1 恒为 ROLE_NONE。
+  Role granted_role = 3;
+  // 只对已配对的身份填写。
+  string label = 4;
+}
