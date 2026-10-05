@@ -97,13 +97,29 @@ func (c *testCoord) stop() {
 	}
 }
 
-func newManager(t *testing.T, c *testCoord, version string) *Manager {
+// newManager 建一个接入 c 的管理器（c 为 nil = 无协调节点模式）。默认不监听 Peer 端口，
+// 于是对端之间只能走中转；要直连的用例传 withListen。
+func newManager(t *testing.T, c *testCoord, version string, opts ...func(*Options)) *Manager {
 	t.Helper()
 	dir := t.TempDir()
-	if _, err := Join(dir, c.blob); err != nil {
+	if c != nil {
+		if _, err := Join(dir, c.blob); err != nil {
+			t.Fatal(err)
+		}
+	} else if _, err := SetEnabled(dir, true); err != nil {
 		t.Fatal(err)
 	}
-	m := New(Options{Dir: dir, Version: version, BackoffMin: 50 * time.Millisecond})
+	o := Options{Dir: dir, Version: version, BackoffMin: 50 * time.Millisecond}
+	for _, f := range opts {
+		f(&o)
+	}
+	if o.ListenAddr == "" {
+		noListen := true
+		if _, err := UpdateConfig(dir, ConfigPatch{NoListen: &noListen}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m := New(o)
 	if err := m.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -243,21 +259,22 @@ func TestJoinLeave(t *testing.T) {
 	}
 }
 
-type fakeAuth map[meshid.ID]bool
+type fakeAuth map[meshid.ID]string
 
-func (f fakeAuth) Paired(id meshid.ID) bool { return f[id] }
+func (f fakeAuth) Grant(id meshid.ID) string { return f[id] }
 
-// 拦截器的放行表：未配对的身份只能调 Hello（P3 再加 Pair）。
+// 拦截器的放行表：未授权的身份只能调 Hello 与 Pair。
 func TestMethodAllowTable(t *testing.T) {
 	stranger, friend := meshid.ID{1}, meshid.ID{2}
-	auth := fakeAuth{friend: true}
+	auth := fakeAuth{friend: RoleOperator}
 	cases := []struct {
 		id     meshid.ID
 		method string
 		want   bool
 	}{
 		{stranger, meshpb.Peer_Hello_FullMethodName, true},
-		{stranger, "/asamesh.v1.Peer/HTTP", false},
+		{stranger, meshpb.Peer_Pair_FullMethodName, true},
+		{stranger, meshpb.Peer_HTTP_FullMethodName, false},
 		{stranger, "/asamesh.v1.Peer/Anything", false},
 		{friend, "/asamesh.v1.Peer/HTTP", true},
 	}
