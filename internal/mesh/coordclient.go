@@ -56,13 +56,17 @@ type coordClient struct {
 
 	// onIncoming 处理「有人经中转连你」：拿到包好的连接后交给 Peer 服务。
 	onIncoming func(net.Conn)
+	// candidates 返回本机当前的候选地址（P2-3）；每次登记与每 candidateInterval 调一次。
+	candidates        func() []*meshpb.Candidate
+	candidateInterval time.Duration
 
 	mu    sync.Mutex
 	state coordState
 }
 
 func newCoordClient(cfg CoordinatorConfig, cert tls.Certificate, self meshid.ID, version, label string,
-	backoffMin time.Duration, onIncoming func(net.Conn)) (*coordClient, error) {
+	backoffMin time.Duration, onIncoming func(net.Conn), candidates func() []*meshpb.Candidate,
+	candidateInterval time.Duration) (*coordClient, error) {
 	conn, err := grpc.NewClient(cfg.Addr,
 		grpc.WithTransportCredentials(credentials.NewTLS(meshid.ClientConfig(cert, cfg.ID))),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{Time: keepaliveTime, Timeout: 10 * time.Second, PermitWithoutStream: true}),
@@ -73,6 +77,7 @@ func newCoordClient(cfg CoordinatorConfig, cert tls.Certificate, self meshid.ID,
 	return &coordClient{
 		cfg: cfg, self: self, version: version, label: label, backoffMin: backoffMin,
 		conn: conn, client: meshpb.NewCoordinatorClient(conn), onIncoming: onIncoming,
+		candidates: candidates, candidateInterval: candidateInterval,
 	}, nil
 }
 
@@ -133,16 +138,20 @@ func (c *coordClient) session(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	cands := c.candidates()
 	err = stream.Send(&meshpb.NodeMessage{Msg: &meshpb.NodeMessage_Register{Register: &meshpb.Register{
 		NetworkId:     c.cfg.NetworkID,
 		NetworkSecret: c.cfg.NetworkSecret,
 		Version:       c.version,
-		Capabilities:  []string{CapRelay},
+		Capabilities:  Capabilities(),
+		Candidates:    cands,
 		Label:         c.label,
 	}}})
 	if err != nil {
 		return err
 	}
+	// 之后只有这个 goroutine 往流上发（gRPC 不允许并发 Send）：网卡地址变了才发 CandidatesUpdate。
+	go c.reportCandidates(sctx, stream, cands)
 	for {
 		m, err := stream.Recv()
 		if err != nil {
@@ -222,15 +231,26 @@ func (c *coordClient) acceptRelay(ctx context.Context, ir *meshpb.IncomingRelay)
 	c.onIncoming(conn)
 }
 
-// relayProvider 是中转路径。
-type relayProvider struct{ c *coordClient }
-
-func (relayProvider) Kind() PathKind { return PathRelay }
-
-func (p relayProvider) Dial(ctx context.Context, peer meshid.ID) (net.Conn, error) {
-	resp, err := p.c.client.OpenRelay(ctx, &meshpb.OpenRelayRequest{TargetNodeId: peer.Compact()})
-	if err != nil {
-		return nil, err
+// reportCandidates 每 candidateInterval 重新枚举一次本机候选，有变化才上报（换网、DHCP 续约后地址会变）。
+func (c *coordClient) reportCandidates(ctx context.Context, stream meshpb.Coordinator_SessionClient, last []*meshpb.Candidate) {
+	t := time.NewTicker(c.candidateInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		now := c.candidates()
+		if sameCandidates(now, last) {
+			continue
+		}
+		if err := stream.Send(&meshpb.NodeMessage{Msg: &meshpb.NodeMessage_Candidates{
+			Candidates: &meshpb.CandidatesUpdate{Candidates: now},
+		}}); err != nil {
+			return
+		}
+		logger.Infof("[mesh] 本机候选地址变化，已上报：%v", candidateAddrs(now))
+		last = now
 	}
-	return p.c.openRelayStream(resp.GetSessionId(), resp.GetToken(), peer.Short())
 }
