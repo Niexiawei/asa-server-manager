@@ -66,6 +66,8 @@ type stateResponse struct {
 	User              *userView `json:"user,omitempty"`
 	TOTPEnabledGlobal bool      `json:"totp_enabled_global"`
 	TOTPRequired      bool      `json:"totp_required"`
+	// Peer 表示这是经管理器互控隧道来的请求（远程上下文）：恒为已登录，不要被本机的登录态弄糊涂。
+	Peer bool `json:"peer,omitempty"`
 }
 
 type userView struct {
@@ -103,6 +105,11 @@ func (h *Handler) state(c *gin.Context) {
 		AuthEnabled:       cfg.Auth.Enabled,
 		TOTPEnabledGlobal: cfg.Auth.TOTP.Enabled,
 		TOTPRequired:      cfg.Auth.TOTP.Required,
+	}
+	if IsPeer(c) {
+		resp.Authenticated, resp.Peer = true, true
+		c.JSON(http.StatusOK, resp)
+		return
 	}
 	if !cfg.Auth.Enabled {
 		resp.Authenticated = true // 没开鉴权，前端按已登录处理

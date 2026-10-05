@@ -26,6 +26,9 @@ const (
 	EventTOTPReset      = "totp_reset"
 	EventCredAdd        = "cred_add"
 	EventCredDelete     = "cred_delete"
+	// EventPeerRequest 是经管理器互控隧道进来的写操作（docs/REMOTE_MANAGER_MESH_PLAN.md §12 P3-6）。
+	// Username 是 peer:<备注名>/<对端自述的用户名>——后半段是对端说的，本机只能验证到「是那台机器说的」。
+	EventPeerRequest = "peer_request"
 )
 
 // ActorCLI 表示操作来自本机命令行而不是 HTTP 请求

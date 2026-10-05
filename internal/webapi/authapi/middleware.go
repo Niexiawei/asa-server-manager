@@ -3,14 +3,17 @@
 package authapi
 
 import (
+	"fmt"
 	"net"
 	"net/http"
+	"path"
 	"strings"
 	"sync"
 	"time"
 
 	"asa-server/internal/appconfig"
 	"asa-server/internal/auth"
+	"asa-server/internal/mesh"
 	"asa-server/pkg/logger"
 
 	"github.com/gin-gonic/gin"
@@ -20,10 +23,36 @@ const (
 	ctxUserKey    = "auth.user"
 	ctxClaimsKey  = "auth.claims"
 	ctxBypassKey  = "auth.bypassed"
+	ctxPeerKey    = "auth.peer"
 	codeUnauth    = "unauthorized"
 	codeSetupReq  = "setup_required"
 	codeForbidden = "forbidden"
+	// codePeerForbidden：远程禁区（§6.3）。前端据此提示「远程访问不允许」，而不是「没有权限」。
+	codePeerForbidden = "peer_forbidden"
 )
+
+// peerForbiddenPrefixes 是远程禁区（docs/REMOTE_MANAGER_MESH_PLAN.md §6.3）：无论授予什么角色，
+// 经隧道一律 403——远程不能改本机的账号、不能改本机的配对关系、不能借本机再跳到第三台（禁止多跳）。
+var peerForbiddenPrefixes = []string{"/api/users", "/api/auth", "/api/mesh", "/api/peers"}
+
+// peerAllowedExceptions 是禁区里对隧道请求开放的路径：前端在远程上下文里也会问登录态。
+var peerAllowedExceptions = map[string]bool{"/api/auth/state": true}
+
+// PeerForbiddenPath 判断 p 是否在远程禁区里。按原样与 path.Clean 之后各判一次，
+// 不让 /api/./users 这类写法绕过。
+func PeerForbiddenPath(p string) bool {
+	for _, cand := range []string{p, path.Clean("/" + p)} {
+		if peerAllowedExceptions[cand] {
+			continue
+		}
+		for _, pre := range peerForbiddenPrefixes {
+			if cand == pre || strings.HasPrefix(cand, pre+"/") {
+				return true
+			}
+		}
+	}
+	return false
+}
 
 // 这些路径在鉴权开启时依然放行。
 //
@@ -44,6 +73,12 @@ var exemptPaths = map[string]bool{
 func Middleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		cfg := appconfig.Get()
+		// 隧道请求**先于** auth.enabled 的短路被识别（§6.4）：远程授权在任何情况下都必须生效，
+		// lan_bypass 对它永不生效（根本走不到那一步）。身份来自 context，不来自任何请求头。
+		if pi, ok := mesh.PeerIdentityFrom(c.Request.Context()); ok {
+			handlePeer(c, pi, cfg.Auth.Enabled)
+			return
+		}
 		if !cfg.Auth.Enabled {
 			c.Next()
 			return
@@ -109,9 +144,76 @@ func Middleware() gin.HandlerFunc {
 	}
 }
 
+// handlePeer 处理经管理器互控隧道进来的请求：远程禁区 → 按授予的角色合成用户 → 放行 → 审计。
+func handlePeer(c *gin.Context, pi mesh.PeerIdentity, authEnabled bool) {
+	if PeerForbiddenPath(c.Request.URL.Path) {
+		reject(c, http.StatusForbidden, codePeerForbidden, "远程访问不允许使用此接口")
+		return
+	}
+	role := auth.RoleOperator
+	if pi.Role == mesh.RoleAdmin {
+		role = auth.RoleAdmin
+	}
+	user := &auth.User{Username: pi.ActorName(), Role: role}
+	c.Set(ctxUserKey, user)
+	c.Set(ctxPeerKey, pi)
+	short := pi.NodeID
+	if len(short) > 9 {
+		short = short[:9]
+	}
+	c.Request = c.Request.WithContext(auth.WithAuditSource(c.Request.Context(), auth.AuditSource{
+		ClientIP:  pi.Addr,
+		UserAgent: "asa-mesh/" + short,
+	}))
+	c.Next()
+
+	switch c.Request.Method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+		return
+	}
+	// B 开着鉴权时，写操作另进 auth 的审计表；关着时只有 mesh 自己那行日志（auth.db 根本没打开）。
+	if !authEnabled {
+		return
+	}
+	if m := auth.GetManager(); m != nil {
+		m.Audit(c.Request.Context(), auth.AuditEntry{
+			Event:    auth.EventPeerRequest,
+			Username: user.Username,
+			Actor:    user.Username,
+			Detail:   fmt.Sprintf("%s %s → %d", c.Request.Method, c.Request.URL.Path, c.Writer.Status()),
+		})
+	}
+}
+
+// PeerIdentity 返回隧道请求的对端身份；不是隧道请求时 ok 为 false。
+func PeerIdentity(c *gin.Context) (mesh.PeerIdentity, bool) {
+	if v, ok := c.Get(ctxPeerKey); ok {
+		if pi, ok := v.(mesh.PeerIdentity); ok {
+			return pi, true
+		}
+	}
+	return mesh.PeerIdentityFrom(c.Request.Context())
+}
+
+// IsPeer 表示该请求来自管理器互控隧道。
+func IsPeer(c *gin.Context) bool {
+	_, ok := PeerIdentity(c)
+	return ok
+}
+
 // RequireAdmin 挂在只允许管理员访问的路由上
 func RequireAdmin() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// 隧道请求只看授予的角色，与 auth.enabled 无关（§6.4）：B 关着鉴权时，
+		// 授予 operator 的对端照样调不了管理员接口。
+		if pi, ok := PeerIdentity(c); ok {
+			if pi.Role != mesh.RoleAdmin {
+				reject(c, http.StatusForbidden, codeForbidden, "需要管理员权限（对方只授予了本机操作员角色）")
+				return
+			}
+			c.Next()
+			return
+		}
 		if !appconfig.Get().Auth.Enabled {
 			c.Next()
 			return
@@ -157,8 +259,12 @@ func Bypassed(c *gin.Context) bool {
 	return ok && v == true
 }
 
-// IsAuthenticated 供 WebSocket handler 做纵深防御用
+// IsAuthenticated 供 WebSocket handler 做纵深防御用。
+// 隧道请求恒为 true：撤销由 mesh 主动断开隧道流保证，不依赖这里 60 秒一次的复查。
 func IsAuthenticated(c *gin.Context) bool {
+	if IsPeer(c) {
+		return true
+	}
 	if !appconfig.Get().Auth.Enabled {
 		return true
 	}
