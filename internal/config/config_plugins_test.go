@@ -47,9 +47,7 @@ func TestPartialUpdateKeepsDisabledPlugins(t *testing.T) {
 
 // 禁用列表严格按实例，不参与实例间配置同步（方案 §1.1）——勾不勾「同步启用 ASA 插件」都一样。
 func TestInstanceSyncLeavesDisabledPluginsAlone(t *testing.T) {
-	orig := InstancesDir
-	InstancesDir = t.TempDir()
-	t.Cleanup(func() { InstancesDir = orig })
+	UseTempDirsForTest(t)
 
 	mk := func(name string, disabled []string) {
 		dir := filepath.Join(InstancesDir, name, "Config")

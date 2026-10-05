@@ -592,7 +592,10 @@ B1 到 B3 一个提交（移除 `ASA_BASEDIR`），B4 一个提交（启动前�
 
 ### 未验证（需要人工）
 
+具体步骤与判据见 `docs/TEST_ENV_COUPLING_PLAN.md` §7（7.1 ~ 7.3）。
+
 - **Windows GUI 配置无效时的错误框**：`MessageBox` 是模态阻塞的，没有在自动化里弹。
 - **Windows 服务**：配置改坏后重启服务，事件查看器里出现以 `ASA-Server-Manager` 为来源的 Error、`{basedir}/logs/asaServer.log` 有原因。
-- **配置无效时 `service stop` / `service remove` 照常可用**：本机装着真实服务，没有在这台机器上执行服务命令。
+- **配置无效时 `service stop` / `service remove` 照常可用**：安装、卸载系统服务会改动本机，没有在自动化里执行。
+  （这里原先写的是「本机装着真实服务」，不对：2026-10-02 `sc.exe query ASA-Server-Manager` 返回 1060，本机并没有装。）
 - **WSL systemd**：装成服务后把配置改坏，确认单元进入 `failed` 且不反复重启。

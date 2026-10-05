@@ -14,13 +14,7 @@ import (
 // docs/ACL_PERMISSION_HARDENING_PLAN.md §3.2 catalogues — so the set itself is
 // worth pinning.
 func TestExceptionTargets(t *testing.T) {
-	base := t.TempDir()
-	oldInstances, oldServerFiles := cfgpkg.InstancesDir, cfgpkg.ServerFilesDir
-	cfgpkg.InstancesDir = filepath.Join(base, "instances")
-	cfgpkg.ServerFilesDir = filepath.Join(base, "server-files")
-	t.Cleanup(func() {
-		cfgpkg.InstancesDir, cfgpkg.ServerFilesDir = oldInstances, oldServerFiles
-	})
+	cfgpkg.UseTempDirsForTest(t)
 
 	got := ExceptionTargets("alpha", &cfgpkg.InstanceConfig{SaveDir: "SaveAlpha"})
 
@@ -41,13 +35,7 @@ func TestExceptionTargets(t *testing.T) {
 // instance — it is shared by every instance. Missing it is what produced the
 // "LogCFCore: Unable to create a directory .../ModsUserData" hang.
 func TestExceptionTargetsIncludesSharedModsDir(t *testing.T) {
-	base := t.TempDir()
-	oldInstances, oldServerFiles := cfgpkg.InstancesDir, cfgpkg.ServerFilesDir
-	cfgpkg.InstancesDir = filepath.Join(base, "instances")
-	cfgpkg.ServerFilesDir = filepath.Join(base, "server-files")
-	t.Cleanup(func() {
-		cfgpkg.InstancesDir, cfgpkg.ServerFilesDir = oldInstances, oldServerFiles
-	})
+	cfgpkg.UseTempDirsForTest(t)
 
 	shared := filepath.Join(cfgpkg.ServerFilesDir, filepath.FromSlash(win64SharedRelPath))
 	for _, instance := range []string{"alpha", "beta"} {
@@ -61,13 +49,7 @@ func TestExceptionTargetsIncludesSharedModsDir(t *testing.T) {
 // An empty SaveDir falls back to the instance name (buildExceptionTargets'
 // existing rule); the result must still be a sorted, duplicate-free list.
 func TestExceptionTargetsSortedAndDeduped(t *testing.T) {
-	base := t.TempDir()
-	oldInstances, oldServerFiles := cfgpkg.InstancesDir, cfgpkg.ServerFilesDir
-	cfgpkg.InstancesDir = filepath.Join(base, "instances")
-	cfgpkg.ServerFilesDir = filepath.Join(base, "server-files")
-	t.Cleanup(func() {
-		cfgpkg.InstancesDir, cfgpkg.ServerFilesDir = oldInstances, oldServerFiles
-	})
+	cfgpkg.UseTempDirsForTest(t)
 
 	got := ExceptionTargets("alpha", &cfgpkg.InstanceConfig{})
 	if !slices.IsSorted(got) {

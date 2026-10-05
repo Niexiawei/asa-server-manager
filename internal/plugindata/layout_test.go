@@ -12,18 +12,10 @@ import (
 	cfgpkg "asa-server/internal/config"
 )
 
-// setupLayoutEnv 把 cfgpkg 的三个目录变量指到临时目录，返回根目录。
+// setupLayoutEnv 把 cfgpkg 的目录变量指到临时目录，返回根目录。
 func setupLayoutEnv(t *testing.T) string {
 	t.Helper()
-	root := t.TempDir()
-	origBase, origServerFiles, origInstances := cfgpkg.BaseDir, cfgpkg.ServerFilesDir, cfgpkg.InstancesDir
-	t.Cleanup(func() {
-		cfgpkg.BaseDir, cfgpkg.ServerFilesDir, cfgpkg.InstancesDir = origBase, origServerFiles, origInstances
-	})
-	cfgpkg.BaseDir = root
-	cfgpkg.ServerFilesDir = filepath.Join(root, "server-files")
-	cfgpkg.InstancesDir = filepath.Join(root, "instances")
-	return root
+	return cfgpkg.UseTempDirsForTest(t)
 }
 
 func srcPluginDir(plugin string) string {

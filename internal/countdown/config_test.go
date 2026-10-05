@@ -5,13 +5,26 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	cfgpkg "asa-server/internal/config"
 )
 
 // runOne 会先查进程存活：测试用的实例名都是假的，真去查只会一律判死，
 // 于是所有倒计时测试都跑不起来。这里默认放行；要验兜底本身的用例自己覆盖 isAlive。
+//
+// 倒计时公告经 rconx 读实例配置（InstancesDir 下）：目录变量指到一个空的临时目录，
+// 假实例名才一定读不到，不依赖当前目录下恰好有什么（docs/TEST_ENV_COUPLING_PLAN.md T8）。
 func TestMain(m *testing.M) {
 	isAlive = func(string) bool { return true }
-	os.Exit(m.Run())
+	dir, err := os.MkdirTemp("", "asa-test-countdown-*")
+	if err == nil {
+		cfgpkg.SetDirectories(dir)
+	}
+	code := m.Run()
+	if err == nil {
+		_ = os.RemoveAll(dir)
+	}
+	os.Exit(code)
 }
 
 func TestFormatRemaining(t *testing.T) {

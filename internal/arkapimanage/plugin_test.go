@@ -22,16 +22,9 @@ const sqliteMagic = "SQLite format 3\x00"
 // 并把「实例是否在运行」换成一张可控的表。
 func setupEnv(t *testing.T, instances ...string) map[string]string {
 	t.Helper()
-	root := t.TempDir()
-	origBase, origSF, origInst := cfgpkg.BaseDir, cfgpkg.ServerFilesDir, cfgpkg.InstancesDir
+	cfgpkg.UseTempDirsForTest(t)
 	origBusy := instanceBusy
-	t.Cleanup(func() {
-		cfgpkg.BaseDir, cfgpkg.ServerFilesDir, cfgpkg.InstancesDir = origBase, origSF, origInst
-		instanceBusy = origBusy
-	})
-	cfgpkg.BaseDir = root
-	cfgpkg.ServerFilesDir = filepath.Join(root, "server-files")
-	cfgpkg.InstancesDir = filepath.Join(root, "instances")
+	t.Cleanup(func() { instanceBusy = origBusy })
 	write(t, filepath.Join(cfgpkg.ServerFilesDir, "ShooterGame", "Binaries", "Win64", "AsaApiLoader.exe"), amd64PE)
 
 	for _, inst := range instances {

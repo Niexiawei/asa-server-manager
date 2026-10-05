@@ -20,11 +20,10 @@ import (
 func setupEnv(t *testing.T) *configEnv {
 	t.Helper()
 	e := newConfigEnv(t)
-	origBase := cfgpkg.BaseDir
-	t.Cleanup(func() {
-		_ = logger.Close()
-		cfgpkg.SetDirectories(origBase)
-	})
+	// 五个目录变量原样还原。以前是 SetDirectories(origBase)：origBase 为空时它会把
+	// InstancesDir 等设成相对路径 "instances"，而不是还原成空串。
+	cfgpkg.UseTempDirsForTest(t)
+	t.Cleanup(func() { _ = logger.Close() })
 	return e
 }
 

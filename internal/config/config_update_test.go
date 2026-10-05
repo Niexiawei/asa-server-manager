@@ -11,9 +11,7 @@ import (
 // LoadInstanceConfig 会顺带改写 GameUserSettings.ini 的 MOTD 段，文件不存在就报错，所以一并建好。
 func setupTempInstance(t *testing.T, cfg *InstanceConfig) string {
 	t.Helper()
-	orig := InstancesDir
-	InstancesDir = t.TempDir()
-	t.Cleanup(func() { InstancesDir = orig })
+	UseTempDirsForTest(t)
 
 	const name = "partial-update"
 	configDir := filepath.Join(InstancesDir, name, "Config")
@@ -94,5 +92,25 @@ func TestUpdateInstanceConfigCanClearPasswordAndMods(t *testing.T) {
 	}
 	if !got.EnableAsaPlugin {
 		t.Errorf("EnableAsaPlugin was cleared by an update that did not send it")
+	}
+}
+
+// UseTempDirsForTest 五个目录变量一起换、一起还原（docs/TEST_ENV_COUPLING_PLAN.md T8）。
+func TestUseTempDirsForTest(t *testing.T) {
+	before := [5]string{BaseDir, InstancesDir, ServerFilesDir, SteamCmdDir, BackupsDir}
+	t.Run("inner", func(t *testing.T) {
+		root := UseTempDirsForTest(t)
+		got := [5]string{BaseDir, InstancesDir, ServerFilesDir, SteamCmdDir, BackupsDir}
+		want := [5]string{root, filepath.Join(root, "instances"), filepath.Join(root, "server-files"),
+			filepath.Join(root, "steamcmd"), filepath.Join(root, "backups")}
+		if got != want {
+			t.Errorf("目录变量 = %v，期望 %v", got, want)
+		}
+		if _, err := os.Stat(InstancesDir); !os.IsNotExist(err) {
+			t.Errorf("只设变量、不应建目录: %v", err)
+		}
+	})
+	if after := [5]string{BaseDir, InstancesDir, ServerFilesDir, SteamCmdDir, BackupsDir}; after != before {
+		t.Errorf("用例结束后应原样还原：之前 %v，之后 %v", before, after)
 	}
 }
