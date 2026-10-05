@@ -6,6 +6,7 @@ import (
 	"asa-server/internal/bootstrap"
 	"asa-server/internal/certmgr"
 	cfgpkg "asa-server/internal/config"
+	"asa-server/internal/mesh"
 	"asa-server/internal/runner"
 	"asa-server/internal/svcmgr"
 	"asa-server/internal/webapi"
@@ -31,6 +32,9 @@ func isRunningAsService() (bool, error) {
 	// If not running as a service (interactive mode), Interactive() returns true
 	return !isInteractive, nil
 }
+
+// appVersion 是本程序的版本：CLI 的 --version，以及管理器互控里与对端交换的版本。
+const appVersion = "1.0.8"
 
 var commonCommands = []*cli.Command{
 	{
@@ -94,6 +98,7 @@ var commonCommands = []*cli.Command{
 	actions.VerifyArkApiCommand(),
 	actions.ArkApiCacheCommand(),
 	actions.NetmonCommand(),
+	actions.MeshCommand(),
 	certmgr.Command(),
 	actions.AuthDBCommand(),
 	actions.AuthUserCommand(),
@@ -145,11 +150,13 @@ func main() {
 	// 否则日志留在 pkg/logger 的纯控制台兜底上。
 
 	applyAppConfig(appCfg)
+	// 管理器互控随 Register / Hello 交换程序版本（docs/REMOTE_MANAGER_MESH_PLAN.md §9）。
+	mesh.AppVersion = appVersion
 
 	app := &cli.Command{
 		Name:    "asa-manager",
 		Usage:   "ARK Server Ascended Management",
-		Version: "1.0.8",
+		Version: appVersion,
 		Flags: []cli.Flag{
 			&cli.IntFlag{
 				Name:        "api-port",

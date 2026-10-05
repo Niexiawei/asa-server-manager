@@ -11,6 +11,7 @@ import (
 	"asa-server/internal/filesyncmanage"
 	"asa-server/internal/frpmanage"
 	instancepkg "asa-server/internal/instance"
+	"asa-server/internal/mesh"
 	"asa-server/internal/parseserver"
 	procpkg "asa-server/internal/process"
 	"asa-server/internal/realtime"
@@ -26,6 +27,7 @@ import (
 	"asa-server/internal/webapi/iconapi"
 	"asa-server/internal/webapi/instanceapi"
 	"asa-server/internal/webapi/logapi"
+	"asa-server/internal/webapi/meshapi"
 	"asa-server/internal/webapi/pluginapi"
 	"asa-server/internal/webapi/saveapi"
 	"asa-server/internal/webapi/scheduleapi"
@@ -185,6 +187,17 @@ func (s *APIServer) Start() error {
 			}
 		}
 	}
+	// 管理器互控（docs/REMOTE_MANAGER_MESH_PLAN.md）。没接入协调节点是常规状态，同 frp 只记 INFO；
+	// 未配置时不发起任何连接、不监听任何端口。
+	if meshMgr := mesh.GetGlobalManager(); meshMgr != nil {
+		if err := meshMgr.Start(); err != nil {
+			if errors.Is(err, mesh.ErrNotConfigured) {
+				logger.Infof("管理器互控未接入协调节点，跳过")
+			} else {
+				logger.Errorf("管理器互控启动失败: %v", err)
+			}
+		}
+	}
 
 	if err := statepkg.InitStateManager(cfgpkg.BaseDir); err != nil {
 		panic(err)
@@ -292,6 +305,11 @@ func (s *APIServer) Stop() error {
 	// 没在跑时 Stop 会返回错误，那是常规情况，不记。
 	if fsMgr := filesyncmanage.GetGlobalManager(); fsMgr != nil {
 		_ = fsMgr.Stop()
+	}
+	if meshMgr := mesh.GetGlobalManager(); meshMgr != nil {
+		if err := meshMgr.Stop(); err != nil {
+			logger.Warnf("停止管理器互控出错: %v", err)
+		}
 	}
 
 	// Stop the schedule loop before the batch manager: a tick could otherwise
@@ -425,6 +443,7 @@ func (s *APIServer) setupRoutes() {
 	pluginapi.NewHandler().RegisterRouter(s.engine)
 	systemapi.NewHandler().RegisterRouter(s.engine)
 	filesyncapi.NewHandler().RegisterRouter(s.engine)
+	meshapi.NewHandler().RegisterRouter(s.engine)
 
 	// WebSocket endpoints。
 	// AuthGate 是纵深防御：中间件已经拦过一道，但 handler 内部还会周期性复查，
@@ -481,6 +500,8 @@ func InitializationBasicComponents() {
 	if _, err := filesyncmanage.Initialize(cfgpkg.BaseDir); err != nil {
 		log.Fatal(err)
 	}
+	// 只记下目录，零副作用（不建目录、不生成身份）。
+	mesh.Initialize(cfgpkg.BaseDir)
 	// Initialize batch manager
 	batchmanage.Initialize()
 	// Initialize update manager
