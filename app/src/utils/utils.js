@@ -1,3 +1,5 @@
+import {peerPath} from '@/utils/peerContext.js'
+
 // WebSocket / SSE 一律走**同源**地址，由 vite 代理（dev）或本服务自身（生产）转发。
 //
 // 以前 dev 模式是直连后端 https://localhost:19193，而页面在 http://localhost:3000。
@@ -17,15 +19,17 @@ function basePrefix() {
         : window.location.pathname
 }
 
+// 两个函数都先过 peerPath：远程上下文里改写到 /api/peers/<ID>/fwd/...（utils/peerContext.js）。
+// wsManager、rconStore、资源 Worker 的地址都由它们拼出，于是自动跟着「当前机器」走。
 export function buildWebSocketUrl(url) {
     // 凭证走 HttpOnly Cookie，浏览器会自动带上，不需要在 query 里传令牌。
     // （令牌进 query 会落到 access log、反代日志和浏览器历史里。）
     const protocol = location.protocol === 'https:' ? 'wss://' : 'ws://'
-    return urlJoin(protocol + window.location.host, basePrefix(), url, `?clientId=${generateClientId()}`)
+    return urlJoin(protocol + window.location.host, basePrefix(), peerPath(url), `?clientId=${generateClientId()}`)
 }
 
 export function buildEventSourceUrl(url) {
-    return urlJoin(window.location.origin, basePrefix(), url)
+    return urlJoin(window.location.origin, basePrefix(), peerPath(url))
 }
 
 function urlJoin(...args) {

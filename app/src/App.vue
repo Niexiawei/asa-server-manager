@@ -33,6 +33,10 @@
               <t-menu-item value="system-logs">
                 <span>系统日志</span>
               </t-menu-item>
+              <!-- 远程管理器只属于本机：远程上下文里隐藏（远程禁区，§6.3） -->
+              <t-menu-item v-if="showMeshMenu" value="mesh-manager">
+                <span>远程管理</span>
+              </t-menu-item>
             </t-head-menu>
           </div>
           <div class="header-middle">
@@ -43,6 +47,7 @@
             />
           </div>
           <div class="header-tools">
+            <MachineSwitcher/>
             <WSStatusIndicator/>
             <ServerResourceMonitor/>
             <WSEventNotification class="ws-header-notification"/>
@@ -56,6 +61,7 @@
           </div>
         </div>
       </div>
+      <RemoteBanner/>
       <div class="content-wrapper"
            ref="contentWrapperRef"
       >
@@ -88,6 +94,9 @@ import WSStatusIndicator from '@/components/WSStatusIndicator.vue';
 import InstanceTabs from '@/components/InstanceTabs.vue';
 import {useElementSize} from "@vueuse/core";
 import {authState, isAdmin, doLogout} from '@/store/authStore.js';
+import MachineSwitcher from '@/components/MachineSwitcher.vue';
+import RemoteBanner from '@/components/RemoteBanner.vue';
+import {isRemote} from '@/utils/peerContext.js';
 
 const router = useRouter()
 const route = useRoute()
@@ -95,13 +104,17 @@ const route = useRoute()
 // 登录 / 首次引导页自带整页布局
 const isStandalone = computed(() => !!route.meta?.standalone)
 
+// 远程管理器菜单：本机上下文 + （没开鉴权，或本机管理员）
+const showMeshMenu = computed(() => !isRemote() && (!authState.authEnabled || isAdmin.value))
+
 const userMenuOptions = computed(() => {
   if (authState.bypassed) {
     // 内网免鉴权的请求没有具体账户身份，个人设置之类的操作无从谈起
     return [{content: '当前通过内网免鉴权访问', value: 'noop', disabled: true}]
   }
   const items = [{content: '个人设置', value: 'profile'}]
-  if (isAdmin.value) {
+  // 用户管理是本机的，远程上下文里不出现（远程禁区，§6.3）
+  if (isAdmin.value && !isRemote()) {
     items.push({content: '用户管理', value: 'users'})
   }
   items.push({content: '退出登录', value: 'logout'})
@@ -144,6 +157,8 @@ watch(() => route.path, (newPath) => {
     currentRoute.value = 'schedule-manager';
   } else if (newPath === '/server-resource') {
     currentRoute.value = 'server-resource';
+  } else if (newPath === '/mesh') {
+    currentRoute.value = 'mesh-manager';
   } else {
     currentRoute.value = "";
   }
@@ -185,6 +200,11 @@ const handleMenuClick = (value) => {
     case "server-resource":
       router.push({
         path: '/server-resource'
+      })
+      break
+    case "mesh-manager":
+      router.push({
+        path: '/mesh'
       })
       break
   }
@@ -279,7 +299,7 @@ const handleTabChange = (tab) => {
     }
 
     .menu-content {
-      width: 610px;
+      width: 700px;
     }
 
     .header-middle {
@@ -320,7 +340,9 @@ const handleTabChange = (tab) => {
   margin: 0 auto;
   padding: 10px;
   width: 100%;
-  height: calc(100% - 58px);
+  // 占满标题栏（与远程上下文的提示条）之外的剩余高度
+  flex: 1 1 0;
+  min-height: 0;
   box-sizing: border-box;
   background-color: #eeeeee;
 }

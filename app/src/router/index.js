@@ -5,6 +5,7 @@ import SystemLogs from '@/views/SystemLogs.vue'
 import ServerResourceMonitor from '@/views/ServerResourceMonitor/index.vue'
 import FRPManager from '@/views/FRPManager.vue'
 import {authState, isAdmin, recheck} from '@/store/authStore.js'
+import {isRemote} from '@/utils/peerContext.js'
 
 const routes = [
     {
@@ -71,7 +72,15 @@ const routes = [
         path: '/user-manager',
         name: 'UserManager',
         component: () => import('@/views/UserManager.vue'),
-        meta: {requiresAdmin: true},
+        // localOnly：远程禁区（docs/REMOTE_MANAGER_MESH_PLAN.md §6.3），远程上下文里不可进入
+        meta: {requiresAdmin: true, localOnly: true},
+    },
+    {
+        // 管理器互控（docs/REMOTE_MANAGER_MESH_PLAN.md §12 P4-4）
+        path: '/mesh',
+        name: 'MeshManager',
+        component: () => import('@/views/MeshManager.vue'),
+        meta: {localOnly: true},
     },
 ]
 
@@ -81,6 +90,11 @@ const router = createRouter({
 })
 
 router.beforeEach(async (to) => {
+    // 远程上下文里，远程禁区对应的页面（用户管理、远程管理器）一律回首页——对方那边本来也会 403
+    if (to.meta?.localOnly && isRemote()) {
+        return {path: '/'}
+    }
+
     // 首次进入先问一次服务端：要不要登录、我是谁。
     // recheck 内部做了单飞，多个并发导航只会发一次请求。
     if (!authState.ready) {

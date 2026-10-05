@@ -1,4 +1,5 @@
 import axios from 'axios'
+import {peerPath, notifyPeerError} from '@/utils/peerContext.js'
 
 export const API_BASE_URL = import.meta.env.VITE_API_ROOT
 
@@ -50,9 +51,12 @@ function handleUnauthorized(code) {
     })
 }
 
-// 请求拦截器
+// 请求拦截器：远程上下文里把业务路径改写到转发入口（utils/peerContext.js）
 apiClient.interceptors.request.use(
-    config => config,
+    config => {
+        config.url = peerPath(config.url)
+        return config
+    },
     error => Promise.reject(error)
 )
 
@@ -69,6 +73,9 @@ apiClient.interceptors.response.use(
 
             if (error.response.status === 401) {
                 handleUnauthorized(errorData.code)
+            } else {
+                // 远程上下文的转发错误（连不上、对方撤销授权等）：提示并给出「回到本机」，不跳登录页
+                notifyPeerError(errorData.code)
             }
 
             // 尝试获取错误信息
