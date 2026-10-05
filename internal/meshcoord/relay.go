@@ -36,6 +36,8 @@ type relay struct {
 	expiry       *time.Timer
 	finishOnce   sync.Once
 	lastActivity atomic.Int64 // UnixNano
+	pairedAt     atomic.Int64 // UnixNano，双方都 Join 的时刻；0 = 没配齐
+	bytes        atomic.Int64 // 双向转发的字节数（结束时记一行，便于运维与排障）
 }
 
 // relayEnd 是一侧的流。只有**对侧**的接收循环会往它发数据；sendMu + closed 保证
@@ -147,6 +149,10 @@ func (s *Server) finishRelay(r *relay) {
 			}
 		}
 		s.mu.Unlock()
+		if at := r.pairedAt.Load(); at != 0 {
+			logger.Infof("[coord] 中转 %s 结束：%s → %s，持续 %s，转发 %d 字节", r.id[:8], r.nodes[0].Short(), r.nodes[1].Short(),
+				time.Since(time.Unix(0, at)).Round(time.Second), r.bytes.Load())
+		}
 	})
 }
 
@@ -191,6 +197,7 @@ func (s *Server) Relay(stream meshpb.Coordinator_RelayServer) error {
 	if bothJoined {
 		r.expiry.Stop()
 		r.lastActivity.Store(time.Now().UnixNano())
+		r.pairedAt.Store(time.Now().UnixNano())
 		close(r.paired)
 		go s.idleWatch(r)
 		logger.Infof("[coord] 中转 %s 已建立：%s → %s", r.id[:8], r.nodes[0].Short(), r.nodes[1].Short())
@@ -227,6 +234,7 @@ func (s *Server) Relay(stream meshpb.Coordinator_RelayServer) error {
 				return
 			}
 			r.lastActivity.Store(time.Now().UnixNano())
+			r.bytes.Add(int64(len(data)))
 			if err := other.send(data); err != nil {
 				return
 			}
