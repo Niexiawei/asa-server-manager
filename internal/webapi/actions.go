@@ -190,9 +190,12 @@ func (s *APIServer) Start() error {
 	// 管理器互控（docs/REMOTE_MANAGER_MESH_PLAN.md）。没接入协调节点是常规状态，同 frp 只记 INFO；
 	// 未配置时不发起任何连接、不监听任何端口。
 	if meshMgr := mesh.GetGlobalManager(); meshMgr != nil {
+		// 隧道进来的请求直接交给本机的 Gin engine（不经过本机的 TCP 端口、TLS 与 CORS）。
+		// 由组合根注入，避免 mesh → webapi 成环。
+		meshMgr.SetHTTPHandler(s.engine)
 		if err := meshMgr.Start(); err != nil {
 			if errors.Is(err, mesh.ErrNotConfigured) {
-				logger.Infof("管理器互控未接入协调节点，跳过")
+				logger.Infof("管理器互控未启用，跳过")
 			} else {
 				logger.Errorf("管理器互控启动失败: %v", err)
 			}
