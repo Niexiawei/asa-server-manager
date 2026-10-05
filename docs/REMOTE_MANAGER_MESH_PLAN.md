@@ -1,7 +1,9 @@
 # 管理器互控（gRPC + 协调节点）可行性评估与实施计划
 
 > 状态：§11 全部决策已定（2026-10-04）。**P1 代码已完成（2026-10-05，分支 `feat/remote-mesh-p1`，现已改名 `feat/remote-mesh`），
-> 单测两个平台通过，真机验收待做**——见 §12「P1 实施记录」。**P2～P4 已细化（2026-10-05），待确认后开工**，三期都在 `feat/remote-mesh` 上做。
+> 单测两个平台通过，真机验收待做**——见 §12「P1 实施记录」。**P2～P4 代码已完成（2026-10-05，同一分支），自动化测试两个平台通过、
+> 真机二进制冒烟通过**——见 §12「P2～P4 实施记录」。
+> **所有需要人工验证的项目集中在 §14**（环境搭建、逐项步骤与判据、验证记录表）。
 > D4（打洞）本期不做，技术方案已定在 §5.6；**例外：协调节点的 STUN 端点本期先实现**（2026-10-05，细化见 §12「P1-8」）。
 > D6（多网络）选 B「数据模型预留」，见 §8.4。
 >
@@ -557,7 +559,7 @@ service Peer {
 P1 **没有**配对、授权表、HTTP 隧道、直连与前端页面——那些分别在 P2～P4。
 另外（2026-10-05 并入）：协调节点的 **STUN 端点**可用，现成 STUN 工具能问到正确的反射地址（P1-8）；管理器侧 P1 不消费它。
 
-#### P1 细化（2026-10-04；2026-10-05 并入 STUN 端点；待确认后开工）
+#### P1 细化（2026-10-04；2026-10-05 并入 STUN 端点；已实施）
 
 ##### P1-1 proto 与代码生成
 
@@ -813,17 +815,8 @@ RFC 5769 有官方测试向量可以直接验证编解码。
 
 - [x] P1-9 全部通过（两个平台）。2026-10-05：Windows（PowerShell `-race`）与 WSL（`-race`）均通过；
       mesh / meshcoord / streamconn 连跑 5 轮无抖动；`FuzzParse` 20 秒约 1100 万次无问题。
-- [ ] 真机：协调节点跑在 WSL（或一台 VPS），Windows 上的管理器与 WSL 里的另一个管理器（不同 BaseDir、不同身份）都 `mesh join` 同一 join blob；
-      `curl POST /api/mesh/hello/<对方ID>` 双向成功，路径类型为 `relay`。
-- [ ] 停掉协调节点 → 两边 `status` 显示断开、日志按退避重连而不刷屏；恢复后自动重新登记。
-- [ ] 把 join blob 里的网络密钥改坏后接入的第三个管理器被拒，协调节点日志记 WARN。
-      （跨网络隔离要第二个网络，而 D6-B 首期没有建网络的 CLI——它由 P1-9 的单测直接在存储里建第二个网络来覆盖。）
-- [ ] STUN 格式是标准的，不只是自己和自己兼容：用一个**第三方** STUN 客户端（例如 stuntman 的 `stunclient`，
-      或任何支持 RFC 5389 的工具）问协调节点的两个端口，都拿到正确的反射地址。
-- [ ] 在 Windows 本机用 `asa-coordinator stun probe` 问协调节点，两个端口都有回答；若协调节点在 VPS 上，
-      把本机家宽的映射类型记回本文，作为 P6 的第一条实测数据。（协调节点在 WSL 时这条路径上没有真正的 NAT，只能验证连通。）
-      ——2026-10-05 已在 Windows 本机回环上冒烟：两个端口都回答、结论「无 NAT」；VPS / 家宽实测仍待做。
-- [ ] 两台管理器的 `/api/mesh/status` 里都能看到下发的 `stun_addrs`。（进程内端到端用例已覆盖 `Status().STUNAddrs`，真机待做。）
+- [ ] 真机验收：**§14.2 V1-1～V1-9**（双向经中转 Hello、协调节点停机恢复、错误密钥被拒、拉黑、同一身份两处、第三方 STUN 客户端、
+      `stun probe` 与 NAT 实测、`stun_addrs` 下发、协调节点作为 Linux 服务）。原先列在这里的几条已并入 §14，步骤与判据以那里为准。
 
 **预计工作量**：6～8.5 天（原 5～7 天 + P1-8 的 STUN 端点 1～1.5 天）。
 
@@ -873,9 +866,9 @@ RFC 5769 有官方测试向量可以直接验证编解码。
 ### P2 — 直连
 - [ ] Peer 端口监听、候选地址上报（枚举网卡，排除回环/链路本地/docker 网桥）、手填地址。
 - [ ] Happy Eyeballs 选路、出口 IP 相同优先内网、路径升级（中转 → 直连）、无协调节点模式。
-- **验收**：同一内网两台走直连；断开内网连通性后自动落到中转；恢复后升级回直连；拨到「同 IP 的别的机器」握手失败而不是串线（测试里伪造）。
+- **验收**：P2-7 的自动化用例 + **§14.3 V2-1～V2-7** 的人工验证（同一内网走直连、断开落到中转、恢复后升级、拨到别的机器不串线、无协调节点模式、公网直连、端口被占、防火墙提示）。
 
-#### P2 细化（2026-10-05，待确认后开工）
+#### P2 细化（2026-10-05；已实施，偏差见「P2～P4 实施记录」）
 
 **协调节点不用改**：P1 的 `Register.candidates`、`CandidatesUpdate`、`ResolveResponse.{candidates, peer_observed_ip, self_observed_ip}`
 已经是 P2 要的全部协议。P2 只动管理器侧。
@@ -968,11 +961,11 @@ type Config struct {
 - [ ] `Peer.HTTP` 两端：B 侧 `ResponseWriter`（Flusher/Hijacker）、A 侧 ReverseProxy + 自定义 RoundTripper、头清洗与 Origin 改写。
 - [ ] `authapi` 的 `PeerIdentity` 分支（**先于** `auth.enabled` 短路）、远程禁区、禁止多跳、审计。
 - [ ] `internal/webapi/meshapi`。
-- **验收**：用 curl 经 A 的 `/api/peers/<B>/fwd/...` 完成 B 实例的启动/停止、拉日志 SSE、WS 事件、RCON；
-  B 关着鉴权时 `operator` 授权的 A 仍然调不了 `RequireAdmin` 路由；远程访问 `/api/users`、`/api/peers` 一律 403。
-  安全用例单独成组，作为回归守卫。
+- **验收**：P3-10 的自动化用例（安全用例单独成组，作为回归守卫）+ **§14.4 V3-1～V3-9** 的人工验证
+  （用 curl 经 A 的 `/api/peers/<B>/fwd/...` 完成 B 实例的启动/停止、日志 SSE、WS 事件、RCON；B 关着鉴权时 `operator` 授权的 A
+  仍然调不了 `RequireAdmin` 路由；远程访问 `/api/users`、`/api/peers` 一律 403；撤销立即生效等）。
 
-#### P3 细化（2026-10-05，待确认后开工）
+#### P3 细化（2026-10-05；已实施，偏差见「P2～P4 实施记录」）
 
 ##### P3-1 `peers.json`（`internal/mesh/peers.go`）
 
@@ -1119,7 +1112,7 @@ message HTTPBodyEnd {}
 | 方法 | 路径 | 内容 |
 |---|---|---|
 | GET | `/api/mesh/status` | 已有；加 P2-6 的字段与 `control_role` |
-| PUT | `/api/mesh/config` | 备注名、Peer 端口、是否监听、公网地址、`control_role`；保存后**热应用**（`Manager.Reload` = Stop + Start） |
+| PUT | `/api/mesh/config` | 备注名、Peer 端口、是否监听、公网地址、`control_role`；**只改请求体里出现的字段**；保存后**热应用**（`Manager.Reload` = Stop + Start） |
 | POST | `/api/mesh/join` / `/api/mesh/leave` / `/api/mesh/enable` / `/api/mesh/disable` | 同 CLI，写完热应用 |
 | GET | `/api/mesh/peers` | 对端列表 + 运行时状态（当前路径、最近一次 Hello 的 RTT / 版本 / 授予我的角色、是否在线） |
 | PUT / DELETE | `/api/mesh/peers/:id` | 改备注名 / 授予角色 / 手填地址；删除 = 撤销入站授权并忘掉它 |
@@ -1140,14 +1133,14 @@ message HTTPBodyEnd {}
 | 配对 | 邀请码配对成功并消费（第二次用同一邀请失败）；过期邀请失败；错误次数超限 `ResourceExhausted`；申请-批准：`PENDING` → 批准后 `Hello` 返回授予的角色；申请条数上限 |
 | `peers.json` | 另一个「进程」（直接调文件层 API）撤销 ⇒ 服务侧重载、在途隧道流被取消；锁下并发写不丢更新；邀请码只存哈希 |
 | 隧道 | 进程内 A、B 两个 Manager + B 侧一个最小 Gin engine：普通请求往返（含 8 MiB 上传 / 下载）；SSE 逐条到达（不被攒批）；WebSocket 经 A 的 ReverseProxy 双向收发；A 断开 ⇒ B 的 handler ctx 被取消 |
-| **安全（回归守卫，单独成组）** | 未授权身份调 `HTTP` ⇒ `PermissionDenied`；B 关鉴权 + 授予 `operator` ⇒ `RequireAdmin` 路由 403；`/api/users`、`/api/auth/me`、`/api/mesh/status`、`/api/peers/x/fwd/...` 经隧道一律 403；A 伪造 `Cookie` / `X-Forwarded-For` / `Authorization` 在 B 侧不生效（B 看到的头里没有它们）；`RemoteAddr` 不是回环（`IsLoopbackRequest` 为 false）；撤销后在途 SSE 立即结束；A 侧 B 回 401 被改写为 403；A 侧 WS 跨源 `Origin` 被拒；`Set-Cookie` 不透传 |
+| **安全（回归守卫，单独成组）** | 未授权身份调 `HTTP` ⇒ `PermissionDenied`；B 关鉴权 + 授予 `operator` ⇒ `RequireAdmin` 路由 403；`/api/users`、`/api/auth/audit`、`/api/mesh/status`、`/api/peers/x/fwd/...` 经隧道一律 403；A 伪造 `Cookie` / `X-Forwarded-For` / `Authorization` 在 B 侧不生效（B 看到的头里没有它们）；`RemoteAddr` 不是回环（`IsLoopbackRequest` 为 false）；撤销后在途 SSE 立即结束；A 侧 B 回 401 被改写为 403；A 侧 WS 跨源 `Origin` 被拒；`Set-Cookie` 不透传 |
 | `authapi` | 隧道请求在 `auth.enabled=false` 与 `true` 两种配置下的放行表；`ActorName` = `peer:…` |
 
 ### P4 — 前端
 - [ ] 「远程管理器」页、顶栏机器选择器、API 前缀集中切换、版本不一致提示、远程上下文隐藏禁区页面。
-- **验收**：浏览器人工验收清单（照 `docs/TEST_ENV_COUPLING_PLAN.md` 的人工清单格式）：所有现有页面在远程上下文各走一遍。
+- **验收**：**§14.5 V4-1～V4-4** 的浏览器人工验收（远程管理器页、切换机器、所有现有页面在远程上下文逐页走查、异常与提示）。
 
-#### P4 细化（2026-10-05，待确认后开工）
+#### P4 细化（2026-10-05；已实施，偏差见「P2～P4 实施记录」）
 
 ##### P4-1 「当前机器」上下文：`utils/peerContext.js`
 
@@ -1185,11 +1178,72 @@ message HTTPBodyEnd {}
 
 `App.vue` 三处联动：菜单项、`watch(route.path)` 高亮、`handleMenuClick` 分支；路由 `meta` 标记 `localOnly`（P4-3 的守卫据此判断）。
 
-##### P4-5 人工验收清单
+##### P4-5 人工验收
 
-写进本文「P2～P4 实施记录」：两台管理器（本机 Windows + WSL，或两台机器）配对后，在远程上下文把现有每个页面走一遍
-（实例列表 / 详情 / 启停 / 日志 SSE / RCON WS / 配置编辑 / 备份 / 插件上传 / 资源监控 / 定时任务 / FRP / 同步 / 系统日志），
-记录每项结果；再验证切回本机后数据不串、远程上下文里用户管理与远程管理器页不可见、断开对端时的提示。
+见 **§14.5**（远程管理器页、切换机器、逐页走查表、异常与提示）。
+
+#### P2～P4 实施记录（2026-10-05，分支 `feat/remote-mesh`）
+
+**状态：代码与自动化测试全部完成（Windows `-race` + WSL `-race` 均通过），真机二进制冒烟通过；§14 的人工验证待做。**
+
+落地的文件：
+
+| 位置 | 内容 |
+|---|---|
+| `api/asamesh/v1/peer.proto` | `Pair`、`HTTP` 两个方法与 `HTTPFrame` 信封（`request` / `response` / `body` / `end` / `raw`）、`PairStatus`；生成代码已更新 |
+| `pkg/meshjoin/invite.go` | 邀请码 `asa-mesh-invite:v1:` 编解码，与 join blob 同构、同一套错误，密钥打码 |
+| `internal/mesh/config.go` | `PeerPort` / `NoListen` / `PublicAddrs` / `ControlRole`；无协调节点模式；`SetEnabled`、`UpdateConfig`（`ConfigPatch`，只改出现的字段） |
+| `internal/mesh/candidates.go` | 网卡枚举与过滤、`buildCandidates`、`isLANAddr` |
+| `internal/mesh/creds.go` | `handshakenCreds`：dialer 已完成 mTLS，gRPC 只取 TLS 状态（P2-1） |
+| `internal/mesh/path.go` | `planDirect`（排序）、`raceDial`（Happy Eyeballs）、`directProvider`、`relayProvider`（都返回已认证的连接） |
+| `internal/mesh/peerconn.go` | `peerHandle`（引用计数、退役）、`acquire`、升级循环、`swapHandle`；重连退避封顶 5 秒 |
+| `internal/mesh/peers.go` | `PeerStore`：`peers.json` 的读写（文件锁 + mtime 重载 + 授权变化回调）、邀请 / 申请 / 授权 / 撤销 |
+| `internal/mesh/peerserver.go` | 拦截器按授权表放行、`Pair`（含限流）、`HTTP`、入站连接按身份登记（`connRegistry`） |
+| `internal/mesh/tunnel_server.go` / `tunnel_client.go` | 隧道两端（B 侧 `ResponseWriter`：Flusher / Hijacker / CloseNotifier；A 侧 `RoundTripper`：普通响应与 101 升级） |
+| `internal/mesh/identity_ctx.go` | `PeerIdentity` 与 context 存取 |
+| `internal/mesh/manager.go` | Peer 端口监听、选路组装、`Reload`、`Hello` / `PairWithInvite` / `RequestPair` / `CreateInvite` / `Peers`、`SetHTTPHandler` |
+| `internal/webapi/authapi` | `handlePeer`（禁区 → 合成用户 → 审计）、`RequireAdmin` / `IsAuthenticated` / `/api/auth/state` 的隧道分支；`internal/auth` 新增事件 `peer_request` |
+| `internal/webapi/meshapi` | `/api/mesh/*` 全套 + `forward.go`（`/api/peers/:id/fwd/*path`） |
+| `internal/webapi/actions.go` | `meshMgr.SetHTTPHandler(s.engine)` 在 `Start` 之前注入 |
+| `internal/actions/mesh.go` | `enable` / `disable` / `peers` / `invite` / `revoke` / `approve`，`status` 补 Peer 端口等 |
+| `app/src/utils/peerContext.js`、`apis/meshApi.js`、`components/MachineSwitcher.vue`、`components/RemoteBanner.vue`、`views/MeshManager.vue` | P4 前端；`http.js` / `utils.js` 接入 `peerPath`，`router` 的 `localOnly` 守卫，`App.vue` 三处联动 |
+
+测试：`internal/mesh/direct_test.go`（P2-7 全部）、`internal/mesh/tunnel_test.go`（配对、隧道往返含 8 MiB、SSE 不攒批、WebSocket、
+A 断开取消 B 的 handler、撤销切断在途流、未授权被拒）、`internal/webapi/authapi/peer_test.go`（禁区表、两种 `auth.enabled`、
+`lan_bypass` 开到最宽也无效、审计、伪造请求头无效）、`internal/webapi/meshapi/meshapi_test.go`（A 侧真实转发入口：头清洗、
+`Set-Cookie`、401 改写、WS 同源 / 跨源、撤销后 `peer_not_paired`、`control_role` 闸门）。`GOOS=linux CGO_ENABLED=0 go build ./...`
+通过，协调节点的依赖守卫通过。
+
+与上文细化的偏差（都是实现时发现的，按「为什么」记下）：
+
+1. **授权变化只在「撤销或降级」时切断，且分两步**（P3-5 写的是「任何变化立即断开连接」）：立即取消该对端的全部隧道流（SSE / WS 当场结束，
+   这是安全上要的那部分），**1 秒后**才关它的入站连接。原因是测试抓到的一个真问题：已配对的对端用新邀请把角色从 operator 升到 admin 时，
+   授权变化回调立刻关掉了连接——**正在返回的那次 `Pair` 响应**也随之丢失，A 重试时邀请已被消费，于是配对实际成功却报「邀请码无效」。
+   升级与新授权不需要断开任何东西；新的 RPC 一律由拦截器按新授权判断，不依赖断开。
+2. **只读的三个接口（`status` / `peers` / `peers/:id/hello`）按 `control_role` 放行，不是一律 `RequireAdmin`**（P3-8 写的是全部管理员）：
+   否则 `control_role: operator` 形同虚设——操作员连「能切到哪些机器」都看不到。改配置、配对、邀请、批准仍然只有管理员。
+3. **`peers.json` 不存 `last_seen` / `last_addr`**：每条连接都写一次文件不值得，在线状态与路径取运行时的最近一次 Hello（`GET /api/mesh/peers`
+   的 `last_hello` / `last_error`），重启后要重新检测一次。
+4. **对端连接的重连退避封顶 5 秒**（新增）：gRPC 默认退避会涨到 120 秒，对端恢复后远程面板要干等两分钟。
+5. **回环地址归为 `lan`**：上报的候选里没有回环，但手填的 `127.0.0.1:port`（同机两个管理器）应显示为内网直连。
+6. **B 侧 `ResponseWriter` 实现了 `http.CloseNotifier`**（细化里没提）：Gin 的 `c.Stream` 会调它，不实现直接 panic——
+   本项目所有日志 / 状态 SSE 都用 `c.Stream`。
+7. **A 侧转发额外删掉 `Referer`**；`Origin` 按细化在校验后删除。WS 的同源判断复用 `realtime.WSUpgrader.CheckOrigin`（沿用它既有的规则，
+   本次不改它）。
+8. **`Status` 增加 `version`、`enabled`、`label`、`peer_port`、`no_listen`、`public_addrs`、`control_role`**：页面与提示条要用；
+   版本用于远程上下文的「版本不同」提示。
+9. **`mesh.SetGlobalManagerForTest`**：`meshapi` 的端到端测试要把包级单例指向测试里的 A，测试辅助只能导出（跨包）。
+10. **前端**：选择器只在「本机 mesh 在运行且至少有一台对方授权了本机」时出现（远程上下文里始终出现）；「远程管理」菜单只对本机管理员
+    （或本机关鉴权时）显示；菜单栏宽度 610px → 700px；提示条用 flex 布局，`content-wrapper` 从固定 `calc(100% - 58px)` 改为占满剩余高度。
+11. 排除的虚拟网卡多了 `vEthernet (Default Switch`（Hyper-V 默认交换机，同属 NAT 内网）。
+
+**真机冒烟（2026-10-05，Windows 本机，真实二进制，无协调节点模式，两个管理器）**：服务运行中用 CLI 生成带直连地址的邀请码 → A `POST /api/mesh/pair`
+成功、路径 `lan`、同一邀请码二次使用被拒；经 `/api/peers/<B>/fwd` 访问 `/api/instances` 200、`/api/auth/state` 带 `peer:true`、
+`/api/users` / `/api/mesh/status` / 多跳一律 403 `peer_forbidden`、operator 调管理员接口 403；WS 握手同源 101、跨源 403；
+打开一条 all-info SSE 后用 CLI `mesh revoke`，流在几秒内结束，之后 403 `peer_not_paired`、Hello 为 `ROLE_NONE`；嵌入的 SPA 含新前端代码。
+浏览器走查（§14.5）未做：本机 Chrome 没有开远程调试端口。
+冒烟中顺带发现两件**既有行为**（与本功能无关，已写进 §14.1 的步骤）：`api` 在缺 SteamCMD / ARK 时拒绝启动（要 `--skip-env-check`）；
+`api` 启动必拉起 Syncthing，它会用 UPnP 在路由器上开端口映射——验证环境用一个不存在的 `download.github_proxy` 让下载失败即可避开。
 
 ### P5 — 跨机编排（可选，按需）
 - [ ] 类型化方法：`Peer.Overview`（流式：对方所有实例状态 + 资源摘要）→ A 的总览页显示所有机器。
@@ -1213,3 +1267,594 @@ message HTTPBodyEnd {}
 | 版本错位导致远程页面报错 | `Hello` 能力列表 + 版本提示（§9）；推荐所有机器同版本升级 |
 | Windows 防火墙拦 Peer 端口 | 只影响直连，自动落到中转；页面上提示放行方法 |
 | 回滚 | mesh 未启用时 `ErrNotConfigured` 短路、不监听任何端口；回滚 = 关掉开关 |
+
+---
+
+## 14. 人工验证清单（P1～P4）
+
+自动化测试（P1-9、P2-7、P3-10）覆盖不到的项目**全部集中在本章**；§12 各阶段的「验收」只指向这里，不再各列一份。
+每一项都写了**前置环境**、**操作**与**期望**——「期望」就是判据，结果不符时把那一步的完整命令输出与两边日志贴回来。
+P2～P4 的条目按 §12 的细化编写（接口路径、CLI 名字以细化为准）；落地时若有改名，在「P2～P4 实施记录」里注明并同步改这里。
+
+### 14.0 通用约定
+
+**三条判据原则**（每一项都隐含它们，下文不再重复）：
+
+1. **对照法**：凡是「经 A 转发到 B」的请求，把同一个请求**直接发给 B 自己的端口**再做一次，两次的状态码与响应体应当一致
+   （B 授予的角色是 `admin`、B 关着鉴权时）。不一致 = 隧道有问题；一致但都失败 = B 本身的问题，与本功能无关。
+2. **日志对账**：A 侧每个转发请求有一行 `[mesh] → <对端> <方法> <路径> → <状态码>`，B 侧有对应的 `[mesh] peer:<备注名>/<用户> …`。
+   管理器日志在 `{BaseDir}/logs/asaServer.log`，协调节点日志在 `{data_dir}/logs/coordinator.log`。
+3. **不刷屏**：断线、拒绝类的场景，日志按退避节奏出现（1s、2s、4s… 到 60s 封顶后不再每次都记），一分钟内同类 WARN 不超过个位数。
+
+**工具**：PowerShell 7（`pwsh`，下面的引号写法依赖 7.3+ 的原生参数传递）、系统自带的 `curl.exe`（**不要**写成 `curl`，那是
+`Invoke-WebRequest` 的别名）、浏览器（Chrome / Edge，开发者工具）。STUN 第三方客户端在 WSL 里装（V1-6）。
+管理器默认 HTTPS + 本地自签 CA，`curl.exe` 一律带 `-k`。
+
+**记录方式**：每项做完在本章末尾的「14.6 验证记录」表里填一行（日期、环境、结果、备注）；失败项写清卡在哪一步。
+
+### 14.1 环境搭建
+
+#### 拓扑
+
+| 拓扑 | 组成 | 能验证什么 |
+|---|---|---|
+| **T1 单机** | 一台 Windows：协调节点 + 管理器 A + 管理器 B（+ 需要时 C），各用独立目录与端口 | P1 中转、P3 配对/隧道/安全、P4 前端的绝大部分。**同一台机器上没法真正「断开内网」**，P2 的断开/恢复要 T2 |
+| **T2 真实网络** | 公网 VPS 上的协调节点；同一局域网的两台机器 A、B；（可选）另一个网络里的 C（例如连手机热点的笔记本） | P2 直连/降级/升级、真实 NAT 下的 STUN、经中转的大文件吞吐 |
+| **WSL** | Windows 本机的 WSL | 第三方 STUN 客户端（V1-6）、Linux 版管理器与「无界面服务器上用 CLI 生成邀请码」（V3-9） |
+
+验证用的程序与数据放在**独立目录**（Windows `C:\mesh-verify`、WSL `/opt/mesh-verify`），不碰 `E:\asa_server_data` 与 WSL 里现有的
+`/opt/asa-server`。`config init --basedir` 会检查剩余空间（≥ 30GB），C 盘不够时换盘符。
+
+#### T1 搭建（Windows，普通 PowerShell 7）
+
+```powershell
+cd D:\golang\asa-server
+git switch feat/remote-mesh
+$v = 'C:\mesh-verify'
+New-Item -ItemType Directory -Force $v, "$v\coord", "$v\A", "$v\B", "$v\C" | Out-Null
+go build -o "$v\asa-server.exe" .
+go build -o "$v\coord\asa-coordinator.exe" ./cmd/asa-coordinator
+
+# 三个管理器各一份 config.yaml；同一个 exe 靠 ASA_CFG 区分
+foreach ($n in 'A', 'B', 'C') {
+  $env:ASA_CFG = "$v\$n"
+  & "$v\asa-server.exe" config init --dir "$v\$n" --basedir "$v\$n\data" --non-interactive --lang zh
+  # 验证用的管理器不需要 Syncthing：api 启动时会自动下载并拉起它，而它会用 UPnP 在路由器上开端口映射。
+  # 把下载代理指向一个不存在的地址：下载失败是非致命的（只记一条 ERROR），Syncthing 就不会启动。
+  (Get-Content "$v\$n\config.yaml") -replace '^  github_proxy: ""', '  github_proxy: "http://127.0.0.1:9/"' |
+    Set-Content "$v\$n\config.yaml" -Encoding utf8
+}
+$env:ASA_CFG = $null
+
+# 便捷函数：在当前窗口里以某个管理器的身份跑 CLI
+function asa { param($n) $env:ASA_CFG = "$v\$n"; & "$v\asa-server.exe" @args; $env:ASA_CFG = $null }
+```
+
+> 之后每开一个新的 PowerShell 窗口，都先执行 `$v = 'C:\mesh-verify'` 与上面的 `function asa …` 两行。
+
+协调节点（T1 用 8443，避开别的服务）：
+
+```powershell
+& "$v\coord\asa-coordinator.exe" config init -o "$v\coord\coordinator.yaml"
+(Get-Content "$v\coord\coordinator.yaml") `
+  -replace '^listen: ":443"', 'listen: ":8443"' `
+  -replace '^public_addr: .*', 'public_addr: "127.0.0.1:8443"' |
+  Set-Content "$v\coord\coordinator.yaml" -Encoding utf8NoBOM
+Start-Process "$v\coord\asa-coordinator.exe" -ArgumentList 'run', '-c', "$v\coord\coordinator.yaml"
+& "$v\coord\asa-coordinator.exe" join-blob -c "$v\coord\coordinator.yaml"   # 复制输出的整串，下面记作 $blob
+```
+
+- 期望：协调节点窗口打印配置路径与监听地址（TCP 8443、UDP 3478/3479），**不**打印 join blob；Windows 弹防火墙提示时选「专用网络」允许。
+
+管理器 A（Web 19193）与 B（Web 19293、Peer 端口 19294——同机两个管理器不能都用默认的 19194）：
+
+```powershell
+$blob = '<上一步复制的整串>'
+asa A mesh join $blob
+asa B mesh join $blob
+# 取最后一行：本机若还设着旧的 ASA_BASEDIR，CLI 会先打印一行 WARN，别把它当成节点 ID
+$idA = asa A mesh id | Select-Object -Last 1
+$idB = asa B mesh id | Select-Object -Last 1
+# 备注名（对方配对后看到的名字）与 B 的 Peer 端口 19294（同机两个管理器不能都监听 19194）。
+# 没有改这两项的 CLI，启动前直接改 config.json；运行中则用 PUT /api/mesh/config（只改请求里出现的字段，保存后热应用）。
+function setMesh { param($n, $label, $port)
+  $f = "$v\$n\data\mesh\config.json"
+  $j = Get-Content $f -Raw | ConvertFrom-Json
+  $j | Add-Member -NotePropertyName label -NotePropertyValue $label -Force
+  if ($port) { $j | Add-Member -NotePropertyName peer_port -NotePropertyValue $port -Force }
+  $j | ConvertTo-Json -Depth 5 | Set-Content $f -Encoding utf8NoBOM
+}
+setMesh A '机A'
+setMesh B '机B' 19294
+# --skip-env-check：验证用的数据目录里没有 SteamCMD / ARK 本体，不加它 api 会拒绝启动（「基础环境尚未初始化」）
+$env:ASA_CFG = "$v\A"; $pA = Start-Process "$v\asa-server.exe" -ArgumentList 'api', '--skip-env-check' -PassThru
+$env:ASA_CFG = "$v\B"; $pB = Start-Process "$v\asa-server.exe" -ArgumentList 'api', '--port', '19293', '--skip-env-check' -PassThru
+$env:ASA_CFG = $null
+$A = 'https://127.0.0.1:19193'; $B = 'https://127.0.0.1:19293'
+```
+
+- 期望：两个新窗口里都出现 `[mesh] 已启动` 与 `[mesh] 已登记到协调节点 127.0.0.1:8443`；协调节点窗口出现两条「节点 … 上线」。
+- 首次以 HTTPS 启动时程序会把本地 CA 装进**当前用户**的受信任根存储，Windows 可能弹出「是否安装此证书」的确认框，
+  确认之前 Web 端口不会开始监听。不想动证书存储就在两条 `Start-Process` 的参数里加 `'--tls=false'`，并把
+  `$A` / `$B` 改成 `http://`（2026-10-05 的冒烟就是这样跑的，见「P2～P4 实施记录」）。
+- 停止：`Stop-Process $pA.Id`、`Stop-Process $pB.Id`；重启就是重新执行对应的 `Start-Process` 那一行。
+
+#### T2 搭建
+
+- **VPS**（Linux，root）：在开发机上 `wsl -e zsh -lc 'cd /mnt/d/golang/asa-server && GOOS=linux CGO_ENABLED=0 go build -o /opt/mesh-verify/asa-coordinator ./cmd/asa-coordinator'`，
+  把 `/opt/mesh-verify/asa-coordinator` 拷到 VPS 的 `/opt/asa-coordinator/`，然后：
+
+  ```bash
+  cd /opt/asa-coordinator
+  ./asa-coordinator config init -o /opt/asa-coordinator/coordinator.yaml
+  sed -i 's/^public_addr: .*/public_addr: "<VPS 公网 IP>:443"/' coordinator.yaml
+  ./asa-coordinator service install -c /opt/asa-coordinator/coordinator.yaml
+  ./asa-coordinator service start
+  ./asa-coordinator join-blob -c /opt/asa-coordinator/coordinator.yaml
+  ```
+
+  云厂商安全组 + 本机防火墙放行 **TCP 443、UDP 3478、UDP 3479**（§8.1：最容易漏的一步）。
+- **A、B**：两台同一局域网的机器各装一份 asa-server（同 T1 的 `config init` + `mesh join`），都用默认端口（Web 19193、Peer 19194）。
+- **C**（可选）：另一个网络里的第三台机器，同样接入。
+
+### 14.2 P1：身份、协调节点、中转
+
+**V1-1 双向经中转 Hello**（T1，或 T2 但把 A、B 的 Peer 端口都关掉：`PUT /api/mesh/config {"no_listen":true}`——P2 之后 T1 上默认会走直连）
+
+```powershell
+curl.exe -sk -X POST "$A/api/mesh/hello/$idB"
+curl.exe -sk -X POST "$B/api/mesh/hello/$idA"
+```
+
+- 期望：两条都 `"success":true`，`data.path` 为 `"relay"`，`data.version` 是对方版本，`data.granted_role` 为 `"ROLE_NONE"`（还没配对）。
+- P2 之前（当前 P1 代码）不需要关 Peer 端口，结果就是 `relay`。
+
+**V1-2 协调节点停机与恢复**（T1）
+
+1. 关掉协调节点窗口（或 `Stop-Process -Name asa-coordinator`）。
+2. 立即与 30 秒后各执行一次 `curl.exe -sk "$A/api/mesh/status"`。
+   - 期望：`connected:false`，`last_error` 非空；A、B 的窗口里重连 WARN 的间隔依次变长（1s、2s、4s…），到 60 秒封顶后**不再每次都记**。
+3. 两分钟后重新 `Start-Process` 协调节点。
+   - 期望：最多一个退避周期（≤ 60 秒）内 A、B 都出现 `已登记到协调节点`，`status` 回到 `connected:true`；V1-1 的 Hello 恢复成功。
+
+**V1-3 网络密钥错误的新节点被拒**（T1）
+
+```powershell
+asa C mesh join $blob
+$f = "$v\C\data\mesh\config.json"
+(Get-Content $f -Raw) -replace '("network_secret":\s*")(.)', '$1x' | Set-Content $f -Encoding utf8NoBOM   # 改坏密钥的第一个字符
+$env:ASA_CFG = "$v\C"; $pC = Start-Process "$v\asa-server.exe" -ArgumentList 'api', '--port', '19393', '--skip-env-check' -PassThru; $env:ASA_CFG = $null
+```
+
+> 必须用 **从没登记过** 的 C：已是网络成员的节点只凭证书登记、不再看密钥（§8.4.5）。join blob 本身带校验和，直接改串会在本地就报
+> `ErrChecksum`、根本到不了协调节点，所以改的是写进 `config.json` 之后的密钥。C 的 Peer 端口（默认 19194）会与 A 冲突，
+> 这一项不关心直连，忽略「监听失败」的 WARN 即可。
+
+- 期望：协调节点日志 `拒绝 <C 的短 ID>（来自 …）：网络 "default" 的密钥不正确`（WARN）；C 的 `status` 为 `connected:false`，
+  `last_error` 含「接入被拒绝」；C 按退避重试、不刷屏。
+- 收尾：`Stop-Process $pC.Id`；`asa C mesh leave`。
+
+**V1-4 拉黑在线节点**（T1）
+
+```powershell
+& "$v\coord\asa-coordinator.exe" node list -c "$v\coord\coordinator.yaml"
+& "$v\coord\asa-coordinator.exe" node ban -c "$v\coord\coordinator.yaml" $idB
+```
+
+- 期望：`node list` 列出 A、B（备注名、版本、最后在线）；`ban` 之后 **30 秒内** B 的窗口出现被踢的 ERROR（「本节点已被协调节点管理员拉黑」），
+  之后 B 重连被拒；A 对 B 的 Hello 失败（`NotFound` / 502）。
+- 收尾：`node unban -c "$v\coord\coordinator.yaml" $idB`，B 在一个退避周期内重新登记。
+
+**V1-5 同一身份出现在两处**（T1）
+
+```powershell
+Copy-Item "$v\B\data\mesh" "$v\C\data\mesh" -Recurse -Force   # C 拿到 B 的私钥与配置
+$env:ASA_CFG = "$v\C"; $pC = Start-Process "$v\asa-server.exe" -ArgumentList 'api', '--port', '19393', '--skip-env-check' -PassThru; $env:ASA_CFG = $null
+```
+
+- 期望：协调节点 WARN「节点 … 有新会话登记…同一身份出现在两处」；被踢的一方记 ERROR，且**不会**以 1 秒的节奏互踢（退避生效）。
+- 收尾：`Stop-Process $pC.Id`；`Remove-Item "$v\C\data\mesh" -Recurse -Force`。
+
+**V1-6 第三方 STUN 客户端**（WSL 问 T1 的协调节点，或问 T2 的 VPS）
+
+```bash
+sudo apt-get install -y stuntman-client          # 提供 stunclient
+WINHOST=$(ip route | awk '/default/ {print $3}')  # WSL 里看到的 Windows 主机地址；问 VPS 时换成 VPS 地址
+stunclient "$WINHOST" 3478
+stunclient "$WINHOST" 3479
+```
+
+（也可以用 coturn 的 `turnutils_stunclient -p 3478 <host>`。）
+
+- 期望：两条都输出 `Binding test: success` 与 `Mapped address: <WSL 的出口 IP>:<端口>`；协调节点日志里 10 分钟内出现一行 STUN 计数（成功数增加）。
+- 问 T1 时 Windows 防火墙可能拦 WSL 进来的 UDP：协调节点首启的防火墙提示要勾上「专用网络」。
+
+**V1-7 `stun probe` 与 NAT 实测**（T2：在家宽 Windows 上问 VPS）
+
+```powershell
+& "$v\coord\asa-coordinator.exe" stun probe <VPS 公网 IP>
+```
+
+- 期望：打印本机地址、两个反射地址与映射类型结论（无 NAT / 端点无关 / 端点相关）。
+- **把结论、运营商与路由器型号回填到本文 §5.6.4**，作为 P6 的第一条实测数据。T1 本机回环只能证明连通（结论恒为「无 NAT」）。
+
+**V1-8 `stun_addrs` 下发**（T1 或 T2）
+
+- 操作：`curl.exe -sk "$A/api/mesh/status"`，B 同理。
+- 期望：`stun_addrs` 为 `["127.0.0.1:3478","127.0.0.1:3479"]`（T1）或 `["<VPS 地址>:3478", …]`（T2）。
+
+**V1-9 协调节点作为 Linux 服务**（T2 的 VPS）
+
+- 操作：`systemctl status asa-coordinator`（服务名以 `service install` 的输出为准）；`reboot` 后再看一次。
+- 期望：开机自启；`ExecStart` 里是 `run -c /opt/asa-coordinator/coordinator.yaml`（绝对路径）；数据库在 `/opt/asa-coordinator/data/`，
+  不在 `/` 或 `/root`（相对路径按配置文件目录解析，§12 P1-5）。
+
+### 14.3 P2：直连
+
+**V2-1 同一局域网走直连**（T2）
+
+- 操作：在 A 上 `curl.exe -sk -X POST "https://127.0.0.1:19193/api/mesh/hello/<B 的 ID>"`；在 B 上 `GET /api/mesh/status` 看 `candidates`。
+- 期望：`path` 为 `"lan"`；B 的 `candidates` 里有它的局域网 IP + `:19194`，**没有** `127.*`、`169.254.*`、`fe80::`，
+  也没有 WSL / Hyper-V（`vEthernet (WSL…)`，通常是 `172.x`）与 Docker 网桥的地址。
+- T1 上同样能看到 `lan`（B 上报的是本机网卡 IP），可以先在 T1 冒烟。
+
+**V2-2 断开直连 → 中转 → 恢复后升级**（T2）
+
+1. 在 B 上挡住 Peer 端口的入站（管理员 PowerShell）：
+   `New-NetFirewallRule -DisplayName mesh-verify-block -Direction Inbound -Protocol TCP -LocalPort 19194 -Action Block`
+   （B 是 Linux 时：`iptables -I INPUT -p tcp --dport 19194 -j REJECT`）。
+2. 已建立的 TCP 连接不受新规则影响，所以**重启 A**（停掉再起 A 的 asa-server），再 Hello B。
+   - 期望：`path` 为 `"relay"`，耗时比 V2-1 多大约 2 秒以内（Happy Eyeballs 的整体上限）；
+     A 的日志有一行 `[mesh] 到 <B 的短 ID> 改走relay：直连：<B 的地址>: …`（后半段是超时 / 拒绝连接的原因）。
+3. 在 A 上经中转开一条长流，**保持不关**（这条流同时让升级循环保持活跃——最近 10 分钟没人用的对端不会去试直连）：
+   `curl.exe -skN "https://127.0.0.1:19193/api/peers/<B 的 ID>/fwd/api/logs"`
+4. **一分钟内**删掉规则：`Remove-NetFirewallRule -DisplayName mesh-verify-block`（Linux：`iptables -D INPUT -p tcp --dport 19194 -j REJECT`）。
+   升级循环 1 分钟起、翻倍到 10 分钟，越晚恢复要等得越久。
+5. 两分钟后再 Hello。
+   - 期望：`path` 回到 `"lan"`；A 的日志有一行 `[mesh] 到 <B 的短 ID> 的路径已从中转升级为直连（lan）`；
+     **第 3 步那条 curl 仍在持续输出**（在途流不被升级打断）。
+6. Ctrl+C 结束第 3 步的 curl。
+   - 期望：协调节点日志（VPS 上 `{data_dir}/logs/coordinator.log`）随即出现 `[coord] 中转 <会话> 结束：<A> → <B>，持续 …，转发 … 字节`
+     ——旧的中转连接在最后一个使用者离开时才关闭。
+
+**V2-3 拨到「同一地址的别的机器」不串线**（T1：需要 A、B、C 三个管理器）
+
+1. 让 C 接入并在 19394 上监听（V1-5 收尾时删掉了 C 的 mesh 目录，这里重新接入）：
+
+   ```powershell
+   asa C mesh join $blob
+   $idC = asa C mesh id | Select-Object -Last 1
+   setMesh C '机C' 19394
+   $env:ASA_CFG = "$v\C"; $pC = Start-Process "$v\asa-server.exe" -ArgumentList 'api', '--port', '19393', '--skip-env-check' -PassThru; $env:ASA_CFG = $null
+   ```
+
+2. 在 A 上把 B 的手填地址改成 C 的地址，并把 B 的 Peer 端口关掉，让 B 只剩这一个错误的候选：
+
+   ```powershell
+   curl.exe -sk -X PUT "$A/api/mesh/peers/$idB" -H 'Content-Type: application/json' -d '{"addrs":["127.0.0.1:19394"]}'
+   curl.exe -sk -X PUT "$B/api/mesh/config" -H 'Content-Type: application/json' -d '{"no_listen":true}'
+   ```
+
+3. 重启 A，`curl.exe -sk -X POST "$A/api/mesh/peers/$idB/hello"`。
+   - 期望：Hello **成功**、`path` 为 `"relay"`、`version` 与 `label` 是 B 的（`机B`）；A 的日志有一行
+     `[mesh] 到 <B 的短 ID> 改走relay：直连：127.0.0.1:19394: 对端身份不符：期望 <B 的短 ID>，实际 <C 的短 ID>`；
+     C 的日志里**没有**任何 `[mesh] peer:` 开头的请求行（握手在 A 侧就失败了，C 没有处理任何请求）。
+4. 收尾：`PUT $B/api/mesh/config {"no_listen":false}`；`PUT $A/api/mesh/peers/$idB {"addrs":[]}`；`Stop-Process $pC.Id`。
+
+**V2-4 无协调节点模式**（T2；T1 也行）
+
+1. A、B 都切到无协调节点模式。页面 / 接口是热应用的：`POST /api/mesh/leave` 再 `POST /api/mesh/enable`；
+   用 CLI（`mesh leave` + `mesh enable`）则要重启服务。
+   - 期望：`status` 里 `coordinator` 为空、`enabled:true`、`running:true`、`listen_addr` 形如 `[::]:19194`（T1 上 B 是 `[::]:19294`），
+     日志里**没有**任何连协调节点的尝试。
+2. B 上生成带直连地址的邀请码：`$inv = asa B mesh invite --role operator --addr <B 的局域网 IP>:19194 | Select-Object -Last 1`
+   （T1 上用 `127.0.0.1:19294`）。
+3. A 上 `POST /api/mesh/pair`，`{"invite":"<整串>"}`，然后 Hello B。
+   - 期望：配对成功，`path` 为 `"lan"`；之后的 V3 隧道用例在这个模式下同样可用（抽一条 V3-3 的请求验证即可）。
+4. 收尾：两边重新接入（`POST /api/mesh/join {"blob":"…"}`，或 CLI `mesh join` + 重启）。
+
+**V2-5 公网直连**（T2，可选：需要 B 有公网 IP 或路由器端口映射）
+
+- 操作：B 的路由器把公网 TCP 19194 映射到 B；`PUT /api/mesh/config {"public_addrs":["<公网 IP 或域名>:19194"]}`；C（另一个网络）Hello B。
+- 期望：`path` 为 `"public"`。不做端口映射时 C → B 应为 `"relay"`（这本身也是一条有效结果，记录下来）。
+
+**V2-6 Peer 端口被占用不致命**（T1）
+
+- 操作：先占住 A 的 19194（`python -m http.server 19194`，或任意程序），再重启 A。
+- 期望：A 的 mesh 正常启动、能登记到协调节点；`status.listen_error` 非空并点名端口；A 主动发起的 Hello（走中转）照常成功。
+
+**V2-7 Windows 防火墙提示**（T2 的 Windows 机器，首次）
+
+- 操作：以**桌面程序**方式（双击 / 在终端里 `asa-server api`）首次启用 mesh。
+- 期望：Windows 弹出防火墙提示（这是 D7「默认监听」的已知代价，页面上有说明）。拒绝时直连进不来、自动落到中转，功能不受影响；
+  以 **Windows 服务**运行时不弹提示、但入站同样被默认规则挡住——记录实际表现，回填到 P4 页面的提示文案。
+
+**V2-8 协调节点停机不影响直连**（T2；§13 的承诺）
+
+1. A、B 走直连（V2-1）后，A 上经转发开一条长流：`curl.exe -skN "…/api/peers/<B 的 ID>/fwd/api/logs"`。
+2. 停掉协调节点（VPS 上 `asa-coordinator service stop`）。
+   - 期望：第 1 步的流**不断**；新的请求（`/fwd/api/instances`）照常成功。
+3. 重启 A（直连连接没了，`Resolve` 也问不到候选），再 Hello B。
+   - 期望：B 在 A 的 `peers.json` 里有手填地址（V2-4 或邀请码的 `--addr` 留下的）时仍走直连成功；没有时失败并提示无法连接
+     ——这是「没有协调节点就只剩手填地址」的预期行为，记录下来。
+4. 收尾：`asa-coordinator service start`，两边一个退避周期内重新登记。
+
+### 14.4 P3：配对、授权、隧道
+
+前置：T1 的 A、B 都在线；下面用 `$fwd = "$A/api/peers/$idB/fwd"`。
+
+**V3-1 邀请码配对**
+
+```powershell
+# 服务在跑时用 CLI 生成，验证「CLI 写、服务自动重载」。邀请码打在标准输出的最后一行（提示语在 stderr）
+$inv = asa B mesh invite --role operator --ttl 10m --note 'A 机' | Select-Object -Last 1
+curl.exe -sk -X POST "$A/api/mesh/pair" -H 'Content-Type: application/json' -d "{`"invite`":`"$inv`"}"
+curl.exe -sk -X POST "$A/api/mesh/peers/$idB/hello"
+curl.exe -sk -X POST "$A/api/mesh/pair" -H 'Content-Type: application/json' -d "{`"invite`":`"$inv`"}"   # 再用一次
+```
+
+- 期望：第一次 `"status":"paired"`、`"granted_role":"operator"`、`"label":"机B"`；Hello 的 `granted_role` 为 `ROLE_OPERATOR`、`label` 为 `机B`；
+  **同一个邀请码第二次失败**（403「邀请码无效或已过期」）。
+- `asa B mesh peers` 列出 A（备注名 `A 机`——取自 `--note`，授予 operator）；`Get-Content "$v\B\data\mesh\peers.json"` 里
+  **看不到邀请密钥原文**（只有 `secret_sha256`）。
+- 期满失效：`--ttl 1m` 生成一个，等两分钟再用 → 失败。
+- **已配对时用新邀请改角色不丢响应**（实施记录偏差 1 的回归）：先在 A 上开一条 `curl.exe -skN "$fwd/api/logs"` 保持不关，
+  再用 `asa B mesh invite --role admin` 生成的邀请码配对一次。
+  - 期望：配对**一次成功**、返回 `admin`（不会先报错、重试后才报「邀请码无效」）；升级不切断那条在途的日志流。
+- 限流：拿一个随便改过末尾几个字符的邀请码（会报校验失败，到不了 B）不算；要测限流就用一个**过期**的邀请码连续配对 5 次，
+  第 6 次（即使换成有效的邀请码）返回 429「配对尝试过于频繁」，10 分钟后恢复。
+
+**V3-2 申请-批准**（用 C，或先在 B 上撤销 A：`asa B mesh revoke $idA`）
+
+```powershell
+curl.exe -sk -X POST "$A/api/mesh/pair" -H 'Content-Type: application/json' -d "{`"node_id`":`"$idB`"}"
+curl.exe -sk "$B/api/mesh/requests"
+curl.exe -sk -X POST "$B/api/mesh/requests/$idA" -H 'Content-Type: application/json' -d '{"role":"admin"}'
+curl.exe -sk -X POST "$A/api/mesh/peers/$idB/hello"
+```
+
+- 期望：第一步 `PENDING`；B 的待批准列表里有 A（备注名、版本、来源地址）；批准后 A 的 Hello 显示 `ROLE_ADMIN`。
+- 拒绝路径：再来一次，用 `DELETE "$B/api/mesh/requests/$idA"` 拒绝 → A 的 Hello 仍是 `ROLE_NONE`。
+
+**V3-3 经隧道的日常操作**（B 授予 A `admin`，B 关鉴权；按「对照法」逐条与直连 B 比较）
+
+| 操作 | 命令（A 侧） | 期望 |
+|---|---|---|
+| 实例列表 | `curl.exe -sk "$fwd/api/instances"` | 与 `curl.exe -sk "$B/api/instances"` 一致 |
+| 系统日志 SSE | `curl.exe -skN "$fwd/api/logs"` | 逐条到达、不是攒一批才出来：另开一个窗口发一个会在 B 上记 INFO 日志的请求（例如 `curl.exe -sk -X POST "$fwd/api/users"`，它本身会 403，但 B 会记一行 `[mesh] peer:… POST /api/users → 403`），这一行几乎立即出现在 SSE 里 |
+| 资源 SSE | `curl.exe -skN "$fwd/api/server/all-info"` | 每 2 秒一条，数值是 **B** 的机器（与 B 的任务管理器对得上） |
+| 启动 / 停止实例 ⚠️ | `curl.exe -sk "$fwd/api/server/<实例>/start"`、`…/stop` | B 上实例真的启动 / 停止；B 的日志里是 `peer:` 用户发起的 |
+| 实例日志 SSE ⚠️ | `curl.exe -skN "$fwd/api/logs/<实例>"` | 实时游戏日志 |
+| WS 事件 | 浏览器打开 `https://127.0.0.1:19193`（A 的页面），开发者工具 Console 执行：`w = new WebSocket('wss://127.0.0.1:19193/api/peers/<B 的 ID>/fwd/api/ws/events'); w.onmessage = e => console.log(e.data)` | 连上（Network 面板里 101）；在 B 上启停实例或做配置同步时 Console 收到事件 |
+| RCON（WS）⚠️ | 同上打开 `…/fwd/api/ws/rcon`，`w.send(JSON.stringify({action:'command', instance_name:'<实例>', command:'ListPlayers'}))` | 收到 `success:true` 与游戏的回答 |
+| 大文件上传 | 经 A 的转发上传一个 ArkApi 插件 zip（P4 页面里做最方便；curl：`curl.exe -sk -F "file=@<zip>" "$fwd/api/arkapi/packages"`） | 与直连 B 上传的校验结果一致；A、B 进程内存不随文件大小暴涨（流式，不整块缓冲） |
+| 大文件下载 | 经转发下载一个世界存档备份 | 文件哈希与 B 上的原文件一致 |
+
+⚠️ 标记的三项需要 B 上有能启动的 ARK 实例（装了服务端、建了实例）。T1 的 B 没装服务端时，把这三项放到 T2 的真实服务器上做。
+
+**V3-4 B 关着鉴权时，`operator` 仍然调不了管理员接口**
+
+1. B 上把 A 改成 operator：`PUT $B/api/mesh/peers/$idA`，`{"granted_role":"operator"}`。
+2. `curl.exe -sk -i -X DELETE "$fwd/api/arkapi/packages/no-such-token"`
+   - 期望：`403`，`code` 为 `forbidden`，`error` 为「需要管理员权限（对方只授予了本机操作员角色）」。
+     对照：直连 B（`-X DELETE "$B/api/arkapi/packages/no-such-token"`）**不是** 403——B 关鉴权时本机请求被视为管理员
+     （2026-10-05 冒烟实测返回 `200 {"success":true}`：丢弃一个不存在的暂存包是幂等的）。
+3. 改回 admin 再执行一次 → 不再是 403（与直连 B 一致）。
+
+**V3-5 B 开着鉴权、甚至开着 `lan_bypass` 时，隧道仍只认授予的角色**
+
+1. 在 B 的 `config.yaml` 里设 `auth.enabled: true`；`asa B user add admin --role admin`（按提示设密码）；
+   **再**把 `auth.lan_bypass.enabled` 设为 `true`、`networks` 里加上 `0.0.0.0/0` 与 `::/0`（故意最宽）；重启 B。
+2. A 仍是 operator：重复 V3-4 第 2 步 → 仍是 `403`；`curl.exe -sk "$fwd/api/instances"` → 成功（operator 能做的事照常）。
+   - 这证明隧道请求**不经过** `lan_bypass`（§6.4），也不需要 B 的登录 Cookie。
+3. `asa B user audit --event peer_request`：A 刚才的**非 GET** 请求（包括被 403 挡掉的那次 DELETE——尝试同样留痕）各有一条，
+   用户名为 `peer:A 机/<A 上的用户名>`（A 关鉴权时用户名部分是 `-`），详情形如 `DELETE /api/arkapi/packages/no-such-token → 403`。
+4. 收尾：把 B 的 `lan_bypass` 恢复成 `enabled: false`（**一定要恢复**）；`auth.enabled` 改回 `false` 并重启 B
+   ——后面的用例直连 B 的 `curl` 都没带 Cookie，开着鉴权会全部 401。
+
+**V3-6 远程禁区与禁止多跳**（B 授予 A `admin`）
+
+| 请求（经 `$fwd`） | 期望 |
+|---|---|
+| `GET /api/users` | 403 `peer_forbidden` |
+| `GET /api/auth/audit` | 403 `peer_forbidden` |
+| `GET /api/auth/state` | 200，含 `"peer":true`、`"authenticated":true` |
+| `GET /api/mesh/status` | 403 `peer_forbidden` |
+| `GET /api/peers/<任意 ID>/fwd/api/instances` | 403 `peer_forbidden`（不能借 B 再跳到 C） |
+
+**V3-7 撤销立即生效**
+
+1. 在 A 上开一条长流并保持：`curl.exe -skN "$fwd/api/logs"`。
+2. 在 B 上用 **CLI**（另一个进程，验证文件重载）撤销：`asa B mesh revoke $idA`。
+   - 期望：几秒内第 1 步的 curl 结束；随后 `curl.exe -sk -i "$fwd/api/instances"` 返回 `403`，`code` 为 `peer_not_paired`；
+     A 的 Hello 显示 `ROLE_NONE`。
+3. 同样的流程用 B 的接口（`DELETE $B/api/mesh/peers/$idA`）再做一次，结果相同。
+4. 重新配对（V3-1）以便后续用例。
+
+**V3-8 A 侧的闸门**
+
+1. **控制者角色**（D5）：A 开鉴权（同 V3-5 第 1 步，但**不开** `lan_bypass`），建 `admin` 与 `oper`（`--role operator`）两个用户
+   （用户名至少 3 个字符），重启 A。分别登录拿 Cookie：
+
+   ```powershell
+   curl.exe -sk -c admin.jar -H 'Content-Type: application/json' -d '{"username":"admin","password":"<密码>"}' "$A/api/auth/login"
+   curl.exe -sk -c oper.jar  -H 'Content-Type: application/json' -d '{"username":"oper","password":"<密码>"}'  "$A/api/auth/login"
+   curl.exe -sk -b oper.jar -i "$fwd/api/instances"        # 期望 403
+   curl.exe -sk -b oper.jar -i "$A/api/mesh/peers"         # 期望 403（默认 operator 连对端列表都看不到）
+   curl.exe -sk -b admin.jar -X PUT "$A/api/mesh/config" -H 'Content-Type: application/json' -d '{"control_role":"operator"}'
+   curl.exe -sk -b oper.jar -i "$fwd/api/instances"        # 期望 200
+   curl.exe -sk -b oper.jar -i "$A/api/mesh/peers"         # 期望 200
+   curl.exe -sk -b oper.jar -i -X PUT "$A/api/mesh/config" -H 'Content-Type: application/json' -d '{}'   # 期望 403：改配置仍只有管理员
+   ```
+
+   - 收尾：`control_role` 改回 `admin`；A 的 `auth.enabled` 是否保留视 §14.5 而定（保留时浏览器里登录即可，V4-4 最后一条要用到 operator 账号）。
+2. **跨源 WebSocket 被 A 拒绝**（用 curl 只做握手）：
+
+   ```powershell
+   $h = @('-H','Connection: Upgrade','-H','Upgrade: websocket','-H','Sec-WebSocket-Version: 13','-H','Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==')
+   curl.exe -sk -i -N --max-time 3 @h -H 'Origin: https://evil.example' "$fwd/api/ws/events"
+   curl.exe -sk -i -N --max-time 3 @h -H 'Origin: https://127.0.0.1:19193' "$fwd/api/ws/events"
+   ```
+
+   - 期望：第一条 `403`；第二条 `101 Switching Protocols`。（A 开着鉴权时两条都要加 `-b <admin 的 Cookie>`。）
+3. **A 的会话凭证不会带给 B**：不做人工验证。B 不记录请求头、隧道又是端到端加密，人工手段看不到；由单测守住
+   （`internal/mesh/tunnel_test.go` 的 `TestTunnelRoundTrip`、`internal/webapi/meshapi/meshapi_test.go` 的 `TestForwardSecurity`：
+   B 侧 handler 看到的请求头里没有 `Cookie` / `Authorization` / `X-Forwarded-For`）。
+
+**V3-9 无界面 Linux 上用 CLI 配对**（WSL）
+
+1. 在 WSL 里建一个管理器（root 身份，WSL 里本来就是 root）：
+
+   ```bash
+   cd /mnt/d/golang/asa-server && go build -o /opt/mesh-verify/asa-server .
+   export ASA_CFG=/opt/mesh-verify/L
+   mkdir -p $ASA_CFG && /opt/mesh-verify/asa-server config init --dir $ASA_CFG --basedir $ASA_CFG/data --non-interactive --lang zh
+   /opt/mesh-verify/asa-server mesh join '<T1 的 join blob>'
+   ```
+
+2. **WSL 默认是 NAT 网络模式**，WSL 里的 `127.0.0.1` 不是 Windows：把接入地址改成 Windows 主机地址（钉的是协调节点公钥，改地址不影响校验）：
+
+   ```bash
+   WINHOST=$(ip route | awk '/default/ {print $3}')
+   sed -i "s/\"addr\": \"127.0.0.1:8443\"/\"addr\": \"$WINHOST:8443\"/" $ASA_CFG/data/mesh/config.json
+   ```
+
+   （WSL 开了 `networkingMode=mirrored` 时不需要这一步。）协调节点首启的 Windows 防火墙提示必须允许过，否则 WSL 连不进来。
+3. 同 §14.1，先让它不拉起 Syncthing：`sed -i 's/^  github_proxy: ""/  github_proxy: "http:\/\/127.0.0.1:9\/"/' $ASA_CFG/config.yaml`；
+   然后启动并保持运行：`ASA_CFG=/opt/mesh-verify/L /opt/mesh-verify/asa-server api --port 19493 --skip-env-check`（日志里应出现「已登记到协调节点」）。
+4. **另开一个 WSL 终端**：`ASA_CFG=/opt/mesh-verify/L /opt/mesh-verify/asa-server mesh invite --role admin | tail -1`，把输出的整串在 Windows 上交给 A：
+   `curl.exe -sk -X POST "$A/api/mesh/pair" -H 'Content-Type: application/json' -d '{"invite":"<整串>"}'`。
+5. `$idL = '<WSL 里 mesh id 的输出>'`；`curl.exe -sk "$A/api/peers/$idL/fwd/api/system/preflight"`。
+
+- 期望：配对成功；WSL 管理器**不需要重启**就认得 A（CLI 写 `peers.json`，服务自动重载）；第 5 步拿到的是 **Linux** 的运行时自检结果
+  （Windows 上这个接口恒为空），证明请求真的到了 Linux 那台。`POST $A/api/mesh/peers/$idL/hello` 的 `path`：WSL 的候选地址
+  （WSL 里 `eth0` 的 `172.x`）Windows 能直接拨通，通常是 `lan`。
+- 收尾：Ctrl+C 停掉 WSL 里的 api；`rm -rf /opt/mesh-verify`（§14.6 收尾时一起做也行）。
+
+**V3-10 被控方以服务方式运行**（T2 的 B；Windows 服务或 Linux systemd 各做一次更好）
+
+本仓库的老问题是「服务模式下某些初始化不执行」（`CLAUDE.md`：Windows 服务模式下 `app.Run()` 不执行）。隧道依赖
+`internal/webapi/actions.go` 在 `Start` 里把 Gin engine 注入给 mesh，服务模式必须同样走到这一步。
+
+1. B 以服务方式运行（`asa-server service install` + `service start`；Linux 是 systemd），A 照常配对。
+2. 重复 V3-3 的「实例列表」「系统日志 SSE」两行与 V3-6 的 `/api/users` 一行。
+   - 期望：结果与 B 以 `api` 方式运行时完全一致；尤其**不是** 502 / `Unavailable`「本机的 HTTP 服务尚未就绪」——出现它说明服务模式下
+     没有注入 Gin engine。
+3. 在 B 的页面上改一次 mesh 配置（例如备注名）并保存。
+   - 期望：服务不用重启即生效（热应用），A 的 Hello 立即看到新的 `label`。
+
+### 14.5 P4：前端（浏览器）
+
+前置：T1，A、B 互相配对（B 授予 A `admin`）；浏览器打开 A 的页面 `https://127.0.0.1:19193`。
+如果本机 CA 没装进系统信任，先 `asa A cert install`（或在浏览器里手动接受证书警告）。
+建议给 A、B 各建一个**名字不同**的测试实例（例如 A 上 `only-on-A`、B 上 `only-on-B`），串数据一眼就能看出来。
+
+**V4-1 远程管理器页**（`/mesh`）
+
+| 区块 | 操作 | 期望 |
+|---|---|---|
+| 本机 | 打开页面 | 节点 ID（可复制）、协调节点「已连接」与出口地址、Peer 端口「监听 [::]:19194」、直连地址、版本；A 关鉴权时顶部有黄色警告「本机没有开启登录鉴权：任何能打开本页面的人都能控制已配对的机器。」 |
+| 本机 | 改备注名并「保存并应用」 | 不重启进程即生效：本页与 `GET /api/mesh/status` 的 `label` 更新；B 对 A 发 Hello（B 的页面上「检测」A）看到新名字；协调节点 `node list` 也是新名字。**B 的「能控制本机的机器」列表里的名字不变**——那是 B 配对时自己记下的备注名，是 B 的数据 |
+| 本机 | 粘贴一个截断的 join blob 点「接入」 | 报「接入字符串校验失败，可能没有复制完整」，而不是笼统的失败 |
+| 本机 | 关掉「监听 Peer 端口」并保存 | Peer 端口一栏变为「不监听」；B 对 A 的 Hello 变成 `relay` |
+| 我能控制的机器 | 看 B 那一行，点「检测」 | 在线、路径（内网直连 / 中转）与毫秒数、版本、对方授予本机的角色 |
+| 我能控制的机器 | 粘贴 B 新生成的邀请码点「配对」 | 提示「已配对：机B，对方授予本机…」并出现在列表；再粘一次同一串 → 报「邀请码无效或已过期」 |
+| 我能控制的机器 | 输入对方节点 ID 点「发起申请」 | 提示「已提交申请，等待对方管理员批准」，该行显示「未授权 / 等待批准」；B 页面批准后在 A 上点「检测」，角色出现 |
+| 能控制本机的机器 | 在 **B** 的页面上看 | A 出现在列表，下拉可改角色、可「撤销」；「待批准的申请」可选角色后「批准」/「拒绝」 |
+| 邀请码 | 生成 | 弹窗里的整串只显示这一次；关掉后列表里只剩编号、角色、备注、到期时间；「作废」后再用失败 |
+
+**V4-2 切换机器**
+
+1. 顶栏选择器（显示为「本机 ▾」；只在本机 mesh 在运行、且至少有一台机器授权了本机时出现）选 B。
+   - 期望：整页重载；菜单下方出现黄色提示条「正在管理远程机器：机B」+ 路径与毫秒数 + 「对方授予本机：管理员」+「回到本机」按钮，
+     选择器显示 `机B`；实例列表里是 `only-on-B`，**没有** `only-on-A`。
+   - 开发者工具 Network：所有业务请求都打到 `/api/peers/<B 的 ID>/fwd/...`；`/api/auth/*`、`/api/mesh/*` 仍打本机。
+2. 新开一个标签页打开 A 的页面。
+   - 期望：新标签页是**本机**（选择存在 `sessionStorage`，按标签页隔离）；原标签页刷新后仍是 B。
+3. 「回到本机」→ 整页重载，`only-on-A` 回来，没有任何 B 的数据残留（资源监控图表、日志面板、RCON 历史都重新开始）。
+
+**V4-3 远程上下文逐页走查**（选择器选 B 时，每一页都做，并与直接打开 B 的页面 `https://127.0.0.1:19293` 对照）
+
+| 页面 | 要做的操作 | 期望 |
+|---|---|---|
+| 首页（实例列表） | 看列表、状态；（有实例时）启动 / 停止 / 重启（含倒计时与取消） | 与 B 自己的页面一致；状态变化经 WS 事件实时刷新 |
+| 批量操作 | 选两个实例批量停止（有实例时） | 批量日志 SSE 正常、结果与 B 一致 |
+| 服务端更新对话框 | 只打开对话框、看状态（**不要**真的点更新，会触发 B 下载） | 显示的是 B 的版本与更新状态 |
+| 实例详情 · 概览 | 打开 | B 的数据；资源小图在动 |
+| 实例详情 · 基本设置 / 规则 | 改一个无害字段（例如 MOTD）保存，再改回 | B 上 `instances/<实例>/…` 对应文件确实变了又变回 |
+| 实例详情 · 配置文件 | 打开 Game.ini / GameUserSettings.ini，保存一次 | 同上 |
+| 实例详情 · 插件配置 | 列表、启用 / 禁用一个插件（有 ArkApi 时） | B 上目录随之变化 |
+| 实例详情 · 存档备份 | 建一个备份、下载它、删除它 | 下载的文件能在本机打开（哈希与 B 上一致） |
+| 实例详情 · 实时日志 | 打开 | 持续滚动、无「每 3 秒重连」 |
+| RCON 终端 | 连接、发 `ListPlayers` | 有回应；关掉面板后 B 日志里连接关闭 |
+| ArkApi 主程序 / 插件安装对话框 | 上传一个包到暂存、看校验报告、放弃 | 报告与在 B 上传一致 |
+| 资源监控页 | 打开、等 1 分钟 | 整机与各实例曲线是 B 的；历史回填（`metrics/history`）有数据 |
+| 定时任务 | 新建一个禁用状态的任务、删除 | B 的 `schedules.json` 随之变化 |
+| FRP / Syncthing / 文件同步 | 打开、看状态流 | 状态 SSE 在走，显示的是 B 的配置 |
+| 系统日志 | 打开 | B 的 `asaServer.log` 内容在滚动 |
+| 个人资料 | 打开 | 是 **A 上**的当前用户（不随切换变化） |
+| 用户管理 | 菜单里找 | **不可见**；地址栏直接输入 `#/user-manager` 被重定向回首页 |
+| 远程管理器 | 菜单里找 | **不可见**；直接输入 `#/mesh` 被重定向回首页 |
+
+**V4-4 异常与提示**
+
+| 场景 | 操作 | 期望 |
+|---|---|---|
+| 对端离线 | 选择器选 B 后 `Stop-Process $pB.Id`，再在页面上点任意会发请求的操作 | 右上角提示「无法连接远程机器（机B）。可在顶部点「回到本机」。」（同一批请求只提示一次）；提示条点「重新检测」显示「无法连接：…」；**不会**跳到登录页；B 恢复后刷新即可继续 |
+| 被对端撤销 | 远程上下文里，在 B 上 `asa B mesh revoke $idA` | 打开中的日志 / 资源流几秒内停止；之后的操作提示「远程机器已不再授权本机」；提示条「重新检测」显示「对方已不再授权本机」；不跳登录页 |
+| operator 授权 | B 把 A 改成 operator，远程上下文里点一个管理员才能用的操作（例如 ArkApi 上传） | 页面原有的错误提示里显示「需要管理员权限（对方只授予了本机操作员角色）」，页面不崩；提示条显示「对方授予本机：操作员」 |
+| 版本不同 | 用一个改过 `main.go` 里 `appVersion` 的构建跑 B（或用旧版本的 B） | 提示条里出现「对方版本 x，与本机 z 不同，部分页面可能不可用」 |
+| 经中转 | 按 V2-2 让路径变成 relay，刷新 | 提示条的路径标签变黄「中转 · N ms」，并显示「经中转：大文件上传 / 下载较慢」 |
+| A 关鉴权 | A 的 `auth.enabled: false` | 远程管理器页顶部的警告（见 V4-1）；选择器与「远程管理」菜单照常可用 |
+| A 开鉴权、本人是 operator | 用 operator 登录 A | 「远程管理」菜单不出现；`control_role` 为默认的 admin 时选择器也不出现（`/api/mesh/status` 对它 403） |
+| 同上，`control_role: operator` | A 的管理员把「谁能使用远程控制」改成「管理员与操作员」，operator 刷新 | 选择器出现、能切到 B 并操作；「远程管理」菜单仍不出现（改配置、配对只属于管理员） |
+
+### 14.6 验证记录
+
+| 编号 | 日期 | 环境（T1 / T2 / WSL） | 结果 | 备注 |
+|---|---|---|---|---|
+| V1-1 | | | | |
+| V1-2 | | | | |
+| V1-3 | | | | |
+| V1-4 | | | | |
+| V1-5 | | | | |
+| V1-6 | | | | |
+| V1-7 | | | | （NAT 结论回填 §5.6.4） |
+| V1-8 | | | | |
+| V1-9 | | | | |
+| V2-1 | | | | |
+| V2-2 | | | | |
+| V2-3 | | | | |
+| V2-4 | | | | |
+| V2-5 | | | | 可选 |
+| V2-6 | | | | |
+| V2-7 | | | | 回填 P4 提示文案 |
+| V2-8 | | | | |
+| V3-1 | | | | |
+| V3-2 | | | | |
+| V3-3 | | | | ⚠️ 三项需要可启动的实例 |
+| V3-4 | | | | |
+| V3-5 | | | | 记得恢复 `lan_bypass` |
+| V3-6 | | | | |
+| V3-7 | | | | |
+| V3-8 | | | | |
+| V3-9 | | | | |
+| V3-10 | | | | Windows 服务 / systemd 各一次 |
+| V4-1 | | | | |
+| V4-2 | | | | |
+| V4-3 | | | | 逐页结果可另附 |
+| V4-4 | | | | |
+
+已有的部分结果：
+- 2026-10-05 在 Windows 本机回环上对 `stun probe` 做过冒烟（两个端口都回答、结论「无 NAT」），对应 V1-7 的连通部分；VPS / 家宽实测仍待做。
+- 2026-10-05 真实二进制冒烟（单机、无协调节点模式、`--tls=false`，详见「P2～P4 实施记录」）覆盖了 V2-4 的同机部分、V3-1（CLI 生成邀请码、
+  一次性）、V3-6 全表、V3-7（CLI 撤销切断在途 SSE）、V3-8 第 2 步（WS 同源 101 / 跨源 403）、V3-4 第 2 步。这些项目在 T1（带协调节点、HTTPS）
+  与 T2 上仍要按本章完整走一遍。
+- 2026-10-05 按实现复核本章（§14 改版）：修正了与实际不符的期望（V2-2 的日志行、V2-3 的身份不符日志、V2-4 的 `listen_addr` 形式、
+  V3-4 直连 B 的返回、V3-8 的用户名长度、§14.5 的界面文案与备注名语义），补了 V2-8（协调节点停机不影响直连）、V3-10（服务模式）、
+  V3-1 的「改角色不丢响应」与限流两条；V3-8 第 3 步改由单测守住。为让 V2-2 / V2-3 可观察，代码补了两行日志：
+  管理器侧「到 X 改走relay：<直连失败的原因>」、协调节点侧「中转 X 结束：…，持续 …，转发 … 字节」。
+
+**收尾**：全部做完后 `Stop-Process` 掉验证用的进程；T2 的 VPS 上 `asa-coordinator service remove`（若不再使用）；
+删除 `C:\mesh-verify` 与 WSL 的 `/opt/mesh-verify`；确认 B 的 `lan_bypass` 已恢复关闭、`New-NetFirewallRule` 加的规则已删除
+（`Get-NetFirewallRule -DisplayName mesh-verify-*` 无输出）。
