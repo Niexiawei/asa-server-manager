@@ -3,14 +3,17 @@ package mesh
 import (
 	"context"
 	"net"
+	"slices"
 	"sync"
 	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
 
+	"asa-server/internal/mesh/meshpb"
 	"asa-server/pkg/logger"
 	"asa-server/pkg/meshid"
+	"asa-server/pkg/stun"
 )
 
 // peerMaxBackoff 是对端连接重连退避的上限。
@@ -31,6 +34,8 @@ type peerHandle struct {
 	closed    bool
 	upgrading bool
 	lastUsed  time.Time
+	// wake 让正在等下一轮的升级循环立即再试一次（连接从打洞掉回中转时）。
+	wake chan struct{}
 }
 
 func (h *peerHandle) setKind(k PathKind) {
@@ -115,7 +120,7 @@ func (m *Manager) acquire(peer meshid.ID) (*peerHandle, func(), error) {
 // newHandleLocked 建一个 handle。first 非空时，第一次拨号直接交出这条已认证的连接
 // （路径升级时用：升级循环已经拨通了直连，不该再拨一次）。调用方持有 m.mu。
 func (m *Manager) newHandleLocked(peer meshid.ID, first *pathConn) (*peerHandle, error) {
-	h := &peerHandle{peer: peer, lastUsed: time.Now()}
+	h := &peerHandle{peer: peer, lastUsed: time.Now(), wake: make(chan struct{}, 1)}
 	if first != nil {
 		h.kind = first.kind
 	}
@@ -136,7 +141,7 @@ func (m *Manager) newHandleLocked(peer meshid.ID, first *pathConn) (*peerHandle,
 			}
 			h.setKind(pc.kind)
 			m.recordPath(peer, pc.kind)
-			if pc.kind == PathRelay {
+			if pc.kind == PathRelay || pc.kind == PathPunched {
 				m.startUpgrade(ctx, h)
 			}
 			return pc, nil
@@ -165,14 +170,23 @@ func (m *Manager) recordPath(peer meshid.ID, k PathKind) {
 	m.mu.Unlock()
 }
 
-// startUpgrade 为走中转的 handle 启动升级循环（每个 handle 至多一个）。
+// startUpgrade 为走中转或打洞的 handle 启动升级循环（每个 handle 至多一个）。循环已在跑时叫醒它：
+// 打洞连接断了、gRPC 经中转重连上来，要立即再打一次，而不是等到下一轮。
 func (m *Manager) startUpgrade(ctx context.Context, h *peerHandle) {
 	if m.direct == nil {
 		return
 	}
 	h.mu.Lock()
-	if h.upgrading || h.retired {
+	if h.retired {
 		h.mu.Unlock()
+		return
+	}
+	if h.upgrading {
+		h.mu.Unlock()
+		select {
+		case h.wake <- struct{}{}:
+		default:
+		}
 		return
 	}
 	h.upgrading = true
@@ -180,9 +194,14 @@ func (m *Manager) startUpgrade(ctx context.Context, h *peerHandle) {
 	go m.upgradeLoop(ctx, h)
 }
 
-// upgradeLoop 按 UpgradeMin 起、翻倍到 UpgradeMax 的间隔重试直连（§5.3 第 4 步）。
+// upgradeLoop 把 handle 往更好的路径上换（§5.3 第 4 步、§12 P6-6）。优先级：直连 > 打洞 > 中转。
+//
+//   - 第一轮立即进行、只打洞：刚刚 dialPeer 才试过 TCP 直连，再试一遍是白等两秒；
+//   - 之后按 UpgradeMin 起、翻倍到 UpgradeMax 的间隔，先试 TCP 直连再打洞（打洞那一步有 punchMinInterval 的下限）；
+//   - 走打洞的 handle 只试 TCP 直连（打洞不比自己更好）。
+//
 // 成功 ⇒ 用这条已握手的连接建新 handle 换上，旧的退役。最近 UpgradeMax 内没人用过的对端不试——
-// 没人在看的面板不值得维持一条直连。
+// 没人在看的面板不值得维持一条更好的路径。
 func (m *Manager) upgradeLoop(ctx context.Context, h *peerHandle) {
 	defer func() {
 		h.mu.Lock()
@@ -190,31 +209,134 @@ func (m *Manager) upgradeLoop(ctx context.Context, h *peerHandle) {
 		h.mu.Unlock()
 	}()
 	interval := m.opts.UpgradeMin
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(interval):
+	for round := 0; ; round++ {
+		woken := false
+		if round > 0 {
+			select {
+			case <-ctx.Done():
+				return
+			case <-h.wake:
+				woken = true
+			case <-time.After(interval):
+				interval = min(interval*2, m.opts.UpgradeMax)
+			}
 		}
 		h.mu.Lock()
 		retired, idle := h.retired, h.refs == 0 && time.Since(h.lastUsed) > m.opts.UpgradeMax
 		h.mu.Unlock()
-		if retired || idle || h.currentKind() != PathRelay {
+		kind := h.currentKind()
+		if retired || idle || (kind != PathRelay && kind != PathPunched) {
 			return
 		}
-		dctx, cancel := context.WithTimeout(ctx, happyBudget+time.Second)
-		pc, err := m.direct.Dial(dctx, h.peer)
-		cancel()
-		if err == nil {
-			if m.swapHandle(h, pc) {
-				logger.Infof("[mesh] 到 %s 的路径已从中转升级为直连（%s）", h.peer.Short(), pc.kind)
-			} else {
-				pc.Close()
+		if round > 0 && !woken {
+			dctx, cancel := context.WithTimeout(ctx, happyBudget+time.Second)
+			pc, err := m.direct.Dial(dctx, h.peer)
+			cancel()
+			if err == nil {
+				if m.swapHandle(h, pc) {
+					logger.Infof("[mesh] 到 %s 的路径已从%s升级为直连（%s）", h.peer.Short(), kind, pc.kind)
+				} else {
+					pc.Close()
+				}
+				return
 			}
-			return
 		}
-		interval = min(interval*2, m.opts.UpgradeMax)
+		if kind == PathRelay {
+			if pc := m.tryPunch(ctx, h); pc != nil {
+				if m.swapHandle(h, pc) {
+					logger.Infof("[mesh] 到 %s 的路径已从中转升级为打洞（%s）", h.peer.Short(), pc.RemoteAddr())
+				} else {
+					pc.Close()
+				}
+				// 打洞 handle 是新的，它自己的升级循环会接着试 TCP 直连；这个中转 handle 已退役。
+				return
+			}
+		}
 	}
+}
+
+// wakeUpgrade 在得知 peer 授权了本机时叫醒它走中转的 handle 的升级循环（立即试一次打洞）。
+func (m *Manager) wakeUpgrade(peer meshid.ID) {
+	m.mu.Lock()
+	h, ctx, running := m.peers[peer], m.ctx, m.running
+	m.mu.Unlock()
+	if running && h != nil && h.currentKind() == PathRelay {
+		m.startUpgrade(ctx, h)
+	}
+}
+
+// punchPeer 是对一个对端的打洞记忆（跨 handle）。
+type punchPeer struct {
+	notBefore   time.Time         // 在此之前不再打洞
+	peerMapping meshpb.NATMapping // 对方最近一次报的 NAT 类型
+	record      PunchRecord
+}
+
+// PunchRecord 是最近一次打洞的结果（GET /api/mesh/peers 的 last_punch）。
+type PunchRecord struct {
+	At     time.Time `json:"at"`
+	OK     bool      `json:"ok"`
+	Reason string    `json:"reason,omitempty"`
+	Addr   string    `json:"addr,omitempty"` // 打通时对方的地址
+}
+
+// tryPunch 在走中转的 h 上打一次洞，打通返回连接，否则 nil（原因记进 punchPeers）。
+//
+// 只对**已知授权了本机**的对端打（Punch 要求授权）：刚连上、正在配对的对端此时调用只会被拒，
+// 还白白占掉一次最小间隔。得知授权（Hello / 配对的回答）时 wakeUpgrade 会叫醒升级循环再来。
+func (m *Manager) tryPunch(ctx context.Context, h *peerHandle) *pathConn {
+	if rec, ok := m.store.Peer(h.peer); !ok || rec.RemoteRole == "" {
+		return nil
+	}
+	now := time.Now()
+	m.mu.Lock()
+	p := m.punch
+	if p == nil || m.punchPeers == nil {
+		m.mu.Unlock()
+		return nil
+	}
+	pp := m.punchPeers[h.peer]
+	if pp == nil {
+		pp = &punchPeer{}
+		m.punchPeers[h.peer] = pp
+	}
+	if now.Before(pp.notBefore) {
+		m.mu.Unlock()
+		return nil
+	}
+	// 先排除注定失败的：对方旧版本（最近一次 Hello 没有 punch.v1）、双方都是对称型。
+	skip := ""
+	if r, ok := m.hellos[h.peer]; ok && r.res != nil && !slices.Contains(r.res.Capabilities, CapPunch) {
+		skip = punchReasonOldPeer
+	} else if p.mapping() == stun.EndpointDependent && pp.peerMapping == meshpb.NATMapping_NAT_MAPPING_HARD {
+		skip = punchReasonBothHard
+	}
+	if skip != "" {
+		pp.notBefore = now.Add(m.opts.UpgradeMax)
+		pp.record = PunchRecord{At: now, Reason: skip}
+		m.mu.Unlock()
+		return nil
+	}
+	pp.notBefore = now.Add(m.opts.punchMinInterval)
+	m.mu.Unlock()
+
+	res := p.dial(ctx, h.peer, meshpb.NewPeerClient(h.cc))
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if res.peerMapping != meshpb.NATMapping_NAT_MAPPING_UNKNOWN {
+		pp.peerMapping = res.peerMapping
+	}
+	if res.later {
+		pp.notBefore = time.Now().Add(m.opts.UpgradeMax)
+	}
+	if res.conn != nil {
+		pp.record = PunchRecord{At: time.Now(), OK: true, Addr: res.addr.String()}
+		return res.conn
+	}
+	pp.record = PunchRecord{At: time.Now(), Reason: res.reason}
+	logger.Infof("[mesh] 到 %s 打洞未成功：%s，继续走中转", h.peer.Short(), res.reason)
+	return nil
 }
 
 // swapHandle 用已拨通的直连 pc 建新 handle 换掉 old。old 已不是当前 handle 时放弃。
