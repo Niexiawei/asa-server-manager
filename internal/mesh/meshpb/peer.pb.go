@@ -1,5 +1,5 @@
 // 管理器 ↔ 管理器。跑在端到端 mTLS 之上（直连或经中转），见
-// docs/REMOTE_MANAGER_MESH_PLAN.md §5.5、§12 P1-1、P3-3、P3-4。
+// docs/REMOTE_MANAGER_MESH_PLAN.md §5.5、§12 P1-1、P3-3、P3-4、P6。
 //
 // 兼容规则同 coordinator.proto：只做向后兼容的增量，字段号永不复用。
 
@@ -124,6 +124,62 @@ func (x PairStatus) Number() protoreflect.EnumNumber {
 // Deprecated: Use PairStatus.Descriptor instead.
 func (PairStatus) EnumDescriptor() ([]byte, []int) {
 	return file_asamesh_v1_peer_proto_rawDescGZIP(), []int{1}
+}
+
+// NATMapping 是 STUN 判出的 NAT 映射行为（pkg/stun.Mapping）。
+type NATMapping int32
+
+const (
+	NATMapping_NAT_MAPPING_UNKNOWN NATMapping = 0
+	// 没有 NAT：反射地址就是本机地址。
+	NATMapping_NAT_MAPPING_NONE NATMapping = 1
+	// 映射与目的无关（NAT1～NAT3），易打洞。
+	NATMapping_NAT_MAPPING_EASY NATMapping = 2
+	// 映射随目的变化（对称型 / NAT4），难打洞。
+	NATMapping_NAT_MAPPING_HARD NATMapping = 3
+)
+
+// Enum value maps for NATMapping.
+var (
+	NATMapping_name = map[int32]string{
+		0: "NAT_MAPPING_UNKNOWN",
+		1: "NAT_MAPPING_NONE",
+		2: "NAT_MAPPING_EASY",
+		3: "NAT_MAPPING_HARD",
+	}
+	NATMapping_value = map[string]int32{
+		"NAT_MAPPING_UNKNOWN": 0,
+		"NAT_MAPPING_NONE":    1,
+		"NAT_MAPPING_EASY":    2,
+		"NAT_MAPPING_HARD":    3,
+	}
+)
+
+func (x NATMapping) Enum() *NATMapping {
+	p := new(NATMapping)
+	*p = x
+	return p
+}
+
+func (x NATMapping) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (NATMapping) Descriptor() protoreflect.EnumDescriptor {
+	return file_asamesh_v1_peer_proto_enumTypes[2].Descriptor()
+}
+
+func (NATMapping) Type() protoreflect.EnumType {
+	return &file_asamesh_v1_peer_proto_enumTypes[2]
+}
+
+func (x NATMapping) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use NATMapping.Descriptor instead.
+func (NATMapping) EnumDescriptor() ([]byte, []int) {
+	return file_asamesh_v1_peer_proto_rawDescGZIP(), []int{2}
 }
 
 type HelloRequest struct {
@@ -731,12 +787,135 @@ func (*HTTPBodyEnd) Descriptor() ([]byte, []int) {
 	return file_asamesh_v1_peer_proto_rawDescGZIP(), []int{8}
 }
 
+type PunchRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 16 字节随机，探测包按它找到会话。
+	SessionId []byte `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	// 32 字节随机，探测包的 HMAC 密钥。只在端到端 mTLS 里传，协调节点看不到。
+	Key []byte `protobuf:"bytes,2,opt,name=key,proto3" json:"key,omitempty"`
+	// 只有 UDP：HOST + SRFLX，至多 8 个。
+	Candidates    []*Candidate `protobuf:"bytes,3,rep,name=candidates,proto3" json:"candidates,omitempty"`
+	Mapping       NATMapping   `protobuf:"varint,4,opt,name=mapping,proto3,enum=asamesh.v1.NATMapping" json:"mapping,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PunchRequest) Reset() {
+	*x = PunchRequest{}
+	mi := &file_asamesh_v1_peer_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PunchRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PunchRequest) ProtoMessage() {}
+
+func (x *PunchRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_asamesh_v1_peer_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PunchRequest.ProtoReflect.Descriptor instead.
+func (*PunchRequest) Descriptor() ([]byte, []int) {
+	return file_asamesh_v1_peer_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *PunchRequest) GetSessionId() []byte {
+	if x != nil {
+		return x.SessionId
+	}
+	return nil
+}
+
+func (x *PunchRequest) GetKey() []byte {
+	if x != nil {
+		return x.Key
+	}
+	return nil
+}
+
+func (x *PunchRequest) GetCandidates() []*Candidate {
+	if x != nil {
+		return x.Candidates
+	}
+	return nil
+}
+
+func (x *PunchRequest) GetMapping() NATMapping {
+	if x != nil {
+		return x.Mapping
+	}
+	return NATMapping_NAT_MAPPING_UNKNOWN
+}
+
+type PunchResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Candidates    []*Candidate           `protobuf:"bytes,1,rep,name=candidates,proto3" json:"candidates,omitempty"`
+	Mapping       NATMapping             `protobuf:"varint,2,opt,name=mapping,proto3,enum=asamesh.v1.NATMapping" json:"mapping,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PunchResponse) Reset() {
+	*x = PunchResponse{}
+	mi := &file_asamesh_v1_peer_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PunchResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PunchResponse) ProtoMessage() {}
+
+func (x *PunchResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_asamesh_v1_peer_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PunchResponse.ProtoReflect.Descriptor instead.
+func (*PunchResponse) Descriptor() ([]byte, []int) {
+	return file_asamesh_v1_peer_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *PunchResponse) GetCandidates() []*Candidate {
+	if x != nil {
+		return x.Candidates
+	}
+	return nil
+}
+
+func (x *PunchResponse) GetMapping() NATMapping {
+	if x != nil {
+		return x.Mapping
+	}
+	return NATMapping_NAT_MAPPING_UNKNOWN
+}
+
 var File_asamesh_v1_peer_proto protoreflect.FileDescriptor
 
 const file_asamesh_v1_peer_proto_rawDesc = "" +
 	"\n" +
 	"\x15asamesh/v1/peer.proto\x12\n" +
-	"asamesh.v1\"L\n" +
+	"asamesh.v1\x1a\x1casamesh/v1/coordinator.proto\"L\n" +
 	"\fHelloRequest\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\tR\aversion\x12\"\n" +
 	"\fcapabilities\x18\x02 \x03(\tR\fcapabilities\"\x98\x01\n" +
@@ -775,7 +954,20 @@ const file_asamesh_v1_peer_proto_rawDesc = "" +
 	"HTTPHeader\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x16\n" +
 	"\x06values\x18\x02 \x03(\tR\x06values\"\r\n" +
-	"\vHTTPBodyEnd*8\n" +
+	"\vHTTPBodyEnd\"\xa8\x01\n" +
+	"\fPunchRequest\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\fR\tsessionId\x12\x10\n" +
+	"\x03key\x18\x02 \x01(\fR\x03key\x125\n" +
+	"\n" +
+	"candidates\x18\x03 \x03(\v2\x15.asamesh.v1.CandidateR\n" +
+	"candidates\x120\n" +
+	"\amapping\x18\x04 \x01(\x0e2\x16.asamesh.v1.NATMappingR\amapping\"x\n" +
+	"\rPunchResponse\x125\n" +
+	"\n" +
+	"candidates\x18\x01 \x03(\v2\x15.asamesh.v1.CandidateR\n" +
+	"candidates\x120\n" +
+	"\amapping\x18\x02 \x01(\x0e2\x16.asamesh.v1.NATMappingR\amapping*8\n" +
 	"\x04Role\x12\r\n" +
 	"\tROLE_NONE\x10\x00\x12\x11\n" +
 	"\rROLE_OPERATOR\x10\x01\x12\x0e\n" +
@@ -785,11 +977,18 @@ const file_asamesh_v1_peer_proto_rawDesc = "" +
 	"PairStatus\x12\x1b\n" +
 	"\x17PAIR_STATUS_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12PAIR_STATUS_PAIRED\x10\x01\x12\x17\n" +
-	"\x13PAIR_STATUS_PENDING\x10\x022\xb9\x01\n" +
+	"\x13PAIR_STATUS_PENDING\x10\x02*g\n" +
+	"\n" +
+	"NATMapping\x12\x17\n" +
+	"\x13NAT_MAPPING_UNKNOWN\x10\x00\x12\x14\n" +
+	"\x10NAT_MAPPING_NONE\x10\x01\x12\x14\n" +
+	"\x10NAT_MAPPING_EASY\x10\x02\x12\x14\n" +
+	"\x10NAT_MAPPING_HARD\x10\x032\xf7\x01\n" +
 	"\x04Peer\x12<\n" +
 	"\x05Hello\x12\x18.asamesh.v1.HelloRequest\x1a\x19.asamesh.v1.HelloResponse\x129\n" +
 	"\x04Pair\x12\x17.asamesh.v1.PairRequest\x1a\x18.asamesh.v1.PairResponse\x128\n" +
-	"\x04HTTP\x12\x15.asamesh.v1.HTTPFrame\x1a\x15.asamesh.v1.HTTPFrame(\x010\x01B(Z&asa-server/internal/mesh/meshpb;meshpbb\x06proto3"
+	"\x04HTTP\x12\x15.asamesh.v1.HTTPFrame\x1a\x15.asamesh.v1.HTTPFrame(\x010\x01\x12<\n" +
+	"\x05Punch\x12\x18.asamesh.v1.PunchRequest\x1a\x19.asamesh.v1.PunchResponseB(Z&asa-server/internal/mesh/meshpb;meshpbb\x06proto3"
 
 var (
 	file_asamesh_v1_peer_proto_rawDescOnce sync.Once
@@ -803,41 +1002,51 @@ func file_asamesh_v1_peer_proto_rawDescGZIP() []byte {
 	return file_asamesh_v1_peer_proto_rawDescData
 }
 
-var file_asamesh_v1_peer_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_asamesh_v1_peer_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_asamesh_v1_peer_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
+var file_asamesh_v1_peer_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
 var file_asamesh_v1_peer_proto_goTypes = []any{
 	(Role)(0),                // 0: asamesh.v1.Role
 	(PairStatus)(0),          // 1: asamesh.v1.PairStatus
-	(*HelloRequest)(nil),     // 2: asamesh.v1.HelloRequest
-	(*HelloResponse)(nil),    // 3: asamesh.v1.HelloResponse
-	(*PairRequest)(nil),      // 4: asamesh.v1.PairRequest
-	(*PairResponse)(nil),     // 5: asamesh.v1.PairResponse
-	(*HTTPFrame)(nil),        // 6: asamesh.v1.HTTPFrame
-	(*HTTPRequestHead)(nil),  // 7: asamesh.v1.HTTPRequestHead
-	(*HTTPResponseHead)(nil), // 8: asamesh.v1.HTTPResponseHead
-	(*HTTPHeader)(nil),       // 9: asamesh.v1.HTTPHeader
-	(*HTTPBodyEnd)(nil),      // 10: asamesh.v1.HTTPBodyEnd
+	(NATMapping)(0),          // 2: asamesh.v1.NATMapping
+	(*HelloRequest)(nil),     // 3: asamesh.v1.HelloRequest
+	(*HelloResponse)(nil),    // 4: asamesh.v1.HelloResponse
+	(*PairRequest)(nil),      // 5: asamesh.v1.PairRequest
+	(*PairResponse)(nil),     // 6: asamesh.v1.PairResponse
+	(*HTTPFrame)(nil),        // 7: asamesh.v1.HTTPFrame
+	(*HTTPRequestHead)(nil),  // 8: asamesh.v1.HTTPRequestHead
+	(*HTTPResponseHead)(nil), // 9: asamesh.v1.HTTPResponseHead
+	(*HTTPHeader)(nil),       // 10: asamesh.v1.HTTPHeader
+	(*HTTPBodyEnd)(nil),      // 11: asamesh.v1.HTTPBodyEnd
+	(*PunchRequest)(nil),     // 12: asamesh.v1.PunchRequest
+	(*PunchResponse)(nil),    // 13: asamesh.v1.PunchResponse
+	(*Candidate)(nil),        // 14: asamesh.v1.Candidate
 }
 var file_asamesh_v1_peer_proto_depIdxs = []int32{
 	0,  // 0: asamesh.v1.HelloResponse.granted_role:type_name -> asamesh.v1.Role
 	1,  // 1: asamesh.v1.PairResponse.status:type_name -> asamesh.v1.PairStatus
 	0,  // 2: asamesh.v1.PairResponse.granted_role:type_name -> asamesh.v1.Role
-	7,  // 3: asamesh.v1.HTTPFrame.request:type_name -> asamesh.v1.HTTPRequestHead
-	8,  // 4: asamesh.v1.HTTPFrame.response:type_name -> asamesh.v1.HTTPResponseHead
-	10, // 5: asamesh.v1.HTTPFrame.end:type_name -> asamesh.v1.HTTPBodyEnd
-	9,  // 6: asamesh.v1.HTTPRequestHead.headers:type_name -> asamesh.v1.HTTPHeader
-	9,  // 7: asamesh.v1.HTTPResponseHead.headers:type_name -> asamesh.v1.HTTPHeader
-	2,  // 8: asamesh.v1.Peer.Hello:input_type -> asamesh.v1.HelloRequest
-	4,  // 9: asamesh.v1.Peer.Pair:input_type -> asamesh.v1.PairRequest
-	6,  // 10: asamesh.v1.Peer.HTTP:input_type -> asamesh.v1.HTTPFrame
-	3,  // 11: asamesh.v1.Peer.Hello:output_type -> asamesh.v1.HelloResponse
-	5,  // 12: asamesh.v1.Peer.Pair:output_type -> asamesh.v1.PairResponse
-	6,  // 13: asamesh.v1.Peer.HTTP:output_type -> asamesh.v1.HTTPFrame
-	11, // [11:14] is the sub-list for method output_type
-	8,  // [8:11] is the sub-list for method input_type
-	8,  // [8:8] is the sub-list for extension type_name
-	8,  // [8:8] is the sub-list for extension extendee
-	0,  // [0:8] is the sub-list for field type_name
+	8,  // 3: asamesh.v1.HTTPFrame.request:type_name -> asamesh.v1.HTTPRequestHead
+	9,  // 4: asamesh.v1.HTTPFrame.response:type_name -> asamesh.v1.HTTPResponseHead
+	11, // 5: asamesh.v1.HTTPFrame.end:type_name -> asamesh.v1.HTTPBodyEnd
+	10, // 6: asamesh.v1.HTTPRequestHead.headers:type_name -> asamesh.v1.HTTPHeader
+	10, // 7: asamesh.v1.HTTPResponseHead.headers:type_name -> asamesh.v1.HTTPHeader
+	14, // 8: asamesh.v1.PunchRequest.candidates:type_name -> asamesh.v1.Candidate
+	2,  // 9: asamesh.v1.PunchRequest.mapping:type_name -> asamesh.v1.NATMapping
+	14, // 10: asamesh.v1.PunchResponse.candidates:type_name -> asamesh.v1.Candidate
+	2,  // 11: asamesh.v1.PunchResponse.mapping:type_name -> asamesh.v1.NATMapping
+	3,  // 12: asamesh.v1.Peer.Hello:input_type -> asamesh.v1.HelloRequest
+	5,  // 13: asamesh.v1.Peer.Pair:input_type -> asamesh.v1.PairRequest
+	7,  // 14: asamesh.v1.Peer.HTTP:input_type -> asamesh.v1.HTTPFrame
+	12, // 15: asamesh.v1.Peer.Punch:input_type -> asamesh.v1.PunchRequest
+	4,  // 16: asamesh.v1.Peer.Hello:output_type -> asamesh.v1.HelloResponse
+	6,  // 17: asamesh.v1.Peer.Pair:output_type -> asamesh.v1.PairResponse
+	7,  // 18: asamesh.v1.Peer.HTTP:output_type -> asamesh.v1.HTTPFrame
+	13, // 19: asamesh.v1.Peer.Punch:output_type -> asamesh.v1.PunchResponse
+	16, // [16:20] is the sub-list for method output_type
+	12, // [12:16] is the sub-list for method input_type
+	12, // [12:12] is the sub-list for extension type_name
+	12, // [12:12] is the sub-list for extension extendee
+	0,  // [0:12] is the sub-list for field type_name
 }
 
 func init() { file_asamesh_v1_peer_proto_init() }
@@ -845,6 +1054,7 @@ func file_asamesh_v1_peer_proto_init() {
 	if File_asamesh_v1_peer_proto != nil {
 		return
 	}
+	file_asamesh_v1_coordinator_proto_init()
 	file_asamesh_v1_peer_proto_msgTypes[4].OneofWrappers = []any{
 		(*HTTPFrame_Request)(nil),
 		(*HTTPFrame_Response)(nil),
@@ -857,8 +1067,8 @@ func file_asamesh_v1_peer_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_asamesh_v1_peer_proto_rawDesc), len(file_asamesh_v1_peer_proto_rawDesc)),
-			NumEnums:      2,
-			NumMessages:   9,
+			NumEnums:      3,
+			NumMessages:   11,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

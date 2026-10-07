@@ -1,5 +1,5 @@
 // 管理器 ↔ 管理器。跑在端到端 mTLS 之上（直连或经中转），见
-// docs/REMOTE_MANAGER_MESH_PLAN.md §5.5、§12 P1-1、P3-3、P3-4。
+// docs/REMOTE_MANAGER_MESH_PLAN.md §5.5、§12 P1-1、P3-3、P3-4、P6。
 //
 // 兼容规则同 coordinator.proto：只做向后兼容的增量，字段号永不复用。
 
@@ -27,6 +27,7 @@ const (
 	Peer_Hello_FullMethodName = "/asamesh.v1.Peer/Hello"
 	Peer_Pair_FullMethodName  = "/asamesh.v1.Peer/Pair"
 	Peer_HTTP_FullMethodName  = "/asamesh.v1.Peer/HTTP"
+	Peer_Punch_FullMethodName = "/asamesh.v1.Peer/Punch"
 )
 
 // PeerClient is the client API for Peer service.
@@ -39,6 +40,9 @@ type PeerClient interface {
 	Pair(ctx context.Context, in *PairRequest, opts ...grpc.CallOption) (*PairResponse, error)
 	// HTTP 隧道：一个 HTTP 请求 = 一条流（§7）。只对已授权的身份开放。
 	HTTP(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[HTTPFrame, HTTPFrame], error)
+	// 打洞信令（§12 P6-3）：只在中转路径上调用。调用者带上自己的 UDP 候选与探测密钥，
+	// 被叫方回自己的候选并立即开始探测。只对已授权的身份开放；本机关了打洞时返回 FailedPrecondition。
+	Punch(ctx context.Context, in *PunchRequest, opts ...grpc.CallOption) (*PunchResponse, error)
 }
 
 type peerClient struct {
@@ -82,6 +86,16 @@ func (c *peerClient) HTTP(ctx context.Context, opts ...grpc.CallOption) (grpc.Bi
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type Peer_HTTPClient = grpc.BidiStreamingClient[HTTPFrame, HTTPFrame]
 
+func (c *peerClient) Punch(ctx context.Context, in *PunchRequest, opts ...grpc.CallOption) (*PunchResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PunchResponse)
+	err := c.cc.Invoke(ctx, Peer_Punch_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // PeerServer is the server API for Peer service.
 // All implementations must embed UnimplementedPeerServer
 // for forward compatibility.
@@ -92,6 +106,9 @@ type PeerServer interface {
 	Pair(context.Context, *PairRequest) (*PairResponse, error)
 	// HTTP 隧道：一个 HTTP 请求 = 一条流（§7）。只对已授权的身份开放。
 	HTTP(grpc.BidiStreamingServer[HTTPFrame, HTTPFrame]) error
+	// 打洞信令（§12 P6-3）：只在中转路径上调用。调用者带上自己的 UDP 候选与探测密钥，
+	// 被叫方回自己的候选并立即开始探测。只对已授权的身份开放；本机关了打洞时返回 FailedPrecondition。
+	Punch(context.Context, *PunchRequest) (*PunchResponse, error)
 	mustEmbedUnimplementedPeerServer()
 }
 
@@ -110,6 +127,9 @@ func (UnimplementedPeerServer) Pair(context.Context, *PairRequest) (*PairRespons
 }
 func (UnimplementedPeerServer) HTTP(grpc.BidiStreamingServer[HTTPFrame, HTTPFrame]) error {
 	return status.Errorf(codes.Unimplemented, "method HTTP not implemented")
+}
+func (UnimplementedPeerServer) Punch(context.Context, *PunchRequest) (*PunchResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Punch not implemented")
 }
 func (UnimplementedPeerServer) mustEmbedUnimplementedPeerServer() {}
 func (UnimplementedPeerServer) testEmbeddedByValue()              {}
@@ -175,6 +195,24 @@ func _Peer_HTTP_Handler(srv interface{}, stream grpc.ServerStream) error {
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type Peer_HTTPServer = grpc.BidiStreamingServer[HTTPFrame, HTTPFrame]
 
+func _Peer_Punch_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PunchRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PeerServer).Punch(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Peer_Punch_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PeerServer).Punch(ctx, req.(*PunchRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Peer_ServiceDesc is the grpc.ServiceDesc for Peer service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -189,6 +227,10 @@ var Peer_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Pair",
 			Handler:    _Peer_Pair_Handler,
+		},
+		{
+			MethodName: "Punch",
+			Handler:    _Peer_Punch_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

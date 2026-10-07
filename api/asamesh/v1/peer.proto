@@ -1,5 +1,5 @@
 // 管理器 ↔ 管理器。跑在端到端 mTLS 之上（直连或经中转），见
-// docs/REMOTE_MANAGER_MESH_PLAN.md §5.5、§12 P1-1、P3-3、P3-4。
+// docs/REMOTE_MANAGER_MESH_PLAN.md §5.5、§12 P1-1、P3-3、P3-4、P6。
 //
 // 兼容规则同 coordinator.proto：只做向后兼容的增量，字段号永不复用。
 syntax = "proto3";
@@ -8,6 +8,8 @@ package asamesh.v1;
 
 option go_package = "asa-server/internal/mesh/meshpb;meshpb";
 
+import "asamesh/v1/coordinator.proto";
+
 service Peer {
   // 版本、能力列表、对方授予我的角色。未配对的身份也能调用。
   rpc Hello(HelloRequest) returns (HelloResponse);
@@ -15,6 +17,9 @@ service Peer {
   rpc Pair(PairRequest) returns (PairResponse);
   // HTTP 隧道：一个 HTTP 请求 = 一条流（§7）。只对已授权的身份开放。
   rpc HTTP(stream HTTPFrame) returns (stream HTTPFrame);
+  // 打洞信令（§12 P6-3）：只在中转路径上调用。调用者带上自己的 UDP 候选与探测密钥，
+  // 被叫方回自己的候选并立即开始探测。只对已授权的身份开放；本机关了打洞时返回 FailedPrecondition。
+  rpc Punch(PunchRequest) returns (PunchResponse);
 }
 
 enum Role {
@@ -96,3 +101,29 @@ message HTTPHeader {
 }
 
 message HTTPBodyEnd {}
+
+// NATMapping 是 STUN 判出的 NAT 映射行为（pkg/stun.Mapping）。
+enum NATMapping {
+  NAT_MAPPING_UNKNOWN = 0;
+  // 没有 NAT：反射地址就是本机地址。
+  NAT_MAPPING_NONE = 1;
+  // 映射与目的无关（NAT1～NAT3），易打洞。
+  NAT_MAPPING_EASY = 2;
+  // 映射随目的变化（对称型 / NAT4），难打洞。
+  NAT_MAPPING_HARD = 3;
+}
+
+message PunchRequest {
+  // 16 字节随机，探测包按它找到会话。
+  bytes session_id = 1;
+  // 32 字节随机，探测包的 HMAC 密钥。只在端到端 mTLS 里传，协调节点看不到。
+  bytes key = 2;
+  // 只有 UDP：HOST + SRFLX，至多 8 个。
+  repeated Candidate candidates = 3;
+  NATMapping mapping = 4;
+}
+
+message PunchResponse {
+  repeated Candidate candidates = 1;
+  NATMapping mapping = 2;
+}
