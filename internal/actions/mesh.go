@@ -37,6 +37,14 @@ func MeshCommand() *cli.Command {
 			{Name: "status", Usage: "查看本地配置（只读本地文件，不连协调节点）", Action: actionMeshStatus},
 			{Name: "peers", Usage: "列出对端、待批准申请与未用的邀请码", Action: actionMeshPeers},
 			{
+				Name:  "upnp",
+				Usage: "检查本机所在路由器的 UPnP：发现网关、WAN 地址与能否被外面连进来（不需要服务在运行）",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{Name: "test", Usage: "再试加一条临时映射（随机外部端口，60 秒租期）并立即删除，验证路由器真的接受映射"},
+				},
+				Action: actionMeshUPnP,
+			},
+			{
 				Name:  "invite",
 				Usage: "生成配对邀请码（整串只显示这一次）",
 				Flags: []cli.Flag{
@@ -160,6 +168,11 @@ func actionMeshStatus(context.Context, *cli.Command) error {
 			fmt.Println("打洞：      不可用（需要协调节点）")
 		default:
 			fmt.Printf("打洞：      开启（UDP 端口 %d）\n", cfg.UDPListenPort())
+		}
+		if cfg.NoUPnP {
+			fmt.Println("UPnP：      关闭")
+		} else {
+			fmt.Println("UPnP：      开启（映射结果见 GET /api/mesh/status；路由器检查：asa-server mesh upnp）")
 		}
 	}
 	fmt.Println("（实时连接状态、NAT 类型见 GET /api/mesh/status；本命令不连协调节点。）")
