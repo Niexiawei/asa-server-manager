@@ -51,6 +51,10 @@ type Config struct {
 	PublicAddrs []string `json:"public_addrs,omitempty"`
 	// ControlRole 是本机上能使用远程控制的最低角色（D5），空 = admin。
 	ControlRole string `json:"control_role,omitempty"`
+	// UDPPort 是打洞用的 UDP 端口（§12 P6-1），0 = 与 Peer 端口同号。
+	UDPPort int `json:"udp_port,omitempty"`
+	// NoPunch 为 true 时不打洞：不开 UDP 端口，对端连本机只走 TCP 直连或中转。
+	NoPunch bool `json:"no_punch,omitempty"`
 }
 
 // ListenPort 返回 Peer 端口。
@@ -59,6 +63,14 @@ func (c *Config) ListenPort() int {
 		return DefaultPeerPort
 	}
 	return c.PeerPort
+}
+
+// UDPListenPort 返回打洞用的 UDP 端口。
+func (c *Config) UDPListenPort() int {
+	if c.UDPPort == 0 {
+		return c.ListenPort()
+	}
+	return c.UDPPort
 }
 
 // EffectiveControlRole 返回本机上能使用远程控制的最低角色。
@@ -73,6 +85,9 @@ func (c *Config) EffectiveControlRole() string {
 func (c *Config) Validate() error {
 	if c.PeerPort < 0 || c.PeerPort > 65535 {
 		return fmt.Errorf("Peer 端口必须在 1-65535 之间，当前为 %d", c.PeerPort)
+	}
+	if c.UDPPort < 0 || c.UDPPort > 65535 {
+		return fmt.Errorf("UDP 端口必须在 1-65535 之间，当前为 %d", c.UDPPort)
 	}
 	switch c.ControlRole {
 	case "", RoleAdmin, RoleOperator:
@@ -225,6 +240,8 @@ type ConfigPatch struct {
 	NoListen    *bool     `json:"no_listen"`
 	PublicAddrs *[]string `json:"public_addrs"`
 	ControlRole *string   `json:"control_role"`
+	UDPPort     *int      `json:"udp_port"`
+	NoPunch     *bool     `json:"no_punch"`
 }
 
 // UpdateConfig 按 patch 修改配置。
@@ -244,6 +261,12 @@ func UpdateConfig(dir string, p ConfigPatch) (*Config, error) {
 		}
 		if p.ControlRole != nil {
 			c.ControlRole = *p.ControlRole
+		}
+		if p.UDPPort != nil {
+			c.UDPPort = *p.UDPPort
+		}
+		if p.NoPunch != nil {
+			c.NoPunch = *p.NoPunch
 		}
 		return nil
 	})
