@@ -55,6 +55,8 @@ type Config struct {
 	UDPPort int `json:"udp_port,omitempty"`
 	// NoPunch 为 true 时不打洞：不开 UDP 端口，对端连本机只走 TCP 直连或中转。
 	NoPunch bool `json:"no_punch,omitempty"`
+	// NoUPnP 为 true 时不在路由器上做 UPnP 端口映射（§12「P6 补充」）。
+	NoUPnP bool `json:"no_upnp,omitempty"`
 }
 
 // ListenPort 返回 Peer 端口。
@@ -242,6 +244,7 @@ type ConfigPatch struct {
 	ControlRole *string   `json:"control_role"`
 	UDPPort     *int      `json:"udp_port"`
 	NoPunch     *bool     `json:"no_punch"`
+	NoUPnP      *bool     `json:"no_upnp"`
 }
 
 // UpdateConfig 按 patch 修改配置。
@@ -267,6 +270,9 @@ func UpdateConfig(dir string, p ConfigPatch) (*Config, error) {
 		}
 		if p.NoPunch != nil {
 			c.NoPunch = *p.NoPunch
+		}
+		if p.NoUPnP != nil {
+			c.NoUPnP = *p.NoUPnP
 		}
 		return nil
 	})
