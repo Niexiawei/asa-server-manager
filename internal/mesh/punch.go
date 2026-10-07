@@ -202,9 +202,9 @@ func udpCandidate(kind meshpb.CandidateKind, ap netip.AddrPort) *meshpb.Candidat
 }
 
 // orderPunchCandidates 排出本机发给对方的 UDP 候选并截断到 punchMaxCands：
-// 反射地址在前（跨 NAT 最可能通），然后全局 IPv6（国内家宽常有，本身就是公网地址），
-// 最后私网地址（同一内网时 TCP 直连通常已经赢了）。
-func orderPunchCandidates(host []netip.AddrPort, srflx []netip.AddrPort) []*meshpb.Candidate {
+// UPnP 映射出来的地址最前（路由器上开好的口子，对方的探测直接进得来），然后反射地址（跨 NAT 最可能通），
+// 然后全局 IPv6（国内家宽常有，本身就是公网地址），最后私网地址（同一内网时 TCP 直连通常已经赢了）。
+func orderPunchCandidates(host, srflx, mapped []netip.AddrPort) []*meshpb.Candidate {
 	type c struct {
 		ap   netip.AddrPort
 		kind meshpb.CandidateKind
@@ -219,6 +219,9 @@ func orderPunchCandidates(host []netip.AddrPort, srflx []netip.AddrPort) []*mesh
 		}
 		seen[ap] = true
 		list = append(list, c{ap, kind, rank})
+	}
+	for _, ap := range mapped {
+		add(ap, meshpb.CandidateKind_CANDIDATE_KIND_MAPPED, -1)
 	}
 	for _, ap := range srflx {
 		add(ap, meshpb.CandidateKind_CANDIDATE_KIND_SRFLX, 0)
@@ -307,6 +310,10 @@ type puncher struct {
 	hostUDP  func(port int) []netip.AddrPort
 	ln       *quic.Listener
 	trigger  chan struct{}
+	// mappedUDP 返回 UPnP 映射出来的 UDP 地址（没开 UPnP 时为 nil）。Start 在对外服务之前设好，之后只读。
+	mappedUDP func() []netip.AddrPort
+	// onNATChange 在 NAT 判型或反射地址变化时调用（UPnP 据此复查「出口是不是这台路由器」）。同上。
+	onNATChange func()
 
 	mu      sync.Mutex
 	nat     natState
@@ -383,7 +390,25 @@ func (p *puncher) candidates() []*meshpb.Candidate {
 	p.mu.Lock()
 	srflx := slices.Clone(p.nat.srflx)
 	p.mu.Unlock()
-	return orderPunchCandidates(p.hostUDP(p.mux.port), srflx)
+	return orderPunchCandidates(p.hostUDP(p.mux.port), srflx, p.mapped())
+}
+
+func (p *puncher) mapped() []netip.AddrPort {
+	if p.mappedUDP == nil {
+		return nil
+	}
+	return p.mappedUDP()
+}
+
+// srflxIPs 返回反射地址的 IP（UPnP 用来判断出口是不是本机所在的路由器）。
+func (p *puncher) srflxIPs() []netip.Addr {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]netip.Addr, 0, len(p.nat.srflx))
+	for _, ap := range p.nat.srflx {
+		out = append(out, ap.Addr())
+	}
+	return out
 }
 
 func (p *puncher) mapping() stun.Mapping {
@@ -446,6 +471,8 @@ type punchResult struct {
 	addr        netip.AddrPort
 	reason      string
 	peerMapping meshpb.NATMapping
+	// peerMapped：对方的候选里有 UPnP 映射出来的地址（那样即使双方都是对称型也值得打）。
+	peerMapped bool
 	// later 为 true：这个对端暂时不必再试（旧版本 / 关了打洞），按升级上限的间隔再看。
 	later bool
 }
@@ -479,6 +506,11 @@ func (p *puncher) dial(ctx context.Context, peer meshid.ID, client meshpb.PeerCl
 		return punchResult{reason: "信令失败：" + err.Error()}
 	}
 	res := punchResult{peerMapping: resp.GetMapping()}
+	for _, c := range resp.GetCandidates() {
+		if c.GetKind() == meshpb.CandidateKind_CANDIDATE_KIND_MAPPED {
+			res.peerMapped = true
+		}
+	}
 	targets := parsePunchTargets(resp.GetCandidates())
 	if len(targets) == 0 {
 		res.reason = punchReasonNoCands

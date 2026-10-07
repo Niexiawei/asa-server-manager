@@ -104,6 +104,9 @@ func (p *puncher) discover(ctx context.Context) {
 	p.mu.Unlock()
 	if prev.mapping != st.mapping || !slices.Equal(prev.srflx, st.srflx) {
 		logger.Infof("[mesh] NAT 判型：%s，反射地址 %v", st.mapping, st.srflx)
+		if p.onNATChange != nil {
+			p.onNATChange()
+		}
 	}
 	if st.err != "" && st.err != prev.err {
 		logger.Warnf("[mesh] STUN 地址发现不完整：%s", st.err)
