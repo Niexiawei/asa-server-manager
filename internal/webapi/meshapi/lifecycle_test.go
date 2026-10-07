@@ -187,7 +187,7 @@ func TestLifecycleRequiresAdmin(t *testing.T) {
 	}
 }
 
-// 打洞的两个配置项（§12 P6-7）：经 PUT /config 保存、在状态里回显；越界的端口 400。
+// 打洞与 UPnP 的配置项（§12 P6-7、「P6 补充」）：经 PUT /config 保存、在状态里回显；越界的端口 400。
 func TestPunchConfig(t *testing.T) {
 	setupConfig(t, "auth:\n  enabled: false\n")
 	srv := lifecycleServer(t, mesh.New(mesh.Options{Dir: t.TempDir()}))
@@ -203,7 +203,7 @@ func TestPunchConfig(t *testing.T) {
 		_ = json.NewDecoder(resp.Body).Decode(&out)
 		return resp.StatusCode, out
 	}
-	code, out := put(`{"no_punch":true,"udp_port":20000}`)
+	code, out := put(`{"no_punch":true,"udp_port":20000,"no_upnp":true}`)
 	var st struct {
 		NoPunch bool `json:"no_punch"`
 		UDPPort int  `json:"udp_port"`
@@ -211,9 +211,14 @@ func TestPunchConfig(t *testing.T) {
 			Active  bool   `json:"active"`
 			Mapping string `json:"mapping"`
 		} `json:"punch"`
+		NoUPnP bool `json:"no_upnp"`
+		UPnP   struct {
+			State string `json:"state"`
+		} `json:"upnp"`
 	}
 	_ = json.Unmarshal(out.Data, &st)
-	if code != 200 || !st.NoPunch || st.UDPPort != 20000 || st.Punch.Active || st.Punch.Mapping != "unknown" {
+	if code != 200 || !st.NoPunch || st.UDPPort != 20000 || st.Punch.Active || st.Punch.Mapping != "unknown" ||
+		!st.NoUPnP || st.UPnP.State != "disabled" {
 		t.Fatalf("打洞配置没有保存或回显不对：%d %s", code, out.Data)
 	}
 	if code, out := put(`{"udp_port":70000}`); code != 400 {
