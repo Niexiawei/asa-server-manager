@@ -65,6 +65,12 @@
                             style="width: 140px; margin-left: 12px"/>
             <span class="muted note">用于内网 / 公网直连。Windows 首次监听会弹防火墙提示；不放行时会自动走中转。</span>
           </t-form-item>
+          <t-form-item label="允许打洞">
+            <t-switch v-model="form.punch"/>
+            <t-input-number v-if="form.punch" v-model="form.udp_port" :min="1" :max="65535" theme="normal"
+                            placeholder="同 Peer 端口" style="width: 140px; margin-left: 12px"/>
+            <span class="muted note">两台都在 NAT 后时尝试 UDP 打洞，打通后不再经中转。需要协调节点。</span>
+          </t-form-item>
           <t-form-item label="本机公网地址">
             <t-textarea v-model="form.public_addrs" :autosize="{minRows: 1, maxRows: 4}"
                         placeholder="可选，每行一个 host:port（端口映射 / DDNS 后的地址），对方据此公网直连"
@@ -117,6 +123,25 @@
           <div class="kv" v-if="status.running && status.stun_addrs?.length">
             <span class="k">STUN</span>
             <span class="v mono">{{ status.stun_addrs.join('，') }}</span>
+          </div>
+          <!-- 打洞（§12 P6）：NAT 类型由 STUN 判出，反射地址是对方打洞时用的公网地址 -->
+          <div class="kv" v-if="status.running">
+            <span class="k">打洞</span>
+            <span class="v" v-if="status.punch?.active">
+              <t-tag size="small" variant="light" :theme="NAT_TEXT[status.punch.mapping]?.[1] || 'default'"
+                     :title="status.punch.error || ''">
+                {{ NAT_TEXT[status.punch.mapping]?.[0] || status.punch.mapping }}
+              </t-tag>
+              <span class="muted">UDP {{ status.punch.udp_addr }}</span>
+              <span v-if="status.punch.udp_error" class="err">{{ status.punch.udp_error }}</span>
+            </span>
+            <span class="v muted" v-else-if="status.no_punch">已关闭（本机设置里开启）</span>
+            <span class="v err" v-else-if="status.punch?.error">不可用：{{ status.punch.error }}</span>
+            <span class="v muted" v-else>不可用</span>
+          </div>
+          <div class="kv" v-if="status.running && status.punch?.srflx?.length">
+            <span class="k">反射地址</span>
+            <span class="v mono">{{ status.punch.srflx.join('，') }}</span>
           </div>
         </template>
         <div class="kv" v-else>
@@ -190,6 +215,8 @@
             <span v-if="row.last_hello" class="muted">
               {{ PATH_TEXT[row.last_hello.path] || row.last_hello.path }} · {{ row.last_hello.latency_ms }} ms
             </span>
+            <span v-if="row.last_punch && !row.last_punch.ok" class="muted punch-fail"
+                  :title="`${fmt(row.last_punch.at)}：${row.last_punch.reason}`">打洞未成功</span>
           </template>
           <template #version="{row}">{{ row.last_hello?.version || row.remote_version || '-' }}</template>
           <template #role="{row}">
@@ -318,6 +345,13 @@ import * as api from '@/apis/meshApi.js'
 
 const PATH_TEXT = {lan: '内网直连', public: '公网直连', relay: '中转', punched: '打洞'}
 const ROLE_TEXT = {admin: '管理员', operator: '操作员'}
+// NAT 类型（status.punch.mapping）→ [文案, 标签主题]
+const NAT_TEXT = {
+  none: ['公网直达', 'success'],
+  easy: ['易打洞', 'success'],
+  hard: ['对称型，难打洞', 'warning'],
+  unknown: ['NAT 类型未知', 'default'],
+}
 
 const loading = ref(false)
 const busy = reactive({join: false, config: false, pair: false, request: false, invite: false, hello: '', life: ''})
@@ -337,7 +371,9 @@ const inviteDialog = ref(false)
 const newInvite = ref('')
 const editDialog = ref(false)
 const editForm = reactive({node_id: '', label: '', addrs: ''})
-const form = reactive({label: '', listen: true, peer_port: 19194, public_addrs: '', control_role: 'admin'})
+const form = reactive({
+  label: '', listen: true, peer_port: 19194, public_addrs: '', control_role: 'admin', punch: true, udp_port: undefined,
+})
 
 // 粘贴的 join blob 与当前已保存的协调节点逐项对照（已保存时才标「变化」）
 const previewRows = computed(() => {
@@ -404,6 +440,8 @@ function applyStatus(st) {
   form.peer_port = st?.peer_port || 19194
   form.public_addrs = (st?.public_addrs || []).join('\n')
   form.control_role = st?.control_role || 'admin'
+  form.punch = !st?.no_punch
+  form.udp_port = st?.udp_port || undefined
 }
 
 async function reloadAll() {
@@ -512,6 +550,8 @@ async function saveConfig() {
     peer_port: form.peer_port,
     public_addrs: lines(form.public_addrs),
     control_role: form.control_role,
+    no_punch: !form.punch,
+    udp_port: form.udp_port || 0,
   }))
   if (st) {
     applyStatus(st)
@@ -740,6 +780,11 @@ onMounted(reloadAll)
 
 .err {
   color: #d54941;
+}
+
+.punch-fail {
+  text-decoration: underline dotted;
+  cursor: help;
 }
 
 .cfg-form {
