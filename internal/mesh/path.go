@@ -101,8 +101,8 @@ func classify(addr string) PathKind {
 
 // planDirect 把协调节点给的候选与手填地址排成拨号顺序（§12 P2-4）：
 // 出口 IP 相同 ⇒ lan 在前；否则 public 在前、lan 在后（仍然尝试：两边可能在同一个 VPN / 组网里）。
-// 同一组里手填地址在前（那是用户明确说过的）。只要 TCP 的 HOST / CONFIGURED 候选，
-// SRFLX / MAPPED 是 P6 打洞用的 UDP 地址。
+// 同一组里手填地址在前（那是用户明确说过的）。只要 TCP 的 HOST / CONFIGURED / MAPPED（UPnP 映射）候选，
+// UDP 的是打洞用的。
 func planDirect(cands []*meshpb.Candidate, manual []string, sameNAT bool) []dialTarget {
 	seen := map[string]bool{}
 	var lan, public []dialTarget
@@ -127,7 +127,7 @@ func planDirect(cands []*meshpb.Candidate, manual []string, sameNAT bool) []dial
 		switch c.GetKind() {
 		case meshpb.CandidateKind_CANDIDATE_KIND_HOST:
 			add(c.GetAddr(), classify(c.GetAddr()))
-		case meshpb.CandidateKind_CANDIDATE_KIND_CONFIGURED:
+		case meshpb.CandidateKind_CANDIDATE_KIND_CONFIGURED, meshpb.CandidateKind_CANDIDATE_KIND_MAPPED:
 			add(c.GetAddr(), PathPublic)
 		}
 	}
