@@ -269,6 +269,7 @@ func (m *Manager) wakeUpgrade(peer meshid.ID) {
 type punchPeer struct {
 	notBefore   time.Time         // 在此之前不再打洞
 	peerMapping meshpb.NATMapping // 对方最近一次报的 NAT 类型
+	peerMapped  bool              // 对方最近一次的候选里有 UPnP 映射
 	record      PunchRecord
 }
 
@@ -308,7 +309,9 @@ func (m *Manager) tryPunch(ctx context.Context, h *peerHandle) *pathConn {
 	skip := ""
 	if r, ok := m.hellos[h.peer]; ok && r.res != nil && !slices.Contains(r.res.Capabilities, CapPunch) {
 		skip = punchReasonOldPeer
-	} else if p.mapping() == stun.EndpointDependent && pp.peerMapping == meshpb.NATMapping_NAT_MAPPING_HARD {
+	} else if p.mapping() == stun.EndpointDependent && pp.peerMapping == meshpb.NATMapping_NAT_MAPPING_HARD &&
+		!pp.peerMapped && len(p.mapped()) == 0 {
+		// 任一方有 UPnP 映射时照打：映射出来的口子不受 NAT 类型影响。
 		skip = punchReasonBothHard
 	}
 	if skip != "" {
@@ -325,7 +328,7 @@ func (m *Manager) tryPunch(ctx context.Context, h *peerHandle) *pathConn {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if res.peerMapping != meshpb.NATMapping_NAT_MAPPING_UNKNOWN {
-		pp.peerMapping = res.peerMapping
+		pp.peerMapping, pp.peerMapped = res.peerMapping, res.peerMapped
 	}
 	if res.later {
 		pp.notBefore = time.Now().Add(m.opts.UpgradeMax)
