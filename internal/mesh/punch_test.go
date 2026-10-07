@@ -60,8 +60,9 @@ func TestOrderPunchCandidates(t *testing.T) {
 		ap("[2408:1234::5]:19194"), ap("[fd00::5]:19194"),
 	}
 	srflx := []netip.AddrPort{ap("203.0.113.9:40000"), ap("203.0.113.9:40000")}
-	got := orderPunchCandidates(host, srflx)
-	want := []string{"203.0.113.9:40000", "[2408:1234::5]:19194", "192.168.1.5:19194", "10.0.0.2:19194", "[fd00::5]:19194"}
+	mapped := []netip.AddrPort{ap("198.51.100.4:19194")}
+	got := orderPunchCandidates(host, srflx, mapped)
+	want := []string{"198.51.100.4:19194", "203.0.113.9:40000", "[2408:1234::5]:19194", "192.168.1.5:19194", "10.0.0.2:19194", "[fd00::5]:19194"}
 	if len(got) != len(want) {
 		t.Fatalf("候选个数不对：%v", got)
 	}
@@ -70,7 +71,8 @@ func TestOrderPunchCandidates(t *testing.T) {
 			t.Fatalf("第 %d 个应是 %s（UDP），得到 %v", i, want[i], got)
 		}
 	}
-	if got[0].GetKind() != meshpb.CandidateKind_CANDIDATE_KIND_SRFLX || got[1].GetKind() != meshpb.CandidateKind_CANDIDATE_KIND_HOST {
+	if got[0].GetKind() != meshpb.CandidateKind_CANDIDATE_KIND_MAPPED || got[1].GetKind() != meshpb.CandidateKind_CANDIDATE_KIND_SRFLX ||
+		got[2].GetKind() != meshpb.CandidateKind_CANDIDATE_KIND_HOST {
 		t.Fatalf("种类不对：%v", got)
 	}
 
@@ -78,7 +80,7 @@ func TestOrderPunchCandidates(t *testing.T) {
 	for i := range 20 {
 		many = append(many, netip.AddrPortFrom(netip.AddrFrom4([4]byte{10, 0, 0, byte(i + 1)}), 1))
 	}
-	if n := len(orderPunchCandidates(many, nil)); n != punchMaxCands {
+	if n := len(orderPunchCandidates(many, nil, nil)); n != punchMaxCands {
 		t.Fatalf("应截断到 %d 个，得到 %d", punchMaxCands, n)
 	}
 }

@@ -131,6 +131,13 @@ func newManager(t *testing.T, c *testCoord, version string, opts ...func(*Option
 			t.Fatal(err)
 		}
 	}
+	// UPnP 同理：默认关——测试绝不能去动开发机所在路由器的端口映射。要的用例传 withFakeUPnP。
+	if o.upnpDiscover == nil {
+		noUPnP := true
+		if _, err := UpdateConfig(dir, ConfigPatch{NoUPnP: &noUPnP}); err != nil {
+			t.Fatal(err)
+		}
+	}
 	m := New(o)
 	if err := m.Start(); err != nil {
 		t.Fatal(err)
