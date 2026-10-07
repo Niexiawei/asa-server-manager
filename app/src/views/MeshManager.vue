@@ -4,10 +4,21 @@
     <template #title>
       <div class="mesh-header">
         <span class="page-title">远程管理器</span>
+        <!-- 启停只看 mesh 自己是否在运行；有没有协调节点不影响（无协调节点时按手填地址直连） -->
         <t-tag v-if="status.running" theme="success" variant="light">运行中</t-tag>
-        <t-tag v-else-if="status.configured" theme="warning" variant="light">已配置，未运行</t-tag>
-        <t-tag v-else variant="light">未启用</t-tag>
+        <t-tag v-else-if="status.last_error" theme="danger" variant="light" :title="status.last_error">启动失败</t-tag>
+        <t-tag v-else variant="light">已停止</t-tag>
         <span class="spacer"/>
+        <t-button size="small" theme="primary" @click="lifecycle('start')" :disabled="status.running"
+                  :loading="busy.life === 'start'">启动
+        </t-button>
+        <t-popconfirm content="停止后所有远程连接断开，对方也无法再控制本机。" @confirm="lifecycle('stop')">
+          <t-button size="small" theme="danger" :disabled="!status.running" :loading="busy.life === 'stop'">停止
+          </t-button>
+        </t-popconfirm>
+        <t-button size="small" theme="warning" @click="lifecycle('restart')" :disabled="!status.running"
+                  :loading="busy.life === 'restart'">重启
+        </t-button>
         <t-button size="small" variant="outline" @click="reloadAll" :loading="loading">刷新</t-button>
       </div>
     </template>
@@ -22,19 +33,8 @@
         <h3>本机</h3>
         <div class="kv">
           <span class="k">节点 ID</span>
-          <span class="v mono">{{ status.node_id || '尚未生成（接入或启用时生成）' }}</span>
+          <span class="v mono">{{ status.node_id || '尚未生成（首次启动时生成）' }}</span>
           <t-button v-if="status.node_id" size="small" variant="text" @click="copy(status.node_id)">复制</t-button>
-        </div>
-        <div class="kv">
-          <span class="k">协调节点</span>
-          <span class="v" v-if="status.coordinator">
-            {{ status.coordinator }}
-            <t-tag size="small" :theme="status.connected ? 'success' : 'danger'" variant="light">
-              {{ status.connected ? '已连接' : '未连接' }}
-            </t-tag>
-            <span v-if="status.observed_addr" class="muted">出口地址 {{ status.observed_addr }}</span>
-          </span>
-          <span class="v muted" v-else>未接入（{{ status.enabled ? '无协调节点模式：只按手填地址直连' : '未启用' }}）</span>
         </div>
         <div class="kv">
           <span class="k">Peer 端口</span>
@@ -52,19 +52,6 @@
         <div class="kv">
           <span class="k">版本</span>
           <span class="v">{{ status.version }}</span>
-        </div>
-
-        <t-divider>接入协调节点</t-divider>
-        <div class="row">
-          <t-input v-model="joinBlob" placeholder="粘贴 asa-mesh-join:v1:... 接入串（协调节点上 asa-coordinator join-blob 输出）"
-                   clearable/>
-          <t-button theme="primary" @click="doJoin" :disabled="!joinBlob.trim()" :loading="busy.join">接入</t-button>
-          <t-popconfirm v-if="status.coordinator" content="断开协调节点并停用管理器互控？本机身份与配对关系会保留。"
-                        @confirm="doLeave">
-            <t-button theme="danger" variant="outline">断开接入</t-button>
-          </t-popconfirm>
-          <t-button v-if="!status.enabled" variant="outline" @click="doEnable(true)">启用（无协调节点）</t-button>
-          <t-button v-else-if="!status.coordinator" variant="outline" @click="doEnable(false)">停用</t-button>
         </div>
 
         <t-divider>本机设置</t-divider>
@@ -90,23 +77,101 @@
             </t-radio-group>
           </t-form-item>
           <t-form-item>
-            <t-button theme="primary" @click="saveConfig" :loading="busy.config">保存并应用</t-button>
+            <t-button theme="primary" @click="saveConfig" :loading="busy.config">保存</t-button>
           </t-form-item>
         </t-form>
       </section>
 
-      <!-- ② 我能控制的机器 -->
+      <!-- ② 协调节点：只是一项配置（保存 / 替换），与上面的启动 / 停止无关 -->
+      <section class="section">
+        <h3>协调节点</h3>
+        <template v-if="status.coordinator">
+          <div class="kv">
+            <span class="k">地址</span>
+            <span class="v mono">{{ status.coordinator }}</span>
+          </div>
+          <div class="kv">
+            <span class="k">证书指纹</span>
+            <span class="v mono">{{ status.coordinator_id }}</span>
+            <t-button v-if="status.coordinator_id" size="small" variant="text" @click="copy(status.coordinator_id)">复制
+            </t-button>
+          </div>
+          <div class="kv">
+            <span class="k">网络 ID</span>
+            <span class="v mono">{{ status.network_id || '-' }}</span>
+          </div>
+          <div class="kv">
+            <span class="k">连接</span>
+            <span class="v" v-if="status.running">
+              <t-tag size="small" :theme="status.connected ? 'success' : 'danger'" variant="light">
+                {{ status.connected ? '已连接' : '未连接' }}
+              </t-tag>
+              <span v-if="status.connected && status.since" class="muted">自 {{ fmt(status.since) }}</span>
+            </span>
+            <span class="v muted" v-else>管理器互控未启动</span>
+          </div>
+          <div class="kv" v-if="status.running && status.observed_addr">
+            <span class="k">出口地址</span>
+            <span class="v mono">{{ status.observed_addr }}</span>
+          </div>
+          <div class="kv" v-if="status.running && status.stun_addrs?.length">
+            <span class="k">STUN</span>
+            <span class="v mono">{{ status.stun_addrs.join('，') }}</span>
+          </div>
+        </template>
+        <div class="kv" v-else>
+          <span class="v muted">未设置(只按对端的手填地址直连)</span>
+        </div>
+
+        <t-divider>{{ status.coordinator ? '替换协调节点' : '设置协调节点' }}</t-divider>
+        <div class="row">
+          <t-textarea :autosize="{
+            minRows:3,
+            maxRows:6
+          }" v-model="joinBlob"
+                      placeholder="粘贴 asa-mesh-join:v1:... 接入串（协调节点上 asa-coordinator join-blob 输出）"
+                      clearable/>
+          <t-button theme="primary" @click="saveCoordinator" :disabled="!preview" :loading="busy.join">
+            {{ status.coordinator ? '替换' : '保存' }}
+          </t-button>
+        </div>
+        <div v-if="previewError" class="err">{{ previewError }}</div>
+        <div v-else-if="preview" class="preview">
+          <div class="preview-title">解析结果</div>
+          <div class="kv" v-for="row in previewRows" :key="row.k">
+            <span class="k">{{ row.k }}</span>
+            <span class="v" v-if="row.changed">
+              <span class="mono muted strike">{{ row.cur }}</span>→<span class="mono changed">{{ row.next }}</span>
+            </span>
+            <span class="v" v-else>
+              <span class="mono">{{ row.next || '-' }}</span>
+              <span v-if="status.coordinator" class="muted">（未变）</span>
+            </span>
+          </div>
+          <div class="kv">
+            <span class="k">接入密钥</span>
+            <span class="v" :class="{err: !preview.has_secret}">{{ preview.has_secret ? '已包含' : '缺失' }}</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ③ 我能控制的机器 -->
       <section class="section">
         <h3>我能控制的机器</h3>
         <div class="row">
-          <t-input v-model="pairInvite" placeholder="粘贴对方生成的邀请码 asa-mesh-invite:v1:..." clearable/>
+          <t-textarea :autosize="{
+            minRows:3,
+            maxRows:6
+          }" v-model="pairInvite" placeholder="粘贴对方生成的邀请码 asa-mesh-invite:v1:..." clearable/>
           <t-button theme="primary" @click="pairWithInvite" :disabled="!pairInvite.trim() || !status.running"
                     :loading="busy.pair">配对
           </t-button>
         </div>
         <div class="row">
-          <t-input v-model="requestNode" placeholder="或输入对方的节点 ID 发起申请（对方管理员批准后生效）" clearable/>
-          <t-input v-model="requestAddr" placeholder="可选：对方直连地址 host:port" style="max-width: 260px" clearable/>
+          <div class="submit-connection">
+            <t-input v-model="requestNode" placeholder="或输入对方的节点 ID 发起申请（对方管理员批准后生效）" clearable/>
+            <t-input v-model="requestAddr" placeholder="可选：对方直连地址 host:port" clearable/>
+          </div>
           <t-button variant="outline" @click="sendRequest" :disabled="!requestNode.trim() || !status.running"
                     :loading="busy.request">发起申请
           </t-button>
@@ -118,7 +183,8 @@
             <div class="mono muted">{{ row.short_id }}</div>
           </template>
           <template #state="{row}">
-            <t-tag v-if="row.last_error" theme="danger" variant="light" size="small" :title="row.last_error">离线</t-tag>
+            <t-tag v-if="row.last_error" theme="danger" variant="light" size="small" :title="row.last_error">离线
+            </t-tag>
             <t-tag v-else-if="row.last_hello" theme="success" variant="light" size="small">在线</t-tag>
             <t-tag v-else size="small" variant="light">未检测</t-tag>
             <span v-if="row.last_hello" class="muted">
@@ -132,7 +198,8 @@
           </template>
           <template #actions="{row}">
             <t-space size="small">
-              <t-button size="small" variant="text" @click="hello(row)" :loading="busy.hello === row.node_id">检测</t-button>
+              <t-button size="small" variant="text" @click="hello(row)" :loading="busy.hello === row.node_id">检测
+              </t-button>
               <t-button size="small" variant="text" theme="primary" :disabled="!row.remote_role"
                         @click="switchToPeer(row)">切换过去
               </t-button>
@@ -145,7 +212,7 @@
         </t-table>
       </section>
 
-      <!-- ③ 能控制本机的机器 -->
+      <!-- ④ 能控制本机的机器 -->
       <section class="section">
         <h3>能控制本机的机器</h3>
         <t-table row-key="node_id" :data="inbound" :columns="inboundColumns" size="small" bordered
@@ -190,7 +257,7 @@
         </t-table>
       </section>
 
-      <!-- ④ 邀请码 -->
+      <!-- ⑤ 邀请码 -->
       <section class="section">
         <h3>邀请码</h3>
         <div class="row">
@@ -233,7 +300,8 @@
           <t-input v-model="editForm.label"/>
         </t-form-item>
         <t-form-item label="直连地址">
-          <t-textarea v-model="editForm.addrs" :autosize="{minRows: 2}" placeholder="每行一个 host:port；没有协调节点时必填"/>
+          <t-textarea v-model="editForm.addrs" :autosize="{minRows: 2}"
+                      placeholder="每行一个 host:port；没有协调节点时必填"/>
         </t-form-item>
       </t-form>
     </t-dialog>
@@ -241,8 +309,8 @@
 </template>
 
 <script setup>
-import {computed, onMounted, reactive, ref} from 'vue'
-import {MessagePlugin} from 'tdesign-vue-next'
+import {computed, onMounted, reactive, ref, watch} from 'vue'
+import {DialogPlugin, MessagePlugin} from 'tdesign-vue-next'
 import dayjs from 'dayjs'
 import {authState} from '@/store/authStore.js'
 import {switchToPeer} from '@/utils/peerContext.js'
@@ -252,12 +320,14 @@ const PATH_TEXT = {lan: '内网直连', public: '公网直连', relay: '中转',
 const ROLE_TEXT = {admin: '管理员', operator: '操作员'}
 
 const loading = ref(false)
-const busy = reactive({join: false, config: false, pair: false, request: false, invite: false, hello: ''})
+const busy = reactive({join: false, config: false, pair: false, request: false, invite: false, hello: '', life: ''})
 const status = ref({})
 const peers = ref([])
 const requests = ref([])
 const invites = ref([])
 const joinBlob = ref('')
+const preview = ref(null)
+const previewError = ref('')
 const pairInvite = ref('')
 const requestNode = ref('')
 const requestAddr = ref('')
@@ -268,6 +338,18 @@ const newInvite = ref('')
 const editDialog = ref(false)
 const editForm = reactive({node_id: '', label: '', addrs: ''})
 const form = reactive({label: '', listen: true, peer_port: 19194, public_addrs: '', control_role: 'admin'})
+
+// 粘贴的 join blob 与当前已保存的协调节点逐项对照（已保存时才标「变化」）
+const previewRows = computed(() => {
+  const p = preview.value
+  if (!p) return []
+  const has = !!status.value.coordinator
+  return [
+    {k: '地址', cur: status.value.coordinator, next: p.addr},
+    {k: '证书指纹', cur: status.value.coordinator_id, next: p.coordinator_id},
+    {k: '网络 ID', cur: status.value.network_id, next: p.network_id},
+  ].map(r => ({...r, changed: has && r.cur !== r.next}))
+})
 
 // 出站：对方授予了本机角色，或本机发起过配对 / 手填过地址（还没拿到授权）
 const outbound = computed(() => peers.value.filter(p => p.remote_role || !p.granted_role))
@@ -352,20 +434,75 @@ async function run(key, fn, okMsg) {
   }
 }
 
-async function doJoin() {
-  const st = await run('join', () => api.joinCoordinator(joinBlob.value.trim()), '已接入')
-  if (st) {
-    joinBlob.value = ''
-    applyStatus(st)
+// 保存类接口的响应带 applied：mesh 在运行就热应用，停止时只保存、下次启动生效（不会因为改配置把它拉起来）
+function savedMessage(st) {
+  MessagePlugin.success(st.applied ? '已保存并应用' : '已保存，启动后生效')
+}
+
+// 粘贴后防抖解析：只预览，不保存。序号丢弃过期的响应（连续粘贴 / 编辑时后发先至）
+let previewSeq = 0
+let previewTimer = null
+watch(joinBlob, v => {
+  clearTimeout(previewTimer)
+  const blob = v.trim()
+  const seq = ++previewSeq
+  preview.value = null
+  previewError.value = ''
+  if (!blob) return
+  previewTimer = setTimeout(async () => {
+    try {
+      const p = await api.previewJoinBlob(blob)
+      if (seq === previewSeq) preview.value = p
+    } catch (e) {
+      if (seq === previewSeq) previewError.value = e?.message || String(e)
+    }
+  }, 300)
+})
+
+async function saveCoordinator() {
+  const doSave = async () => {
+    const st = await run('join', () => api.joinCoordinator(joinBlob.value.trim()))
+    if (st) {
+      joinBlob.value = ''
+      applyStatus(st)
+      savedMessage(st)
+    }
   }
+  if (!status.value.coordinator) return doSave()
+  const dlg = DialogPlugin.confirm({
+    header: '替换协调节点',
+    body: `替换后本机将改为登记到新的协调节点（${preview.value?.addr}）。经旧协调节点中转的连接会断开。`,
+    confirmBtn: '替换',
+    cancelBtn: '取消',
+    onConfirm: () => {
+      dlg.destroy()
+      doSave()
+    },
+  })
 }
 
-async function doLeave() {
-  applyStatus(await run('join', api.leaveCoordinator, '已断开接入'))
+// 顶部的启动 / 停止 / 重启。启动与停止会持久化启用开关（服务重启后保持）
+const LIFECYCLE = {
+  start: [api.enableMesh, '已启动'],
+  stop: [api.disableMesh, '已停止'],
+  restart: [api.restartMesh, '已重启'],
 }
 
-async function doEnable(on) {
-  applyStatus(await run('join', on ? api.enableMesh : api.disableMesh, on ? '已启用' : '已停用'))
+async function lifecycle(action) {
+  const [fn, okMsg] = LIFECYCLE[action]
+  busy.life = action
+  try {
+    applyStatus(await fn())
+    MessagePlugin.success(okMsg)
+  } catch (e) {
+    fail(e)
+    // 启动失败时状态里带着原因（顶部标签变「启动失败」）
+    applyStatus(await api.getMeshStatus().catch(() => status.value))
+  } finally {
+    busy.life = ''
+  }
+  const ps = await api.listPeers().catch(() => null)
+  if (ps) peers.value = ps
 }
 
 async function saveConfig() {
@@ -375,8 +512,11 @@ async function saveConfig() {
     peer_port: form.peer_port,
     public_addrs: lines(form.public_addrs),
     control_role: form.control_role,
-  }), '已保存并应用')
-  if (st) applyStatus(st)
+  }))
+  if (st) {
+    applyStatus(st)
+    savedMessage(st)
+  }
 }
 
 async function pairWithInvite() {
@@ -537,6 +677,14 @@ onMounted(reloadAll)
   border-radius: 8px;
   padding: 12px 16px;
 
+  .submit-connection {
+    display: flex;
+    align-items: center;
+    flex-wrap: nowrap;
+    width: 100%;
+    gap: 10px;
+  }
+
   h3 {
     margin: 0 0 10px;
     font-size: 15px;
@@ -596,6 +744,28 @@ onMounted(reloadAll)
 
 .cfg-form {
   max-width: 900px;
+}
+
+.preview {
+  margin-top: 4px;
+  padding: 8px 12px;
+  border: 1px dashed #d0d0d0;
+  border-radius: 6px;
+  background: #fff;
+
+  .preview-title {
+    font-size: 13px;
+    color: #666;
+    margin-bottom: 4px;
+  }
+
+  .strike {
+    text-decoration: line-through;
+  }
+
+  .changed {
+    color: #0052d9;
+  }
 }
 
 .dialog-actions {

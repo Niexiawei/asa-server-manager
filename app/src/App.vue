@@ -299,7 +299,7 @@ const handleTabChange = (tab) => {
     }
 
     .menu-content {
-      width: 700px;
+      width: 730px;
     }
 
     .header-middle {

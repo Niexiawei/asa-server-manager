@@ -8,13 +8,17 @@ const data = p => p.then(res => res?.data)
 /** 本机状态：节点 ID、协调节点连接、Peer 端口、候选地址、版本、control_role… */
 export const getMeshStatus = () => data(apiClient.get('/api/mesh/status'))
 
-/** 改配置（只传要改的字段）：label / peer_port / no_listen / public_addrs / control_role。保存后热应用 */
+/** 改配置（只传要改的字段）：label / peer_port / no_listen / public_addrs / control_role。运行中才热应用（看响应的 applied） */
 export const updateMeshConfig = (patch) => data(apiClient.put('/api/mesh/config', patch))
 
+/** 保存 / 替换协调节点（join blob）。不改启停：只在运行中热应用，响应的 applied 说明是否已应用 */
 export const joinCoordinator = (blob) => data(apiClient.post('/api/mesh/join', {blob}))
-export const leaveCoordinator = () => data(apiClient.post('/api/mesh/leave'))
+/** 只解析 join blob：{addr, coordinator_id, network_id, has_secret}，不保存、不含密钥 */
+export const previewJoinBlob = (blob) => data(apiClient.post('/api/mesh/join/preview', {blob}))
+/** 启动 / 停止（持久化启用开关）/ 重启 */
 export const enableMesh = () => data(apiClient.post('/api/mesh/enable'))
 export const disableMesh = () => data(apiClient.post('/api/mesh/disable'))
+export const restartMesh = () => data(apiClient.post('/api/mesh/restart'))
 
 /** 对端列表（含运行时状态：路径、最近一次 Hello） */
 export const listPeers = () => data(apiClient.get('/api/mesh/peers'))
