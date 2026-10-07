@@ -59,6 +59,8 @@ type coordClient struct {
 	// candidates 返回本机当前的候选地址（P2-3）；每次登记与每 candidateInterval 调一次。
 	candidates        func() []*meshpb.Candidate
 	candidateInterval time.Duration
+	// onNetChange 在登记成功（STUN 地址可能变了）与本机网卡地址变化时调用（P6：重测 NAT）。可为 nil。
+	onNetChange func()
 
 	mu    sync.Mutex
 	state coordState
@@ -172,6 +174,7 @@ func (c *coordClient) session(ctx context.Context) error {
 				STUNAddrs: r.GetStunAddrs(), LastError: c.state.LastError, LastErrorAt: c.state.LastErrorAt}
 			c.mu.Unlock()
 			logger.Infof("[mesh] 已登记到协调节点 %s，出口地址 %s", c.cfg.Addr, r.GetObservedAddr())
+			c.netChanged()
 		case *meshpb.CoordMessage_IncomingRelay:
 			go c.acceptRelay(ctx, msg.IncomingRelay)
 		case *meshpb.CoordMessage_Kicked:
@@ -252,5 +255,12 @@ func (c *coordClient) reportCandidates(ctx context.Context, stream meshpb.Coordi
 		}
 		logger.Infof("[mesh] 本机候选地址变化，已上报：%v", candidateAddrs(now))
 		last = now
+		c.netChanged()
+	}
+}
+
+func (c *coordClient) netChanged() {
+	if c.onNetChange != nil {
+		c.onNetChange()
 	}
 }

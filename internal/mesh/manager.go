@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/netip"
 	"slices"
 	"strconv"
 	"sync"
@@ -19,6 +20,7 @@ import (
 	"asa-server/pkg/logger"
 	"asa-server/pkg/meshid"
 	"asa-server/pkg/meshjoin"
+	"asa-server/pkg/stun"
 )
 
 // AppVersion 是本程序的版本，随 Register 与 Hello 交换。由 main 在启动时设置。
@@ -37,10 +39,18 @@ type Options struct {
 	CandidateInterval time.Duration
 	// ListenAddr 覆盖 Peer 端口的监听地址（测试用 127.0.0.1:0）；空 = ":<peer_port>"。
 	ListenAddr string
+	// UDPListenAddr 覆盖打洞用 UDP 端口的绑定地址（测试用 127.0.0.1:0）；空 = ":<udp_port>"。
+	UDPListenAddr string
 
 	// 以下只给包内测试用。
 	wrapListener    func(net.Listener) net.Listener
 	localCandidates func(listenPort int) []*meshpb.Candidate
+	// wrapPacketConn 包住打洞用的 UDP socket（模拟 NAT 的过滤）。
+	wrapPacketConn func(net.PacketConn) net.PacketConn
+	// localUDP 替换本机 UDP 候选的枚举（真实枚举会过滤掉回环地址）。
+	localUDP func(port int) []netip.AddrPort
+	// punchMinInterval 是同一对端两次打洞的最小间隔，默认 30 秒。
+	punchMinInterval time.Duration
 }
 
 // Manager 是管理器互控的运行时。照 frpmanage 的形态：包级单例 + 可直接 New（测试用）。
@@ -57,7 +67,9 @@ type Manager struct {
 	cert        tls.Certificate
 	coord       *coordClient
 	peerSrv     *grpc.Server
-	relayLn     *relayListener
+	relayLn     *injectListener
+	punch       *puncher
+	punchPeers  map[meshid.ID]*punchPeer
 	listenAddr  string
 	listenErr   error
 	candidates  func() []*meshpb.Candidate
@@ -70,6 +82,7 @@ type Manager struct {
 	hellos      map[meshid.ID]helloRecord
 	httpHandler http.Handler
 	startErr    error
+	punchErr    error
 }
 
 var errCannotDialSelf = errors.New("不能连接自己")
@@ -90,6 +103,9 @@ func New(opts Options) *Manager {
 	}
 	if opts.CandidateInterval <= 0 {
 		opts.CandidateInterval = time.Minute
+	}
+	if opts.punchMinInterval <= 0 {
+		opts.punchMinInterval = defaultPunchMinInterval
 	}
 	m := &Manager{opts: opts, store: OpenPeerStore(opts.Dir)}
 	m.store.OnGrantsChanged(m.onGrantsChanged)
@@ -159,8 +175,8 @@ func (m *Manager) Start() error {
 	tunnel.setHandler(m.httpHandler)
 	svc := newPeerService(m.opts.Version, m.label, m.store, tunnel)
 	peerSrv := newPeerServer(credentials.NewTLS(meshid.AnyClientServerConfig(cert)), m.store, reg, svc)
-	relayLn := newRelayListener()
-	go serveListener(peerSrv, relayLn, "中转")
+	relayLn := newInjectListener()
+	go serveListener(peerSrv, relayLn, "中转 / 打洞")
 
 	// Peer 端口（D7：默认监听）。绑不上不让整个 mesh 起不来：记下来、退化为只走中转（§12 P2-3）。
 	listenPort, listenAddr := 0, ""
@@ -201,6 +217,18 @@ func (m *Manager) Start() error {
 			m.startErr = err
 			return err
 		}
+	}
+	// 打洞（§12 P6）：要协调节点（信令走中转、地址发现靠它的 STUN）。UDP 绑不上不致命，失败才放弃打洞。
+	var punch *puncher
+	var punchErr error
+	if coord != nil && !cfg.NoPunch {
+		punch, punchErr = m.startPuncher(ctx, cfg, cert, id, coord, relayLn)
+		if punchErr != nil {
+			logger.Warnf("[mesh] 打洞不可用：%v", punchErr)
+		}
+		svc.punch.Store(punch)
+	}
+	if coord != nil {
 		go coord.run(ctx)
 	}
 	direct := &directProvider{cert: cert, coord: coord, store: m.store, stagger: happyStagger, budget: happyBudget}
@@ -214,6 +242,7 @@ func (m *Manager) Start() error {
 	m.ctx, m.cancel, m.coord, m.peerSrv, m.relayLn = ctx, cancel, coord, peerSrv, relayLn
 	m.listenAddr, m.listenErr, m.candidates = listenAddr, listenErr, candidates
 	m.reg, m.tunnel, m.direct, m.providers = reg, tunnel, direct, providers
+	m.punch, m.punchErr, m.punchPeers = punch, punchErr, map[meshid.ID]*punchPeer{}
 	m.peers = map[meshid.ID]*peerHandle{}
 	m.lastPath = map[meshid.ID]PathKind{}
 	m.hellos = map[meshid.ID]helloRecord{}
@@ -229,6 +258,31 @@ func (m *Manager) Start() error {
 	}
 	logger.Infof("[mesh] 已启动：本机 %s，%s，%s", id.Short(), where, listen)
 	return nil
+}
+
+// startPuncher 绑 UDP、建 QUIC 监听、起分发 / 接受 / 地址发现三个循环，并让协调节点的登记与网卡变化触发重测 NAT。
+func (m *Manager) startPuncher(ctx context.Context, cfg *Config, cert tls.Certificate, id meshid.ID,
+	coord *coordClient, inject *injectListener) (*puncher, error) {
+	addr := m.opts.UDPListenAddr
+	if addr == "" {
+		addr = ":" + strconv.Itoa(cfg.UDPListenPort())
+	}
+	mux, bindErr, err := openUDP(addr, m.opts.wrapPacketConn)
+	if err != nil {
+		return nil, err
+	}
+	if bindErr != nil {
+		logger.Warnf("[mesh] %v", bindErr)
+	}
+	p, err := newPuncher(mux, bindErr, cert, id, func(c net.Conn) { inject.deliver(c) },
+		func() []string { return coord.snapshot().STUNAddrs }, m.opts.localUDP)
+	if err != nil {
+		mux.close()
+		return nil, err
+	}
+	coord.onNetChange = p.kick
+	p.start(ctx)
+	return p, nil
 }
 
 func serveListener(gs *grpc.Server, ln net.Listener, what string) {
@@ -281,8 +335,9 @@ func (m *Manager) Stop() error {
 		m.mu.Unlock()
 		return nil
 	}
-	cancel, peers, peerSrv, relayLn, coord := m.cancel, m.peers, m.peerSrv, m.relayLn, m.coord
+	cancel, peers, peerSrv, relayLn, coord, punch := m.cancel, m.peers, m.peerSrv, m.relayLn, m.coord, m.punch
 	m.running = false
+	m.punch, m.punchErr, m.punchPeers = nil, nil, nil
 	m.peers, m.coord, m.peerSrv, m.relayLn, m.lastPath, m.reg, m.tunnel = nil, nil, nil, nil, nil, nil, nil
 	m.direct, m.providers = nil, nil
 	m.mu.Unlock()
@@ -291,6 +346,9 @@ func (m *Manager) Stop() error {
 	cancel()
 	for _, h := range peers {
 		h.forceClose()
+	}
+	if punch != nil {
+		punch.close()
 	}
 	peerSrv.Stop()
 	relayLn.Close()
@@ -342,28 +400,42 @@ func (m *Manager) ControlRole() string {
 
 // Status 是 GET /api/mesh/status 的内容。
 type Status struct {
-	Configured    bool      `json:"configured"`
-	Enabled       bool      `json:"enabled"`
-	Running       bool      `json:"running"`
-	NodeID        string    `json:"node_id"`
-	Label         string    `json:"label"`
-	Version       string    `json:"version"`
-	Coordinator   string    `json:"coordinator,omitempty"`
-	CoordinatorID string    `json:"coordinator_id,omitempty"` // 协调节点证书指纹（连接时钉住它）
-	NetworkID     string    `json:"network_id,omitempty"`
-	Connected     bool      `json:"connected"`
-	Since         time.Time `json:"since,omitzero"`
-	Observed      string    `json:"observed_addr,omitempty"`
-	STUNAddrs     []string  `json:"stun_addrs"`
-	PeerPort      int       `json:"peer_port"`
-	NoListen      bool      `json:"no_listen"`
-	PublicAddrs   []string  `json:"public_addrs"`
-	ListenAddr    string    `json:"listen_addr,omitempty"`
-	ListenError   string    `json:"listen_error,omitempty"`
-	Candidates    []string  `json:"candidates"`
-	ControlRole   string    `json:"control_role"`
-	LastError     string    `json:"last_error,omitempty"`
-	LastErrorAt   time.Time `json:"last_error_at,omitzero"`
+	Configured    bool        `json:"configured"`
+	Enabled       bool        `json:"enabled"`
+	Running       bool        `json:"running"`
+	NodeID        string      `json:"node_id"`
+	Label         string      `json:"label"`
+	Version       string      `json:"version"`
+	Coordinator   string      `json:"coordinator,omitempty"`
+	CoordinatorID string      `json:"coordinator_id,omitempty"` // 协调节点证书指纹（连接时钉住它）
+	NetworkID     string      `json:"network_id,omitempty"`
+	Connected     bool        `json:"connected"`
+	Since         time.Time   `json:"since,omitzero"`
+	Observed      string      `json:"observed_addr,omitempty"`
+	STUNAddrs     []string    `json:"stun_addrs"`
+	PeerPort      int         `json:"peer_port"`
+	NoListen      bool        `json:"no_listen"`
+	PublicAddrs   []string    `json:"public_addrs"`
+	ListenAddr    string      `json:"listen_addr,omitempty"`
+	ListenError   string      `json:"listen_error,omitempty"`
+	Candidates    []string    `json:"candidates"`
+	ControlRole   string      `json:"control_role"`
+	UDPPort       int         `json:"udp_port"` // 配置值，0 = 同 Peer 端口
+	NoPunch       bool        `json:"no_punch"`
+	Punch         PunchStatus `json:"punch"`
+	LastError     string      `json:"last_error,omitempty"`
+	LastErrorAt   time.Time   `json:"last_error_at,omitzero"`
+}
+
+// PunchStatus 是状态里的打洞一节（§12 P6-7）。只在运行中且打洞可用时 Active。
+type PunchStatus struct {
+	Active    bool      `json:"active"`
+	UDPAddr   string    `json:"udp_addr,omitempty"`
+	UDPError  string    `json:"udp_error,omitempty"`
+	Mapping   string    `json:"mapping"` // none / easy / hard / unknown
+	Srflx     []string  `json:"srflx"`
+	CheckedAt time.Time `json:"checked_at,omitzero"`
+	Error     string    `json:"error,omitempty"`
 }
 
 func (st *Status) fillConfig(cfg *Config) {
@@ -373,6 +445,8 @@ func (st *Status) fillConfig(cfg *Config) {
 	st.NoListen = cfg.NoListen
 	st.PublicAddrs = append([]string{}, cfg.PublicAddrs...)
 	st.ControlRole = cfg.EffectiveControlRole()
+	st.UDPPort = cfg.UDPPort
+	st.NoPunch = cfg.NoPunch
 	if cfg.Coordinator != nil {
 		st.Coordinator = cfg.Coordinator.Addr
 		st.CoordinatorID = cfg.Coordinator.ID.String()
@@ -385,7 +459,8 @@ func (m *Manager) Status() Status {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	st := Status{Running: m.running, STUNAddrs: []string{}, Candidates: []string{}, PublicAddrs: []string{},
-		PeerPort: DefaultPeerPort, ControlRole: RoleAdmin, Version: m.opts.Version}
+		PeerPort: DefaultPeerPort, ControlRole: RoleAdmin, Version: m.opts.Version,
+		Punch: PunchStatus{Mapping: mappingName(stun.MappingUnknown), Srflx: []string{}}}
 	if m.running {
 		st.Configured = true
 		st.NodeID = m.id.String()
@@ -402,6 +477,11 @@ func (m *Manager) Status() Status {
 				st.STUNAddrs = cs.STUNAddrs
 			}
 			st.LastError, st.LastErrorAt = cs.LastError, cs.LastErrorAt
+		}
+		if m.punch != nil {
+			st.Punch = m.punch.status()
+		} else if m.punchErr != nil {
+			st.Punch.Error = m.punchErr.Error()
 		}
 		return st
 	}
@@ -470,6 +550,9 @@ func (m *Manager) Hello(ctx context.Context, peer meshid.ID) (*HelloResult, erro
 		if err := m.store.RecordRemote(peer, role, resp.GetLabel(), resp.GetVersion(), nil); err != nil {
 			logger.Warnf("[mesh] 记录 %s 的回答失败: %v", peer.Short(), err)
 		}
+	}
+	if role != "" {
+		m.wakeUpgrade(peer)
 	}
 	return res, nil
 }
@@ -549,6 +632,9 @@ func (m *Manager) pair(ctx context.Context, peer meshid.ID, req *meshpb.PairRequ
 	if err := m.store.RecordRemote(peer, role, resp.GetLabel(), "", nil); err != nil {
 		return nil, err
 	}
+	if role != "" {
+		m.wakeUpgrade(peer)
+	}
 	return res, nil
 }
 
@@ -587,6 +673,7 @@ type PeerView struct {
 	LastHello   *HelloResult `json:"last_hello,omitempty"`
 	LastError   string       `json:"last_error,omitempty"`
 	LastCheckAt time.Time    `json:"last_check_at,omitzero"`
+	LastPunch   *PunchRecord `json:"last_punch,omitempty"`
 }
 
 // Peers 返回所有对端（含运行时状态）。
@@ -608,6 +695,10 @@ func (m *Manager) Peers() ([]PeerView, error) {
 		}
 		if r, ok := m.hellos[p.NodeID]; ok {
 			v.LastHello, v.LastError, v.LastCheckAt = r.res, r.err, r.at
+		}
+		if pp := m.punchPeers[p.NodeID]; pp != nil && !pp.record.At.IsZero() {
+			rec := pp.record
+			v.LastPunch = &rec
 		}
 		out = append(out, v)
 	}
