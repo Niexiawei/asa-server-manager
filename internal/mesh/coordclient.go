@@ -61,6 +61,8 @@ type coordClient struct {
 	candidateInterval time.Duration
 	// onNetChange 在登记成功（STUN 地址可能变了）与本机网卡地址变化时调用（P6：重测 NAT）。可为 nil。
 	onNetChange func()
+	// candKick 让候选上报立即检查一次（UPnP 映射出来的地址变了，不等下一个 candidateInterval）。
+	candKick chan struct{}
 
 	mu    sync.Mutex
 	state coordState
@@ -79,7 +81,7 @@ func newCoordClient(cfg CoordinatorConfig, cert tls.Certificate, self meshid.ID,
 	return &coordClient{
 		cfg: cfg, self: self, version: version, label: label, backoffMin: backoffMin,
 		conn: conn, client: meshpb.NewCoordinatorClient(conn), onIncoming: onIncoming,
-		candidates: candidates, candidateInterval: candidateInterval,
+		candidates: candidates, candidateInterval: candidateInterval, candKick: make(chan struct{}, 1),
 	}, nil
 }
 
@@ -239,10 +241,13 @@ func (c *coordClient) reportCandidates(ctx context.Context, stream meshpb.Coordi
 	t := time.NewTicker(c.candidateInterval)
 	defer t.Stop()
 	for {
+		kicked := false
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
+		case <-c.candKick:
+			kicked = true
 		}
 		now := c.candidates()
 		if sameCandidates(now, last) {
@@ -255,7 +260,17 @@ func (c *coordClient) reportCandidates(ctx context.Context, stream meshpb.Coordi
 		}
 		logger.Infof("[mesh] 本机候选地址变化，已上报：%v", candidateAddrs(now))
 		last = now
-		c.netChanged()
+		if !kicked { // 自己触发的上报（UPnP 映射变了）不算网卡变化
+			c.netChanged()
+		}
+	}
+}
+
+// candidatesChanged 请求立即重新上报候选（非阻塞）。
+func (c *coordClient) candidatesChanged() {
+	select {
+	case c.candKick <- struct{}{}:
+	default:
 	}
 }
 
