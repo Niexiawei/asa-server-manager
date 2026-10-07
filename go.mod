@@ -22,6 +22,7 @@ require (
 	github.com/klauspost/compress v1.19.2
 	github.com/mattn/go-runewidth v0.0.29
 	github.com/pquerna/otp v1.5.0
+	github.com/quic-go/quic-go v0.62.0
 	github.com/shirou/gopsutil/v4 v4.26.8
 	github.com/spf13/viper v1.21.0
 	github.com/urfave/cli/v3 v3.11.0
@@ -107,7 +108,6 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/power-devops/perfstat v0.0.0-20260805114148-88456608a4f6 // indirect
 	github.com/quic-go/qpack v0.6.0 // indirect
-	github.com/quic-go/quic-go v0.62.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/rymdport/portal v0.4.2 // indirect
 	github.com/sagikazarmark/locafero v0.12.0 // indirect
