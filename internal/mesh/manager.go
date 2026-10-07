@@ -21,6 +21,7 @@ import (
 	"asa-server/pkg/meshid"
 	"asa-server/pkg/meshjoin"
 	"asa-server/pkg/stun"
+	"asa-server/pkg/upnp"
 )
 
 // AppVersion 是本程序的版本，随 Register 与 Hello 交换。由 main 在启动时设置。
@@ -51,6 +52,9 @@ type Options struct {
 	localUDP func(port int) []netip.AddrPort
 	// punchMinInterval 是同一对端两次打洞的最小间隔，默认 30 秒。
 	punchMinInterval time.Duration
+	// upnpDiscover 替换 SSDP 发现（测试直接给假网关）；upnpAllowNonPublic 让回环 WAN 地址算有效。
+	upnpDiscover       func(ctx context.Context) []*upnp.Gateway
+	upnpAllowNonPublic bool
 }
 
 // Manager 是管理器互控的运行时。照 frpmanage 的形态：包级单例 + 可直接 New（测试用）。
@@ -69,6 +73,7 @@ type Manager struct {
 	peerSrv     *grpc.Server
 	relayLn     *injectListener
 	punch       *puncher
+	upnp        *portMapper
 	punchPeers  map[meshid.ID]*punchPeer
 	listenAddr  string
 	listenErr   error
@@ -199,12 +204,24 @@ func (m *Manager) Start() error {
 			go serveListener(peerSrv, ln, "Peer 端口")
 		}
 	}
-	candidates := func() []*meshpb.Candidate {
+	baseCandidates := func() []*meshpb.Candidate {
 		return buildCandidates(systemInterfaces(), listenPort, cfg.PublicAddrs)
 	}
 	if m.opts.localCandidates != nil {
 		hook := m.opts.localCandidates
-		candidates = func() []*meshpb.Candidate { return hook(listenPort) }
+		baseCandidates = func() []*meshpb.Candidate { return hook(listenPort) }
+	}
+	// pm（UPnP）在下面才建，但一定早于任何人调用 candidates（coord.run 与 m.running 都在它之后）。
+	var pm *portMapper
+	candidates := func() []*meshpb.Candidate {
+		out := baseCandidates()
+		if pm != nil {
+			for _, ap := range pm.mapped(upnp.TCP) {
+				out = append(out, &meshpb.Candidate{Transport: meshpb.Transport_TRANSPORT_TCP,
+					Kind: meshpb.CandidateKind_CANDIDATE_KIND_MAPPED, Addr: ap.String()})
+			}
+		}
+		return out
 	}
 
 	var coord *coordClient
@@ -222,11 +239,55 @@ func (m *Manager) Start() error {
 	var punch *puncher
 	var punchErr error
 	if coord != nil && !cfg.NoPunch {
-		punch, punchErr = m.startPuncher(ctx, cfg, cert, id, coord, relayLn)
+		punch, punchErr = m.newPuncher(cfg, cert, id, coord, relayLn)
 		if punchErr != nil {
 			logger.Warnf("[mesh] 打洞不可用：%v", punchErr)
 		}
+	}
+	// UPnP（§12「P6 补充」）：映射 Peer 端口（监听时）与打洞端口（打洞可用时）。不要求协调节点——
+	// 无协调节点模式下映射出来的 TCP 地址照样进邀请码。
+	if !cfg.NoUPnP {
+		var reqs []portReq
+		if listenPort > 0 {
+			reqs = append(reqs, portReq{upnp.TCP, listenPort})
+		}
+		if punch != nil {
+			reqs = append(reqs, portReq{upnp.UDP, punch.mux.port})
+		}
+		if len(reqs) > 0 {
+			var srflx func() []netip.Addr
+			if punch != nil {
+				srflx = punch.srflxIPs
+			}
+			onChange := func() {}
+			if coord != nil {
+				onChange = coord.candidatesChanged
+			}
+			pm = newPortMapper(id, reqs, m.opts.upnpDiscover, srflx, onChange)
+			pm.allowNonPublic = m.opts.upnpAllowNonPublic
+		}
+	}
+	// 接线必须在任何 goroutine 启动之前完成（这些字段之后只读）。
+	if coord != nil {
+		coord.onNetChange = func() {
+			if punch != nil {
+				punch.kick()
+			}
+			if pm != nil {
+				pm.kick()
+			}
+		}
+	}
+	if punch != nil {
+		if pm != nil {
+			punch.mappedUDP = func() []netip.AddrPort { return pm.mapped(upnp.UDP) }
+			punch.onNATChange = pm.kick
+		}
+		punch.start(ctx)
 		svc.punch.Store(punch)
+	}
+	if pm != nil {
+		go pm.run(ctx)
 	}
 	if coord != nil {
 		go coord.run(ctx)
@@ -243,6 +304,7 @@ func (m *Manager) Start() error {
 	m.listenAddr, m.listenErr, m.candidates = listenAddr, listenErr, candidates
 	m.reg, m.tunnel, m.direct, m.providers = reg, tunnel, direct, providers
 	m.punch, m.punchErr, m.punchPeers = punch, punchErr, map[meshid.ID]*punchPeer{}
+	m.upnp = pm
 	m.peers = map[meshid.ID]*peerHandle{}
 	m.lastPath = map[meshid.ID]PathKind{}
 	m.hellos = map[meshid.ID]helloRecord{}
@@ -260,8 +322,8 @@ func (m *Manager) Start() error {
 	return nil
 }
 
-// startPuncher 绑 UDP、建 QUIC 监听、起分发 / 接受 / 地址发现三个循环，并让协调节点的登记与网卡变化触发重测 NAT。
-func (m *Manager) startPuncher(ctx context.Context, cfg *Config, cert tls.Certificate, id meshid.ID,
+// newPuncher 绑 UDP、建 QUIC 监听。循环由调用方在接好钩子之后 start。
+func (m *Manager) newPuncher(cfg *Config, cert tls.Certificate, id meshid.ID,
 	coord *coordClient, inject *injectListener) (*puncher, error) {
 	addr := m.opts.UDPListenAddr
 	if addr == "" {
@@ -280,8 +342,6 @@ func (m *Manager) startPuncher(ctx context.Context, cfg *Config, cert tls.Certif
 		mux.close()
 		return nil, err
 	}
-	coord.onNetChange = p.kick
-	p.start(ctx)
 	return p, nil
 }
 
@@ -335,9 +395,9 @@ func (m *Manager) Stop() error {
 		m.mu.Unlock()
 		return nil
 	}
-	cancel, peers, peerSrv, relayLn, coord, punch := m.cancel, m.peers, m.peerSrv, m.relayLn, m.coord, m.punch
+	cancel, peers, peerSrv, relayLn, coord, punch, pm := m.cancel, m.peers, m.peerSrv, m.relayLn, m.coord, m.punch, m.upnp
 	m.running = false
-	m.punch, m.punchErr, m.punchPeers = nil, nil, nil
+	m.punch, m.punchErr, m.punchPeers, m.upnp = nil, nil, nil, nil
 	m.peers, m.coord, m.peerSrv, m.relayLn, m.lastPath, m.reg, m.tunnel = nil, nil, nil, nil, nil, nil, nil
 	m.direct, m.providers = nil, nil
 	m.mu.Unlock()
@@ -346,6 +406,9 @@ func (m *Manager) Stop() error {
 	cancel()
 	for _, h := range peers {
 		h.forceClose()
+	}
+	if pm != nil {
+		pm.close() // 删除路由器上的映射（最多 2 秒）
 	}
 	if punch != nil {
 		punch.close()
@@ -423,6 +486,8 @@ type Status struct {
 	UDPPort       int         `json:"udp_port"` // 配置值，0 = 同 Peer 端口
 	NoPunch       bool        `json:"no_punch"`
 	Punch         PunchStatus `json:"punch"`
+	NoUPnP        bool        `json:"no_upnp"`
+	UPnP          UPnPStatus  `json:"upnp"`
 	LastError     string      `json:"last_error,omitempty"`
 	LastErrorAt   time.Time   `json:"last_error_at,omitzero"`
 }
@@ -447,6 +512,7 @@ func (st *Status) fillConfig(cfg *Config) {
 	st.ControlRole = cfg.EffectiveControlRole()
 	st.UDPPort = cfg.UDPPort
 	st.NoPunch = cfg.NoPunch
+	st.NoUPnP = cfg.NoUPnP
 	if cfg.Coordinator != nil {
 		st.Coordinator = cfg.Coordinator.Addr
 		st.CoordinatorID = cfg.Coordinator.ID.String()
@@ -460,7 +526,8 @@ func (m *Manager) Status() Status {
 	defer m.mu.Unlock()
 	st := Status{Running: m.running, STUNAddrs: []string{}, Candidates: []string{}, PublicAddrs: []string{},
 		PeerPort: DefaultPeerPort, ControlRole: RoleAdmin, Version: m.opts.Version,
-		Punch: PunchStatus{Mapping: mappingName(stun.MappingUnknown), Srflx: []string{}}}
+		Punch: PunchStatus{Mapping: mappingName(stun.MappingUnknown), Srflx: []string{}},
+		UPnP:  UPnPStatus{State: upnpStopped, Mappings: []UPnPMapping{}}}
 	if m.running {
 		st.Configured = true
 		st.NodeID = m.id.String()
@@ -483,6 +550,14 @@ func (m *Manager) Status() Status {
 		} else if m.punchErr != nil {
 			st.Punch.Error = m.punchErr.Error()
 		}
+		switch {
+		case m.upnp != nil:
+			st.UPnP = m.upnp.status()
+		case m.cfg.NoUPnP:
+			st.UPnP.State = upnpDisabled
+		default:
+			st.UPnP.State, st.UPnP.Error = upnpDisabled, "没有需要映射的端口（不监听 Peer 端口，也没有开打洞）"
+		}
 		return st
 	}
 	if id, ok := ExistingIdentity(m.opts.Dir); ok {
@@ -491,6 +566,9 @@ func (m *Manager) Status() Status {
 	if cfg, err := readConfig(m.opts.Dir); cfg != nil && (err == nil || errors.Is(err, ErrNotConfigured)) {
 		st.fillConfig(cfg)
 		st.Configured = err == nil && (cfg.Enabled || cfg.Coordinator != nil)
+		if cfg.NoUPnP {
+			st.UPnP.State = upnpDisabled
+		}
 	}
 	if m.startErr != nil && !errors.Is(m.startErr, ErrNotConfigured) {
 		st.LastError = m.startErr.Error()
