@@ -44,6 +44,8 @@ func (h *Handler) RegisterRouter(r *gin.Engine) {
 	admin := g.Group("", authapi.RequireAdmin())
 	admin.PUT("/config", h.updateConfig)
 	admin.POST("/join", h.join)
+	admin.POST("/join/preview", h.previewJoin)
+	admin.POST("/restart", h.restart)
 	admin.POST("/leave", h.leave)
 	admin.POST("/enable", h.enable)
 	admin.POST("/disable", h.disable)
@@ -136,6 +138,21 @@ func apply(m *mesh.Manager) error {
 	return nil
 }
 
+// applyIfRunning 只在 mesh 正在运行时热应用：改配置不是启动 mesh 的理由（启停由页面顶部单独控制）。
+// 返回是否应用了。
+func applyIfRunning(m *mesh.Manager) (bool, error) {
+	if !m.Running() {
+		return false, nil
+	}
+	return true, apply(m)
+}
+
+// savedStatus 是「保存配置」类接口的响应：状态 + 这次保存是否已热应用（false = 下次启动时生效）。
+type savedStatus struct {
+	mesh.Status
+	Applied bool `json:"applied"`
+}
+
 func (h *Handler) status(c *gin.Context) {
 	if m := manager(c); m != nil {
 		ok(c, m.Status())
@@ -156,11 +173,12 @@ func (h *Handler) updateConfig(c *gin.Context) {
 		fail(c, http.StatusBadRequest, err)
 		return
 	}
-	if err := apply(m); err != nil {
+	applied, err := applyIfRunning(m)
+	if err != nil {
 		fail(c, http.StatusInternalServerError, err)
 		return
 	}
-	ok(c, m.Status())
+	ok(c, savedStatus{Status: m.Status(), Applied: applied})
 }
 
 func (h *Handler) join(c *gin.Context) {
@@ -175,11 +193,55 @@ func (h *Handler) join(c *gin.Context) {
 		fail(c, http.StatusBadRequest, err)
 		return
 	}
-	if _, err := mesh.Join(m.Dir(), req.Blob); err != nil {
+	// 只保存协调节点，不改启用开关（CLI 的 mesh join 才会顺带启用）。
+	if _, err := mesh.SetCoordinator(m.Dir(), req.Blob); err != nil {
 		fail(c, http.StatusBadRequest, err)
 		return
 	}
-	if err := apply(m); err != nil {
+	applied, err := applyIfRunning(m)
+	if err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	ok(c, savedStatus{Status: m.Status(), Applied: applied})
+}
+
+// joinPreview 是 POST /api/mesh/join/preview 的响应：解析出的协调节点信息。**不含网络密钥**。
+type joinPreview struct {
+	Addr          string `json:"addr"`
+	CoordinatorID string `json:"coordinator_id"`
+	NetworkID     string `json:"network_id"`
+	HasSecret     bool   `json:"has_secret"`
+}
+
+// previewJoin 只解析 join blob，不写盘、不连接。
+func (h *Handler) previewJoin(c *gin.Context) {
+	var req struct {
+		Blob string `json:"blob"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	j, err := meshjoin.ParseJoinBlob(req.Blob)
+	if err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	ok(c, joinPreview{Addr: j.Addr, CoordinatorID: j.Coordinator.String(), NetworkID: j.NetworkID, HasSecret: j.NetworkSecret != ""})
+}
+
+// restart 重启正在使用的 mesh（重新读取配置）。未启用时拒绝：启动走 /enable。
+func (h *Handler) restart(c *gin.Context) {
+	m := manager(c)
+	if m == nil {
+		return
+	}
+	if err := m.Reload(); err != nil {
+		if errors.Is(err, mesh.ErrNotConfigured) {
+			fail(c, http.StatusBadRequest, errors.New("管理器互控未启动"))
+			return
+		}
 		fail(c, http.StatusInternalServerError, err)
 		return
 	}
