@@ -42,9 +42,11 @@ type testCoord struct {
 	blob  string
 	gs    *grpc.Server
 	srv   *meshcoord.Server
+	// stunAddrs 是下发给管理器的 STUN 地址；默认是一个没人监听的假地址。
+	stunAddrs []string
 }
 
-func newTestCoord(t *testing.T) *testCoord {
+func newTestCoord(t *testing.T, opts ...func(*testCoord)) *testCoord {
 	t.Helper()
 	store, err := meshcoord.OpenStore(t.TempDir())
 	if err != nil {
@@ -59,7 +61,10 @@ func newTestCoord(t *testing.T) *testCoord {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := &testCoord{t: t, addr: "127.0.0.1:0", cert: cert, id: id, store: store}
+	c := &testCoord{t: t, addr: "127.0.0.1:0", cert: cert, id: id, store: store, stunAddrs: []string{"127.0.0.1:3478"}}
+	for _, f := range opts {
+		f(c)
+	}
 	c.start()
 	c.blob, err = meshjoin.JoinBlob{Addr: c.addr, Coordinator: id, NetworkID: n.ID, NetworkSecret: n.Secret}.Encode()
 	if err != nil {
@@ -84,7 +89,7 @@ func (c *testCoord) start() {
 		c.t.Fatal(err)
 	}
 	c.addr = lis.Addr().String()
-	c.srv = meshcoord.NewServer(meshcoord.ServerOptions{Store: c.store, STUNAddrs: []string{"127.0.0.1:3478"}})
+	c.srv = meshcoord.NewServer(meshcoord.ServerOptions{Store: c.store, STUNAddrs: c.stunAddrs})
 	c.gs = meshcoord.NewGRPCServer(c.cert, c.srv)
 	go c.gs.Serve(lis)
 }
@@ -116,6 +121,13 @@ func newManager(t *testing.T, c *testCoord, version string, opts ...func(*Option
 	if o.ListenAddr == "" {
 		noListen := true
 		if _, err := UpdateConfig(dir, ConfigPatch{NoListen: &noListen}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// 打洞同理：默认关（不绑 UDP），要打洞的用例传 withPunch。
+	if o.UDPListenAddr == "" {
+		noPunch := true
+		if _, err := UpdateConfig(dir, ConfigPatch{NoPunch: &noPunch}); err != nil {
 			t.Fatal(err)
 		}
 	}
