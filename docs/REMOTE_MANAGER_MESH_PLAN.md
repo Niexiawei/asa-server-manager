@@ -8,6 +8,7 @@
 > **P6 打洞代码已完成（2026-10-07，同一分支，未提交）**：信令走中转路径上的 Peer gRPC，协调节点零改动；自动化测试两个平台通过、真实二进制回环冒烟通过，
 > 真机（家宽 NAT）验收待做（§14.6）——见 §12「P6 实施记录」。
 > 协调节点 Web 界面不做（只保留 CLI）；中转流量统计移到 **P7**（规划待批准）。
+> 穿透手段定为 **打洞 / UPnP / 回落中转**：反向直连与 NAT-PMP / PCP 不做；UPnP **代码已完成（2026-10-07，未提交）**，见 §12「UPnP 实施记录」。
 > **所有需要人工验证的项目集中在 §14**（环境搭建、逐项步骤与判据、验证记录表）。
 > D4（打洞）本期不做，技术方案已定在 §5.6；**例外：协调节点的 STUN 端点本期先实现**（2026-10-05，细化见 §12「P1-8」）。
 > D6（多网络）选 B「数据模型预留」，见 §8.4。
@@ -1458,8 +1459,8 @@ A 再点取消**不影响** B 的定时批量；V5-7 用 P4 版本的二进制�
 - [x] 打洞（按 §5.6 的方案：UDP socket + `quic.Transport`、用 `Registered.stun_addrs` 做地址发现、信令与探测、`punched` 路径）。
       **代码完成 2026-10-07**，真机验收见 §14.6。
       协调节点的 STUN 端点已在 P1-8 完成，P6 不需要升级协调节点。
-- [ ] 反向直连（§5.3）：**已评估（2026-10-07，见下文「反向直连评估」）**——建议先只做「本机有公网地址但 UDP 未放行」的提示，等 P7 统计与真机打洞数据再决定是否实施。
-- [ ] UPnP / NAT-PMP / PCP 端口映射（`mapped` 候选）：同上，打洞实测数据回填 §5.6.4 后再定。
+- [ ] ~~反向直连（§5.3）~~ ❌ **不做**（2026-10-07，评估见下文「反向直连评估」）：打洞不通就回落中转。
+- [x] UPnP 端口映射（`mapped` 候选）：**只做 UPnP，不做 NAT-PMP / PCP**（2026-10-07）。**代码完成 2026-10-07**，见下文「UPnP 实施记录」，真机验收见 §14.6。
 - [ ] ~~协调节点 Web 界面~~ ❌ **不做**（2026-10-07）：协调节点只保留 CLI 操作（`asa-coordinator node …` / `join-blob` / `stun probe`）。
 - [ ] ~~中转流量统计~~ → **移到 P7**（2026-10-07，规划见下文「P7」）。
 - [ ] 若要把协调节点借给别人用：运营者的网络管理 CLI 与每网络配额（§8.4.4 的 C）。
@@ -1675,7 +1676,9 @@ enum NATMapping { NAT_MAPPING_UNKNOWN = 0; NAT_MAPPING_NONE = 1; NAT_MAPPING_EAS
 `punch_e2e_test.go` 8 个（P6-8 ①～⑦ + B 重启后快速恢复）；`meshapi` 的 `TestPunchConfig`。
 测试默认关打洞（`newManager` 不传 `withPunch` 时写 `no_punch`），打洞用例显式开启并在回环上起两个真 STUN 端口。
 
-#### 反向直连评估（2026-10-07，只评估、未批准实施）
+#### 反向直连评估（2026-10-07；结论：❌ 不做）
+
+> **2026-10-07 决定**：不做反向直连，打洞不通就回落中转。下文保留评估作为档案。
 
 **是什么**：A 要控制 B（A 是 gRPC 客户端），但 B 在 NAT 后、A 连不进去，而 A 自己**能被 TCP 连到**（公网 IP / 端口映射 / 放行了的全局 IPv6）。
 让 B 主动拨 A 的 Peer 端口，TCP 建好之后**角色翻转**：A 在这条连接上当 TLS 客户端与 gRPC 客户端，B 当服务端——
@@ -1731,6 +1734,177 @@ B 是游戏服主机——**A 可被连到的情况本身就不多**，所以预
 1. **现在不做反向直连**，先做 §4 的提示（可以并入 P7，或作为 P6 的小尾巴）。
 2. **用数据决定**：P7 的中转流量统计（按节点对）+ §14.6 的真机打洞结果出来后，看「长期留在中转、且一方可被 TCP 连到」的节点对有多少、
    占多少中转字节。只有这部分明显时再做反向直连——到时方案按上面 §2，不需要改协调节点。
+
+#### P6 补充：UPnP 端口映射（2026-10-07；Q1～Q3 按推荐批准；实现方式：照搬 Syncthing 的 BSD-3 代码）
+
+##### U-0 已定的范围（2026-10-07）
+
+- 穿透手段只有三种：**NAT 打洞**、**UPnP 端口映射**、**回落中转**。不做反向直连，不做 NAT-PMP / PCP。
+- 已有的 **TCP 直连**（同一内网、手填地址）不是穿透手段，照旧保留——去掉它会让同一内网的两台机器也走中转。
+- 于是最终的选路顺序：**TCP 直连**（内网地址 / 手填地址 / UPnP 映射出来的 TCP 端口）> **打洞**（候选里带 UPnP 映射出来的 UDP 端口）> **中转**。
+
+**为什么只做 UPnP 就够**：国内家用路由器（TP-Link、小米、华为、华硕、OpenWrt 等）普遍支持 UPnP IGD；NAT-PMP / PCP 主要在苹果路由器上，
+OpenWrt 的 miniupnpd 三种都支持，所以 UPnP 已经覆盖了它。只做一种协议，代码与要排查的路由器兼容问题都少一半以上。
+
+**收益的天花板（必须先说清楚）**：UPnP 只能在**本机所在的那台路由器**上开端口。路由器的 WAN 口拿不到公网 IPv4 时
+（运营商级 NAT，或光猫拨号 + 路由器的双重 NAT——国内家宽很常见），映射出来的端口在公网上照样不可达。
+这种情况必须**识别出来并且不对外宣称**（见 U-4），否则对方会白拨一次。所以 UPnP 的实际收益取决于用户的宽带有没有公网 IPv4。
+
+##### U-1 实现方式：自写 `pkg/upnp`，不引第三方库（2026-10-07 修订）
+
+> 原计划用 `github.com/huin/goupnp` v1.3.0；用户认为它太老旧（最后一版 2023 年）。改为参照 Syncthing 的做法自己写。
+
+**Syncthing 是怎么做的**（`D:\golang\syncthing`，2026-09 的主干）：
+
+| 项 | Syncthing |
+|---|---|
+| UPnP | **自写**，`lib/upnp`（`upnp.go` 673 行 + `igd_service.go` 277 行），只用标准库（`net`、`net/http`、`encoding/xml`）。改编自 Taipei-Torrent 的 `IGD.go`，文件头是 **BSD-3** 许可（不是 Syncthing 自己的 MPL-2.0） |
+| NAT-PMP | 第三方库 `github.com/jackpal/go-nat-pmp`（`lib/pmp`）——本项目不做 |
+| 抽象 | `lib/nat`：`Device` 接口（`AddPortMapping` / `GetExternalIPv4Address` / `AddPinhole`…）+ 注册表，UPnP 与 PMP 各实现一份；映射的续约与选端口在 `lib/nat/service.go` |
+| 发现 | **按网卡**分别 `net.ListenMulticastUDP` 发 SSDP `M-SEARCH`（先 IGDv2 再 IGDv1），250ms 读超时循环到总时限，按设备 ID 去重。有全局 IPv6 时另发 IPv6 SSDP（`FF05::C`，**Windows 上不可用**，Go issue 63529） |
+| 设备描述 | 取 `Location` 的 XML，沿 IGD → WANDevice → WANConnectionDevice 找 `WANIPConnection` / `WANPPPConnection`（v1 / v2）的 `controlURL` |
+| 本机地址 | 取那张网卡的 IPv4；取不到时向网关「拨」一个 UDP 看本地地址 |
+| SOAP | 手拼 XML；`SOAPAction` 头**强制原样大小写**（有路由器只认这个写法，Syncthing issue #1696）；`Connection: Close`；**发 `AddPortMapping` 时把源地址绑到 InternalClient**（有路由器拒绝给「别的 IP」开映射） |
+| 租期 | 默认租 60 分钟、每 30 分钟续约；错误码 **725**（只支持永久映射）⇒ 改用租期 0 重试 |
+| 外部端口 | 先按已有外部端口续约；失败则从「**按设备 ID + 内部端口 + 网关 ID 播种的伪随机序列**」里试最多 10 个——重启后试到的还是同一批端口，重复映射不会越积越多 |
+| 清理 | `DeletePortMapping` 写了但**从不调用**，全靠租期到期；永久映射会残留 |
+| IPv6 | `WANIPv6FirewallControl` 开防火墙针孔（`AddPinhole`） |
+
+**本项目的做法**：照 Syncthing 的结构**自己写**（参照协议与它的设计，不直接拷贝代码；若有片段改编，保留 BSD-3 的版权声明）。
+放在 **`pkg/upnp`**——不认识任何领域概念、无全局状态，符合 `pkg/` 准入标准：
+
+```go
+package upnp
+func Discover(ctx context.Context, timeout time.Duration) ([]*Gateway, error)   // 按网卡 SSDP，IGDv2 → v1，去重
+type Gateway struct { ID, FriendlyName, ControlURL, ServiceURN string; LocalIP netip.Addr; Interface string }
+func (g *Gateway) ExternalIP(ctx context.Context) (netip.Addr, error)
+func (g *Gateway) AddPortMapping(ctx context.Context, proto Protocol, internal, external uint16, desc string, lease time.Duration) error
+func (g *Gateway) DeletePortMapping(ctx context.Context, proto Protocol, external uint16) error
+type SOAPError struct { Code int; Description string }   // 718 冲突、725 只支持永久 等，调用方 errors.As 判断
+```
+
+照搬的做法：按网卡发现、`SOAPAction` 大小写、源地址绑定、725 回退、确定性的候选外部端口。
+**有意不同的三处**：
+1. **Stop 时删除映射**（Syncthing 不删）——尤其是只支持永久映射的路由器，否则每次都留一条。
+2. **不做 IPv6 针孔**——Windows 上 IPv6 SSDP 根本发不出去，而且全局 IPv6 已经由打洞覆盖。
+3. **不做 `GetSpecificPortMappingEntry` / `AddAnyPortMapping`**——用确定性端口序列加「同外部端口重复 Add 即续约」（UPnP 规范规定同一内部地址重复添加等于续约）就够了，少两个各路由器实现参差的接口。
+
+协调节点不引入它（依赖守卫不变）。代码量估计 `pkg/upnp` 约 500 行 + 测试。
+
+##### U-2 发现网关（新文件 `internal/mesh/upnp.go`）
+
+- mesh 启动时、网卡地址变化时（复用 P6 的 `onNetChange`）、以及没找到网关时每 **30 分钟**做一次 `upnp.Discover`，上限 **3 秒**。
+- 网卡沿用 `candidates.go` 的过滤（跳过 Docker / Hyper-V 等虚拟网卡）；找到多个网关时取 `LocalIP` 落在上报中的网卡上的那个，仍有多个时 IGDv2 优先。
+- 发现失败（路由器没开 UPnP、Windows 防火墙挡了 SSDP 回包）只记状态「未发现支持 UPnP 的路由器」，不报错、不影响其他路径。
+
+##### U-3 映射（谁、怎么映射、怎么续约与清理）
+
+| 项 | 规则 |
+|---|---|
+| 映射什么 | Peer 端口（**TCP**，监听时）与打洞端口（**UDP**，打洞开启时）。两者都关就不做 UPnP |
+| 内部地址 / 端口 | `LocalAddr()` + 实际监听端口（UDP 绑定退到随机端口时用随机端口） |
+| 外部端口 | 先要与内部端口同号；冲突（错误码 718，例如同一内网另一台管理器已占了 19194）⇒ 按「本机节点 ID + 内部端口 + 网关 ID」播种的确定性序列再试最多 10 个（照 Syncthing：重启后还是同一批端口） |
+| 租期 | 请求 **1 小时**，每 30 分钟续约（同外部端口重复 Add）；续约失败（路由器重启丢了映射）⇒ 重新走选端口；错误码 725（只支持永久）⇒ 用 0，此时 Stop 时**必须**删 |
+| 描述 | `asa-server mesh <本机短 ID>`。上次崩溃留下的映射不用专门认：确定性端口序列让本次 Add 落在同一个外部端口上，按规范就是续约 |
+| 清理 | Stop（含 Reload、关掉开关）时逐条 `DeletePortMapping`，2 秒上限，失败只记日志（租期到了路由器自己会删） |
+
+##### U-4 映射有没有用：识别上级还有 NAT
+
+`GetExternalIPAddress` 拿到路由器的 WAN 地址后：
+- 是私网 / CGNAT（`100.64.0.0/10`）/ 空地址 ⇒ 状态「上级还有 NAT（运营商级 NAT 或双重 NAT），映射对外无效」，**删掉映射、不宣称**；
+- 有 STUN 反射地址且 IP 与它**不同** ⇒ 同样判为上级还有 NAT（出口不是这台路由器）；
+- 否则映射有效：外部地址 = WAN IP + 外部端口。
+
+无协调节点模式下没有 STUN 可比，只做第一条检查。
+
+##### U-5 映射出来的地址怎么用
+
+- **TCP**：作为 `CANDIDATE_KIND_MAPPED`、`TRANSPORT_TCP` 加进本机候选（随 `Register` / `CandidatesUpdate` 上报）；`planDirect` 把 MAPPED 当公网候选拨号
+  （现在只收 HOST / CONFIGURED）。效果：**对方第一次拨号就能直连**，不用先走中转。「生成邀请码 → 附带本机直连地址」也带上它——无协调节点模式同样受益。
+- **UDP**：作为 `MAPPED` 放在打洞候选的**最前面**（在反射地址之前）。对方的探测直接进得来，于是即使本机是对称型 NAT 也能打通。
+  「双方都是对称型就跳过打洞」的规则相应放宽：任一方带 MAPPED 候选时照打（A 缓存对方上次 `Punch` 响应里有没有 MAPPED）。
+- 同一内网的两台机器：照旧走内网候选（出口 IP 相同时内网在前），不依赖路由器的回环（hairpin）。
+
+##### U-6 配置、状态、页面、CLI
+
+- `config.json`：`no_upnp`（bool，默认 false = **开启**，见 Q1）。`ConfigPatch` / `PUT /api/mesh/config` 同步；运行中修改热应用。
+- `GET /api/mesh/status` 增加 `upnp` 块：`{state, gateway, external_ip, mappings: [{proto, external, internal, lease_until}], error}`，
+  `state` ∈ `disabled` / `searching` / `not_found` / `double_nat` / `mapped` / `error`。
+- 页面「本机」一节加一行「端口映射（UPnP）」：已映射时列出 `TCP 1.2.3.4:19194`、`UDP 1.2.3.4:19194`；其余状态给一句人话
+  （「路由器未开启 UPnP」「上级还有 NAT，映射无效：宽带没有公网 IPv4」）。「本机设置」加开关「允许 UPnP 端口映射」，说明
+  「在路由器上自动打开 Peer 端口与打洞端口，宽带有公网 IPv4 时对方可以直接连进来」。
+- CLI：`asa-server mesh upnp`——发现网关、打印 WAN 地址与判定结论（不需要服务在运行）；`--test` 时加一条**随机外部端口**的临时映射再删掉，
+  验证路由器真的接受映射。不碰正在运行的服务的映射。
+
+##### U-7 安全
+
+UPnP 会把本机端口**暴露到公网**。两个端口本来就是按公网暴露设计的：Peer 端口 = 钉公钥的 mTLS，未授权身份只能调 `Hello` / `Pair`
+（限流、并发上限）；UDP 端口 = 只回应 HMAC 正确的探测，QUIC 只准入有打洞会话的已授权对端。但用户可能以为「只在内网用」，
+所以页面要**明确显示映射了哪些端口**，并能一键关闭。
+
+##### U-8 测试
+
+- `pkg/upnp` 单测：SSDP 回包解析、设备描述 XML 的服务查找（IGDv1 / v2、WANIP / WANPPP、相对与绝对 `controlURL`）、SOAP 请求的头与正文、
+  错误响应解析成 `SOAPError`（可拿几个真实路由器的报文做样本）。
+- 假 IGD：`httptest` 起一个最小 UPnP 设备（设备描述 XML + SOAP），可注入 718 冲突、725 只支持永久、私网 WAN 地址、调用失败；
+  SSDP 部分用一个回环上的假应答者（向本机发 `Location` 指向假 IGD），`internal/mesh` 的测试则把发现函数做成钩子直接给 `*upnp.Gateway`。
+- 用例：映射 → 续约 → Stop 删除；冲突换端口（v1 重试 / v2 AnyPort）；只支持永久时 Stop 必删；WAN 是私网 / 与反射地址不符 ⇒ 不宣称；
+  崩溃残留的同描述映射被复用；TCP MAPPED 进上报候选、`planDirect` 能拨（端到端：B 不上报 HOST、只有「映射」出来的回环地址时 A 直连成功）；
+  UDP MAPPED 排在打洞候选首位；双方对称型但一方有 MAPPED 时不跳过。
+- 人工（追加 §14.6）：真路由器开着 UPnP ⇒ 路由器管理页能看到两条 `asa-server mesh …` 映射、外网能连进来；关掉 mesh ⇒ 映射消失；
+  路由器关掉 UPnP ⇒ 状态「未发现」；光猫 + 路由器双重 NAT ⇒ 状态「上级还有 NAT」且对方日志里没有拨这个地址。
+
+##### U-9 工作量与风险
+
+约 **4～5 天**（`pkg/upnp` 1.5、映射管理与续约 1、接入候选 / 打洞 / 状态 / 页面 1、假 IGD 测试与 CLI 诊断 1、文档 0.5）。自写比用库多约 1 天。
+风险在路由器的实现差异（错误码、只认永久映射、重启后丢映射）——续约时发现映射没了就重建；真机验收至少覆盖两个品牌。
+
+##### 批准时确认的三点（2026-10-07：全部按推荐）
+
+| # | 问题 | 推荐 |
+|---|---|---|
+| Q1 | UPnP 默认开还是关 | **默认开**（与打洞一致；Syncthing、Tailscale 也是默认开）。页面明确列出映射了哪些端口，一键关闭 |
+| Q2 | 只映射 UDP（打洞用），还是 TCP 也映射 | **两个都映射**：TCP 映射让对方第一次拨号就直连，不必先中转再打洞；UDP 映射让本机是对称型 NAT 时也能打通 |
+| Q3 | 要不要 CLI 诊断 `mesh upnp` | **要**：UPnP 出问题几乎都是路由器设置，用户需要一个不依赖服务的排查入口 |
+
+#### UPnP 实施记录（2026-10-07，分支 `feat/remote-mesh`，未提交）
+
+**实现方式（用户 2026-10-07 定）**：`pkg/upnp` **照搬 Syncthing** `lib/upnp/upnp.go` 与 `igd_service.go`（commit `2ca95cf1`）。
+这两个文件是 BSD-3（改编自 Taipei-Torrent），**原版权声明与许可正文原样保留**，其后加一段「Modified for asa-server」说明改了什么。
+Syncthing 的 `lib/nat/service.go`（续约、选端口）与 `upnp_test.go` 是 **MPL-2.0**，**没有拷贝**——续约 / 选端口 / 上级 NAT 识别是
+`internal/mesh/upnp.go` 自己写的，测试也是自己写的。
+
+**文件**：新增 `pkg/upnp/{upnp,igd_service}.go`（改编）、`pkg/upnp/upnptest/fake.go`（假网关，测试共用）、`pkg/upnp/{upnp,parse}_test.go`、
+`internal/mesh/upnp.go`、`internal/mesh/upnp_test.go`、`internal/actions/mesh_upnp.go`（`mesh upnp`）；改 `internal/mesh/{manager,config,coordclient,path,punch,natprobe,peerconn}.go`、
+`internal/actions/mesh.go`（注册 `mesh upnp`、`mesh status` 打印 UPnP 行）、`internal/webapi/meshapi/lifecycle_test.go`、`app/src/views/MeshManager.vue`、`app/src/apis/meshApi.js`（注释）。
+**没有新增任何第三方依赖**。
+
+**对 Syncthing 代码的改动**（都写在文件头）：去掉对 Syncthing 内部包（`lib/nat`、`lib/build`、`lib/dialer`、`lib/osutil`、`lib/netutil`、slog 辅助）的依赖；
+只留 IPv4（删掉 IPv6 SSDP 与 `WANIPv6FirewallControl` 针孔）；`IGDService` 改名 `Gateway`；`Discover` 直接返回 `[]*Gateway`；
+从 `parseResponse` 拆出 `GatewaysAt`（已知设备描述地址时跳过 SSDP，测试用）；SOAP 错误返回 `*SOAPError{Code}`；
+`AddPortMapping` 返回实际给到的租期（725 回退到永久之后是 0）；映射描述做 XML 转义。
+
+**与规划（U-0～U-9）的偏差 / 补充**：
+
+| # | 规划 | 实际 | 原因 |
+|---|---|---|---|
+| 1 | U-4：WAN 是私网 / CGNAT / 空 ⇒ 上级还有 NAT | 另把 **`0.0.0.0`** 单列出来，原因写明「路由器自己没有公网地址」 | **本机实测**：OpenWrt（miniupnpd）在自己的 WAN 是私网地址时就报 `0.0.0.0`。原文案「路由器没有报出 WAN 地址」看不出原因 |
+| 2 | U-2：发现上限 3 秒 | 每张网卡先 IGDv2 再 IGDv1，各 3 秒（照 Syncthing），所以首次结果约 **6～7 秒**；整轮另有「发现 + 一次 HTTP」的总上限 8 秒 | 设备描述是 HTTP，卡住的路由器不能拖住整轮（WSL 里连一个不通的地址会挂 30 秒，单测因此改过） |
+| 3 | U-6：页面「本机」一节 | 照做；另外 `mesh status` 打印 UPnP 开关 | — |
+| 4 | U-5：映射变化时重新上报候选 | `coordClient.candidatesChanged()` 立即触发一次上报（不等 60 秒周期）；STUN 结果变化（`onNATChange`）与网卡变化都会让 UPnP 复查一次 | 「出口是不是这台路由器」要和反射地址比，反射地址通常比 UPnP 晚几百毫秒才测到 |
+| 5 | U-8：SOAPAction 头的大小写 | 只验值的格式 | Go 的 `net/http` 服务端会把头名规范化成 `Soapaction`，假网关验不了原样大小写；这一点照搬 Syncthing 的写法，靠代码审查守住 |
+
+**冒烟**：
+- `asa-server mesh upnp`（只读，未加 `--test`）在本机找到一台 `OpenWRT router`（WANIPConnection:1，本机 `192.168.2.37`，网关 `192.168.2.25`），
+  WAN 报 `0.0.0.0` ⇒ 结论「上级还有 NAT」。**没有在这台路由器上做过任何映射**。
+- 两个真实二进制（打洞冒烟的同一套环境）开着 UPnP 启动：都判为 `double_nat`、`mappings` 为空，打洞照常从中转升级为 `punched`。
+- 「真路由器上真的映射成功、外网连进来」**没有条件验证**（本机的路由器没有公网地址），留给 §14.6 的 V6-10～V6-13。
+
+**测试**：`pkg/upnp`：SSDP 回包解析、设备描述的服务查找（IGDv1 / v2、WANIP / WANPPP、相对与绝对 `controlURL`）、SOAP 错误解析、
+对假网关的增删查与 718 / 725 / 606 / 714。`internal/mesh`：映射 → 宣称 → 停止删除；718 冲突换到确定性端口且同一身份重来还是同一个；
+只支持永久映射时停止照删；CGNAT WAN / 与 STUN 出口不符 ⇒ `double_nat`、出口对上后恢复；路由器丢映射后按原端口重建；606 不乱换端口；
+`UPnPVerdict`（含 `0.0.0.0`）；端到端：B 只有 UPnP 映射出来的地址时 A **第一次拨号就直连**（`public`），不经中转。
+测试默认关 UPnP（`newManager` 写 `no_upnp`）——**测试绝不能去动开发机所在路由器的映射**。
 
 ### P7 — 中转流量统计（下一期；规划 2026-10-07，待批准）
 
@@ -2368,6 +2542,10 @@ curl.exe -sk -X POST "$A/api/mesh/peers/$idB/hello"
 | V6-7 | V6-1 的状态 | 运行中关掉 B 的「允许打洞」并保存 | 提示「已保存并应用」；B 的 UDP 端口不再监听（`Get-NetUDPEndpoint -LocalPort 19194` 无输出）；A 立即回中转，30 秒后的那次尝试记「对方关闭了打洞」 |
 | V6-8 | Windows 首次运行 | 启动 mesh | 若弹防火墙提示，「取消」后 V6-2 仍能打通（出站状态跟踪）；结论记进验证记录 |
 | V6-9 | 中转 + 打洞的切换期 | A 正在看 B 的日志 SSE 时完成升级 | SSE 不断（在途流留在旧中转连接上），新请求走打洞 |
+| V6-10 | 路由器开着 UPnP，**宽带有公网 IPv4** | `asa-server mesh upnp --test`；再启动 mesh | CLI：WAN 地址是公网、结论「映射后对方可以直接连进来」、临时映射成功并删除；mesh 启动后页面「端口映射」列出 `TCP <WAN>:19194`、`UDP <WAN>:19194`，路由器管理页能看到两条 `asa-server mesh <短 ID>` |
+| V6-11 | V6-10 的状态，A 在另一个网络（如 4G 热点） | A 连 B | **第一次检测就是「公网直连」**，不经中转（A 日志里没有「改走relay」） |
+| V6-12 | V6-10 的状态 | 停止 mesh；再在本机设置关掉 UPnP 后启动 | 停止后路由器管理页里两条映射消失；关掉后状态「已关闭」、不再映射 |
+| V6-13 | 光猫拨号 + 路由器（双重 NAT），或运营商级 NAT | 启动 mesh | 页面「上级还有 NAT，映射对外无效」，对方日志里**不出现**拨这个地址；本机实测（OpenWrt 报 `0.0.0.0`）已覆盖这一项的判定部分 |
 
 结论（运营商、路由器型号、NAT 类型与成败）回填 §5.6.4。
 
@@ -2415,6 +2593,10 @@ curl.exe -sk -X POST "$A/api/mesh/peers/$idB/hello"
 | V6-7 | | | | |
 | V6-8 | | | | |
 | V6-9 | | | | |
+| V6-10 | | | | 路由器品牌 / 型号 |
+| V6-11 | | | | |
+| V6-12 | | | | |
+| V6-13 | 2026-10-07 | Windows 本机（OpenWrt 路由器） | 判定部分通过 | WAN 报 `0.0.0.0` ⇒ `double_nat`，未做任何映射 |
 
 已有的部分结果：
 - 2026-10-05 在 Windows 本机回环上对 `stun probe` 做过冒烟（两个端口都回答、结论「无 NAT」），对应 V1-7 的连通部分；VPS / 家宽实测仍待做。
