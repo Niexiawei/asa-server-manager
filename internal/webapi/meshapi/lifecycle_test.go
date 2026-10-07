@@ -186,3 +186,37 @@ func TestLifecycleRequiresAdmin(t *testing.T) {
 		}
 	}
 }
+
+// 打洞的两个配置项（§12 P6-7）：经 PUT /config 保存、在状态里回显；越界的端口 400。
+func TestPunchConfig(t *testing.T) {
+	setupConfig(t, "auth:\n  enabled: false\n")
+	srv := lifecycleServer(t, mesh.New(mesh.Options{Dir: t.TempDir()}))
+	put := func(body string) (int, apiResp) {
+		req, _ := http.NewRequest("PUT", srv.URL+"/api/mesh/config", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var out apiResp
+		_ = json.NewDecoder(resp.Body).Decode(&out)
+		return resp.StatusCode, out
+	}
+	code, out := put(`{"no_punch":true,"udp_port":20000}`)
+	var st struct {
+		NoPunch bool `json:"no_punch"`
+		UDPPort int  `json:"udp_port"`
+		Punch   struct {
+			Active  bool   `json:"active"`
+			Mapping string `json:"mapping"`
+		} `json:"punch"`
+	}
+	_ = json.Unmarshal(out.Data, &st)
+	if code != 200 || !st.NoPunch || st.UDPPort != 20000 || st.Punch.Active || st.Punch.Mapping != "unknown" {
+		t.Fatalf("打洞配置没有保存或回显不对：%d %s", code, out.Data)
+	}
+	if code, out := put(`{"udp_port":70000}`); code != 400 {
+		t.Fatalf("越界的 UDP 端口应 400：%d %+v", code, out)
+	}
+}
