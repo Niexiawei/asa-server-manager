@@ -153,8 +153,16 @@ func actionMeshStatus(context.Context, *cli.Command) error {
 			fmt.Printf("公网地址：  %s\n", strings.Join(cfg.PublicAddrs, ", "))
 		}
 		fmt.Printf("远程控制：  本机 %s 及以上可用\n", cfg.EffectiveControlRole())
+		switch {
+		case cfg.NoPunch:
+			fmt.Println("打洞：      关闭")
+		case cfg.Coordinator == nil:
+			fmt.Println("打洞：      不可用（需要协调节点）")
+		default:
+			fmt.Printf("打洞：      开启（UDP 端口 %d）\n", cfg.UDPListenPort())
+		}
 	}
-	fmt.Println("（实时连接状态见 GET /api/mesh/status；本命令不连协调节点。）")
+	fmt.Println("（实时连接状态、NAT 类型见 GET /api/mesh/status；本命令不连协调节点。）")
 	return nil
 }
 
