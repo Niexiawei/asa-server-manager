@@ -7,19 +7,20 @@ import (
 	"asa-server/pkg/streamconn"
 )
 
-// relayListener 是由中转会话喂连接的 net.Listener：Peer gRPC 服务在它上面 Serve。
-type relayListener struct {
+// injectListener 是由别处喂连接的 net.Listener：中转会话与打洞（QUIC）的入站连接都经它交给
+// Peer gRPC 服务——它们不是从某个端口 Accept 来的。
+type injectListener struct {
 	ch        chan net.Conn
 	closed    chan struct{}
 	closeOnce sync.Once
 }
 
-func newRelayListener() *relayListener {
-	return &relayListener{ch: make(chan net.Conn), closed: make(chan struct{})}
+func newInjectListener() *injectListener {
+	return &injectListener{ch: make(chan net.Conn), closed: make(chan struct{})}
 }
 
 // deliver 把一条连接交给 Accept；监听器已关闭时关掉连接并返回 false。
-func (l *relayListener) deliver(c net.Conn) bool {
+func (l *injectListener) deliver(c net.Conn) bool {
 	select {
 	case l.ch <- c:
 		return true
@@ -29,7 +30,7 @@ func (l *relayListener) deliver(c net.Conn) bool {
 	}
 }
 
-func (l *relayListener) Accept() (net.Conn, error) {
+func (l *injectListener) Accept() (net.Conn, error) {
 	select {
 	case c := <-l.ch:
 		return c, nil
@@ -38,9 +39,9 @@ func (l *relayListener) Accept() (net.Conn, error) {
 	}
 }
 
-func (l *relayListener) Close() error {
+func (l *injectListener) Close() error {
 	l.closeOnce.Do(func() { close(l.closed) })
 	return nil
 }
 
-func (l *relayListener) Addr() net.Addr { return streamconn.Addr("relay") }
+func (l *injectListener) Addr() net.Addr { return streamconn.Addr("inject") }
