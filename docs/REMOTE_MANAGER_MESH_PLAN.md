@@ -3,6 +3,8 @@
 > 状态：§11 全部决策已定（2026-10-04）。**P1 代码已完成（2026-10-05，分支 `feat/remote-mesh-p1`，现已改名 `feat/remote-mesh`），
 > 单测两个平台通过，真机验收待做**——见 §12「P1 实施记录」。**P2～P4 代码已完成（2026-10-05，同一分支），自动化测试两个平台通过、
 > 真机二进制冒烟通过**——见 §12「P2～P4 实施记录」。
+> **P5（跨机编排）已废弃（2026-10-07）**：对现有页面与逻辑改动太大，细化内容仅存档，见 §12「P5」。
+> **2026-10-07 页面调整**：协调节点改为单纯的配置项（保存 / 替换 + 解析预览），mesh 启停改由「远程管理器」页顶部的按钮控制，见 §12「P4 后续调整」。
 > **所有需要人工验证的项目集中在 §14**（环境搭建、逐项步骤与判据、验证记录表）。
 > D4（打洞）本期不做，技术方案已定在 §5.6；**例外：协调节点的 STUN 端点本期先实现**（2026-10-05，细化见 §12「P1-8」）。
 > D6（多网络）选 B「数据模型预留」，见 §8.4。
@@ -28,7 +30,7 @@
 | **信任模型** | **每台管理器自己生成密钥，节点 ID = 公钥指纹**（Syncthing 设备 ID 的思路），配对时互相钉住公钥。协调节点**不当 CA**，被攻破也不能远程控制任何游戏服（§6）。 |
 | **最大代价** | ①又多一个要自己运维的公网服务；②**这是一个远程控制入口**——RCON、上传 ArkApi 插件（DLL）约等于远程执行代码，安全模型是本功能的主体工作量，不是附属品；③两台管理器版本不一致时，A 的前端调 B 的 API 可能对不上（§9）。 |
 | **不做的事（首期）** | NAT 打洞（技术方案已定：UDP 打洞 + QUIC，**不是 WireGuard**，§5.6；其中协调节点的 STUN 端点首期先做，管理器侧的打洞不做）、多跳控制（A→B→C）、协调节点 Web 界面。 |
-| **工作量粗估** | P1～P4（能在页面上远程控制）约 **3～4 周**；P5/P6 视需要。 |
+| **工作量粗估** | P1～P4（能在页面上远程控制）约 **3～4 周**；P5 已废弃（§12），P6 视需要。 |
 
 ---
 
@@ -360,7 +362,7 @@ service Peer {
 | 契约稳定性 | 跟着 REST 走，版本不一致时可能对不上（§9） | 显式、可版本化 |
 | 适合 | 「打开另一台机器的面板操作」 | 「跨机汇总」「跨机批量」这类编排 |
 
-结论：**连接层与 `Peer` 服务一开始就是 gRPC**，业务先借隧道复用现成路由；等到要做跨机编排（P5），再为**少数编排所需的操作**加类型化方法，而不是给所有 API 补 proto。
+结论：**连接层与 `Peer` 服务一开始就是 gRPC**，业务先借隧道复用现成路由；等到要做跨机编排，再为**少数编排所需的操作**加类型化方法，而不是给所有 API 补 proto（P5 跨机编排已于 2026-10-07 废弃，见 §12）。
 
 ### 7.2 实现
 
@@ -1109,11 +1111,17 @@ message HTTPBodyEnd {}
 
 ##### P3-8 `internal/webapi/meshapi`（全部 `RequireAdmin`）
 
+> 2026-10-07 起，配置与启停相关的几行已按「P4 后续调整」更新（协调节点与启停解耦）。
+
 | 方法 | 路径 | 内容 |
 |---|---|---|
-| GET | `/api/mesh/status` | 已有；加 P2-6 的字段与 `control_role` |
-| PUT | `/api/mesh/config` | 备注名、Peer 端口、是否监听、公网地址、`control_role`；**只改请求体里出现的字段**；保存后**热应用**（`Manager.Reload` = Stop + Start） |
-| POST | `/api/mesh/join` / `/api/mesh/leave` / `/api/mesh/enable` / `/api/mesh/disable` | 同 CLI，写完热应用 |
+| GET | `/api/mesh/status` | 已有；加 P2-6 的字段与 `control_role`；`coordinator_id`（协调节点证书指纹，2026-10-07） |
+| PUT | `/api/mesh/config` | 备注名、Peer 端口、是否监听、公网地址、`control_role`；**只改请求体里出现的字段**；**mesh 正在运行时**才热应用（`Manager.Reload` = Stop + Start），停止时只保存；响应带 `applied` |
+| POST | `/api/mesh/join` | 保存 / 替换协调节点（`mesh.SetCoordinator`），**不改启用开关**；同上，运行中才热应用、响应带 `applied`。（CLI `mesh join` 仍是「写协调节点 + 启用」） |
+| POST | `/api/mesh/join/preview` | 只解析 join blob：`{addr, coordinator_id, network_id, has_secret}`，不写盘、**不回传网络密钥** |
+| POST | `/api/mesh/enable` / `/api/mesh/disable` | 启动 / 停止（持久化启用开关）。页面顶部的「启动」「停止」 |
+| POST | `/api/mesh/restart` | 重启（`Reload`）；未启动时 400 |
+| POST | `/api/mesh/leave` | 清协调节点并停用（同 CLI `mesh leave`）。页面上不再提供，只给 CLI / 脚本用 |
 | GET | `/api/mesh/peers` | 对端列表 + 运行时状态（当前路径、最近一次 Hello 的 RTT / 版本 / 授予我的角色、是否在线） |
 | PUT / DELETE | `/api/mesh/peers/:id` | 改备注名 / 授予角色 / 手填地址；删除 = 撤销入站授权并忘掉它 |
 | POST | `/api/mesh/peers/:id/hello` | 立即 Hello 一次（刷新）；原 `/api/mesh/hello/:node` 保留为别名 |
@@ -1168,13 +1176,17 @@ message HTTPBodyEnd {}
 
 ##### P4-4 「远程管理器」页（`views/MeshManager.vue`，路由 `/mesh`）
 
-照 `FRPManager.vue` 的表单形态，分四块：
-1. **本机**：节点 ID（可复制）、协调节点连接状态 / 出口地址、Peer 端口监听状态、备注名 / 端口 / 公网地址 / `control_role` 表单；
-   粘贴 join blob 接入、断开接入、启用 / 停用。Windows 首次监听会弹防火墙提示，这里写明；A 关着鉴权时显示警告（§6.3）。
-2. **我能控制的机器**：表格（备注名、节点 ID 短格式、在线、路径、RTT、对方版本、对方授予我的角色）、「切换过去」、改备注 / 手填地址、删除；
+照 `FRPManager.vue` 的表单形态。**页面顶部**：状态标签（只看 `running`：运行中 / 已停止 / 启动失败）与「启动 / 停止 / 重启 / 刷新」按钮
+（2026-10-07 调整，见「P4 后续调整」——协调节点不是 mesh 是否启动的条件）。下面分五块：
+1. **本机**：节点 ID（可复制）、Peer 端口监听状态、直连地址、版本；备注名 / 端口 / 公网地址 / `control_role` 表单（运行中保存即热应用，
+   停止时提示「已保存，启动后生效」）。Windows 首次监听会弹防火墙提示，这里写明；A 关着鉴权时显示警告（§6.3）。
+2. **协调节点**：已保存的地址、证书指纹、网络 ID、连接状态 / 出口地址 / STUN 地址（mesh 未启动时只显示「管理器互控未启动」）；未设置时
+   「只按对端的手填地址直连」。粘贴 join blob 后防抖预览解析结果（已设置时逐项「当前 → 新」），按钮只有「保存」（未设置）/「替换」（已设置，确认框），
+   **没有「断开接入」**，保存不会启动 mesh。
+3. **我能控制的机器**：表格（备注名、节点 ID 短格式、在线、路径、RTT、对方版本、对方授予我的角色）、「切换过去」、改备注 / 手填地址、删除；
    「添加」= 粘贴邀请码，或输入对方节点 ID 发起申请（之后显示「等待对方批准」，可手动刷新）。
-3. **能控制本机的机器**：已授权的对端（授予的角色可改、撤销）；待批准申请（选角色批准 / 拒绝）。
-4. **邀请码**：生成（角色、有效期、是否附带本机直连地址）——生成后的整串只显示这一次；未用邀请列表与作废。
+4. **能控制本机的机器**：已授权的对端（授予的角色可改、撤销）；待批准申请（选角色批准 / 拒绝）。
+5. **邀请码**：生成（角色、有效期、是否附带本机直连地址）——生成后的整串只显示这一次；未用邀请列表与作废。
 
 `App.vue` 三处联动：菜单项、`watch(route.path)` 高亮、`handleMenuClick` 分支；路由 `meta` 标记 `localOnly`（P4-3 的守卫据此判断）。
 
@@ -1245,9 +1257,195 @@ A 断开取消 B 的 handler、撤销切断在途流、未授权被拒）、`int
 冒烟中顺带发现两件**既有行为**（与本功能无关，已写进 §14.1 的步骤）：`api` 在缺 SteamCMD / ARK 时拒绝启动（要 `--skip-env-check`）；
 `api` 启动必拉起 Syncthing，它会用 UPnP 在路由器上开端口映射——验证环境用一个不存在的 `download.github_proxy` 让下载失败即可避开。
 
-### P5 — 跨机编排（可选，按需）
-- [ ] 类型化方法：`Peer.Overview`（流式：对方所有实例状态 + 资源摘要）→ A 的总览页显示所有机器。
-- [ ] 跨机批量启停：在 `batchmanage` 之上，每台机器各自走它本地的 `countdown`。
+#### P4 后续调整（2026-10-07）：协调节点与 mesh 启停解耦
+
+原来「远程管理器」页把协调节点当成 mesh 是否启动的条件：「接入」= 写协调节点**并启用**、「断开接入」= 清协调节点**并停用**，
+没有协调节点时才出现「启用（无协调节点）/ 停用」。改为：
+
+| 项 | 现在 |
+|---|---|
+| 启停 | 页面**顶部**「启动 / 停止 / 重启」，状态标签只看 `running`（运行中 / 已停止 / 启动失败）。启动 = `POST /api/mesh/enable`、停止 = `POST /api/mesh/disable`（都持久化启用开关，服务重启后保持）、重启 = 新增的 `POST /api/mesh/restart`（未启动时 400） |
+| 协调节点 | 独立小节，只是一项配置：未设置时「保存」、已设置时「替换」（确认框）。页面上**不再有「断开接入」**；`/api/mesh/leave` 与 CLI `mesh leave` 保留（§14.4 的步骤还在用） |
+| `POST /api/mesh/join` | 改用 `mesh.SetCoordinator`：只写协调节点、**不改启用开关**；CLI `mesh join` 仍用 `mesh.Join`（写协调节点 + 启用，headless 一条命令接入） |
+| 保存后何时生效 | `/join` 与 `PUT /config` 都只在 mesh **正在运行**时热应用，响应多一个 `applied`（页面提示「已保存并应用」/「已保存，启动后生效」）——改配置不再是把 mesh 拉起来的理由 |
+| 解析出的信息 | 新增 `POST /api/mesh/join/preview`（管理员）：只解析、不写盘，回 `{addr, coordinator_id, network_id, has_secret}`，**不回传网络密钥**。页面粘贴后防抖 300 ms 预览，已设置时逐项显示「当前 → 新」。`GET /api/mesh/status` 增加 `coordinator_id`（协调节点证书指纹），已保存的协调节点显示地址、指纹、网络 ID、连接、出口地址、STUN 地址 |
+
+测试：`internal/mesh/mesh_test.go` 的 `TestSetCoordinatorKeepsEnabled`；`internal/webapi/meshapi/lifecycle_test.go`（停止状态保存不启动、
+运行中替换热应用、未启动 restart 400、停止后改配置不启动、预览不含密钥且不写盘、截断串 400、三个新写接口对 operator 403）。
+真实二进制按上表逐步调过一遍接口（含内嵌 SPA 里的新页面代码）；浏览器走查并入 §14.5 V4-1。
+
+### P5 — 跨机编排（❌ 已废弃，2026-10-07）
+
+> **废弃原因**：细化后发现对现有页面与逻辑的改动面太大——拦截器要改成按方法查角色、`batchmanage` 要加操作 ID / 新来源 /
+> 按 ID 取消、新增 `internal/fleet` 包与 `/api/fleet/*`、远程禁区与前端本地前缀要同步扩充、再加一个新页面与菜单联动，
+> 换来的「跨机总览 / 跨机批量」并不是刚需：逐台切换机器（P4）已经能完成同样的操作。**不实施**，下面的细化只作档案保留，
+> 以后若重新评估，从这里起步。P6 不依赖 P5。
+
+- [ ] ~~类型化方法：`Peer.Overview`（流式：对方所有实例状态 + 资源摘要）→ A 的总览页显示所有机器。~~
+- [ ] ~~跨机批量启停：在 `batchmanage` 之上，每台机器各自走它本地的 `countdown`。~~
+
+#### P5 细化（2026-10-07；未批准即废弃，仅存档）
+
+**为什么是类型化方法，而不是经隧道调 B 的 REST**（§7.1 的原则在这里第一次兑现）：总览与跨机批量要由 **A 的 Go 后端**解析对方的回答——
+B 的 REST 载荷不是版本化契约（`/api/instances` 改个字段，编排就静默错了），而且量也不对：`/api/instances` 每个实例带 200 条状态历史与整份配置，
+总览只要其中三四个字段。所以 P5 只加**两组**类型化方法（总览、批量），「打开那台机器操作」仍然走隧道，不给任何其他 API 补 proto。
+
+##### P5-1 proto 增量（`api/asamesh/v1/peer.proto`）
+
+```proto
+// 只对已授权的身份开放（角色要求见 P5-2）。B 未注入后端时回 Unimplemented，也不声明 fleet.v1。
+rpc Overview(OverviewRequest) returns (stream OverviewSnapshot);
+rpc StartBatch(StartBatchRequest) returns (StartBatchResponse);
+rpc CancelBatch(CancelBatchRequest) returns (CancelBatchResponse);
+
+message OverviewRequest { uint32 interval_seconds = 1; }        // 夹到 [2, 30]，0 = 5
+message OverviewSnapshot {
+  int64 timestamp = 1;
+  HostSummary host = 2;
+  repeated InstanceSummary instances = 3;   // 全部实例（含已停止的），按名字排序
+  BatchSummary batch = 4;                   // 没有进行中的批量 = 不填
+}
+message HostSummary { uint32 cpu_cores = 1; double cpu_percent = 2; uint64 mem_used = 3; uint64 mem_total = 4;
+                      double net_recv_bps = 5; double net_sent_bps = 6; }
+message InstanceSummary { string name = 1; string status = 2; bool running = 3; string map = 4;
+                          double cpu_percent = 5;    // 占整机的百分比（= all-info 的 cpu_total_percent）
+                          uint64 mem_used = 6; string asa_version = 7; }
+message BatchSummary { string id = 1; string type = 2; string origin_kind = 3; string origin_label = 4;
+                       uint32 done = 5; uint32 total = 6; repeated BatchInstance instances = 7; }
+message BatchInstance { string name = 1; string status = 2; string error = 3; }
+
+message StartBatchRequest {
+  string type = 1;                 // start | stop | restart
+  repeated string instances = 2;   // 空 = 对方的全部实例（同 batchmanage）
+  uint32 delay_seconds = 3;        // 对方机器内部、实例之间的间隔
+  CountdownSpec countdown = 4;     // 不填 = 不倒计时；start 时被忽略（同 batchmanage）
+  string remote_user = 5;          // A 上发起者的用户名，只用于审计与来源标签
+}
+message CountdownSpec { uint32 seconds = 1; repeated uint32 notify_points = 2; string notify_message = 3; string notify_command = 4; }
+message StartBatchResponse { string op_id = 1; uint32 total = 2; uint32 eligible = 3; repeated BatchInstance skipped = 4; }
+message CancelBatchRequest { string op_id = 1; }
+message CancelBatchResponse { bool cancelled = 1; }   // false = 那一轮已结束或不是它（不报错）
+```
+
+- `status` 用字符串而不是枚举：取值就是 `state.InstanceStatus` / `batchmanage.InstanceOpStatus`，**A 的后端不解释它们**（只看 `running`），
+  前端本来就认识这些字符串；做成枚举等于每加一个实例状态都要改 proto。
+- 错误码：已有批量在跑 / 没有可操作的实例 ⇒ `FailedPrecondition`（详情区分 `busy` / `no_instances`）；倒计时参数错 ⇒ `InvalidArgument`。
+- 能力：新增 `CapFleet = "fleet.v1"`（总览与批量一起，不拆）。**只有注入了后端才声明**——A 据此在不调用的情况下就知道对方不支持。
+
+##### P5-2 B 侧方法级角色表（拦截器的一处安全收紧）
+
+现在的拦截器对已授权身份**放行一切方法**（P3-5），细分角色全靠 HTTP 鉴权中间件。类型化方法不经过那个中间件，所以拦截器改成按方法查最低角色：
+
+| 方法 | 最低角色 |
+|---|---|
+| `Hello`、`Pair` | 无（未授权也能调，同现状） |
+| `HTTP` | `operator`（细分仍由 B 的 HTTP 中间件做） |
+| `Overview`、`StartBatch`、`CancelBatch` | `operator`（与 REST 的 `/api/server/batch/*` 一致——那组路由没有 `RequireAdmin`） |
+| **表里没有的方法** | **`admin`**（失败即关闭：以后再加类型化方法，忘了登记也不会默认对 operator 开放） |
+
+##### P5-3 B 侧：后端注入（`mesh` 仍不 import 任何领域包）
+
+```go
+// internal/mesh/fleet.go
+type FleetBackend interface {
+    Overview(ctx context.Context) (*meshpb.OverviewSnapshot, error)
+    StartBatch(ctx context.Context, caller PeerIdentity, req *meshpb.StartBatchRequest) (*meshpb.StartBatchResponse, error)
+    CancelBatch(ctx context.Context, caller PeerIdentity, opID string) (bool, error)
+}
+func (m *Manager) SetFleetBackend(b FleetBackend)   // 组合根注入，照 SetHTTPHandler
+```
+
+- `Overview` 流：按间隔取快照发出，**每帧都发**（几 KB，不做差量——差量要处理丢帧与重连补全，不值得）。
+- **撤销立即生效**：把 `tunnelServer.track/cancelID` 的「按节点 ID 登记在途流」提成 `peerService` 共用的 `streamTracker`，
+  `HTTP` 与 `Overview` 都登记——`onGrantsChanged` 不改，撤销或降级时总览流与隧道流一起结束。
+- **审计**：`StartBatch` / `CancelBatch` 是写操作，由后端实现（P5-5 的 `fleet.Local`）记 `[mesh]` 日志，B 开着鉴权时另写一条
+  `peer_request` 审计（`Actor` = `peer:<备注名>/<用户>`，`Detail` = `fleet start-batch restart 3 个实例 → op <id>`），与隧道请求的审计同形。
+  `Overview` 只记 DEBUG。
+
+##### P5-4 `batchmanage` 增量（小）
+
+- `BatchOperation.ID`（随机 16 位十六进制）；`GET /api/server/batch/status` 增加 `id` 字段。
+- **`CancelIfCurrent(id) bool`**：只有当前在跑的那一轮就是 `id` 时才取消。A 的「取消跨机批量」只能用它——
+  否则 A 下发的那一轮在 B 上早已结束、B 的定时任务又开了一轮时，A 的取消会把 B 的定时重启打断。
+- 新来源 `OriginFleet = "fleet"`。标签：A 本机那一轮 `跨机批量操作（<用户>）`；B 上那一轮 `来自「<A 备注名>」的跨机批量（<用户>）`——
+  B 本地有人开着批量弹窗时，必须能一眼看出是谁在操作它的机器（`BatchOrigin` 存在的理由）。
+- `Summary()`：把 `getBatchStatus` 里「数完成数」的逻辑提成方法，REST 与总览共用一份（`skip_requested` 不计入已完成的规则只写一处）。
+
+##### P5-5 新包 `internal/fleet`（跨机编排）
+
+分层：依赖 `mesh`、`batchmanage`、`countdown`、`process`、`state`、`config`、`instance`（ASA 版本）、`auth`（审计）、`pkg/serverinfo`；
+被 `internal/webapi/fleetapi` 与组合根依赖。`mesh` 不认识它，它认识 `mesh`。
+
+- **`fleet.Local`** 实现 `mesh.FleetBackend`，**同时**给 A 的总览出「本机」那一行——两边是同一个函数出的数据，不会出现「本机这么显示、远程那么显示」。
+  - 快照：`procpkg.RunningInstances()` + `serverinfo.Snapshot()`（与 all-info 同源，P2 起就定下的规矩）+ `statepkg.GetInstanceStateOrDefault`
+    + 地图名（`instance_config.ini`，按 mtime 缓存，不每帧读文件）+ ASA 版本（`asaversion` 已有缓存）。
+  - `StartBatch` = `batchmanage.StartOperation(…, OriginFleet 的 B 侧标签)`；`CancelBatch` = `CancelIfCurrent`。
+- **`fleet.Hub`**（A 侧）：
+  - 对象 = 本机 + `peers.json` 里**授权了本机**的对端（`remote_role != ""`）。
+  - **只在有人看的时候订阅**：第一个 SSE 订阅者到来时为每台对端开 `Overview` 流，最后一个离开 30 秒后才关（刷新页面不会让 N 条流断了重开）。
+  - 每台机器的状态：`online` / `offline`（连不上，退避 1 秒起翻倍到 30 秒重连）/ `unsupported`（Hello 的能力列表里没有 `fleet.v1`，
+    或调用回 `Unimplemented`——**不重试**，只在对端版本变化时重查）/ `not_permitted`（对方已撤销本机，`PermissionDenied`）。
+    附带路径（`lan`/`public`/`relay`）、对方版本、最后更新时间。
+  - 依赖一个窄接口（`Overview` 流、`StartBatch`、`CancelBatch`、对端列表）而不是 `*mesh.Manager`，单测用假的。
+- **`fleet.Batch(ctx, req)`**：`targets: [{node_id: ""=本机 | 节点ID, instances: [...]}]` + 类型 + `delay_seconds` + 倒计时。
+  - **并发下发**，每台机器各自 `StartOperation`、各自跑本地 `countdown`：倒计时时长相同，各台起跑相差一个 RTT，玩家看到的倒计时自然对齐，不需要对时。
+  - 单台超时 15 秒；结果逐台给出：`ok`（`op_id`、`eligible`、`skipped`）或错误码 `busy` / `no_instances` / `unreachable` / `unsupported` / `not_permitted` / `invalid`。
+  - **不做跨机原子性**（见下方 Q1）：部分成功如实报告；内存里记下最近一次跨机批量 `{fleet_id, 每台的 op_id}`，供取消与页面刷新后回显。
+  - **`fleet.Cancel(fleetID)`**：对记下的每台 `op_id` 调 `CancelBatch`（本机走 `CancelIfCurrent`），逐台报告。
+
+##### P5-6 A 侧 API `internal/webapi/fleetapi`
+
+| 方法 | 路径 | 内容 |
+|---|---|---|
+| GET | `/api/fleet/overview` | SSE：Hub 的合并视图，任一台更新即推（合并节流到每秒最多一帧）；首帧立即给出（本机数据 + 各对端的当前状态） |
+| POST | `/api/fleet/batch` | P5-5 的请求体 → `{fleet_id, results: [{node_id, ok, op_id, eligible, skipped, error, code}]}` |
+| GET | `/api/fleet/batch` | 最近一次跨机批量及逐台结果（页面刷新后回显） |
+| POST | `/api/fleet/batch/:id/cancel` | 逐台取消，返回逐台结果 |
+
+- 全部挂 `requireControl()`（`control_role`，与 `/api/peers/:id/fwd` 同一道闸；从 `meshapi` 导出复用，不写第二份）。mesh 没在运行时总览只有本机一行。
+- ⚠️ **`/api/fleet` 加进远程禁区**（`authapi.peerForbiddenPrefixes`）：否则 A 经隧道调 B 的 `/api/fleet/batch`，B 会**以 B 的授权**去操作 C——
+  这就是类型化方法版的多跳。前端 `peerContext.js` 的 `LOCAL_PREFIXES` 同步加 `/api/fleet/`（总览页本身是 `localOnly`，这只是兜底）。
+
+##### P5-7 前端
+
+- 新页 `views/FleetOverview.vue`（路由 `/fleet`，`meta.localOnly`），菜单「机器总览」的显示条件与顶栏机器选择器相同（本机 mesh 在运行且至少一台对端授权了本机），
+  再叠加本机的 `control_role`；`App.vue` 三处联动。
+- 每台机器一张卡片：名字（本机 / 对端备注名）、路径徽标、对方版本（与本机不同时标黄）、CPU / 内存；实例表：名字、地图、状态标签、CPU、内存。
+  `offline` / `unsupported` / `not_permitted` 的卡片置灰并写明原因；「切换到这台」按钮 = `switchToPeer`（P4 的整页重载）。
+- 跨机批量：实例行与卡片标题都有复选框；工具栏「启动 / 停止 / 重启」⇒ 确认弹窗按机器分组列出目标，**离线、不支持、正有批量在跑的机器
+  直接列为不可选并写明原因**（数据就是屏幕上的总览）；停止 / 重启复用 `CountdownOptions.vue`。提交后逐台显示结果，进度来自总览快照里的 `batch`；
+  「取消本次跨机批量」按钮。单个实例的跳过不在这里做——切到那台机器、用它自己的批量弹窗。
+
+##### P5-8 CLI
+
+**不加**。CLI「不连协调节点、不连对端」的规则（P3-9）不为它破例；总览与跨机批量只在服务进程里有意义。
+
+##### P5-9 测试
+
+| 组 | 用例 |
+|---|---|
+| 角色表（安全，单独成组） | 未授权调 `Overview` / `StartBatch` ⇒ `PermissionDenied`；operator 能调这三个；**表外的方法（测试里注册一个假方法）对 operator 拒绝、对 admin 放行** |
+| `mesh` | 未注入后端 ⇒ `Unimplemented` 且 Hello 不含 `fleet.v1`；撤销 ⇒ 在途 `Overview` 流立即结束；`StartBatch` 的 `remote_user` 与调用者身份到达后端 |
+| `batchmanage` | `ID` 唯一；`CancelIfCurrent` 用别的 ID 不取消、用对的 ID 取消；`Summary` 与 REST 的计数一致；`OriginFleet` 标签 |
+| `fleet` | Hub：无订阅者时不开流、最后一个离开后延迟关闭；`unsupported` 不重试；`not_permitted` / `offline` 的状态转换与重连。Batch：并发下发、逐台结果（一台 `busy`、一台 `unreachable`、一台成功）；取消只碰自己记下的 `op_id` |
+| `authapi` | `/api/fleet`、`/api/fleet/batch` 在禁区表里 |
+| `fleetapi` | `control_role` 闸门；SSE 首帧含本机；进程内 A、B 两个 Manager + 假后端的端到端（A 的总览里出现 B，A 下发的批量到达 B 的后端） |
+
+##### P5-10 验收（未写进 §14：P5 已废弃）
+
+T1 拓扑（同机三个管理器）：V5-1 总览显示三台、数据与各自页面一致；V5-2 停掉 B 的 mesh ⇒ B 卡片数秒内变离线、恢复后自动回来；
+V5-3 B 撤销 A ⇒ 卡片变 `not_permitted`、B 侧日志显示总览流结束；V5-4 跨两台的重启带 60 秒倒计时 ⇒ 两台的 RCON 公告时间点一致，
+B 的批量弹窗来源显示「来自「A」的跨机批量」；V5-5 A 取消 ⇒ 两台都取消；V5-6 B 正在跑定时批量时 A 下发 ⇒ B 报 `busy`、其余照常，
+A 再点取消**不影响** B 的定时批量；V5-7 用 P4 版本的二进制当 C ⇒ C 显示「对方版本不支持」；V5-8 B 开鉴权 ⇒ 审计里有 `peer_request` 的
+`fleet start-batch` 记录。T2 拓扑补一项：经中转的总览流在中转断开后自动恢复。
+
+##### 待批准时确认的三点
+
+| # | 问题 | 推荐 |
+|---|---|---|
+| Q1 | 跨机批量要不要「全有或全无」 | **不要**。`batchmanage` 没有「准备」阶段，已经开始的停服也撤不回来，真正的原子性做不到；能做的只是下发前再查一次——而这一次查询与下发之间照样有竞态。改为：确认弹窗用屏幕上的总览把离线 / 忙的机器排除掉（覆盖绝大多数情况），后端如实报告部分成功，一键取消已开始的 |
+| Q2 | B 授予 `operator` 就能被跨机批量 | **是**。与 B 本地 operator 能用批量启停一致；B 若不想被批量操作，就不该授予任何角色 |
+| Q3 | 总览里带不带在线玩家数 | **不带**。要对每个实例每轮发 RCON `ListPlayers`，在线实例多时是实打实的负载，而且 RCON 失败会让总览抖动；等真有需要（P6）再做成低频缓存 |
 
 ### P6 — 增强（视需要）
 - [ ] 打洞（按 §5.6 的方案：UDP socket + `quic.Transport`、用 `Registered.stun_addrs` 做地址发现、信令与探测、`punched` 路径）。
@@ -1551,7 +1749,8 @@ stunclient "$WINHOST" 3479
    （T1 上用 `127.0.0.1:19294`）。
 3. A 上 `POST /api/mesh/pair`，`{"invite":"<整串>"}`，然后 Hello B。
    - 期望：配对成功，`path` 为 `"lan"`；之后的 V3 隧道用例在这个模式下同样可用（抽一条 V3-3 的请求验证即可）。
-4. 收尾：两边重新接入（`POST /api/mesh/join {"blob":"…"}`，或 CLI `mesh join` + 重启）。
+4. 收尾：两边重新接入（`POST /api/mesh/join {"blob":"…"}`——mesh 此时在运行，保存即热应用；或 CLI `mesh join` + 重启）。
+   2026-10-07 起 `/join` 不再顺带启用：若 mesh 已停止，要再 `POST /api/mesh/enable`（页面上是顶部的「启动」）。
 
 **V2-5 公网直连**（T2，可选：需要 B 有公网 IP 或路由器端口映射）
 
@@ -1741,7 +1940,7 @@ curl.exe -sk -X POST "$A/api/mesh/peers/$idB/hello"
    - 期望：结果与 B 以 `api` 方式运行时完全一致；尤其**不是** 502 / `Unavailable`「本机的 HTTP 服务尚未就绪」——出现它说明服务模式下
      没有注入 Gin engine。
 3. 在 B 的页面上改一次 mesh 配置（例如备注名）并保存。
-   - 期望：服务不用重启即生效（热应用），A 的 Hello 立即看到新的 `label`。
+   - 期望：服务不用重启即生效（mesh 在运行时保存即热应用，提示「已保存并应用」），A 的 Hello 立即看到新的 `label`。
 
 ### 14.5 P4：前端（浏览器）
 
@@ -1754,8 +1953,12 @@ curl.exe -sk -X POST "$A/api/mesh/peers/$idB/hello"
 | 区块 | 操作 | 期望 |
 |---|---|---|
 | 本机 | 打开页面 | 节点 ID（可复制）、协调节点「已连接」与出口地址、Peer 端口「监听 [::]:19194」、直连地址、版本；A 关鉴权时顶部有黄色警告「本机没有开启登录鉴权：任何能打开本页面的人都能控制已配对的机器。」 |
-| 本机 | 改备注名并「保存并应用」 | 不重启进程即生效：本页与 `GET /api/mesh/status` 的 `label` 更新；B 对 A 发 Hello（B 的页面上「检测」A）看到新名字；协调节点 `node list` 也是新名字。**B 的「能控制本机的机器」列表里的名字不变**——那是 B 配对时自己记下的备注名，是 B 的数据 |
-| 本机 | 粘贴一个截断的 join blob 点「接入」 | 报「接入字符串校验失败，可能没有复制完整」，而不是笼统的失败 |
+| 本机 | 运行中改备注名并「保存」 | 提示「已保存并应用」，不重启进程即生效：本页与 `GET /api/mesh/status` 的 `label` 更新；B 对 A 发 Hello（B 的页面上「检测」A）看到新名字；协调节点 `node list` 也是新名字。**B 的「能控制本机的机器」列表里的名字不变**——那是 B 配对时自己记下的备注名，是 B 的数据 |
+| 顶部 | 依次点「停止」（确认）→「启动」→「重启」 | 标签在「已停止 / 运行中」间切换；停止后 B 对 A 的 Hello 失败，启动后恢复；已停止时「停止」「重启」不可点、运行中「启动」不可点 |
+| 协调节点 | 粘贴 join blob（不点按钮） | 输入框下出现「解析结果」：地址、证书指纹、网络 ID、接入密钥「已包含」；已设置过协调节点时逐项标「当前 → 新」或「（未变）」 |
+| 协调节点 | 粘贴一个截断的 join blob | 解析结果处报「接入字符串校验失败，可能没有复制完整」，按钮不可点 |
+| 协调节点 | **已停止**状态下「保存」/「替换」 | 提示「已保存，启动后生效」，顶部仍是「已停止」（协调节点不会把 mesh 拉起来）；小节里显示新地址与指纹、连接一栏为「管理器互控未启动」 |
+| 协调节点 | **运行中**「替换」（确认） | 提示「已保存并应用」，数秒内连接变「已连接」 |
 | 本机 | 关掉「监听 Peer 端口」并保存 | Peer 端口一栏变为「不监听」；B 对 A 的 Hello 变成 `relay` |
 | 我能控制的机器 | 看 B 那一行，点「检测」 | 在线、路径（内网直连 / 中转）与毫秒数、版本、对方授予本机的角色 |
 | 我能控制的机器 | 粘贴 B 新生成的邀请码点「配对」 | 提示「已配对：机B，对方授予本机…」并出现在列表；再粘一次同一串 → 报「邀请码无效或已过期」 |
