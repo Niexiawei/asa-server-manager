@@ -302,6 +302,13 @@ func (m *Manager) Stop() error {
 	return err
 }
 
+// Running 报告 mesh 是否在运行。
+func (m *Manager) Running() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.running
+}
+
 // Reload 重新加载配置：Stop 再 Start（页面改配置后热应用）。未配置时返回 ErrNotConfigured，此时已是停止状态。
 func (m *Manager) Reload() error {
 	if err := m.Stop(); err != nil {
@@ -335,27 +342,28 @@ func (m *Manager) ControlRole() string {
 
 // Status 是 GET /api/mesh/status 的内容。
 type Status struct {
-	Configured  bool      `json:"configured"`
-	Enabled     bool      `json:"enabled"`
-	Running     bool      `json:"running"`
-	NodeID      string    `json:"node_id"`
-	Label       string    `json:"label"`
-	Version     string    `json:"version"`
-	Coordinator string    `json:"coordinator,omitempty"`
-	NetworkID   string    `json:"network_id,omitempty"`
-	Connected   bool      `json:"connected"`
-	Since       time.Time `json:"since,omitzero"`
-	Observed    string    `json:"observed_addr,omitempty"`
-	STUNAddrs   []string  `json:"stun_addrs"`
-	PeerPort    int       `json:"peer_port"`
-	NoListen    bool      `json:"no_listen"`
-	PublicAddrs []string  `json:"public_addrs"`
-	ListenAddr  string    `json:"listen_addr,omitempty"`
-	ListenError string    `json:"listen_error,omitempty"`
-	Candidates  []string  `json:"candidates"`
-	ControlRole string    `json:"control_role"`
-	LastError   string    `json:"last_error,omitempty"`
-	LastErrorAt time.Time `json:"last_error_at,omitzero"`
+	Configured    bool      `json:"configured"`
+	Enabled       bool      `json:"enabled"`
+	Running       bool      `json:"running"`
+	NodeID        string    `json:"node_id"`
+	Label         string    `json:"label"`
+	Version       string    `json:"version"`
+	Coordinator   string    `json:"coordinator,omitempty"`
+	CoordinatorID string    `json:"coordinator_id,omitempty"` // 协调节点证书指纹（连接时钉住它）
+	NetworkID     string    `json:"network_id,omitempty"`
+	Connected     bool      `json:"connected"`
+	Since         time.Time `json:"since,omitzero"`
+	Observed      string    `json:"observed_addr,omitempty"`
+	STUNAddrs     []string  `json:"stun_addrs"`
+	PeerPort      int       `json:"peer_port"`
+	NoListen      bool      `json:"no_listen"`
+	PublicAddrs   []string  `json:"public_addrs"`
+	ListenAddr    string    `json:"listen_addr,omitempty"`
+	ListenError   string    `json:"listen_error,omitempty"`
+	Candidates    []string  `json:"candidates"`
+	ControlRole   string    `json:"control_role"`
+	LastError     string    `json:"last_error,omitempty"`
+	LastErrorAt   time.Time `json:"last_error_at,omitzero"`
 }
 
 func (st *Status) fillConfig(cfg *Config) {
@@ -367,6 +375,7 @@ func (st *Status) fillConfig(cfg *Config) {
 	st.ControlRole = cfg.EffectiveControlRole()
 	if cfg.Coordinator != nil {
 		st.Coordinator = cfg.Coordinator.Addr
+		st.CoordinatorID = cfg.Coordinator.ID.String()
 		st.NetworkID = cfg.Coordinator.NetworkID
 	}
 }

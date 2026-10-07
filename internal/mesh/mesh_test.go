@@ -259,6 +259,34 @@ func TestJoinLeave(t *testing.T) {
 	}
 }
 
+// SetCoordinator 只写协调节点，不碰启用开关（页面上协调节点只是一项配置）；Join（CLI）仍会顺带启用。
+func TestSetCoordinatorKeepsEnabled(t *testing.T) {
+	c := newTestCoord(t)
+	for _, enabled := range []bool{false, true} {
+		dir := t.TempDir()
+		if _, err := SetEnabled(dir, enabled); err != nil {
+			t.Fatal(err)
+		}
+		cc, err := SetCoordinator(dir, c.blob)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cc.ID != c.id || cc.Addr != c.addr {
+			t.Fatalf("配置不对：%+v", cc)
+		}
+		cfg, err := readConfig(dir)
+		if err != nil && !errors.Is(err, ErrNotConfigured) {
+			t.Fatal(err)
+		}
+		if cfg.Enabled != enabled || cfg.Coordinator == nil {
+			t.Fatalf("SetCoordinator 不该改启用开关（原为 %v）：%+v", enabled, cfg)
+		}
+	}
+	if _, err := SetCoordinator(t.TempDir(), "garbage"); !errors.Is(err, meshjoin.ErrPrefix) {
+		t.Fatalf("坏的 join blob 应被拒，得到 %v", err)
+	}
+}
+
 type fakeAuth map[meshid.ID]string
 
 func (f fakeAuth) Grant(id meshid.ID) string { return f[id] }

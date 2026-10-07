@@ -168,13 +168,25 @@ func SaveConfig(dir string, cfg *Config) error {
 // Join 校验 join blob 并写入配置（启用）。不连协调节点：CLI 与正在运行的服务共用同一个身份，
 // 一连就会把服务的会话踢掉——CLI 写完要重启服务才生效，页面则写完立即热应用。
 func Join(dir, blob string) (*CoordinatorConfig, error) {
+	return writeCoordinator(dir, blob, true)
+}
+
+// SetCoordinator 校验 join blob 并只写入协调节点信息，**不改启用开关**（页面用：协调节点只是一项配置，
+// mesh 的启停由页面顶部的启动 / 停止单独控制）。
+func SetCoordinator(dir, blob string) (*CoordinatorConfig, error) {
+	return writeCoordinator(dir, blob, false)
+}
+
+func writeCoordinator(dir, blob string, enable bool) (*CoordinatorConfig, error) {
 	j, err := meshjoin.ParseJoinBlob(blob)
 	if err != nil {
 		return nil, err
 	}
 	cfg, err := editConfig(dir, func(c *Config) error {
 		c.Coordinator = FromJoinBlob(j)
-		c.Enabled = true
+		if enable {
+			c.Enabled = true
+		}
 		return nil
 	})
 	if err != nil {
