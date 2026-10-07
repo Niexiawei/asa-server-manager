@@ -5,6 +5,9 @@
 > 真机二进制冒烟通过**——见 §12「P2～P4 实施记录」。
 > **P5（跨机编排）已废弃（2026-10-07）**：对现有页面与逻辑改动太大，细化内容仅存档，见 §12「P5」。
 > **2026-10-07 页面调整**：协调节点改为单纯的配置项（保存 / 替换 + 解析预览），mesh 启停改由「远程管理器」页顶部的按钮控制，见 §12「P4 后续调整」。
+> **P6 打洞代码已完成（2026-10-07，同一分支，未提交）**：信令走中转路径上的 Peer gRPC，协调节点零改动；自动化测试两个平台通过、真实二进制回环冒烟通过，
+> 真机（家宽 NAT）验收待做（§14.6）——见 §12「P6 实施记录」。
+> 协调节点 Web 界面不做（只保留 CLI）；中转流量统计移到 **P7**（规划待批准）。
 > **所有需要人工验证的项目集中在 §14**（环境搭建、逐项步骤与判据、验证记录表）。
 > D4（打洞）本期不做，技术方案已定在 §5.6；**例外：协调节点的 STUN 端点本期先实现**（2026-10-05，细化见 §12「P1-8」）。
 > D6（多网络）选 B「数据模型预留」，见 §8.4。
@@ -228,6 +231,10 @@ service Peer {
 > 管理器侧的一切（长期 UDP socket、`quic.Transport`、候选收集、信令、探测、`punched` 路径）仍然 P6。
 > 先做的理由：它无状态、与其余部分零耦合、协调节点又是「部署一次很少升级」的东西——现在把端口与协议定下来、
 > 部署文档里就放行好 UDP 端口，P6 只升级管理器即可，不用再让每个协调节点运营者改防火墙、换二进制。
+>
+> **2026-10-07 P6 实施时的两处修正**（细节见 §12「P6-0」）：第 3 步的信令改走**中转路径上的 Peer gRPC**（`Peer.Punch`），
+> 不经协调节点的 `Session`——协调节点因此零改动，会话密钥它也看不到；第 5 步改为**发起方 Dial、应答方 Listen**，不按节点 ID 字典序。
+> 下文保留原方案作为档案。
 
 #### 5.6.1 先澄清：打洞不是 WireGuard
 
@@ -1448,10 +1455,343 @@ A 再点取消**不影响** B 的定时批量；V5-7 用 P4 版本的二进制�
 | Q3 | 总览里带不带在线玩家数 | **不带**。要对每个实例每轮发 RCON `ListPlayers`，在线实例多时是实打实的负载，而且 RCON 失败会让总览抖动；等真有需要（P6）再做成低频缓存 |
 
 ### P6 — 增强（视需要）
-- [ ] 打洞（按 §5.6 的方案：UDP socket + `quic.Transport`、用 `Registered.stun_addrs` 做地址发现、信令与探测、`punched` 路径）。
+- [x] 打洞（按 §5.6 的方案：UDP socket + `quic.Transport`、用 `Registered.stun_addrs` 做地址发现、信令与探测、`punched` 路径）。
+      **代码完成 2026-10-07**，真机验收见 §14.6。
       协调节点的 STUN 端点已在 P1-8 完成，P6 不需要升级协调节点。
-- [ ] 反向直连（§5.3）、协调节点 Web 界面、中转流量统计；若要 IP 级互通再评估 tsnet（§3.3）。
+- [ ] 反向直连（§5.3）：**已评估（2026-10-07，见下文「反向直连评估」）**——建议先只做「本机有公网地址但 UDP 未放行」的提示，等 P7 统计与真机打洞数据再决定是否实施。
+- [ ] UPnP / NAT-PMP / PCP 端口映射（`mapped` 候选）：同上，打洞实测数据回填 §5.6.4 后再定。
+- [ ] ~~协调节点 Web 界面~~ ❌ **不做**（2026-10-07）：协调节点只保留 CLI 操作（`asa-coordinator node …` / `join-blob` / `stun probe`）。
+- [ ] ~~中转流量统计~~ → **移到 P7**（2026-10-07，规划见下文「P7」）。
 - [ ] 若要把协调节点借给别人用：运营者的网络管理 CLI 与每网络配额（§8.4.4 的 C）。
+- [ ] 若要 IP 级互通再评估 tsnet（§3.3）。
+
+#### P6 细化：打洞（2026-10-07 批准，四点均按推荐）
+
+本轮只做上面第一项「打洞」；另外两项保持未勾选，不在本轮范围（见文末 Q3）。
+**目标**：两台都在 NAT 后、TCP 直连不通的管理器，在中转连上之后几秒内自动升级为 `punched` 路径；打不通就留在中转，用户不感知、不等待。
+**协调节点零改动**（不换二进制、不改配置），理由见 P6-0。
+
+##### P6-0 对 §5.6.3 的两处修正（先读这里）
+
+| # | §5.6.3 原方案 | 本细化 | 理由 |
+|---|---|---|---|
+| 1 | 第 3 步：信令经协调节点的 `Session` 转发（`PunchOffer` → `PunchAnswer` → `PunchStart`），协调节点发会话密钥、定开始时刻 | 信令走**已经连上的中转路径上的 Peer gRPC**：新增 `Peer.Punch`，A 在请求里带自己的候选与一把随机会话密钥，B 在响应里带自己的候选 | ①协调节点一行不改——它的 `handleNodeMessage` 现在丢弃 `PunchOffer`，按原方案就得升级每个协调节点，与 §5.6 开头「P6 只升级管理器」的承诺相违；②会话密钥在端到端 mTLS 里传，协调节点**根本看不到**，比原方案还少一个知情方；③打洞本来就排在中转之后（§5.6.3 的「用户感知」），信令借中转连接是零额外等待。代价：无协调节点模式不能打洞——但那种模式本来也没有 STUN，无从打洞。`coordinator.proto` 里的 `PunchOffer`/`PunchAnswer`/`PunchStart` 及其字段号**保留不用**（永不复用） |
+| 2 | 第 5 步：节点 ID 字典序小的一方 `Dial` QUIC，另一方 `Listen` | **发起方（A，要控制 B 的一方）`Dial`，应答方（B）`Listen`** | 原规则是为对称的「双方都可能先发现对方」设计的；这里会话天然有方向（A 发起 `Punch`、A 是之后 gRPC 的客户端），按方向定角色同样不会双方同时握手，而且让 QUIC 客户端 = 内层 TLS 客户端 = gRPC 客户端，三层方向一致，不用额外约定谁开流 |
+
+其余照 §5.6：同一个 UDP socket 承载 STUN、探测与 QUIC；探测包带 HMAC；QUIC 握手钉 SPKI；QUIC 上开一条流包成 `net.Conn`，
+之上照旧端到端 TLS + gRPC（TLS 套 TLS，上层零差别）；打不通回中转、按路径升级节奏重打。
+
+##### P6-1 UDP socket 与 `quic.Transport`（新文件 `internal/mesh/udp.go`）
+
+- `quic-go`（现为经 frp 的间接依赖 v0.62.0）改为**直接依赖**，版本不动。协调节点不引入它（`meshcoord/deps_test.go` 的守卫不变）。
+- `Start` 时（有协调节点且未关打洞）绑一个 UDP socket：`udp_port`，**0 = 与 Peer 端口同号**（默认 19194/udp）；双栈（`"udp"` + 空主机）。
+  绑不上**不报错退出**：退到系统分配的随机端口（打洞照样能用——反射地址是 STUN 问出来的，host 候选按实际端口填），
+  只在状态里记一条 `udp_error`。`no_punch: true` 时不开这个 socket。
+- socket 包成**一个**进程内唯一的 `quic.Transport`，`Stop` 时 `Close`（顺带关掉其上所有 QUIC 连接）。
+- **非 QUIC 包分发器**（`udpDemux`）：一个 goroutine 循环 `ReadNonQUICPacket`，按内容分给两类等待者——
+  STUN 回包（魔数 `0x2112A442`）按事务 ID 交给等它的查询；探测包（首字节 `0x2A`，见 P6-4）按会话 ID 交给打洞会话；其余丢弃。
+  ⚠️ `quic-go` 的非 QUIC 包队列**只有 32 个、满了就丢**（`maxQueuedNonQUICPackets`），分发器绝不能在回调里阻塞：
+  投递一律 `select … default`，等待者自己带缓冲。
+
+##### P6-2 地址发现与 NAT 判型（`internal/mesh/natprobe.go`）
+
+- 输入：`Registered.stun_addrs`（P1-8 已下发，主机名在管理器侧解析）。拿到第一个 `Registered` 后立刻测一次，之后每 **5 分钟**、
+  以及 `reportCandidates` 发现网卡地址变化时各测一次；协调节点重连后（新的 `Registered`）也测一次。
+- 做法：经 `Transport.WriteTo` 向两个 STUN 端口各发 `stun.NewBindingRequest()`，回包经分发器按事务 ID 回到 `stun.ParseBindingResponse`；
+  重传沿用 `stun.Query` 的 500ms / 1s / 2s 节奏（这里不能直接用 `Query`——它要独占读 socket）。
+  结果交给已有的 `stun.ClassifyMapping`（local = 各网卡地址 + 实际 UDP 端口）。
+- 产物（`natState`，锁保护）：`srflx`（反射地址，0～2 个，去重）、`mapping`（`stun.Mapping`）、`checked_at`、`error`。
+  测不到（UDP 被封、STUN 没开）⇒ `mapping = unknown`、没有 srflx——**照样尝试打洞**（host 候选在 IPv6 下经常就够）。
+- 只问 STUN 拿到的地址族：协调节点只解析出 IPv4 时只有 IPv4 的 srflx。IPv6 不需要 srflx：全局 IPv6 的 host 候选本身就是公网地址。
+
+##### P6-3 信令：`Peer.Punch`（`api/asamesh/v1/peer.proto` 增量，`buf generate`）
+
+```proto
+service Peer {
+  ...
+  // 打洞信令（§12 P6）。只在中转路径上调用：A 带上自己的候选与会话密钥，B 回自己的候选并立即开始探测。
+  // 要求调用者已被授权（不在未授权白名单里）。本机关了打洞时返回 FailedPrecondition。
+  rpc Punch(PunchRequest) returns (PunchResponse);
+}
+message PunchRequest {
+  bytes session_id = 1;          // 16 字节随机
+  bytes key = 2;                 // 32 字节随机，探测包 HMAC 用；只在端到端 mTLS 里传
+  repeated Candidate candidates = 3;  // 只有 UDP：HOST + SRFLX
+  NATMapping mapping = 4;
+}
+message PunchResponse {
+  repeated Candidate candidates = 1;
+  NATMapping mapping = 2;
+}
+enum NATMapping { NAT_MAPPING_UNKNOWN = 0; NAT_MAPPING_NONE = 1; NAT_MAPPING_EASY = 2; NAT_MAPPING_HARD = 3; }
+```
+
+- `Candidate` 复用 `coordinator.proto` 里的（同一个 proto 包，`import`），`transport = UDP`，`kind = HOST / SRFLX`。
+  每侧候选上限 **8 个**（IPv4 在前，超出截断），探测流量因此有上界。
+- 能力：`Capabilities()` 增加 `CapPunch = "punch.v1"`。A 发起前看该对端最近一次 `Hello` 的能力列表：没有 `punch.v1`（旧版本）就**不调**；
+  调了却得到 `Unimplemented` / `FailedPrecondition`（对方关了打洞）⇒ 这个 handle 不再尝试打洞，只留 TCP 直连的升级重试。
+- 授权：`Punch` 不进 `unpairedMethods`，现有拦截器自动要求「B 已授予 A 角色」——与 `HTTP` 相同，未配对的人摸不到 B 的 UDP 端口信息。
+- **双方都是 `HARD`（对称型）⇒ 不打**：A 在调用前若自己是 HARD 且 B 最近一次的 mapping 也是 HARD（B 的 mapping 从上次 `Punch` 响应缓存），
+  直接跳过并记一条「双方都是对称型 NAT，只能中转」（§5.6.4 的结论，省掉注定失败的 5 秒探测）。只有一方 HARD 照样试。
+
+##### P6-4 探测协议与打洞会话（`internal/mesh/punch.go`）
+
+- 探测包（固定 42 字节，首字节高两位为 0，`quic-go` 会把它交给 `ReadNonQUICPacket`）：
+
+  | 偏移 | 长度 | 内容 |
+  |---|---|---|
+  | 0 | 1 | `0x2A`（版本 / 魔数） |
+  | 1 | 1 | 类型：`1` = probe，`2` = ack |
+  | 2 | 16 | 会话 ID |
+  | 18 | 8 | 序号（大端） |
+  | 26 | 16 | HMAC-SHA256(key, 前 26 字节) 截断 |
+
+  HMAC 只防「别人伪造探测把选路引到错误地址」；身份认证仍靠之后的 QUIC 握手钉 SPKI（§5.6.3 第 4 步）。
+- 会话（每次 `Punch` 一个，`punchSession`）：双方各自从「拿到对方候选」那一刻起，每 **50ms** 向对方**每个**候选发一个 probe，最长 **5 秒**
+  （上界：8 候选 × 20 包/秒 × 5 秒 = 800 个小包）。B 在 `Punch` 处理函数里**先**起探测 goroutine 再返回响应，A 收到响应后起探测——
+  两边相差一个中转 RTT 的一半，远小于 5 秒窗口，不需要协调节点下发开始时刻。
+- 收到 HMAC 有效的 probe ⇒ 回一个 ack 给**来源地址**（不是候选表里的地址——经过 NAT 时两者不同），并把来源地址记为「已验证」。
+  收到有效的 ack 同样记为已验证。HMAC 无效、会话 ID 未知的包静默丢弃（不回包，不当反射器）。
+- A 拿到第一个已验证地址 ⇒ 停止探测、发起 QUIC（P6-5）；失败则换下一个已验证地址，直到窗口结束。
+  B 持续探测 + 回 ack，直到 A 的 QUIC 连接被接受（P6-5 的准入）或窗口结束；会话在窗口结束后再保留 **10 秒**供 QUIC 握手完成，然后作废。
+- 同一对端同时至多一个打洞会话（A 侧按 peer、B 侧按调用者 ID 去重；B 收到新的 `Punch` 时作废旧会话）。
+
+##### P6-5 QUIC 路径（`internal/mesh/quicpath.go`）
+
+- QUIC 配置：ALPN `asa-mesh/1`；`HandshakeIdleTimeout` 5 秒；`KeepAlivePeriod` **15 秒**、`MaxIdleTimeout` 45 秒（§5.6.3 第 7 步：
+  NAT 的 UDP 映射空闲超时常见 30 秒起）；每条 QUIC 连接只开**一条**流。
+- **A（Dial）**：`Transport.Dial(已验证地址, meshid.ClientConfig(cert, B) + ALPN)` ⇒ 钉 B 的公钥 ⇒ `OpenStreamSync` ⇒ 包成 `net.Conn`
+  ⇒ `clientTLS`（与直连 / 中转完全相同的内层握手）⇒ `pathConn{kind: PathPunched}`。
+- **B（Listen）**：`Transport.Listen(meshid.AnyClientServerConfig(cert) + ALPN)`，跑在 `Start` 起的 goroutine 里。
+  **准入**：握手完成后从 `ConnectionState().TLS` 取出客户端节点 ID，**必须有一个未作废的、发起方是它的打洞会话**，否则 `CloseWithError` 拒绝——
+  UDP 端口对全网可见，不能让任何人都在上面建 QUIC 连接；内层 TLS + 拦截器本来也会挡，这里是提前、更省地挡。
+  准入后 `AcceptStream`，包成 `net.Conn` 交给 Peer gRPC 服务——复用现在的 `relayListener.deliver`（改名为 `injectListener`，
+  Addr 不再写死 "relay"），撤销授权时 `connRegistry` 照旧能按 ID 断开它。
+- 流 → `net.Conn` 的包装（`quicConn`）：`Read/Write/SetDeadline` 直接走 `*quic.Stream`，`Local/RemoteAddr` 取连接的，
+  `Close` = 关流 + `CloseWithError(0)` 关整条 QUIC 连接（一条连接只有这一条流，生命周期一致）。
+
+##### P6-6 接入路径升级（改 `peerconn.go` 的 `upgradeLoop`）
+
+- 优先级（§5.3、§5.6.3）：直连-内网 > 直连-公网 > **打洞** > 中转。`dialPeer` 的 provider 列表**不变**（打洞依赖中转连接做信令，
+  不能作为首次拨号的路径）；打洞只从升级循环里进来。
+- 走中转的 handle：升级循环的**第一次尝试立即进行**（不再先等 `UpgradeMin`），顺序是「TCP 直连 → 打洞」；之后照旧 1 分钟起、翻倍到 10 分钟。
+  打洞那一步：等中转连接 READY（`WaitForReady` + 5 秒上限）→ 在**这个中转 handle 上**调 `Punch` → 探测 → QUIC → 成功就 `swapHandle`
+  （旧的中转 handle 退役，在途流自然结束，P2-5 的机制原样复用）。
+- 走打洞的 handle：升级循环继续，但只试 TCP 直连（打洞不比自己更好）。
+- 打洞连接断了（QUIC 空闲超时、对方 NAT 映射被回收）⇒ gRPC 重连走 `dialPeer` ⇒ 回到中转 ⇒ 新的中转 handle 立即再打一次——
+  **连续失败**时按升级循环的退避节奏，不会形成「打通—断—打通」的快速循环（同一对端两次打洞间隔下限 30 秒）。
+- 每个对端记最近一次打洞结果（时间、成功 / 原因：对方旧版本、对方关了打洞、双方对称型、探测超时、QUIC 握手失败），进 `PeerView`。
+
+##### P6-7 配置、状态、API 与页面
+
+- `config.json` 增量：`udp_port`（int，0 = 同 Peer 端口）、`no_punch`（bool，默认 false = **默认开启打洞**，见 Q2）。
+  `ConfigPatch` 与 `PUT /api/mesh/config` 同步增加这两个字段；校验同 `peer_port`。运行中修改照旧热应用（`Reload`）。
+- `GET /api/mesh/status` 增加 `punch` 块：`{enabled, udp_addr, udp_error, mapping, srflx[], checked_at, error}`
+  （`mapping` 用 `easy` / `hard` / `none` / `unknown`，文案在前端）。
+- `GET /api/mesh/peers` 每行增加 `last_punch: {at, ok, reason}`（没打过为空）。`path` 的 `punched` 已在 P4 里有「打洞」文案。
+- CLI：`asa-server mesh status` 打印 NAT 类型、反射地址、UDP 端口。
+- 页面（`MeshManager.vue`，小改，不动结构）：
+  - ②「协调节点」节（运行中且已连接时）增加两行：**NAT 类型**（`easy`=「易打洞」绿、`hard`=「对称型，难打洞」橙、`none`=「公网直达」、`unknown`=「未知」）
+    与**反射地址**（srflx，mono）。
+  - ③「本机设置」增加「UDP 端口」（placeholder「同 Peer 端口」）与「允许打洞」开关（附说明：「两台都在 NAT 后时尝试 UDP 打洞，打通后不再经中转」）。
+  - 对端列表的路径标签旁，若最近一次打洞失败，tooltip 显示原因。
+- Windows 防火墙：首次绑 UDP 端口时系统可能弹窗；不放行只影响「对方先到的探测被挡」，状态跟踪通常仍能打通。§14 里补一条验证，部署说明补一句。
+
+##### P6-8 测试
+
+| 层 | 用例 |
+|---|---|
+| 单元（`punch_test.go`） | 探测包编解码；错 key / 错会话 ID / 截断 / 首字节不对一律拒绝；ack 回到**来源地址**；候选截断到 8 个且 IPv4 在前；双方 HARD 跳过 |
+| 单元（`udp_test.go`） | 分发器：STUN 回包按事务 ID 送达、探测按会话 ID 送达、未知包丢弃、等待者不读时分发器不阻塞 |
+| 集成（`punch_e2e_test.go`，测试协调节点 + 两个 Manager，全回环） | ① B `no_listen`（TCP 直连必败）⇒ 先中转、**几秒内**升级为 `punched`，`Hello` 走打洞；② 两侧 UDP 套一层模拟「地址受限锥形 NAT」的 `PacketConn` 包装（只放行自己发过包的对端地址）⇒ 仍能打通，**证明探测确实在开洞**；③ B 侧包装丢弃全部入站 UDP ⇒ 留在中转、`last_punch` 记「探测超时」、不出现快速重试；④ B `no_punch` ⇒ `FailedPrecondition`、此 handle 不再打洞；⑤ 打洞路径上撤销 A 的授权 ⇒ 隧道流被取消、连接断开（P3-5 的语义在新路径上成立）；⑥ 用第三把身份直接对 B 的 UDP 端口发起 QUIC ⇒ 被准入拒绝；⑦ 打洞连接被强制关闭 ⇒ 回到中转后能再次打通（间隔受 30 秒下限约束，测试里调小） |
+| 地址发现 | 对测试协调节点的 STUN（`meshcoord` 已有）问到反射地址；回环下判型为 `none` |
+
+测试用的钩子照现有 `wrapListener` / `localCandidates` 的写法加在 `Options` 的非导出字段里：`wrapPacketConn`、`localUDPCandidates`、`punchMinInterval`。
+命令：`go test -race ./internal/mesh/ ./internal/webapi/meshapi/ ./internal/meshcoord/ ./pkg/stun/`（Windows 用 PowerShell），WSL 同样跑一遍。
+`quic-go` 在非 `*net.UDPConn` 的 `PacketConn` 上会关掉 GSO/ECN 等优化，只影响测试里的包装形态，不影响正确性。
+
+##### P6-9 验收（追加到 §14，新增「14.6 P6：打洞」，原 14.6 顺延）
+
+| # | 前置 | 操作 | 期望 |
+|---|---|---|---|
+| V6-1 | T1 两个管理器，B `no_listen` | A 打开 B 的远程面板 | 先显示「中转」，**10 秒内**变「打洞」；B 的日志有「准入 QUIC 连接」，A 的日志有「从中转升级为打洞」 |
+| V6-2 | 两台真机分处两个家宽 NAT（TCP 直连不通） | 同上 | 「打洞」；页面 NAT 类型显示「易打洞」；连续开着日志 SSE **30 分钟**不断（保活有效） |
+| V6-3 | 一方用手机 4G 热点（多为对称型） | 同上 | 另一方是易打洞时多数能通；两方都是对称型时直接留在中转，对端行的 tooltip 是「双方都是对称型 NAT」，**不出现** 5 秒探测 |
+| V6-4 | 两边任一方有公网 IPv6 | 同上 | 「打洞」，A 日志里胜出的是 IPv6 地址 |
+| V6-5 | V6-2 的状态 | B 侧拔网线 1 分钟再插回 | A 回到中转、恢复后自动再次打通；期间远程面板可用 |
+| V6-6 | 任意 | 本机设置关掉「允许打洞」并保存（运行中） | 立即生效：UDP 端口不再监听（`netstat`），对端连本机只走 TCP 直连或中转 |
+| V6-7 | Windows 首次运行 | 启动 mesh | 若弹出防火墙提示，「取消」后 V6-2 仍能打通（靠出站状态跟踪）；结论记进 §14 验证记录 |
+| V6-8 | 中转 + 打洞并存的切换期 | A 正在看 B 的日志 SSE 时完成升级 | SSE 不断（在途流留在旧中转连接上直到自然结束），新请求走打洞 |
+
+结论（各运营商 / 路由器的 NAT 类型与成败）回填 §5.6.4，作为第一批实测数据。
+
+##### P6-10 文件清单
+
+新增：`internal/mesh/{udp,natprobe,punch,quicpath}.go` 及对应测试；改：`api/asamesh/v1/peer.proto`（+ 生成物）、
+`internal/mesh/{manager,peerconn,peerserver,listener,config,coordclient}.go`、`internal/webapi/meshapi/meshapi.go`（只透传新字段）、
+`cmd` 里 `mesh status` 的输出、`app/src/views/MeshManager.vue`、`go.mod`（quic-go 转直接依赖）、本文档、根 `CLAUDE.md` 的 mesh 条目。
+**不改**：`internal/meshcoord`、`cmd/asa-coordinator`、`coordinator.proto`、`pkg/stun`。
+
+##### 批准时确认的四点（2026-10-07：全部按推荐）
+
+| # | 问题 | 推荐 |
+|---|---|---|
+| Q1 | 信令走 Peer gRPC（经中转）而不是协调节点的 Session | **是**（P6-0 #1）：协调节点零改动、会话密钥协调节点不可见；无协调节点模式本来就没法打洞 |
+| Q2 | 打洞默认开还是关 | **默认开**（`no_punch` 关闭）。新开的只是一个 UDP 端口：探测只回应 HMAC 正确的包，QUIC 只接受有打洞会话的已授权对端；默认关等于没人会用上 |
+| Q3 | 本轮范围 | **只做打洞**。UPnP / NAT-PMP / PCP 端口映射（`mapped` 候选）、反向直连、协调节点 Web 界面、中转流量统计、运营者 CLI 都留在 P6 清单上，不在本轮 |
+| Q4 | 内层是否继续套端到端 TLS（QUIC 层已经钉了 SPKI） | **继续套**：上层（`handshakenCreds`、`connRegistry`、拦截器）只认 `*tls.Conn`，零改动；控制面流量下双层加密的开销可以忽略。以后要优化再信任 QUIC 层的 TLS |
+
+#### P6 实施记录（2026-10-07，分支 `feat/remote-mesh`，未提交）
+
+代码完成；自动化测试两个平台通过（Windows `-race`、WSL `-race`，打洞用例连跑 5 次无抖动）；真实二进制回环冒烟通过；
+**真机（两个家宽 NAT、4G 热点、IPv6）验收待做**（§14.6）。
+
+**文件**：新增 `internal/mesh/{udp,natprobe,punch,quicpath}.go` 与 `punch_test.go`、`punch_e2e_test.go`；改 `api/asamesh/v1/peer.proto`
+（`Punch`、`NATMapping`，生成物同步）、`internal/mesh/{manager,peerconn,peerserver,coordclient,listener,config}.go`
+（`relayListener` 改名 `injectListener`）、`internal/actions/mesh.go`（`mesh status` 打印打洞行）、`internal/webapi/meshapi/lifecycle_test.go`
+（`TestPunchConfig`）、`app/src/views/MeshManager.vue`、`app/src/apis/meshApi.js`（注释）、`go.mod`（quic-go 转直接依赖，版本不动）。
+`internal/meshcoord`、`cmd/asa-coordinator`、`coordinator.proto`、`pkg/stun` 均未改。
+
+**与细化的偏差 / 补充**：
+
+| # | 细化 | 实际 | 原因 |
+|---|---|---|---|
+| 1 | P6-3 候选「IPv4 在前」 | 反射地址 → 全局 IPv6 host → 私网 host（含 ULA） | 跨 NAT 最可能通的是反射地址；全局 IPv6 本身就是公网地址；私网地址只在同一内网有用，而同一内网时 TCP 直连通常已经赢了。截断到 8 个时先丢最没用的 |
+| 2 | P6-6 中转 handle 第一轮立即打洞 | 另加前提：**只对已知授权了本机的对端打**（`peers.json` 里 `remote_role` 非空）；得知授权（Hello / 配对的回答带角色）时 `wakeUpgrade` 叫醒升级循环 | 第一条中转连接几乎总是在**配对**——此时调 `Punch` 必然 `PermissionDenied`，还白占一次最小间隔，下一轮要等 `UpgradeMin`（1 分钟）。端到端用例最初正是这样全部失败的 |
+| 3 | P6-6「打洞连接断了 ⇒ 新的中转 handle 立即再打」 | 重连发生在**同一个 handle** 上（gRPC 再调 dialer、落到中转）；升级循环还在跑时由 `startUpgrade` 经 `wake` 叫醒，立即打洞，仍受 30 秒下限 | handle 的生命周期比连接长，没有「新 handle」 |
+| 4 | （未写） | **Stop 时先逐条 `CloseWithError` 关 QUIC 连接，再关 Transport**（`puncher.close`，连接登记在 `puncher.conns`） | `quic.Transport.Close` 直接丢弃连接、**不发 CONNECTION_CLOSE**：对方要等 45 秒空闲超时才发现，这期间它到本机的请求全部失败、也不回落中转。冒烟实测 B 重启后 A 46 秒才恢复，修正后 0 秒。回归用例 `TestPunchPeerRestartRecoversQuickly`（已确认去掉修正时它失败） |
+| 5 | P6-8 ③ 期望「探测超时」 | 原因是「探测超时」或「QUIC 握手失败」 | 只挡**入站**时 B 的探测照样发得出去，A 认为地址可达、失败在 QUIC 握手——单向 UDP 的真实样子 |
+| 6 | P6-7 `punch.enabled` | `punch.active`（运行中且 UDP 就绪）；配置开关回显在顶层 `no_punch` / `udp_port`（与 `no_listen` / `peer_port` 同层） | 页面的设置表单从顶层读配置，`punch` 块只放运行时状态 |
+| 7 | P6-9 日志「准入 QUIC 连接」 | A：「到 X 的路径已从中转升级为打洞（地址）」；B：「接受来自 X 的打洞连接（地址）」；失败：「到 X 打洞未成功：原因，继续走中转」 | — |
+| 8 | P6-7 CLI `mesh status` 打印 NAT 类型 | 只打印配置（开关、UDP 端口）；NAT 类型只有运行中的服务知道，见 `GET /api/mesh/status` | `mesh status` 本来就只读本地文件、不连服务 |
+
+**冒烟**（真实二进制，Windows 单机回环：协调节点 + 两个 `api --tls=false`，两边 `no_listen`，UDP 19501 / 19502）：
+- 两边 NAT 判型「易打洞」、反射地址 = `127.0.0.1:<UDP 端口>`；socket 是双栈（`[::]:19501`）。判不出「无 NAT」是因为真实枚举过滤掉了回环地址——只有回环上才这样。
+- 配对后第一次 Hello 走中转，**1 秒内**变「打洞」，`last_punch` 记下对方地址。
+- B 重启：A 立即回中转（偏差 #4 修正后），30 秒下限到后再次打通。
+- B 运行中关打洞：热应用、UDP 关闭，A 立即回中转。
+
+**测试**：`punch_test.go`（探测包编解码与拒绝、候选排序 / 截断、对方候选解析、分发器路由与不阻塞、会话 ack 回来源地址）；
+`punch_e2e_test.go` 8 个（P6-8 ①～⑦ + B 重启后快速恢复）；`meshapi` 的 `TestPunchConfig`。
+测试默认关打洞（`newManager` 不传 `withPunch` 时写 `no_punch`），打洞用例显式开启并在回环上起两个真 STUN 端口。
+
+#### 反向直连评估（2026-10-07，只评估、未批准实施）
+
+**是什么**：A 要控制 B（A 是 gRPC 客户端），但 B 在 NAT 后、A 连不进去，而 A 自己**能被 TCP 连到**（公网 IP / 端口映射 / 放行了的全局 IPv6）。
+让 B 主动拨 A 的 Peer 端口，TCP 建好之后**角色翻转**：A 在这条连接上当 TLS 客户端与 gRPC 客户端，B 当服务端——
+上层看到的与 A 主动直连完全一样。
+
+##### 1. P6 之后它还能多覆盖什么
+
+| A（控制方） | B（被控方） | P6 现状 | 加反向直连后 |
+|---|---|---|---|
+| 公网 IP，TCP 与 UDP 都放行 | 家宽 NAT / 4G | 打洞能通（A 无 NAT，B 的探测直接进来，A 回 ack 走 B 已开的映射） | 同样能通，**无增益** |
+| 公网 IP，**只放行了 TCP**（云安全组 / 防火墙只开了 19194/tcp） | 任意 NAT | B 的探测被 A 的防火墙挡掉 ⇒ 中转 | ✅ 反向直连 |
+| 家宽 + 路由器**只映射了 TCP**（`public_addrs`） | 对称型 / CGNAT | 视 A 的 NAT 类型而定，常落中转 | ✅ 反向直连 |
+| 公网，UDP 放行 | B 所在网络**封 UDP / 限速 QUIC**（公司、酒店、部分校园网） | 中转 | ✅ 反向直连（这是唯一「用户自己没法通过放行端口解决」的场景） |
+| NAT 后、无映射 | 任意 | 打洞或中转 | 无增益（A 连不到） |
+| CGNAT / 4G | 任意 | 打洞或中转 | 无增益 |
+
+结论：增益集中在 **「A 可被 TCP 连到，但 UDP 那条走不通」**。其中前两行用户自己就能解决（多放行一个 `19194/udp`），
+真正只有反向直连能救的是第四行「B 的网络封 UDP」。本项目的典型部署里 A 多是管理员自己的家用电脑（多数在 NAT 后），
+B 是游戏服主机——**A 可被连到的情况本身就不多**，所以预计覆盖面窄。
+
+##### 2. 技术方案（如果做）
+
+关键观察：不需要「TLS 套 TLS」，也不需要新的监听端口——**TCP 方向反过来，TLS 方向不变**。
+
+1. **信令**：照 P6 的路子，在中转路径上新增 `Peer.Reverse(ReverseRequest{session_id, key, candidates})`，A 带上自己的 TCP 候选
+   （网卡地址 + `public_addrs`，即现在 `buildCandidates` 的输出）。能力 `reverse.v1`。拦截器自动要求「B 授权了 A」。
+2. **B 侧**：用现成的 `raceDial`（泛化成返回原始 `net.Conn`）拨 A 的候选；连上后先写一段**明文前导**
+   `"AMR1" | session_id(16) | HMAC(key, …)(16)`，然后把这条**原始连接**交给本机 Peer gRPC 服务（`injectListener.deliver`）——
+   服务端 TLS 由现有的 `limitedCreds` 完成，身份、拦截器、撤销登记全部照旧。B 侧几乎不用写新代码。
+3. **A 侧**：Peer 端口前面加一个**分流 Listener**：读第一个字节——`0x16`（TLS ClientHello）⇒ 原样交给 gRPC（把读掉的字节回放）；
+   前导魔数 ⇒ 读满前导、校验会话与 HMAC ⇒ 把连接交给正在等它的那次升级尝试 ⇒ `clientTLS(conn, cert, B)`（钉 B 的公钥）⇒
+   `pathConn{kind: PathReverse}` ⇒ `swapHandle`。其余一律关闭。
+4. **选路**：新增 `PathReverse`（页面「反向直连」），优先级放在「直连-公网」之后、「打洞」之前（TCP 比 UDP 更能穿过中间设备，且没有双层 TLS）。
+   只在升级循环里发生（同打洞：它依赖中转连接做信令）；A 不监听或没有任何非私网候选时不试。
+5. **安全**：前导之前没有任何认证，所以分流 Listener 要有首字节 / 前导读超时（5 秒）与并发上限，未知会话、HMAC 错一律断开；
+   之后的 TLS 钉公钥照旧——拨错地址、被人冒充都在握手阶段失败。权限模型零变化。
+
+##### 3. 工作量与风险
+
+- 约 **3～4 天**（proto 与信令 0.5、分流 Listener 1、两侧接线与升级循环 1、测试与文档 1～1.5）。
+- **主要风险在分流 Listener**：它挡在**所有**直连入站连接前面，写错了影响的不只是反向直连。必须做到：首字节读超时不拖慢正常 TLS、
+  回放字节不丢不重、慢速连接攻击被并发上限挡住；另外要有「关掉反向直连 = 分流 Listener 不装」的开关作退路。
+- 测试能在回环上做全（A 监听、B 不监听，且 B 侧挡掉 UDP ⇒ 期望走反向直连），不像 UPnP 那样依赖真路由器。
+
+##### 4. 更便宜的替代：先给出提示（约半天）
+
+增益表里前三行的根因都是「A 能被连到，但 UDP 没放行」。A 能自己判断出这种情况：本机 NAT 类型是 `none`（或配置了 `public_addrs`），
+而作为**应答方**的打洞屡次失败、或作为发起方失败原因是探测超时 ⇒ 在页面「协调节点」一节提示
+「本机看起来有公网地址，但 UDP 19194 似乎没有放行；放行后对方可以打洞直连，不再经中转」。这一条覆盖了大部分增益，零协议改动。
+
+##### 5. 建议
+
+1. **现在不做反向直连**，先做 §4 的提示（可以并入 P7，或作为 P6 的小尾巴）。
+2. **用数据决定**：P7 的中转流量统计（按节点对）+ §14.6 的真机打洞结果出来后，看「长期留在中转、且一方可被 TCP 连到」的节点对有多少、
+   占多少中转字节。只有这部分明显时再做反向直连——到时方案按上面 §2，不需要改协调节点。
+
+### P7 — 中转流量统计（下一期；规划 2026-10-07，待批准）
+
+**为什么要**：中转是协调节点唯一的成本项（§5.4、§8.2），现在只有「中转结束时记一行日志、总字节数」，运营者回答不了
+「这个月 VPS 的流量花在谁身上」，用户也看不到「我有多少流量走了中转」。P6 打洞上线后还需要它来**量化打洞省下了多少**。
+
+**原则**：协调节点只保留 CLI 操作（P6 已定），统计**只经 CLI 看**，不加 Web 界面、不加对外端口；管理器侧只统计**自己**的中转字节，
+不向协调节点上报任何东西（协调节点本来就看得到全部中转字节，管理器再报一遍既多余又可伪造）。
+
+#### P7-1 协调节点：按方向计数并落库（`internal/meshcoord`）
+
+- `relay.bytes` 拆成 `bytesAB` / `bytesBA`（发起方 → 被叫方、反方向），原子计数，转发循环里各加各的。
+- `coordinator.db` 迁移到 `schemaVersion = 2`，新增表：
+  `relay_sessions(id TEXT PK, network_id, from_node, to_node, opened_at, paired_at, ended_at NULL, bytes_ab, bytes_ba, end_reason)`，
+  索引 `(network_id, opened_at)`、`(from_node)`、`(to_node)`。
+- **写入时机**：会话**配齐**时插入一行（`ended_at` 为空）；运行期间每 **60 秒**批量刷一次在途会话的字节数（一个 goroutine、一条事务）；
+  结束时写最终字节数、`ended_at` 与结束原因（`peer_closed` / `idle_timeout` / `rate_limited` / `shutdown` …）。
+  没配齐就作废的会话不入库（没有流量，只记日志）。
+- **崩溃恢复**：启动时把 `ended_at` 为空的行收尾为 `coordinator_restart`（字节数取最后一次刷盘值，最多少算 60 秒）。
+- **保留期**：`stats.retention_days`（默认 **30**，0 = 永久），每小时清理一次过期行。按 30 天、几十台管理器估算，表在 MB 级。
+- `coordinator.yaml` 新增 `stats:` 段（`retention_days`、`flush_interval`）；`KnownFields(true)` 照旧，模板同步。
+- 日志行改为「A → B 转发 x，B → A 转发 y」。
+
+#### P7-2 协调节点 CLI（`cmd/asa-coordinator`，与运行中的服务是两个进程，只读库）
+
+| 命令 | 输出 |
+|---|---|
+| `relay list [--active] [--node <ID>] [--since 24h] [--limit 50] [--json]` | 会话明细：时间、双方短 ID 与备注名、持续时长、两个方向字节数、结束原因；`--active` 只看在途（字节数最多滞后 60 秒） |
+| `relay stats [--by node\|pair\|day] [--since 7d] [--json]` | 汇总：按节点（作为发起方 / 被叫方各多少）、按节点对、按天 |
+| `node list`（增量） | 多一列「中转 7 天」（两个方向合计） |
+
+人类可读的字节数（KiB / MiB / GiB），`--json` 给原始整数，方便运营者自己接监控。
+
+#### P7-3 可选闸门：每节点每日中转额度
+
+- `limits.relay_daily_bytes`（默认 0 = 不限）：某节点当天（UTC）作为任一方的中转字节数超额后，**新的** `OpenRelay` 返回
+  `ResourceExhausted`「今日中转额度已用完」；**在途会话不切断**（切断正在看的面板体验太差，额度是成本闸门不是计费）。
+- 当天用量从 `relay_sessions` 汇总 + 在途会话的内存计数得出，`OpenRelay` 时查一次（有索引，毫秒级）。
+- 管理器侧把这个错误原样显示在对端行上（现有的 `last_error` 即可），直连 / 打洞不受影响。
+
+#### P7-4 管理器：本机的中转字节（`internal/mesh`，只在内存）
+
+- 中转连接（`openRelayStream` 包出来的 `streamconn`）外面套一个计数包装，按对端累计 `sent` / `received`（含入站中转，即别人经中转连本机）。
+- `GET /api/mesh/peers` 每行增加 `relay_bytes: {sent, received}`；`GET /api/mesh/status` 增加本次启动以来的合计与起算时间。
+- **不持久化**：mesh 重启即清零（页面写明「本次启动以来」）。要长期账单看协调节点的 `relay stats`。
+- 页面：对端行在有中转流量时显示「经中转 ↑x ↓y」；②「协调节点」节显示合计。
+
+#### P7-5 测试与验收
+
+- 单测：迁移 v1 → v2（拿一份 v1 的库升级，原有网络 / 节点 / 拉黑表不变）；按方向计数；周期刷盘与结束写入；崩溃恢复收尾；保留期清理；
+  额度超额拒绝新会话、在途不断；CLI 的汇总 SQL（用固定数据断言 `--by node|pair|day`）。
+- 管理器：中转连接收发 N 字节后 `relay_bytes` 精确等于 N（套在 TLS 下面，计的是密文字节——与协调节点看到的一致）。
+- 人工（追加到 §14）：T1 拓扑下经中转下载一个备份，`relay list --active` 一分钟内看到字节数增长；结束后 `relay stats --by pair` 与管理器页面的数字一致（差值 = 协议帧开销，< 1%）。
+
+#### 待批准时确认的三点
+
+| # | 问题 | 推荐 |
+|---|---|---|
+| Q1 | 做不做每日额度（P7-3） | **做，默认关**：代价小（一次索引查询），却是运营者唯一能控制带宽账单的手段 |
+| Q2 | 管理器侧要不要持久化中转字节 | **不要**：账单的权威来源是协调节点；管理器只回答「现在 / 本次启动有多少走了中转」 |
+| Q3 | 保留期默认值 | **30 天**，可配 |
 
 ---
 
@@ -1468,7 +1808,7 @@ A 再点取消**不影响** B 的定时批量；V5-7 用 P4 版本的二进制�
 
 ---
 
-## 14. 人工验证清单（P1～P4）
+## 14. 人工验证清单（P1～P4、P6）
 
 自动化测试（P1-9、P2-7、P3-10）覆盖不到的项目**全部集中在本章**；§12 各阶段的「验收」只指向这里，不再各列一份。
 每一项都写了**前置环境**、**操作**与**期望**——「期望」就是判据，结果不符时把那一步的完整命令输出与两边日志贴回来。
@@ -1488,7 +1828,7 @@ P2～P4 的条目按 §12 的细化编写（接口路径、CLI 名字以细化�
 `Invoke-WebRequest` 的别名）、浏览器（Chrome / Edge，开发者工具）。STUN 第三方客户端在 WSL 里装（V1-6）。
 管理器默认 HTTPS + 本地自签 CA，`curl.exe` 一律带 `-k`。
 
-**记录方式**：每项做完在本章末尾的「14.6 验证记录」表里填一行（日期、环境、结果、备注）；失败项写清卡在哪一步。
+**记录方式**：每项做完在本章末尾的「14.7 验证记录」表里填一行（日期、环境、结果、备注）；失败项写清卡在哪一步。
 
 ### 14.1 环境搭建
 
@@ -1928,7 +2268,7 @@ curl.exe -sk -X POST "$A/api/mesh/peers/$idB/hello"
 - 期望：配对成功；WSL 管理器**不需要重启**就认得 A（CLI 写 `peers.json`，服务自动重载）；第 5 步拿到的是 **Linux** 的运行时自检结果
   （Windows 上这个接口恒为空），证明请求真的到了 Linux 那台。`POST $A/api/mesh/peers/$idL/hello` 的 `path`：WSL 的候选地址
   （WSL 里 `eth0` 的 `172.x`）Windows 能直接拨通，通常是 `lan`。
-- 收尾：Ctrl+C 停掉 WSL 里的 api；`rm -rf /opt/mesh-verify`（§14.6 收尾时一起做也行）。
+- 收尾：Ctrl+C 停掉 WSL 里的 api；`rm -rf /opt/mesh-verify`（§14.7 收尾时一起做也行）。
 
 **V3-10 被控方以服务方式运行**（T2 的 B；Windows 服务或 Linux systemd 各做一次更好）
 
@@ -2012,7 +2352,26 @@ curl.exe -sk -X POST "$A/api/mesh/peers/$idB/hello"
 | A 开鉴权、本人是 operator | 用 operator 登录 A | 「远程管理」菜单不出现；`control_role` 为默认的 admin 时选择器也不出现（`/api/mesh/status` 对它 403） |
 | 同上，`control_role: operator` | A 的管理员把「谁能使用远程控制」改成「管理员与操作员」，operator 刷新 | 选择器出现、能切到 B 并操作；「远程管理」菜单仍不出现（改配置、配对只属于管理员） |
 
-### 14.6 验证记录
+### 14.6 P6：打洞
+
+前置：T1 / T2 拓扑之上，两台管理器都升级到 P6；**协调节点不用升级**（STUN 的 UDP 3478 / 3479 在 P1 部署时已放行）。
+打洞默认开启，开关在页面「本机设置 → 允许打洞」。要让 TCP 直连必败，把两边的「监听 Peer 端口」关掉。
+
+| # | 前置 | 操作 | 期望 |
+|---|---|---|---|
+| V6-1 | T1 两个管理器，两边都不监听 Peer 端口，B 授权 A | A 的「我能控制的机器」里对 B 点「检测」，隔几秒再点一次 | 第一次「中转」，几秒内「打洞」；A 日志「到 B 的路径已从中转升级为打洞（…）」，B 日志「接受来自 A 的打洞连接（…）」；两边「协调节点」一节显示 NAT 类型与反射地址 |
+| V6-2 | 两台真机分处两个家宽 NAT（TCP 直连不通） | 同上，然后开着 B 的日志页 30 分钟 | 「打洞」；NAT 类型「易打洞」；日志 SSE 30 分钟不断（保活有效） |
+| V6-3 | 一方用手机 4G 热点 | 同上 | 另一方易打洞时多数能通；双方都是「对称型」时留在中转，对端行「打洞未成功」悬停显示「双方都是对称型 NAT，只能中转」，日志里**没有** 5 秒探测 |
+| V6-4 | 任一方有公网 IPv6 | 同上 | 「打洞」，A 日志里升级时的地址是 IPv6 |
+| V6-5 | V6-2 的状态 | B 侧拔网线 1 分钟再插回 | A 回到中转（45 秒 QUIC 空闲超时内察觉），恢复后自动再次打通 |
+| V6-6 | V6-1 的状态 | B 页面顶部「重启」 | A 的下一次检测**立即**成功（中转），30 秒后再变「打洞」——不能出现 45 秒的不可用 |
+| V6-7 | V6-1 的状态 | 运行中关掉 B 的「允许打洞」并保存 | 提示「已保存并应用」；B 的 UDP 端口不再监听（`Get-NetUDPEndpoint -LocalPort 19194` 无输出）；A 立即回中转，30 秒后的那次尝试记「对方关闭了打洞」 |
+| V6-8 | Windows 首次运行 | 启动 mesh | 若弹防火墙提示，「取消」后 V6-2 仍能打通（出站状态跟踪）；结论记进验证记录 |
+| V6-9 | 中转 + 打洞的切换期 | A 正在看 B 的日志 SSE 时完成升级 | SSE 不断（在途流留在旧中转连接上），新请求走打洞 |
+
+结论（运营商、路由器型号、NAT 类型与成败）回填 §5.6.4。
+
+### 14.7 验证记录
 
 | 编号 | 日期 | 环境（T1 / T2 / WSL） | 结果 | 备注 |
 |---|---|---|---|---|
@@ -2047,6 +2406,15 @@ curl.exe -sk -X POST "$A/api/mesh/peers/$idB/hello"
 | V4-2 | | | | |
 | V4-3 | | | | 逐页结果可另附 |
 | V4-4 | | | | |
+| V6-1 | | | | |
+| V6-2 | | | | 运营商 / 路由器型号 |
+| V6-3 | | | | |
+| V6-4 | | | | |
+| V6-5 | | | | |
+| V6-6 | | | | |
+| V6-7 | | | | |
+| V6-8 | | | | |
+| V6-9 | | | | |
 
 已有的部分结果：
 - 2026-10-05 在 Windows 本机回环上对 `stun probe` 做过冒烟（两个端口都回答、结论「无 NAT」），对应 V1-7 的连通部分；VPS / 家宽实测仍待做。
@@ -2057,6 +2425,8 @@ curl.exe -sk -X POST "$A/api/mesh/peers/$idB/hello"
   V3-4 直连 B 的返回、V3-8 的用户名长度、§14.5 的界面文案与备注名语义），补了 V2-8（协调节点停机不影响直连）、V3-10（服务模式）、
   V3-1 的「改角色不丢响应」与限流两条；V3-8 第 3 步改由单测守住。为让 V2-2 / V2-3 可观察，代码补了两行日志：
   管理器侧「到 X 改走relay：<直连失败的原因>」、协调节点侧「中转 X 结束：…，持续 …，转发 … 字节」。
+
+- 2026-10-07 真实二进制回环冒烟（详见「P6 实施记录」）覆盖了 V6-1、V6-6、V6-7 的同机部分；跨 NAT 的 V6-2～V6-5、V6-8 仍待真机。
 
 **收尾**：全部做完后 `Stop-Process` 掉验证用的进程；T2 的 VPS 上 `asa-coordinator service remove`（若不再使用）；
 删除 `C:\mesh-verify` 与 WSL 的 `/opt/mesh-verify`；确认 B 的 `lan_bypass` 已恢复关闭、`New-NetFirewallRule` 加的规则已删除
