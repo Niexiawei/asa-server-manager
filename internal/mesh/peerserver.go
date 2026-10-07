@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/time/rate"
@@ -20,16 +21,18 @@ import (
 	"asa-server/pkg/meshid"
 )
 
-// 能力列表，随 Register 与 Hello 交换。打洞是 "punch.v1"（P6）。
+// 能力列表，随 Register 与 Hello 交换。
 const (
 	CapRelay  = "relay.v1"
 	CapDirect = "direct.v1"
 	CapPair   = "pair.v1"
 	CapHTTP   = "http.v1"
+	// CapPunch 表示认得 Peer.Punch（§12 P6-3）。本机关了打洞照样声明——调用时回 FailedPrecondition。
+	CapPunch = "punch.v1"
 )
 
 // Capabilities 返回本程序声明的能力。
-func Capabilities() []string { return []string{CapRelay, CapDirect, CapPair, CapHTTP} }
+func Capabilities() []string { return []string{CapRelay, CapDirect, CapPair, CapHTTP, CapPunch} }
 
 const (
 	// maxUnpairedConns：未授权身份同时持有的入站连接上限。它们能完成握手（否则没法配对），
@@ -142,6 +145,8 @@ type peerService struct {
 	label   func() string
 	store   *PeerStore
 	tunnel  *tunnelServer
+	// punch 为 nil = 本机没开打洞（关了，或没有协调节点）。Start 在服务已经开始接连接之后才装上它。
+	punch atomic.Pointer[puncher]
 
 	limitMu    sync.Mutex
 	failures   map[meshid.ID][]time.Time
@@ -233,6 +238,19 @@ func (s *peerService) Pair(ctx context.Context, req *meshpb.PairRequest) (*meshp
 	}
 	logger.Infof("[mesh] 节点 %s（%s，来自 %s）申请配对，等待管理员批准", id.Short(), req.GetLabel(), addr)
 	return &meshpb.PairResponse{Status: meshpb.PairStatus_PAIR_STATUS_PENDING}, nil
+}
+
+// Punch 实现打洞信令（§12 P6-3）。拦截器已保证调用者被授权。
+func (s *peerService) Punch(ctx context.Context, req *meshpb.PunchRequest) (*meshpb.PunchResponse, error) {
+	id, ok := peerIDFromContext(ctx)
+	if !ok {
+		return nil, status.Error(codes.Unauthenticated, "无法识别调用者")
+	}
+	p := s.punch.Load()
+	if p == nil {
+		return nil, status.Error(codes.FailedPrecondition, errPunchDisabledText)
+	}
+	return p.answer(id, req)
 }
 
 // HTTP 实现隧道（tunnel_server.go）。
