@@ -45,6 +45,24 @@
             <span v-if="status.listen_error" class="err">{{ status.listen_error }}</span>
           </span>
         </div>
+        <!-- UPnP（§12「P6 补充」）：在路由器上开好的端口会暴露到公网，这里明确列出来 -->
+        <div class="kv" v-if="status.running">
+          <span class="k">端口映射</span>
+          <span class="v" v-if="status.upnp?.state === 'mapped'">
+            <t-tag size="small" theme="success" variant="light">UPnP 已映射</t-tag>
+            <span class="mono" v-for="m in status.upnp.mappings" :key="m.protocol + m.external">
+              {{ m.protocol }} {{ m.external }}<span v-if="m.permanent" class="muted">（永久）</span>
+            </span>
+            <span class="muted">{{ status.upnp.gateway }}</span>
+            <span v-if="status.upnp.error" class="err">{{ status.upnp.error }}</span>
+          </span>
+          <span class="v" v-else>
+            <span :class="status.upnp?.state === 'error' ? 'err' : 'muted'">
+              {{ UPNP_TEXT[status.upnp?.state] || status.upnp?.state }}
+            </span>
+            <span v-if="status.upnp?.error && status.upnp?.state !== 'disabled'" class="muted">{{ status.upnp.error }}</span>
+          </span>
+        </div>
         <div class="kv" v-if="status.candidates?.length">
           <span class="k">直连地址</span>
           <span class="v mono">{{ status.candidates.join('，') }}</span>
@@ -70,6 +88,10 @@
             <t-input-number v-if="form.punch" v-model="form.udp_port" :min="1" :max="65535" theme="normal"
                             placeholder="同 Peer 端口" style="width: 140px; margin-left: 12px"/>
             <span class="muted note">两台都在 NAT 后时尝试 UDP 打洞，打通后不再经中转。需要协调节点。</span>
+          </t-form-item>
+          <t-form-item label="允许 UPnP 端口映射">
+            <t-switch v-model="form.upnp"/>
+            <span class="muted note">在路由器上自动打开 Peer 端口与打洞端口；宽带有公网 IPv4 时对方可以直接连进来。</span>
           </t-form-item>
           <t-form-item label="本机公网地址">
             <t-textarea v-model="form.public_addrs" :autosize="{minRows: 1, maxRows: 4}"
@@ -345,6 +367,15 @@ import * as api from '@/apis/meshApi.js'
 
 const PATH_TEXT = {lan: '内网直连', public: '公网直连', relay: '中转', punched: '打洞'}
 const ROLE_TEXT = {admin: '管理员', operator: '操作员'}
+// UPnP 映射状态（status.upnp.state）
+const UPNP_TEXT = {
+  disabled: '已关闭',
+  searching: '正在查找路由器…',
+  not_found: '未发现支持 UPnP 的路由器（路由器未开启 UPnP）',
+  double_nat: '上级还有 NAT，映射对外无效（宽带没有公网 IPv4）',
+  error: '映射失败',
+  stopped: '未运行',
+}
 // NAT 类型（status.punch.mapping）→ [文案, 标签主题]
 const NAT_TEXT = {
   none: ['公网直达', 'success'],
@@ -373,6 +404,7 @@ const editDialog = ref(false)
 const editForm = reactive({node_id: '', label: '', addrs: ''})
 const form = reactive({
   label: '', listen: true, peer_port: 19194, public_addrs: '', control_role: 'admin', punch: true, udp_port: undefined,
+  upnp: true,
 })
 
 // 粘贴的 join blob 与当前已保存的协调节点逐项对照（已保存时才标「变化」）
@@ -442,6 +474,7 @@ function applyStatus(st) {
   form.control_role = st?.control_role || 'admin'
   form.punch = !st?.no_punch
   form.udp_port = st?.udp_port || undefined
+  form.upnp = !st?.no_upnp
 }
 
 async function reloadAll() {
@@ -552,6 +585,7 @@ async function saveConfig() {
     control_role: form.control_role,
     no_punch: !form.punch,
     udp_port: form.udp_port || 0,
+    no_upnp: !form.upnp,
   }))
   if (st) {
     applyStatus(st)

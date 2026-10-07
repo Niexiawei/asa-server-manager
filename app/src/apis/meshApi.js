@@ -5,10 +5,10 @@ import apiClient from '@/utils/http.js'
 
 const data = p => p.then(res => res?.data)
 
-/** 本机状态：节点 ID、协调节点连接、Peer 端口、候选地址、版本、control_role、punch（打洞：NAT 类型、反射地址）… */
+/** 本机状态：节点 ID、协调节点连接、Peer 端口、候选地址、版本、control_role、punch（打洞：NAT 类型、反射地址）、upnp（端口映射）… */
 export const getMeshStatus = () => data(apiClient.get('/api/mesh/status'))
 
-/** 改配置（只传要改的字段）：label / peer_port / no_listen / public_addrs / control_role / udp_port / no_punch。运行中才热应用（看响应的 applied） */
+/** 改配置（只传要改的字段）：label / peer_port / no_listen / public_addrs / control_role / udp_port / no_punch / no_upnp。运行中才热应用（看响应的 applied） */
 export const updateMeshConfig = (patch) => data(apiClient.put('/api/mesh/config', patch))
 
 /** 保存 / 替换协调节点（join blob）。不改启停：只在运行中热应用，响应的 applied 说明是否已应用 */
