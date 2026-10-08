@@ -137,7 +137,12 @@ type pairedPair struct {
 // newPaired 建 A、B 并让 B 以 role 授权 A（邀请码）。B 挂上 testEngine。
 func newPaired(t *testing.T, role string, opts ...func(*Options)) *pairedPair {
 	t.Helper()
-	c := newTestCoord(t)
+	return newPairedOn(t, newTestCoord(t), role, opts...)
+}
+
+// newPairedOn 同 newPaired，但接入调用方给的协调节点。
+func newPairedOn(t *testing.T, c *testCoord, role string, opts ...func(*Options)) *pairedPair {
+	t.Helper()
 	p := &pairedPair{c: c, blocked: make(chan struct{}, 4)}
 	p.a = newManager(t, c, "a", opts...)
 	p.b = newManager(t, c, "b", opts...)

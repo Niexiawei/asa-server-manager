@@ -44,6 +44,7 @@ type testCoord struct {
 	srv   *meshcoord.Server
 	// stunAddrs 是下发给管理器的 STUN 地址；默认是一个没人监听的假地址。
 	stunAddrs []string
+	limits    meshcoord.LimitsConfig
 }
 
 func newTestCoord(t *testing.T, opts ...func(*testCoord)) *testCoord {
@@ -89,7 +90,9 @@ func (c *testCoord) start() {
 		c.t.Fatal(err)
 	}
 	c.addr = lis.Addr().String()
-	c.srv = meshcoord.NewServer(meshcoord.ServerOptions{Store: c.store, STUNAddrs: c.stunAddrs})
+	// 中转统计刷得勤一点：P7 的用例要拿协调节点库里的字节数与管理器的计数对账。
+	c.srv = meshcoord.NewServer(meshcoord.ServerOptions{Store: c.store, STUNAddrs: c.stunAddrs, Limits: c.limits,
+		Stats: meshcoord.StatsConfig{FlushInterval: 100 * time.Millisecond}})
 	c.gs = meshcoord.NewGRPCServer(c.cert, c.srv)
 	go c.gs.Serve(lis)
 }
