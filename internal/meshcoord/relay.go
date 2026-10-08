@@ -35,9 +35,23 @@ type relay struct {
 
 	expiry       *time.Timer
 	finishOnce   sync.Once
+	openedAt     time.Time
 	lastActivity atomic.Int64 // UnixNano
 	pairedAt     atomic.Int64 // UnixNano，双方都 Join 的时刻；0 = 没配齐
-	bytes        atomic.Int64 // 双向转发的字节数（结束时记一行，便于运维与排障）
+	bytesAB      atomic.Int64 // A → B 转发的字节数
+	bytesBA      atomic.Int64 // B → A
+
+	// 已写进库的累计值（算增量用）与是否已收尾。受 Server.statsMu 保护（P7-1）。
+	flushedAB, flushedBA int64
+	recorded             bool
+}
+
+// counter 返回从 side 一侧收到、转发给另一侧的字节计数。
+func (r *relay) counter(side int) *atomic.Int64 {
+	if side == 0 {
+		return &r.bytesAB
+	}
+	return &r.bytesBA
 }
 
 // relayEnd 是一侧的流。只有**对侧**的接收循环会往它发数据；sendMu + closed 保证
@@ -86,19 +100,31 @@ func (s *Server) OpenRelay(ctx context.Context, req *meshpb.OpenRelayRequest) (*
 		s.mu.Unlock()
 		return nil, status.Error(codes.InvalidArgument, "不能中转到自己")
 	}
+	targetID := target.id
+	s.mu.Unlock()
+	// 每日额度（P7-3）：查库，不在 s.mu 里做。
+	if err := s.checkDailyQuota(caller.network, caller.id, targetID); err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	if target = s.online[targetID]; target == nil || target.network != caller.network {
+		s.mu.Unlock()
+		return nil, errNotFound
+	}
 	limit := s.opts.Limits.MaxRelaysPerNode
 	if s.relayCount[caller.id] >= limit || s.relayCount[target.id] >= limit {
 		s.mu.Unlock()
 		return nil, status.Errorf(codes.ResourceExhausted, "中转会话数已达上限（每节点 %d）", limit)
 	}
 	r := &relay{
-		id:      hex.EncodeToString(randomBytes(16)),
-		network: caller.network,
-		nodes:   [2]meshid.ID{caller.id, target.id},
-		tokens:  [2][]byte{randomBytes(32), randomBytes(32)},
-		paired:  make(chan struct{}),
-		expired: make(chan struct{}),
-		done:    make(chan struct{}),
+		id:       hex.EncodeToString(randomBytes(16)),
+		network:  caller.network,
+		nodes:    [2]meshid.ID{caller.id, target.id},
+		tokens:   [2][]byte{randomBytes(32), randomBytes(32)},
+		paired:   make(chan struct{}),
+		expired:  make(chan struct{}),
+		done:     make(chan struct{}),
+		openedAt: time.Now(),
 	}
 	s.relays[r.id] = r
 	s.relayCount[caller.id]++
@@ -112,7 +138,7 @@ func (s *Server) OpenRelay(ctx context.Context, req *meshpb.OpenRelayRequest) (*
 		Token:      r.tokens[1],
 	}}})
 	if !ok {
-		s.finishRelay(r)
+		s.finishRelay(r, RelayEndPeerClosed)
 		return nil, status.Error(codes.Unavailable, "对端暂时无法接收通知，请稍后重试")
 	}
 	return &meshpb.OpenRelayResponse{SessionId: r.id, Token: r.tokens[0]}, nil
@@ -130,12 +156,16 @@ func (s *Server) expireRelay(r *relay) {
 		return
 	}
 	close(r.expired)
-	s.finishRelay(r)
+	s.finishRelay(r, RelayEndPeerClosed)
 }
 
-// finishRelay 结束会话并释放计数，幂等。
-func (s *Server) finishRelay(r *relay) {
+// finishRelay 结束会话并释放计数，幂等。reason 是结束原因（只有配齐过的会话会入库）；
+// 协调节点停止过程中一律记为 shutdown。
+func (s *Server) finishRelay(r *relay, reason string) {
 	r.finishOnce.Do(func() {
+		if s.stopping.Load() {
+			reason = RelayEndShutdown
+		}
 		r.expiry.Stop()
 		close(r.done)
 		s.mu.Lock()
@@ -150,8 +180,11 @@ func (s *Server) finishRelay(r *relay) {
 		}
 		s.mu.Unlock()
 		if at := r.pairedAt.Load(); at != 0 {
-			logger.Infof("[coord] 中转 %s 结束：%s → %s，持续 %s，转发 %d 字节", r.id[:8], r.nodes[0].Short(), r.nodes[1].Short(),
-				time.Since(time.Unix(0, at)).Round(time.Second), r.bytes.Load())
+			s.recordRelayEnd(r, reason)
+			logger.Infof("[coord] 中转 %s 结束（%s）：%s → %s，持续 %s，%s → %s 转发 %d 字节，%s → %s 转发 %d 字节",
+				r.id[:8], RelayEndReasonText(reason), r.nodes[0].Short(), r.nodes[1].Short(),
+				time.Since(time.Unix(0, at)).Round(time.Second),
+				r.nodes[0].Short(), r.nodes[1].Short(), r.bytesAB.Load(), r.nodes[1].Short(), r.nodes[0].Short(), r.bytesBA.Load())
 		}
 	})
 }
@@ -196,8 +229,10 @@ func (s *Server) Relay(stream meshpb.Coordinator_RelayServer) error {
 
 	if bothJoined {
 		r.expiry.Stop()
-		r.lastActivity.Store(time.Now().UnixNano())
-		r.pairedAt.Store(time.Now().UnixNano())
+		now := time.Now()
+		r.lastActivity.Store(now.UnixNano())
+		r.pairedAt.Store(now.UnixNano())
+		s.recordRelayStart(r, now)
 		close(r.paired)
 		go s.idleWatch(r)
 		logger.Infof("[coord] 中转 %s 已建立：%s → %s", r.id[:8], r.nodes[0].Short(), r.nodes[1].Short())
@@ -210,7 +245,7 @@ func (s *Server) Relay(stream meshpb.Coordinator_RelayServer) error {
 	case <-r.done:
 		return status.Error(codes.Aborted, "中转会话已结束")
 	case <-ctx.Done():
-		s.finishRelay(r)
+		s.finishRelay(r, RelayEndPeerClosed)
 		return ctx.Err()
 	}
 
@@ -218,9 +253,10 @@ func (s *Server) Relay(stream meshpb.Coordinator_RelayServer) error {
 	other := r.ends[1-side]
 	s.mu.Unlock()
 	limiter := s.limiterFor(id)
+	counter := r.counter(side)
 
 	go func() {
-		defer s.finishRelay(r)
+		defer s.finishRelay(r, RelayEndPeerClosed)
 		for {
 			f, err := stream.Recv()
 			if err != nil {
@@ -234,7 +270,7 @@ func (s *Server) Relay(stream meshpb.Coordinator_RelayServer) error {
 				return
 			}
 			r.lastActivity.Store(time.Now().UnixNano())
-			r.bytes.Add(int64(len(data)))
+			counter.Add(int64(len(data)))
 			if err := other.send(data); err != nil {
 				return
 			}
@@ -244,7 +280,7 @@ func (s *Server) Relay(stream meshpb.Coordinator_RelayServer) error {
 	select {
 	case <-r.done:
 	case <-ctx.Done():
-		s.finishRelay(r)
+		s.finishRelay(r, RelayEndPeerClosed)
 	}
 	end.close()
 	return nil
@@ -262,7 +298,7 @@ func (s *Server) idleWatch(r *relay) {
 		case <-t.C:
 			if time.Since(time.Unix(0, r.lastActivity.Load())) >= timeout {
 				logger.Infof("[coord] 中转 %s 空闲超过 %s，关闭", r.id[:8], timeout)
-				s.finishRelay(r)
+				s.finishRelay(r, RelayEndIdleTimeout)
 				return
 			}
 		}
