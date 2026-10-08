@@ -39,13 +39,13 @@ func TestProbeEncodeVerify(t *testing.T) {
 		sid [punchSIDLen]byte
 		b   []byte
 	}{
-		"错 key":   {wrongKey, sid, b},
-		"错会话 ID":  {key, [punchSIDLen]byte{1}, b},
-		"被篡改":     {key, sid, tampered},
-		"截断":      {key, sid, b[:probeLen-1]},
-		"未知类型":    {key, sid, badType},
-		"首字节不对":   {key, sid, badMagic},
-		"空包":      {key, sid, nil},
+		"错 key":  {wrongKey, sid, b},
+		"错会话 ID": {key, [punchSIDLen]byte{1}, b},
+		"被篡改":    {key, sid, tampered},
+		"截断":     {key, sid, b[:probeLen-1]},
+		"未知类型":   {key, sid, badType},
+		"首字节不对":  {key, sid, badMagic},
+		"空包":     {key, sid, nil},
 	} {
 		if _, ok := verifyProbe(c.key, c.sid, c.b); ok {
 			t.Errorf("%s：应拒绝", name)
