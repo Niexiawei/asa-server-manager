@@ -8,7 +8,6 @@
       <t-space size="4px">
         <t-select
             v-model="filterTaskId"
-            size="small"
             class="run-log-filter"
             :popup-props="{ overlayInnerStyle: { width: '200px' } }"
             @change="loadLogs"
@@ -16,13 +15,13 @@
           <t-option value="" label="全部任务"/>
           <t-option v-for="t in tasks" :key="t.id" :value="t.id" :label="t.name"/>
         </t-select>
-        <t-button size="small" variant="text" shape="square" title="刷新" @click="loadLogs">
+        <t-button variant="text" shape="square" title="刷新" @click="loadLogs">
           <template #icon>
             <t-icon name="refresh"/>
           </template>
         </t-button>
         <t-popconfirm content="确定清空全部执行日志吗？此操作不可撤销。" @confirm="onClear">
-          <t-button size="small" variant="text" shape="square" title="清空" :disabled="total === 0">
+          <t-button variant="text" shape="square" title="清空" :disabled="total === 0">
             <template #icon>
               <t-icon name="delete"/>
             </template>
