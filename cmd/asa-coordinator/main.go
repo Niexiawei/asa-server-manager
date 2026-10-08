@@ -46,6 +46,7 @@ func main() {
 				Action: actionJoinBlob,
 			},
 			nodeCommand(),
+			relayCommand(),
 			serviceCommand(),
 			stunCommand(),
 		},

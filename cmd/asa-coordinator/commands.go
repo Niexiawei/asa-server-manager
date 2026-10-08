@@ -55,18 +55,6 @@ func configCommand() *cli.Command {
 
 func nodeCommand() *cli.Command {
 	networkFlag := &cli.StringFlag{Name: "network", Value: meshcoord.DefaultNetworkID, Usage: "网络 ID"}
-	withStore := func(cmd *cli.Command, fn func(*meshcoord.Store) error) error {
-		cfg, err := loadConfig(cmd)
-		if err != nil {
-			return err
-		}
-		store, err := meshcoord.OpenStore(cfg.DataDir)
-		if err != nil {
-			return err
-		}
-		defer store.Close()
-		return fn(store)
-	}
 	setBanned := func(banned bool) cli.ActionFunc {
 		return func(_ context.Context, cmd *cli.Command) error {
 			if cmd.Args().Len() != 1 {
@@ -76,7 +64,7 @@ func nodeCommand() *cli.Command {
 			if err != nil {
 				return err
 			}
-			return withStore(cmd, func(s *meshcoord.Store) error {
+			return withStore(cmd, func(_ *meshcoord.Config, s *meshcoord.Store) error {
 				if err := s.SetBanned(cmd.String("network"), id, banned); err != nil {
 					return err
 				}
@@ -98,20 +86,21 @@ func nodeCommand() *cli.Command {
 				Usage: "列出接入过的节点",
 				Flags: []cli.Flag{configFlag(), &cli.StringFlag{Name: "network", Usage: "只看这个网络（默认全部）"}},
 				Action: func(_ context.Context, cmd *cli.Command) error {
-					return withStore(cmd, func(s *meshcoord.Store) error {
+					return withStore(cmd, func(_ *meshcoord.Config, s *meshcoord.Store) error {
 						nodes, err := s.ListNodes(cmd.String("network"))
 						if err != nil {
 							return err
 						}
+						relay := relay7d(s)
 						w := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
-						fmt.Fprintln(w, "网络\t节点 ID\t备注\t版本\t首次接入\t最近在线\t状态")
+						fmt.Fprintln(w, "网络\t节点 ID\t备注\t版本\t首次接入\t最近在线\t中转 7 天\t状态")
 						for _, n := range nodes {
 							state := "正常"
 							if n.Banned {
 								state = "已拉黑"
 							}
-							fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-								n.NetworkID, n.NodeID, n.Label, n.Version, fmtTime(n.FirstSeen), fmtTime(n.LastSeen), state)
+							fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+								n.NetworkID, n.NodeID, n.Label, n.Version, fmtTime(n.FirstSeen), fmtTime(n.LastSeen), fmtBytes(relay[n.NodeID]), state)
 						}
 						return w.Flush()
 					})
