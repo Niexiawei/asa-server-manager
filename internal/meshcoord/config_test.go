@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 func writeConfig(t *testing.T, dir, body string) string {
@@ -163,6 +164,9 @@ func TestValidate(t *testing.T) {
 		{name: "一个 STUN 端口", extra: "stun:\n  listen: [\":3478\"]\n", warn: "NAT4"},
 		{name: "证书只给一半", extra: "tls:\n  cert_file: a.pem\n", wantErr: "同时给出"},
 		{name: "advertise 格式", extra: "stun:\n  listen: [\":3478\", \":3479\"]\n  advertise: [\"nope\"]\n", wantErr: "advertise"},
+		{name: "负的每日额度", extra: "limits:\n  relay_daily_mib: -1\n", wantErr: "负数"},
+		{name: "负的保留期", extra: "stats:\n  retention_days: -1\n", wantErr: "retention_days"},
+		{name: "刷盘太频繁", extra: "stats:\n  flush_interval: 100ms\n", wantErr: "flush_interval"},
 	}
 	for _, c := range cases {
 		p := writeConfig(t, t.TempDir(), minimalConfig+c.extra)
@@ -186,6 +190,24 @@ func TestValidate(t *testing.T) {
 		if _, _, err := Load(p); err == nil {
 			t.Errorf("缺必填字段应报错：%q", missing)
 		}
+	}
+}
+
+// stats 段：不写时保留 30 天、每分钟刷盘；显式写 0 是永久保留（与「没写」不同）。
+func TestStatsDefaults(t *testing.T) {
+	cfg, _, err := Load(writeConfig(t, t.TempDir(), minimalConfig))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Stats.Retention() != 30*24*time.Hour || cfg.Stats.FlushInterval != time.Minute || cfg.Limits.RelayDailyMiB != 0 {
+		t.Fatalf("默认值不对：%+v", cfg.Stats)
+	}
+	cfg, _, err = Load(writeConfig(t, t.TempDir(), minimalConfig+"stats:\n  retention_days: 0\n  flush_interval: 10s\nlimits:\n  relay_daily_mib: 2048\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Stats.Retention() != 0 || cfg.Stats.FlushInterval != 10*time.Second || cfg.Limits.RelayDailyMiB != 2048 {
+		t.Fatalf("显式值没生效：%+v %+v", cfg.Stats, cfg.Limits)
 	}
 }
 

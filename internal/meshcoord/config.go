@@ -40,6 +40,7 @@ type Config struct {
 	TLS    TLSConfig    `yaml:"tls"`
 	Limits LimitsConfig `yaml:"limits"`
 	STUN   STUNConfig   `yaml:"stun"`
+	Stats  StatsConfig  `yaml:"stats"`
 
 	// path 是加载自的文件（绝对路径），不来自 YAML。
 	path string
@@ -59,6 +60,27 @@ type LimitsConfig struct {
 	RelayIdleTimeout time.Duration `yaml:"relay_idle_timeout"`
 	// RelayRateKBps：每个节点经中转发出的速率上限（KiB/s），0 = 不限。
 	RelayRateKBps int `yaml:"relay_rate_kbps"`
+	// RelayDailyMiB：每个节点每天（UTC）作为任一方的中转额度（MiB，两个方向合计），0 = 不限。
+	// 超额后新的中转申请被拒绝，在途会话不切断（§12 P7-3）。
+	RelayDailyMiB int `yaml:"relay_daily_mib"`
+}
+
+// StatsConfig 是中转流量统计（§12 P7-1）。
+type StatsConfig struct {
+	// RetentionDays：统计保留天数，0 = 永久。不写时默认 30（所以是指针：要分清「没写」与「写了 0」）。
+	RetentionDays *int `yaml:"retention_days"`
+	// FlushInterval：在途会话的字节数多久写一次库。relay list --active 看到的字节数最多滞后这么久，
+	// 协调节点异常退出时最多少算这么久的流量。
+	FlushInterval time.Duration `yaml:"flush_interval"`
+}
+
+// Retention 返回保留期，0 = 永久。
+func (c StatsConfig) Retention() time.Duration {
+	days := defaultRetentionDays
+	if c.RetentionDays != nil {
+		days = *c.RetentionDays
+	}
+	return time.Duration(days) * 24 * time.Hour
 }
 
 // STUNConfig 见 §12「P1-8」。listen 为空 = 关闭。
@@ -74,6 +96,9 @@ const (
 	defaultDataDir          = "data"
 	defaultMaxRelaysPerNode = 8
 	defaultRelayIdleTimeout = 5 * time.Minute
+	defaultRetentionDays    = 30
+	defaultFlushInterval    = time.Minute
+	minFlushInterval        = time.Second
 )
 
 // Path 返回配置文件的绝对路径。
@@ -89,6 +114,9 @@ func (c *Config) applyDefaults() {
 	}
 	if c.Limits.RelayIdleTimeout == 0 {
 		c.Limits.RelayIdleTimeout = defaultRelayIdleTimeout
+	}
+	if c.Stats.FlushInterval == 0 {
+		c.Stats.FlushInterval = defaultFlushInterval
 	}
 }
 
@@ -124,8 +152,14 @@ func (c *Config) Validate() (warnings []string, err error) {
 	if (c.TLS.CertFile == "") != (c.TLS.KeyFile == "") {
 		errs = append(errs, errors.New("tls.cert_file 与 tls.key_file 必须同时给出或同时留空"))
 	}
-	if c.Limits.MaxRelaysPerNode < 0 || c.Limits.RelayIdleTimeout < 0 || c.Limits.RelayRateKBps < 0 {
+	if c.Limits.MaxRelaysPerNode < 0 || c.Limits.RelayIdleTimeout < 0 || c.Limits.RelayRateKBps < 0 || c.Limits.RelayDailyMiB < 0 {
 		errs = append(errs, errors.New("limits 的各项不能为负数"))
+	}
+	if c.Stats.RetentionDays != nil && *c.Stats.RetentionDays < 0 {
+		errs = append(errs, errors.New("stats.retention_days 不能为负数（0 = 永久保留）"))
+	}
+	if c.Stats.FlushInterval < minFlushInterval {
+		errs = append(errs, fmt.Errorf("stats.flush_interval 不能小于 %s", minFlushInterval))
 	}
 
 	switch n := len(c.STUN.Listen); {

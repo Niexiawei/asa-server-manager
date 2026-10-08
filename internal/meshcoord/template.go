@@ -47,6 +47,9 @@ limits:
   relay_idle_timeout: 5m
   # 每个节点经中转发出的速率上限（KiB/s），0 = 不限
   relay_rate_kbps: 0
+  # 每个节点每天（UTC 0 点重置）的中转额度（MiB，收发合计），0 = 不限。
+  # 用完后新的中转申请被拒绝（管理器上显示「今日中转额度已用完」），正在进行的不切断；直连 / 打洞不受影响
+  relay_daily_mib: 0
 
 # STUN 端点（标准 STUN Binding，可直接用现成的 STUN 工具排障）。
 # listen 留空 = 关闭；配两个端口才能让管理器分辨出对称型 NAT。
@@ -59,6 +62,13 @@ stun:
   burst_per_source: 10
   # 全局限流（次/秒）
   rate_global: 2000
+
+# 中转流量统计：asa-coordinator relay list / relay stats 查看
+stats:
+  # 保留天数，0 = 永久
+  retention_days: 30
+  # 进行中的会话多久写一次库（relay list --active 的字节数最多滞后这么久）
+  flush_interval: 1m
 `
 
 // ErrConfigExists 表示目标已存在且没有 --force。
