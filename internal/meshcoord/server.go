@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/netip"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/time/rate"
@@ -37,6 +38,7 @@ type ServerOptions struct {
 	Store     *Store
 	STUNAddrs []string
 	Limits    LimitsConfig
+	Stats     StatsConfig
 
 	// RelayJoinTimeout：OpenRelay 之后双方都 Join 的期限。默认 30 秒。
 	RelayJoinTimeout time.Duration
@@ -56,6 +58,9 @@ type Server struct {
 	relayCount map[meshid.ID]int
 	limiters   map[meshid.ID]*rate.Limiter
 
+	statsMu  sync.Mutex  // 串行化中转统计的写库（relaymeter.go）
+	stopping atomic.Bool // Shutdown 之后为 true：此后结束的中转一律记为 shutdown
+
 	stop     chan struct{}
 	stopOnce sync.Once
 }
@@ -74,6 +79,9 @@ func NewServer(opts ServerOptions) *Server {
 	if opts.Limits.RelayIdleTimeout <= 0 {
 		opts.Limits.RelayIdleTimeout = defaultRelayIdleTimeout
 	}
+	if opts.Stats.FlushInterval <= 0 {
+		opts.Stats.FlushInterval = defaultFlushInterval
+	}
 	s := &Server{
 		opts:       opts,
 		online:     map[meshid.ID]*session{},
@@ -82,11 +90,18 @@ func NewServer(opts ServerOptions) *Server {
 		limiters:   map[meshid.ID]*rate.Limiter{},
 		stop:       make(chan struct{}),
 	}
+	// 上次异常退出留下的在途会话：此刻本进程还没有任何中转，库里 ended_at 为空的都是孤儿。
+	if n, err := opts.Store.CloseDanglingRelays(); err != nil {
+		logger.Warnf("[coord] 收尾上次遗留的中转记录失败：%v", err)
+	} else if n > 0 {
+		logger.Infof("[coord] 上次未正常停止，已把 %d 条进行中的中转记录收尾（字节数取最后一次刷盘值）", n)
+	}
 	go s.banSweepLoop()
+	go s.statsLoop()
 	return s
 }
 
-// Close 停止后台任务。在线会话由 gRPC 服务器的 Stop 结束。
+// Close 停止后台任务。在线会话由 gRPC 服务器的 Stop 结束；要把中转记为正常停止，先调 Shutdown。
 func (s *Server) Close() {
 	s.stopOnce.Do(func() { close(s.stop) })
 }

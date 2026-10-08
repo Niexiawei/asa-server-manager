@@ -128,7 +128,7 @@ func Run(ctx context.Context, cfg *Config, version string) error {
 	}
 	defer closeAll()
 
-	srv := NewServer(ServerOptions{Store: store, STUNAddrs: cfg.STUNAdvertise(), Limits: cfg.Limits})
+	srv := NewServer(ServerOptions{Store: store, STUNAddrs: cfg.STUNAdvertise(), Limits: cfg.Limits, Stats: cfg.Stats})
 	defer srv.Close()
 	gs := NewGRPCServer(cert, srv)
 
@@ -166,6 +166,8 @@ func Run(ctx context.Context, cfg *Config, version string) error {
 	}
 	logger.WithConsole().Infof("[coord] 正在停止…")
 	cancel()
+	// 先结束中转（记为 shutdown、写最终字节数）：中转是长流，留给 GracefulStop 只会等到超时。
+	srv.Shutdown()
 	stopped := make(chan struct{})
 	go func() { gs.GracefulStop(); close(stopped) }()
 	select {
