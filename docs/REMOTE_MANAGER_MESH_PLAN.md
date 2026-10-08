@@ -7,11 +7,14 @@
 > **2026-10-07 页面调整**：协调节点改为单纯的配置项（保存 / 替换 + 解析预览），mesh 启停改由「远程管理器」页顶部的按钮控制，见 §12「P4 后续调整」。
 > **P6 打洞代码已完成（2026-10-07，同一分支，未提交）**：信令走中转路径上的 Peer gRPC，协调节点零改动；自动化测试两个平台通过、真实二进制回环冒烟通过，
 > 真机（家宽 NAT）验收待做（§14.6）——见 §12「P6 实施记录」。
-> 协调节点 Web 界面不做（只保留 CLI）；中转流量统计移到 **P7**（规划待批准）。
+> 协调节点 Web 界面不做（只保留 CLI）。**P7 中转流量统计代码已完成（2026-10-07，同一分支，未提交）**：协调节点按方向记账落库、`relay list / stats` CLI、可选的每节点每日额度，管理器页面显示本次启动以来的中转字节——见 §12「P7 实施记录」；公网部署的完整人工验证路线见 §14.8。
 > 穿透手段定为 **打洞 / UPnP / 回落中转**：反向直连与 NAT-PMP / PCP 不做；UPnP **代码已完成（2026-10-07，未提交）**，见 §12「UPnP 实施记录」。
 > **所有需要人工验证的项目集中在 §14**（环境搭建、逐项步骤与判据、验证记录表）。
 > D4（打洞）本期不做，技术方案已定在 §5.6；**例外：协调节点的 STUN 端点本期先实现**（2026-10-05，细化见 §12「P1-8」）。
 > D6（多网络）选 B「数据模型预留」，见 §8.4。
+>
+> ⛔ **明确不做（2026-10-07 定，后续迭代不得重新引入）**：**IP 级互通**（虚拟 IP / VPN / tsnet / WireGuard）与**把协调节点借给他人使用**
+> （多网络、运营者的网络管理 CLI、每网络配额）。理由与边界见 §1.1、§11 的 D8 / D9。
 >
 > **与 simple-file-sync 的关系（已定）**：那是一个独立的同步库，本功能**不复用它的任何功能、不 import 它的任何包**，
 > 协调节点也与它的协调端毫无关系。唯一参考的是两个**交互形态**：「一行 join blob 接入」与「配对」，
@@ -35,6 +38,19 @@
 | **最大代价** | ①又多一个要自己运维的公网服务；②**这是一个远程控制入口**——RCON、上传 ArkApi 插件（DLL）约等于远程执行代码，安全模型是本功能的主体工作量，不是附属品；③两台管理器版本不一致时，A 的前端调 B 的 API 可能对不上（§9）。 |
 | **不做的事（首期）** | NAT 打洞（技术方案已定：UDP 打洞 + QUIC，**不是 WireGuard**，§5.6；其中协调节点的 STUN 端点首期先做，管理器侧的打洞不做）、多跳控制（A→B→C）、协调节点 Web 界面。 |
 | **工作量粗估** | P1～P4（能在页面上远程控制）约 **3～4 周**；P5 已废弃（§12），P6 视需要。 |
+| **永久不做** | **IP 级互通**、**协调节点借给他人使用**（2026-10-07），见 §1.1。 |
+
+### 1.1 明确不做的功能（2026-10-07 定）
+
+> **给后续迭代的约束**：下面两项**不是「暂缓」，是不做**。今后任何阶段的细化、评估、「顺手优化」都不要把它们重新带进来；
+> 若某个需求看起来要靠它们才能实现，先在本文记录并向用户确认，**不要**自行设计或实现，也不要为它们预留接口、字段或依赖。
+
+| 不做的功能 | 指什么 | 为什么不做 | 相关需求的替代做法 |
+|---|---|---|---|
+| **IP 级互通** | 给每台管理器一个虚拟 IP，让对端上**任意程序、任意端口**互相可达（VPN 式：Tailscale / ZeroTier / WireGuard，或进程内嵌 `tsnet`、gVisor 用户态网络栈、TUN / wintun 虚拟网卡） | 本功能的安全模型建立在「A 只能调 B 的管理器 API、按 B 授予的角色过滤」之上（§6）；IP 级互通会让 A 拿到通往 B 上一切服务的网络路径，角色与远程禁区全部失效。还要管理员权限 / 驱动或十几 MB 的依赖 | 远程桌面 / SSH / 文件共享：用户自行安装 Tailscale、ZeroTier 等独立软件；玩家连 NAT 后的游戏服：FRP（`frpmanage`）；RCON、日志、备份、配置：走现有的 HTTP 隧道 |
+| **协调节点借给他人使用** | 一个协调节点服务多个互不相干的用户群：多网络（§8.4.4 的 C）、运营者的网络管理 CLI（`network create / list / rotate-secret / delete`）、每网络配额、网络所有者自助管理的账号体系 | 协调节点只服务**部署者自己的机器**。D6 选 B 时留下的 `network_id` 只是数据模型预留，**不再向 C 演进** | 别人要用就自己部署一个协调节点（它是一个独立小二进制，§8）；测试机与正式服要隔离，同样再部署一个协调节点 |
+
+被否决的其他方案（同样不要重新引入）：反向直连、NAT-PMP / PCP、协调节点 Web 界面（只保留 CLI）、P5 跨机编排——各自的记录见 §12。
 
 ---
 
@@ -94,6 +110,8 @@ simple-file-sync 是一个**独立的通用同步库**，与本功能没有任�
 | 与本程序的贴合度 | 节点身份、配对、授权仍要自己在上面做一层 | 一体设计 |
 
 本功能的流量是**控制面**（API 请求、日志、2 秒一次的状态推送），量小，不需要打洞带来的带宽收益。
+> ⛔ **2026-10-07：不再评估 tsnet，IP 级互通永久不做（§1.1、D8）。** 下面这句保留作档案。
+
 **如果以后要做「管理器之间大文件互传」或中转成本成了问题，再评估切到 tsnet**——只要第 5 章的「连接层」接口抽象得当，
 上层（配对、授权、HTTP 隧道、前端）不用动。
 
@@ -250,7 +268,7 @@ service Peer {
 | 载体 | 评估 | 结论 |
 |---|---|---|
 | **QUIC**（`quic-go`） | UDP 上的可靠多路流 + 拥塞控制 + 内置 TLS 1.3，一层就是我们要的全部。关键能力：`quic.Transport` 包住**一个** UDP socket，同一个 socket 上既能 `Dial` 又能 `Listen`，还能用 `WriteTo` / `ReadNonQUICPacket` 收发非 QUIC 包（打洞探测、STUN）——**打洞用的 socket 与之后跑 QUIC 的 socket 必须是同一个**，否则 NAT 映射对不上，这正是它满足的。已在依赖图里（经 frp，v0.62.0），以后改为直接依赖 | ✅ **采用** |
-| WireGuard（`wireguard-go` + gVisor netstack） | 打通后得到的是一条 IP 隧道：不想要管理员权限与 TUN 设备，就得带上 gVisor 用户态网络栈，在上面再跑 TCP、再跑 TLS + gRPC——三层叠出 QUIC 一层就有的东西，体积与复杂度都大。WireGuard 密钥是 Curve25519，还要和本机 Ed25519 身份另做映射。它的价值在「整机 IP 互通」（远程桌面、任意端口），本功能不需要 | ❌ 如果以后真要 IP 级互通，直接上 tsnet（§3.3），不自己拼 WireGuard |
+| WireGuard（`wireguard-go` + gVisor netstack） | 打通后得到的是一条 IP 隧道：不想要管理员权限与 TUN 设备，就得带上 gVisor 用户态网络栈，在上面再跑 TCP、再跑 TLS + gRPC——三层叠出 QUIC 一层就有的东西，体积与复杂度都大。WireGuard 密钥是 Curve25519，还要和本机 Ed25519 身份另做映射。它的价值在「整机 IP 互通」（远程桌面、任意端口），本功能不需要 | ❌ 不采用；IP 级互通本身也**永久不做**（2026-10-07，§1.1、D8） |
 | KCP（`kcp-go`，frp 在用）+ smux | 可靠 UDP，但没有内置加密，拥塞控制激进，对家宽和同机的游戏流量不友好 | ❌ |
 
 #### 5.6.3 流程
@@ -476,6 +494,9 @@ service Peer {
 
 **已定 B**（2026-10-04）：首期花约 1 天，把以后「借给别人用」这条路的协议代价降到零；C 的那套账号体系等真有这个需求再做。
 
+> ⛔ **2026-10-07：协调节点不存在借给他人使用的情况，C 永久不做**（§1.1、D9）。`network_id` 等预留保持现状即可，不要再为 C 补 CLI、配额或账号体系；
+> §8.4.3 里「借给朋友」与「测试 / 正式隔离」两个场景的答案都是**再部署一个协调节点**。
+
 #### 8.4.5 B 的具体做法
 
 - **join blob** 带 `network_id` + `network_secret`（§8.2）。
@@ -554,6 +575,8 @@ service Peer {
 | **D5** | A 上谁能用远程控制 | 只有管理员 / 管理员与操作员 | ✅ **默认只有管理员**，配置可放开（2026-10-04） |
 | **D6** | 协调节点多网络 | A. 单网络 / B. 数据模型预留 / C. 完整多网络 | ✅ **B**（2026-10-04，§8.4） |
 | **D7** | Peer 端口默认 | 默认监听（19194，便于内网直连）/ 默认不监听（只走中转） | ✅ **默认监听**（2026-10-04）；Windows 首次监听会弹防火墙提示，页面上说明 |
+| **D8** | IP 级互通（虚拟 IP / VPN / tsnet / WireGuard） | 做 / 不做 | ⛔ **永久不做**（2026-10-07，§1.1）。§3.3、§5.6.2 里「以后再评估 tsnet」的说法作废 |
+| **D9** | 协调节点借给他人使用（多网络 C、网络管理 CLI、每网络配额） | 做 / 不做 | ⛔ **永久不做**（2026-10-07，§1.1）。D6 的 B 只是数据模型预留，不再向 C 演进 |
 
 ---
 
@@ -1462,9 +1485,9 @@ A 再点取消**不影响** B 的定时批量；V5-7 用 P4 版本的二进制�
 - [ ] ~~反向直连（§5.3）~~ ❌ **不做**（2026-10-07，评估见下文「反向直连评估」）：打洞不通就回落中转。
 - [x] UPnP 端口映射（`mapped` 候选）：**只做 UPnP，不做 NAT-PMP / PCP**（2026-10-07）。**代码完成 2026-10-07**，见下文「UPnP 实施记录」，真机验收见 §14.6。
 - [ ] ~~协调节点 Web 界面~~ ❌ **不做**（2026-10-07）：协调节点只保留 CLI 操作（`asa-coordinator node …` / `join-blob` / `stun probe`）。
-- [ ] ~~中转流量统计~~ → **移到 P7**（2026-10-07，规划见下文「P7」）。
-- [ ] 若要把协调节点借给别人用：运营者的网络管理 CLI 与每网络配额（§8.4.4 的 C）。
-- [ ] 若要 IP 级互通再评估 tsnet（§3.3）。
+- [x] ~~中转流量统计~~ → **移到 P7**（2026-10-07，规划见下文「P7」）。**代码完成 2026-10-07**，见「P7 实施记录」。
+- [ ] ~~若要把协调节点借给别人用：运营者的网络管理 CLI 与每网络配额（§8.4.4 的 C）~~ ⛔ **永久不做**（2026-10-07，§1.1、D9）。
+- [ ] ~~若要 IP 级互通再评估 tsnet（§3.3）~~ ⛔ **永久不做**（2026-10-07，§1.1、D8）。
 
 #### P6 细化：打洞（2026-10-07 批准，四点均按推荐）
 
@@ -1906,7 +1929,7 @@ Syncthing 的 `lib/nat/service.go`（续约、选端口）与 `upnp_test.go` 是
 `UPnPVerdict`（含 `0.0.0.0`）；端到端：B 只有 UPnP 映射出来的地址时 A **第一次拨号就直连**（`public`），不经中转。
 测试默认关 UPnP（`newManager` 写 `no_upnp`）——**测试绝不能去动开发机所在路由器的映射**。
 
-### P7 — 中转流量统计（下一期；规划 2026-10-07，待批准）
+### P7 — 中转流量统计（2026-10-07 批准，Q1～Q3 按推荐；代码已完成，未提交）
 
 **为什么要**：中转是协调节点唯一的成本项（§5.4、§8.2），现在只有「中转结束时记一行日志、总字节数」，运营者回答不了
 「这个月 VPS 的流量花在谁身上」，用户也看不到「我有多少流量走了中转」。P6 打洞上线后还需要它来**量化打洞省下了多少**。
@@ -1967,6 +1990,59 @@ Syncthing 的 `lib/nat/service.go`（续约、选端口）与 `upnp_test.go` 是
 | Q2 | 管理器侧要不要持久化中转字节 | **不要**：账单的权威来源是协调节点；管理器只回答「现在 / 本次启动有多少走了中转」 |
 | Q3 | 保留期默认值 | **30 天**，可配 |
 
+#### P7 实施记录（2026-10-07，分支 `feat/remote-mesh`，未提交）
+
+Q1～Q3 按推荐执行：每日额度做、默认关；管理器侧不持久化；保留期默认 30 天。
+
+**代码**：
+
+| 位置 | 内容 |
+|---|---|
+| `internal/meshcoord/store.go` | 迁移改成「步骤数组」（`migrations[i]` 把库从 i 升到 i+1，每步一个事务），`schemaVersion = len(migrations)` = 2 |
+| `internal/meshcoord/relaystats.go` | 两张表的读写：`InsertRelaySession` / `flushRelays`（一个事务：明细写累计值 + 当天按天表加增量，结束的同时收尾）/ `CloseDanglingRelays` / `PruneRelayStats` / `RelayDailyUsage` / `ListRelaySessions` / `RelayDailyRows`；汇总 `AggregateByNode` / `ByPair` / `ByDay`；`SinceDay`；结束原因与中文 |
+| `internal/meshcoord/relaymeter.go` | 运行中的记账：配齐时插行、`statsLoop`（每 `flush_interval` 刷盘、每小时清理）、结束时写最终值、每日额度检查、`Shutdown` |
+| `internal/meshcoord/relay.go` | `bytes` 拆成 `bytesAB` / `bytesBA`；`finishRelay(r, reason)`；日志改为两个方向分别记；`OpenRelay` 在建会话前查额度（不在 `s.mu` 里查库） |
+| `internal/meshcoord/config.go`、`template.go` | `limits.relay_daily_mib`；新段 `stats:`（`retention_days`、`flush_interval`）；模板同步 |
+| `cmd/asa-coordinator/relay.go` | `relay list`、`relay stats`；`node list` 多一列「中转 7 天」 |
+| `internal/mesh/relaymeter.go`、`coordclient.go` | 中转连接（`openRelayStream`）按对端计 `sent` / `received`，入站中转按协调节点通知的发起方记账 |
+| `internal/mesh/manager.go` | `Status.relay {sent, received, since}`、`PeerView.relay_bytes {sent, received}` |
+| `internal/mesh/path.go` | 协调节点拒绝中转时的错误去掉 gRPC 前缀（`relayRefusedError`，状态码保留） |
+| `app/src/views/MeshManager.vue` | 「协调节点」一节「中转流量 ↑ ↓（… 启动以来）」；两张对端表的行内「经中转 ↑ ↓」 |
+
+**与上面细化的偏差**：
+
+1. **多了一张按天表 `relay_daily(day, network_id, from_node, to_node, bytes_ab, bytes_ba)`**。细化里只有会话明细，按天汇总与当日额度都从明细算。
+   实现时发现**中转会话可以活好几天**：隧道上有心跳，`relay_idle_timeout` 永远等不到；按「会话哪天开始」记账，
+   「今天用了多少」与 `--by day` 都会把几天的流量堆在第一天。所以每次刷盘把**这段时间的增量**加到**刷盘当天（UTC）**，
+   额度与 `relay stats` 读按天表，`relay list` 读明细。日界附近最多差一个 `flush_interval`。
+2. **`limits.relay_daily_bytes` → `limits.relay_daily_mib`**（MiB）：写 `10737418240` 这种数没人能一眼看对，与已有的 `relay_rate_kbps` 同风格。
+3. 明细多一列 **`updated_at`**（最后一次刷盘时间）：异常退出后收尾时 `ended_at` 取它，「持续时长」不会被算成到下次启动为止。
+4. **结束原因**：`peer_closed` / `idle_timeout` / `shutdown` / `coordinator_restart`。细化里的 `rate_limited` 去掉了——限速只会让转发变慢，
+   从不结束会话。正常停止时 `Run` 先调 `Server.Shutdown()` 主动结束全部中转（记为 `shutdown`、写最终字节数），
+   顺带让停止不再等 `GracefulStop` 的 10 秒超时（中转是长流）。
+5. **额度把还没刷盘的在途字节也算上**（读库与读内存在同一把锁下，与刷盘互斥，不会重复或漏算）；查库出错时**放行**（成本闸门不能因为统计坏了把中转整个关掉）。
+   拒绝文案区分「本机今日…」与「对方今日…」，并说明 UTC 0 点重置、直连与打洞不受影响。
+6. `--since` 支持 `Nd`；`relay stats` 按天取整、含今天：`7d` = 今天和之前 6 天（UTC），`1d` / `24h` = 只有今天。`node list` 的「中转 7 天」同口径。
+7. `relay` 命令**没有 `--network`**：协调节点只服务一个网络（D9），不为多网络预留参数。
+8. 管理器侧：协调节点的拒绝原样显示在对端行（`中转：本机今日中转额度已用完…`），不再带 `rpc error: code = … desc =`。
+
+**测试**（Windows `-race` 与 WSL `-race` 均通过）：
+- `internal/meshcoord/relaystats_test.go`：v1 库升级到 v2（原有网络 / 节点 / 拉黑不变，再打开不重复迁移）；按方向计数、周期刷盘、结束写最终值、
+  按天表与明细一致不重复计数、按节点筛选；没配齐的会话不入库；遗留在途记录收尾为 `coordinator_restart` 且结束时间取最后一次刷盘；
+  `Shutdown` 记为 `shutdown`；保留期清理（在途的不删）；额度：超额后发起方与被叫方两边的新中转都被拒、在途不断、无关节点对不受影响、
+  未刷盘的字节也算；三种汇总与 `SinceDay` 的 UTC / 取整。`config_test.go`：`stats` 默认值、显式 0 = 永久、负数与过小的刷盘间隔报错。
+  `cmd/asa-coordinator/relay_test.go`：`--since` 解析、字节数格式。
+- `internal/mesh/relaymeter_test.go`：**A 发出 = B 收到 = 协调节点库里的 A → B，反方向同理，且 `Status` 合计 = 各对端之和**（逐字节相等，
+  不是 < 1%：双方计的都是 TLS 之下的 data 帧）；直连不计入；mesh 重启清零；额度用完后跨额度的下载照样完成、断开后新中转被拒、
+  对端行 `last_error` 是人话。
+
+**真实二进制冒烟（2026-10-07，Windows 回环，沿用 P6 冒烟的目录）**：那个协调节点库是 P6 时建的 v1 库，新二进制启动即升级、原有两个节点保留。
+两台管理器关掉打洞后经中转用隧道下载 3.4 MiB：一次刷盘后 `relay list --json` 的 `bytes_ab = 5457`、`bytes_ba = 3591930`，
+与 A 的 `/api/mesh/peers` 里 `relay_bytes {sent: 5457, received: 3591930}`、B 的 `{sent: 3591930, received: 5457}` 逐字节相等；
+`relay stats --by pair|day`、`node list` 的「中转 7 天」都是 3.4 MiB。`taskkill /F` 掉协调节点再启动：日志「上次未正常停止，已把 1 条…收尾」，
+`relay list` 那条记为「协调节点异常重启」。页面没有在浏览器里看（本机 Chrome 调试端口不可用），`npm run build` 通过，字段已用接口核对。
+人工验证见 §14.7，公网部署的完整路线见 §14.8。
+
 ---
 
 ## 13. 风险与回滚
@@ -1982,7 +2058,7 @@ Syncthing 的 `lib/nat/service.go`（续约、选端口）与 `upnp_test.go` 是
 
 ---
 
-## 14. 人工验证清单（P1～P4、P6）
+## 14. 人工验证清单（P1～P4、P6、P7）
 
 自动化测试（P1-9、P2-7、P3-10）覆盖不到的项目**全部集中在本章**；§12 各阶段的「验收」只指向这里，不再各列一份。
 每一项都写了**前置环境**、**操作**与**期望**——「期望」就是判据，结果不符时把那一步的完整命令输出与两边日志贴回来。
@@ -2002,7 +2078,7 @@ P2～P4 的条目按 §12 的细化编写（接口路径、CLI 名字以细化�
 `Invoke-WebRequest` 的别名）、浏览器（Chrome / Edge，开发者工具）。STUN 第三方客户端在 WSL 里装（V1-6）。
 管理器默认 HTTPS + 本地自签 CA，`curl.exe` 一律带 `-k`。
 
-**记录方式**：每项做完在本章末尾的「14.7 验证记录」表里填一行（日期、环境、结果、备注）；失败项写清卡在哪一步。
+**记录方式**：每项做完在本章末尾的「14.9 验证记录」表里填一行（日期、环境、结果、备注）；失败项写清卡在哪一步。
 
 ### 14.1 环境搭建
 
@@ -2442,7 +2518,7 @@ curl.exe -sk -X POST "$A/api/mesh/peers/$idB/hello"
 - 期望：配对成功；WSL 管理器**不需要重启**就认得 A（CLI 写 `peers.json`，服务自动重载）；第 5 步拿到的是 **Linux** 的运行时自检结果
   （Windows 上这个接口恒为空），证明请求真的到了 Linux 那台。`POST $A/api/mesh/peers/$idL/hello` 的 `path`：WSL 的候选地址
   （WSL 里 `eth0` 的 `172.x`）Windows 能直接拨通，通常是 `lan`。
-- 收尾：Ctrl+C 停掉 WSL 里的 api；`rm -rf /opt/mesh-verify`（§14.7 收尾时一起做也行）。
+- 收尾：Ctrl+C 停掉 WSL 里的 api；`rm -rf /opt/mesh-verify`（§14.9 收尾时一起做也行）。
 
 **V3-10 被控方以服务方式运行**（T2 的 B；Windows 服务或 Linux systemd 各做一次更好）
 
@@ -2549,7 +2625,126 @@ curl.exe -sk -X POST "$A/api/mesh/peers/$idB/hello"
 
 结论（运营商、路由器型号、NAT 类型与成败）回填 §5.6.4。
 
-### 14.7 验证记录
+### 14.7 P7：中转流量统计
+
+前置：协调节点与两台管理器都是 P7 的版本。要让流量**一定**走中转：在两边页面「本机设置」里关掉「监听 Peer 端口」与「允许打洞」并保存
+（或 `PUT /api/mesh/config {"no_listen":true,"no_punch":true}`）。下面 VPS 上的命令都在 `/opt/asa-coordinator` 里以 root 执行，
+统一写成 `ac` = `./asa-coordinator`（配置文件就在程序旁边，不用 `-c`）。
+
+| # | 前置 | 操作 | 期望 |
+|---|---|---|---|
+| V7-1 | P6 及以前部署过的协调节点（已有 `data/coordinator.db`） | 先备份：`systemctl stop asa-coordinator && cp data/coordinator.db data/coordinator.db.bak-p6`；替换二进制后 `systemctl start asa-coordinator`；`ac node list` | 正常启动；原有节点、备注、拉黑状态不变，多出「中转 7 天」一列（0 B）。⚠️ 升级后旧二进制打不开这个库（「数据库版本 2 高于本程序支持的 1」），回滚 = 停服务、换回旧二进制、拷回 `.bak-p6` |
+| V7-2 | 强制中转，B 授权 A | A 的页面切换到 B，下载一个备份（没有就用 `curl.exe -k -o NUL "$A/api/peers/<B 的节点 ID>/fwd/assets/<B 的 dist 里最大的 .js>"`，约 3.5 MiB）；同时在 VPS 上每 20 秒跑一次 `ac relay list --active` | `relay list --active` 一分钟内出现这条会话且「被叫→发起」增长；A 页面「协调节点」一节的「中转流量」与对端行「经中转 ↑ ↓」随之增长 |
+| V7-3 | V7-2 下载完、等 1 分钟（一次刷盘） | 对照三处数字：A 的 `GET /api/mesh/peers` 里 B 那行的 `relay_bytes`、B 的 `GET /api/mesh/peers` 里 A 那行的 `relay_bytes`、`ac relay list --json` 里这条会话的 `bytes_ab` / `bytes_ba` | A 发起时：A 的 `sent` = B 的 `received` = `bytes_ab`，A 的 `received` = B 的 `sent` = `bytes_ba`。**逐字节相等**；会话还没结束时允许差几百字节（最后一次刷盘之后的心跳），会话结束后必须完全相等 |
+| V7-4 | V7-3 之后 | `ac relay stats`（默认 `--by node`）、`--by pair`、`--by day`、`--by pair --json` | 数字与 V7-3 一致；`--by day` 的日期是 **UTC**（北京时间 0～8 点之间做，日期是前一天，正常）；末尾一行写明统计区间与 `flush_interval` |
+| V7-5 | 强制中转 | 在 `coordinator.yaml` 的 `limits:` 下加 `relay_daily_mib: 1`，`systemctl restart asa-coordinator`；A 经中转下载 > 1 MiB（同 V7-2）；然后在 B 的页面顶部点「重启」，再在 A 上对 B 点「检测」 | 下载**不中断**、完整完成；B 重启后 A 的检测失败，对端行错误为「中转：本机今日中转额度已用完（每节点每天 1 MiB，UTC 0 点重置）；直连与打洞不受影响」（**不带** `rpc error`）；VPS 日志有「拒绝 … 的中转：… 今日已用 … 字节，额度 1 MiB」。删掉这一行、重启协调节点后恢复 |
+| V7-6 | 有在途中转（A 正开着 B 的日志页） | `systemctl stop asa-coordinator`，计时；再 `start` | 几秒内停完（不等 10 秒超时）；`ac relay list` 里那条记为「协调节点停止」，字节数是最终值；A 的日志页断开后自动恢复 |
+| V7-7 | 有在途中转 | `kill -9 $(pidof asa-coordinator)`；systemd 会自动拉起（`Restart=on-failure`） | `data/logs/coordinator.log` 里有「上次未正常停止，已把 N 条进行中的中转记录收尾」；`ac relay list` 里那条记为「协调节点异常重启」、时长截止到最后一次刷盘 |
+| V7-8 | V7-3 之后 | A 的页面顶部「重启」 | A 的「中转流量」与对端行的 ↑ ↓ 归零，括号里的起算时间变成刚才；VPS 上 `ac relay stats` 不受影响 |
+| V7-9 | 可选，要等两天 | `stats:` 下改 `retention_days: 1` 并重启；两天后 `ac relay list --since 7d`、`ac relay stats --by day --since 7d` | 前天及以前结束的会话与按天记录被清掉；日志「已清理 N 条超过 1 天的中转统计」。做完改回 30 |
+
+### 14.8 公网部署实测路线（P1～P7 一次走完）
+
+这一节把 T2 拓扑下要做的事按**先后顺序**串起来：先部署，再按阶段逐项做 §14.2～§14.7 里的条目。每个阶段都只依赖前面的阶段，
+某一步不通时**停在那里**，把那一步的命令输出与两边日志贴回来，不要跳着往后做。
+
+#### 0. 需要准备的
+
+| 角色 | 要求 |
+|---|---|
+| VPS | Linux x86_64，有公网 IPv4；能改云安全组；443 端口空闲（被 nginx 占了就把下面的 `listen` 与 `public_addr` 改成别的端口，比如 8443） |
+| A、B | 同一局域网的两台 Windows（家宽 NAT 后面）。A 是「控制者」，B 是「被控者」 |
+| C | 另一个网络里的 Windows（笔记本连手机热点最方便）。V2-3、V3-2 与 V6-3 / V6-11 要用 |
+| 路由器 | A、B 所在的路由器打开 UPnP（V6-10～V6-13 用；没有就跳过那几项） |
+
+#### 1. 在开发机上构建
+
+```powershell
+cd D:\golang\asa-server
+git switch feat/remote-mesh
+cd app; npm run build; cd ..
+$out = 'D:\mesh-dist'
+New-Item -ItemType Directory -Force $out | Out-Null
+go build -o "$out\asa-server.exe" .
+go build -o "$out\asa-coordinator.exe" ./cmd/asa-coordinator      # Windows 版：只用来在家宽上跑 stun probe
+$env:GOOS = 'linux'; $env:CGO_ENABLED = '0'
+go build -o "$out\asa-coordinator" ./cmd/asa-coordinator           # 部署到 VPS 的就是它
+Remove-Item Env:GOOS, Env:CGO_ENABLED
+git rev-parse --short HEAD; git status --short                     # 记进 §14.9：基于哪个提交、有没有未提交的改动
+```
+
+#### 2. 部署协调节点（VPS，root）
+
+```bash
+mkdir -p /opt/asa-coordinator && cd /opt/asa-coordinator
+# 在开发机上：scp D:\mesh-dist\asa-coordinator root@<VPS 公网 IP>:/opt/asa-coordinator/
+chmod +x asa-coordinator
+./asa-coordinator config init -o /opt/asa-coordinator/coordinator.yaml
+sed -i 's/^public_addr: .*/public_addr: "<VPS 公网 IP>:443"/' coordinator.yaml
+# 放行端口（两层都要：云厂商安全组 + 本机防火墙）
+ufw allow 443/tcp && ufw allow 3478:3479/udp                                   # Ubuntu / Debian
+# firewall-cmd --permanent --add-port=443/tcp --add-port=3478-3479/udp && firewall-cmd --reload   # CentOS / Rocky
+./asa-coordinator service install -c /opt/asa-coordinator/coordinator.yaml
+./asa-coordinator service start
+systemctl status asa-coordinator --no-pager
+ss -lntup | grep -E ':(443|3478|3479) '
+tail -n 5 data/logs/coordinator.log
+./asa-coordinator join-blob            # 复制输出的整串，下面记作 <blob>；它含网络密钥，只发给要接入的机器
+```
+
+- 期望：`systemctl status` 是 `active (running)`；`ss` 看到 TCP 443 与 UDP 3478、3479；日志有「协调节点已启动：身份 …，监听 :443，对外地址 <IP>:443，STUN [<IP>:3478 <IP>:3479]」。
+- 默认的 `stats.flush_interval` 是 1 分钟。做 §14.7 时想看得快一点可以在 `coordinator.yaml` 末尾的 `stats:` 下改成 `10s` 再 `systemctl restart asa-coordinator`，做完改回。
+- 从**家里的 Windows** 确认外面能连到：`Test-NetConnection <VPS IP> -Port 443`（`TcpTestSucceeded : True`）与
+  `D:\mesh-dist\asa-coordinator.exe stun probe <VPS IP>`（两个端口都回答，见 V1-7）。
+
+#### 3. 部署管理器（A、B、C 各一次，普通 PowerShell 7）
+
+首轮建议用独立目录，不动机器上正式的 asa-server（正式安装的 mesh 默认关闭，以后要用再 `mesh join`）。
+把 `D:\mesh-dist\asa-server.exe` 拷到每台机器的 `C:\mesh-verify\`：
+
+```powershell
+$v = 'C:\mesh-verify'
+$env:ASA_CFG = $v                     # 注意是目录，不是 config.yaml 的路径
+& "$v\asa-server.exe" config init --dir $v --basedir "$v\data" --non-interactive --lang zh
+# 验证用的管理器不需要 Syncthing（它会自己做 UPnP 映射，干扰 V6-10）：把下载代理指向不存在的地址，下载失败不致命
+(Get-Content "$v\config.yaml") -replace '^  github_proxy: ""', '  github_proxy: "http://127.0.0.1:9/"' | Set-Content "$v\config.yaml" -Encoding utf8
+& "$v\asa-server.exe" mesh join '<blob>'
+& "$v\asa-server.exe" mesh id         # 记下本机节点 ID
+Start-Process "$v\asa-server.exe" -ArgumentList 'api', '--skip-env-check'
+$env:ASA_CFG = $null
+```
+
+- 期望：新窗口里出现 `[mesh] 已启动` 与 `[mesh] 已登记到协调节点 <VPS IP>:443`；VPS 上 `./asa-coordinator node list` 多一行。
+- Windows 弹防火墙提示时选「专用网络」允许（V2-7、V6-8 要记录弹没弹、点了什么）。TCP 19194 是直连，UDP 19194 是打洞。
+- 浏览器打开 `https://127.0.0.1:19193/mesh`，在「本机设置」里填备注名（机A / 机B / 机C）。首次 HTTPS 启动会请求安装本地 CA，确认即可。
+- 下面的条目里 `$A`、`$B` 指各自的 `https://127.0.0.1:19193`（在**那台机器上**执行），`curl.exe` 一律带 `-k`。
+
+#### 4. 按阶段验证
+
+| 阶段 | 做哪些 | 要点 |
+|---|---|---|
+| ① 协调节点本身 | V1-9（服务）、V1-7（在 A 的家宽与 C 的热点上各跑一次 `stun probe`）、V1-8、V1-6（可选） | 这一阶段只要协调节点与 STUN；NAT 类型的结论回填 §5.6.4 |
+| ② 中转 | V1-1（先把 A、B 的 Peer 端口与打洞都关掉）、V1-2、V1-3、V1-4、V1-5 | 做完把 Peer 端口打开、打洞仍关着 |
+| ③ 直连 | V2-1、V2-2、V2-7、V2-8；有公网 IP 或端口映射时 V2-5；V2-3（用 C） | V2-2 要真的拔网线 / 断 Wi-Fi |
+| ④ 配对、授权、隧道 | V3-1、V3-2（用 C）、V3-4、V3-6、V3-7、V3-8；B 上有能启动的实例时 V3-3；V3-10（把 B 装成 Windows 服务） | V3-5 会临时开 `lan_bypass`，做完一定改回 |
+| ⑤ 页面 | V4-1～V4-4 | 对照法：同一页直接打开 B 与经 A 切换到 B 比较 |
+| ⑥ 打洞与 UPnP | 两边重新打开「允许打洞」；V6-2、V6-5、V6-6、V6-7、V6-9；用 C 做 V6-3（4G 热点）、V6-4（有 IPv6 时）、V6-11；路由器有 UPnP 时 V6-10、V6-12、V6-13；V6-8 | **`mesh upnp --test` 会在路由器上加一条临时映射再删掉**，在哪台路由器上做由你决定 |
+| ⑦ 中转统计 | §14.7 的 V7-1（若是从 P6 升级上来的协调节点）～V7-8 | 先把打洞与 Peer 端口都关掉，保证走中转 |
+
+#### 5. 回传什么
+
+- §14.9 的表逐行填上（日期、环境写「公网 T2」、结果、备注）；失败项写清卡在哪一步。
+- 每台管理器：`GET /api/mesh/status` 里的 `punch`（NAT 类型、反射地址）与 `upnp` 两块，以及运营商 / 路由器型号。
+- VPS：`./asa-coordinator relay stats --by pair --json` 与 `./asa-coordinator node list` 的输出。
+- 任何失败：那一步的完整命令输出 + 两边日志的对应时间段（管理器 `C:\mesh-verify\data\logs\asaServer.log`，
+  协调节点 `/opt/asa-coordinator/data/logs/coordinator.log`）。
+
+#### 6. 收尾
+
+同 §14.9 末尾的「收尾」。VPS 上若不再使用：`./asa-coordinator service stop && ./asa-coordinator service remove`，
+并删掉安全组与 `ufw` 里加的规则；路由器管理页里不应残留 `asa-server mesh …` 的映射（mesh 停止时会删，没删就手动删并记下来）。
+
+### 14.9 验证记录
 
 | 编号 | 日期 | 环境（T1 / T2 / WSL） | 结果 | 备注 |
 |---|---|---|---|---|
@@ -2597,6 +2792,15 @@ curl.exe -sk -X POST "$A/api/mesh/peers/$idB/hello"
 | V6-11 | | | | |
 | V6-12 | | | | |
 | V6-13 | 2026-10-07 | Windows 本机（OpenWrt 路由器） | 判定部分通过 | WAN 报 `0.0.0.0` ⇒ `double_nat`，未做任何映射 |
+| V7-1 | | | | 只在从 P6 升级时做；本机 v1 库升级已在冒烟中通过 |
+| V7-2 | | | | |
+| V7-3 | | | | 三处数字照抄进备注 |
+| V7-4 | | | | |
+| V7-5 | | | | 做完删掉 `relay_daily_mib` |
+| V7-6 | | | | |
+| V7-7 | | | | |
+| V7-8 | | | | |
+| V7-9 | | | | 可选 |
 
 已有的部分结果：
 - 2026-10-05 在 Windows 本机回环上对 `stun probe` 做过冒烟（两个端口都回答、结论「无 NAT」），对应 V1-7 的连通部分；VPS / 家宽实测仍待做。
@@ -2609,6 +2813,7 @@ curl.exe -sk -X POST "$A/api/mesh/peers/$idB/hello"
   管理器侧「到 X 改走relay：<直连失败的原因>」、协调节点侧「中转 X 结束：…，持续 …，转发 … 字节」。
 
 - 2026-10-07 真实二进制回环冒烟（详见「P6 实施记录」）覆盖了 V6-1、V6-6、V6-7 的同机部分；跨 NAT 的 V6-2～V6-5、V6-8 仍待真机。
+- 2026-10-07 P7 真实二进制回环冒烟（详见「P7 实施记录」）覆盖了 V7-1（v1 库升级）、V7-3（逐字节相等）、V7-4、V7-7 的同机部分；公网上仍按 §14.8 ⑦ 走一遍。
 
 **收尾**：全部做完后 `Stop-Process` 掉验证用的进程；T2 的 VPS 上 `asa-coordinator service remove`（若不再使用）；
 删除 `C:\mesh-verify` 与 WSL 的 `/opt/mesh-verify`；确认 B 的 `lan_bypass` 已恢复关闭、`New-NetFirewallRule` 加的规则已删除
