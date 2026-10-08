@@ -20,8 +20,6 @@ import (
 // DefaultNetworkID 是首启自动建的网络。D6-B：首期只有它，没有建网络的 CLI（§8.4.4）。
 const DefaultNetworkID = "default"
 
-const schemaVersion = 1
-
 // ErrNotFound 是存储层的「没有这条记录」。
 var ErrNotFound = errors.New("记录不存在")
 
@@ -50,7 +48,7 @@ type NodeRecord struct {
 	Banned    bool
 }
 
-// Store 是协调节点的持久化：网络、节点、拉黑表。
+// Store 是协调节点的持久化：网络、节点、拉黑表、中转统计（relaystats.go）。
 type Store struct {
 	db *sql.DB
 }
@@ -81,18 +79,10 @@ func OpenStore(dataDir string) (*Store, error) {
 	return s, nil
 }
 
-func (s *Store) migrate() error {
-	var v int
-	if err := s.db.QueryRow("PRAGMA user_version").Scan(&v); err != nil {
-		return err
-	}
-	if v > schemaVersion {
-		return fmt.Errorf("数据库版本 %d 高于本程序支持的 %d，请升级 asa-coordinator", v, schemaVersion)
-	}
-	if v == schemaVersion {
-		return nil
-	}
-	_, err := s.db.Exec(`
+// migrations[i] 把库从版本 i 升到 i+1。只追加，不改已发布的步骤。
+var migrations = []string{
+	// v0 → v1：网络、节点、拉黑表（P1）。
+	`
 CREATE TABLE IF NOT EXISTS networks (
 	id         TEXT PRIMARY KEY,
 	name       TEXT NOT NULL,
@@ -109,9 +99,67 @@ CREATE TABLE IF NOT EXISTS nodes (
 	last_seen  INTEGER NOT NULL DEFAULT 0,
 	banned     INTEGER NOT NULL DEFAULT 0,
 	PRIMARY KEY (network_id, node_id)
+);`,
+	// v1 → v2：中转流量统计（P7）。relay_sessions 是会话明细（relay list 用）；relay_daily 是按天（UTC）、
+	// 按节点对累加的字节数——中转会话可以活好几天（隧道有心跳，不会空闲超时），按会话开始那天记账会让
+	// 「今天用了多少」和按天汇总都失真，所以每次刷盘把这段时间的增量记到刷盘当天。
+	`
+CREATE TABLE IF NOT EXISTS relay_sessions (
+	id         TEXT PRIMARY KEY,
+	network_id TEXT NOT NULL,
+	from_node  TEXT NOT NULL,
+	to_node    TEXT NOT NULL,
+	opened_at  INTEGER NOT NULL,
+	paired_at  INTEGER NOT NULL,
+	updated_at INTEGER NOT NULL,
+	ended_at   INTEGER,
+	bytes_ab   INTEGER NOT NULL DEFAULT 0,
+	bytes_ba   INTEGER NOT NULL DEFAULT 0,
+	end_reason TEXT NOT NULL DEFAULT ''
 );
-PRAGMA user_version = 1;`)
-	return err
+CREATE INDEX IF NOT EXISTS relay_sessions_net_opened ON relay_sessions (network_id, opened_at);
+CREATE INDEX IF NOT EXISTS relay_sessions_from ON relay_sessions (from_node);
+CREATE INDEX IF NOT EXISTS relay_sessions_to ON relay_sessions (to_node);
+CREATE INDEX IF NOT EXISTS relay_sessions_ended ON relay_sessions (ended_at);
+CREATE TABLE IF NOT EXISTS relay_daily (
+	day        TEXT NOT NULL,
+	network_id TEXT NOT NULL,
+	from_node  TEXT NOT NULL,
+	to_node    TEXT NOT NULL,
+	bytes_ab   INTEGER NOT NULL DEFAULT 0,
+	bytes_ba   INTEGER NOT NULL DEFAULT 0,
+	PRIMARY KEY (day, network_id, from_node, to_node)
+);`,
+}
+
+var schemaVersion = len(migrations)
+
+func (s *Store) migrate() error {
+	var v int
+	if err := s.db.QueryRow("PRAGMA user_version").Scan(&v); err != nil {
+		return err
+	}
+	if v > schemaVersion {
+		return fmt.Errorf("数据库版本 %d 高于本程序支持的 %d，请升级 asa-coordinator", v, schemaVersion)
+	}
+	for ; v < schemaVersion; v++ {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(migrations[v]); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("升级到版本 %d: %w", v+1, err)
+		}
+		if _, err := tx.Exec(fmt.Sprintf("PRAGMA user_version = %d", v+1)); err != nil {
+			tx.Rollback()
+			return err
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Close 关闭数据库。
