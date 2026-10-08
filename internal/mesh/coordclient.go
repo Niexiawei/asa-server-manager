@@ -63,6 +63,8 @@ type coordClient struct {
 	onNetChange func()
 	// candKick 让候选上报立即检查一次（UPnP 映射出来的地址变了，不等下一个 candidateInterval）。
 	candKick chan struct{}
+	// relay 按对端累计经中转收发的字节（P7-4）。
+	relay *relayMeter
 
 	mu    sync.Mutex
 	state coordState
@@ -82,6 +84,7 @@ func newCoordClient(cfg CoordinatorConfig, cert tls.Certificate, self meshid.ID,
 		cfg: cfg, self: self, version: version, label: label, backoffMin: backoffMin,
 		conn: conn, client: meshpb.NewCoordinatorClient(conn), onIncoming: onIncoming,
 		candidates: candidates, candidateInterval: candidateInterval, candKick: make(chan struct{}, 1),
+		relay: newRelayMeter(),
 	}, nil
 }
 
@@ -186,8 +189,8 @@ func (c *coordClient) session(ctx context.Context) error {
 }
 
 // openRelayStream 开一条 Relay 流并 Join，包成 net.Conn。流的生命周期独立于调用方的 ctx
-// （拨号 ctx 在拨号完成后就会被取消，连接还要继续用）。
-func (c *coordClient) openRelayStream(sessionID string, token []byte, remote string) (net.Conn, error) {
+// （拨号 ctx 在拨号完成后就会被取消，连接还要继续用）。收发的 data 帧按对端计数（P7-4）。
+func (c *coordClient) openRelayStream(sessionID string, token []byte, peer meshid.ID) (net.Conn, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	rs, err := c.client.Relay(ctx)
 	if err != nil {
@@ -198,6 +201,7 @@ func (c *coordClient) openRelayStream(sessionID string, token []byte, remote str
 		cancel()
 		return nil, err
 	}
+	meter := c.relay.counter(peer)
 	return streamconn.New(streamconn.Options{
 		Recv: func() ([]byte, error) {
 			for {
@@ -206,27 +210,34 @@ func (c *coordClient) openRelayStream(sessionID string, token []byte, remote str
 					return nil, err
 				}
 				if d := f.GetData(); len(d) > 0 {
+					meter.received.Add(int64(len(d)))
 					return d, nil
 				}
 			}
 		},
 		Send: func(b []byte) error {
-			return rs.Send(&meshpb.RelayFrame{Msg: &meshpb.RelayFrame_Data{Data: b}})
+			if err := rs.Send(&meshpb.RelayFrame{Msg: &meshpb.RelayFrame_Data{Data: b}}); err != nil {
+				return err
+			}
+			meter.sent.Add(int64(len(b)))
+			return nil
 		},
 		CloseSend:  rs.CloseSend,
 		Abort:      cancel,
-		RemoteAddr: streamconn.Addr("relay:" + remote),
+		RemoteAddr: streamconn.Addr("relay:" + peer.Short()),
 	}), nil
 }
 
 func (c *coordClient) acceptRelay(ctx context.Context, ir *meshpb.IncomingRelay) {
-	from := ir.GetFromNodeId()
-	if id, err := meshid.ParseID(from); err == nil {
-		from = id.Short()
+	// 发起方是协调节点按 TLS 证书认定的，可以用来记账；对端身份仍由之上的端到端 mTLS 再核一次。
+	from, err := meshid.ParseID(ir.GetFromNodeId())
+	if err != nil {
+		logger.Warnf("[mesh] 协调节点通知的中转发起方 ID 无效（%q），忽略", ir.GetFromNodeId())
+		return
 	}
 	conn, err := c.openRelayStream(ir.GetSessionId(), ir.GetToken(), from)
 	if err != nil {
-		logger.Warnf("[mesh] 接受来自 %s 的中转失败：%v", from, err)
+		logger.Warnf("[mesh] 接受来自 %s 的中转失败：%v", from.Short(), err)
 		return
 	}
 	if ctx.Err() != nil {

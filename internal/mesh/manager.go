@@ -488,8 +488,10 @@ type Status struct {
 	Punch         PunchStatus `json:"punch"`
 	NoUPnP        bool        `json:"no_upnp"`
 	UPnP          UPnPStatus  `json:"upnp"`
-	LastError     string      `json:"last_error,omitempty"`
-	LastErrorAt   time.Time   `json:"last_error_at,omitzero"`
+	// Relay 是本次启动以来经中转收发的合计（只在内存，mesh 重启清零；长期用量看协调节点的 relay stats）。
+	Relay       RelayTraffic `json:"relay"`
+	LastError   string       `json:"last_error,omitempty"`
+	LastErrorAt time.Time    `json:"last_error_at,omitzero"`
 }
 
 // PunchStatus 是状态里的打洞一节（§12 P6-7）。只在运行中且打洞可用时 Active。
@@ -544,6 +546,7 @@ func (m *Manager) Status() Status {
 				st.STUNAddrs = cs.STUNAddrs
 			}
 			st.LastError, st.LastErrorAt = cs.LastError, cs.LastErrorAt
+			st.Relay = m.coord.relay.total()
 		}
 		if m.punch != nil {
 			st.Punch = m.punch.status()
@@ -752,6 +755,8 @@ type PeerView struct {
 	LastError   string       `json:"last_error,omitempty"`
 	LastCheckAt time.Time    `json:"last_check_at,omitzero"`
 	LastPunch   *PunchRecord `json:"last_punch,omitempty"`
+	// RelayBytes 是本次启动以来与这个对端经中转收发的字节（P7-4）。
+	RelayBytes RelayBytes `json:"relay_bytes"`
 }
 
 // Peers 返回所有对端（含运行时状态）。
@@ -777,6 +782,9 @@ func (m *Manager) Peers() ([]PeerView, error) {
 		if pp := m.punchPeers[p.NodeID]; pp != nil && !pp.record.At.IsZero() {
 			rec := pp.record
 			v.LastPunch = &rec
+		}
+		if m.coord != nil {
+			v.RelayBytes = m.coord.relay.peer(p.NodeID)
 		}
 		out = append(out, v)
 	}

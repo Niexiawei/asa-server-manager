@@ -9,6 +9,9 @@ import (
 	"net/netip"
 	"time"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	"asa-server/internal/mesh/meshpb"
 	"asa-server/pkg/logger"
 	"asa-server/pkg/meshid"
@@ -267,9 +270,13 @@ type relayProvider struct {
 func (p relayProvider) Dial(ctx context.Context, peer meshid.ID) (*pathConn, error) {
 	resp, err := p.c.client.OpenRelay(ctx, &meshpb.OpenRelayRequest{TargetNodeId: peer.Compact()})
 	if err != nil {
+		if st, ok := status.FromError(err); ok && st.Code() != codes.Unknown {
+			// 协调节点的拒绝（每日额度用完、会话数上限…）原样给页面看，不带 gRPC 的前缀；状态码保留。
+			return nil, &relayRefusedError{st: st}
+		}
 		return nil, fmt.Errorf("中转：%w", err)
 	}
-	raw, err := p.c.openRelayStream(resp.GetSessionId(), resp.GetToken(), peer.Short())
+	raw, err := p.c.openRelayStream(resp.GetSessionId(), resp.GetToken(), peer)
 	if err != nil {
 		return nil, fmt.Errorf("中转：%w", err)
 	}
@@ -279,3 +286,10 @@ func (p relayProvider) Dial(ctx context.Context, peer meshid.ID) (*pathConn, err
 	}
 	return &pathConn{Conn: tc, kind: PathRelay}, nil
 }
+
+// relayRefusedError 是协调节点拒绝中转申请。Error() 只说人话，GRPCStatus 让 status.Code 照常可用。
+type relayRefusedError struct{ st *status.Status }
+
+func (e *relayRefusedError) Error() string { return "中转：" + e.st.Message() }
+
+func (e *relayRefusedError) GRPCStatus() *status.Status { return e.st }
