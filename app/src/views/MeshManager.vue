@@ -165,6 +165,14 @@
             <span class="k">反射地址</span>
             <span class="v mono">{{ status.punch.srflx.join('，') }}</span>
           </div>
+          <!-- 中转流量（§12 P7-4）：只在内存，mesh 重启清零；长期用量在协调节点上查 -->
+          <div class="kv" v-if="status.running">
+            <span class="k">中转流量</span>
+            <span class="v" :title="RELAY_TIP">
+              ↑ {{ fmtBytes(status.relay?.sent) }}　↓ {{ fmtBytes(status.relay?.received) }}
+              <span class="muted" v-if="status.relay?.since">（{{ fmt(status.relay.since) }} 启动以来）</span>
+            </span>
+          </div>
         </template>
         <div class="kv" v-else>
           <span class="v muted">未设置(只按对端的手填地址直连)</span>
@@ -239,6 +247,7 @@
             </span>
             <span v-if="row.last_punch && !row.last_punch.ok" class="muted punch-fail"
                   :title="`${fmt(row.last_punch.at)}：${row.last_punch.reason}`">打洞未成功</span>
+            <div v-if="hasRelay(row)" class="muted" :title="RELAY_TIP">{{ relayText(row) }}</div>
           </template>
           <template #version="{row}">{{ row.last_hello?.version || row.remote_version || '-' }}</template>
           <template #role="{row}">
@@ -269,6 +278,7 @@
           <template #name="{row}">
             <div>{{ row.display_name }}</div>
             <div class="mono muted">{{ row.short_id }}</div>
+            <div v-if="hasRelay(row)" class="muted" :title="RELAY_TIP">{{ relayText(row) }}</div>
           </template>
           <template #granted="{row}">
             <t-select :value="row.granted_role" size="small" style="width: 120px"
@@ -453,6 +463,21 @@ const inviteColumns = [
 ]
 
 const fmt = t => (t ? dayjs(t).format('YYYY-MM-DD HH:mm:ss') : '-')
+// 中转字节数（§12 P7-4）：本次启动以来、TLS 之下的密文字节，与协调节点记的一致
+const RELAY_TIP = '本次启动以来经协调节点中转收发的流量（mesh 重启清零）。长期用量在协调节点上运行 asa-coordinator relay stats 查看'
+function fmtBytes(n) {
+  n = Number(n) || 0
+  if (n < 1024) return `${n} B`
+  const units = ['KiB', 'MiB', 'GiB', 'TiB']
+  let i = -1
+  do {
+    n /= 1024
+    i++
+  } while (n >= 1024 && i < units.length - 1)
+  return `${n.toFixed(1)} ${units[i]}`
+}
+const hasRelay = row => (row.relay_bytes?.sent || 0) + (row.relay_bytes?.received || 0) > 0
+const relayText = row => `经中转 ↑ ${fmtBytes(row.relay_bytes.sent)}　↓ ${fmtBytes(row.relay_bytes.received)}`
 const lines = s => s.split(/\r?\n/).map(x => x.trim()).filter(Boolean)
 const fail = e => MessagePlugin.error(e?.message || String(e))
 

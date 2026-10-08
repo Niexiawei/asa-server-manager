@@ -5,7 +5,7 @@ import apiClient from '@/utils/http.js'
 
 const data = p => p.then(res => res?.data)
 
-/** 本机状态：节点 ID、协调节点连接、Peer 端口、候选地址、版本、control_role、punch（打洞：NAT 类型、反射地址）、upnp（端口映射）… */
+/** 本机状态：节点 ID、协调节点连接、Peer 端口、候选地址、版本、control_role、punch（打洞：NAT 类型、反射地址）、upnp（端口映射）、relay（本次启动以来经中转收发的字节 {sent, received, since}）… */
 export const getMeshStatus = () => data(apiClient.get('/api/mesh/status'))
 
 /** 改配置（只传要改的字段）：label / peer_port / no_listen / public_addrs / control_role / udp_port / no_punch / no_upnp。运行中才热应用（看响应的 applied） */
@@ -20,7 +20,7 @@ export const enableMesh = () => data(apiClient.post('/api/mesh/enable'))
 export const disableMesh = () => data(apiClient.post('/api/mesh/disable'))
 export const restartMesh = () => data(apiClient.post('/api/mesh/restart'))
 
-/** 对端列表（含运行时状态：路径、最近一次 Hello） */
+/** 对端列表（含运行时状态：路径、最近一次 Hello、relay_bytes {sent, received} 本次启动以来经中转的字节） */
 export const listPeers = () => data(apiClient.get('/api/mesh/peers'))
 export const helloPeer = (id) => data(apiClient.post(`/api/mesh/peers/${encodeURIComponent(id)}/hello`))
 /** 只改出现的字段：label / granted_role（"" = 撤销）/ addrs */
